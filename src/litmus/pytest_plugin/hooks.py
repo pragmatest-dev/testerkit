@@ -737,10 +737,8 @@ def _build_collected_items(items: list[pytest.Item]) -> list[CollectedItem]:
         logical_name = func.__name__ if func is not None else func_name
         if cls is not None:
             step_path = f"{cls.__name__}/{logical_name}"
-            parent_path = cls.__name__
         else:
             step_path = logical_name
-            parent_path = ""
 
         collected.append(
             CollectedItem(
@@ -751,7 +749,6 @@ def _build_collected_items(items: list[pytest.Item]) -> list[CollectedItem]:
                 function=func_name,
                 markers=join_marker_names(item.iter_markers(), sort=True),
                 step_path=step_path,
-                parent_path=parent_path,
                 step_index=step_idx,
                 vector_index=vec_idx,
                 vector_count_planned=planned,
@@ -1297,6 +1294,11 @@ def _close_open_class_container(logger_inst: Any) -> None:
         setattr(logger_inst, _OPEN_CLASS_ATTR, None)
 
 
+def _parent_of(step_path: str) -> str:
+    """Derive the parent path from a step path (inverse of the path join)."""
+    return step_path.rsplit("/", 1)[0] if "/" in step_path else ""
+
+
 def _stamp_container_outcome(logger_inst: Any, open_state: dict[str, Any]) -> None:
     """Cascade THIS iteration's child step outcomes into the container's outcome.
 
@@ -1304,7 +1306,7 @@ def _stamp_container_outcome(logger_inst: Any, open_state: dict[str, Any]) -> No
     its outcome is the worst outcome among ITS OWN ITERATION's children.
     Walks ``test_run.steps`` from ``first_step_index + 1`` to the end of the
     list (i.e., everything appended since the container opened), filtering
-    by ``parent_path == container.step_path`` to skip nested-deeper
+    by deriving parent from ``step_path`` to skip nested-deeper
     descendants. Severity ladder via ``escalate_outcome``.
 
     Critical isolation property: when class TestSeq runs three iterations,
@@ -1330,7 +1332,7 @@ def _stamp_container_outcome(logger_inst: Any, open_state: dict[str, Any]) -> No
     # STDF MIR.RTST_COD, Jenkins flaky-test-handler all treat the
     # final attempt as the disposition; the prior attempts stay in
     # the step record as retest metadata.
-    eligible = [s for s in steps[first_idx + 1 :] if s.parent_path == container_path]
+    eligible = [s for s in steps[first_idx + 1 :] if _parent_of(s.step_path) == container_path]
     container.outcome = retry_aware_rollup(eligible)
 
 

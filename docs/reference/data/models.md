@@ -1023,7 +1023,6 @@ A test step containing test vectors.
 | `id` | `UUID` | *via* `uuid4()` |
 | `name` | `str` | *required* |
 | `step_path` | `str` | `''` |
-| `parent_path` | `str` | `''` |
 | `description` | `str \| None` | `None` |
 | `node_id` | `str \| None` | `None` |
 | `file` | `str \| None` | `None` |
@@ -1052,7 +1051,6 @@ A pytest item collected for execution (before any run).
 | `function` | `str \| None` | `None` |
 | `markers` | `str \| None` | `None` |
 | `step_path` | `str` | `''` |
-| `parent_path` | `str` | `''` |
 | `step_index` | `int` | `0` |
 | `vector_index` | `int` | `0` |
 | `vector_count_planned` | `int` | `1` |
@@ -2068,7 +2066,6 @@ erDiagram
         id uuid PK
         name string
         step_path string
-        parent_path string
         outcome Outcome
         vectors list
     }

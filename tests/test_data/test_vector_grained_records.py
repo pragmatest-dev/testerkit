@@ -7,7 +7,7 @@ per-scenario records of the v2 model
 section).
 
 v2 grain: ``record_type in {run, step, vector}``, keyed
-``(step_path, parent_path, vector_index, retry)``.
+``(step_path, vector_index, retry)``.
 
 * **Every step execution materializes a ``vector`` row** — the scope
   vector, synthesized by the materializer (Decision A). A non-looping
@@ -289,7 +289,7 @@ def test_scenario_3_self_loop_mode2(tmp_path):
 # ---------------------------------------------------------------------------
 # Scenario 4 — class-vectorized (outer × inner nesting): container TestC at
 #   temp=25 ⊃ method TestC::test_m at vin=3.3. Each gets its own scope vector;
-#   measurement condition = {temp, vin} merged up parent_path.
+#   measurement condition = {temp, vin} merged up the step hierarchy.
 # ---------------------------------------------------------------------------
 
 
@@ -318,7 +318,6 @@ def test_scenario_4_class_container_x_method(tmp_path):
             step_name="test_m",
             step_index=0,
             step_path="TestC::test_m",
-            parent_path="TestC",
             vector_index=0,
             inputs={"vin": 3.3},
             class_name="TestC",
@@ -345,7 +344,6 @@ def test_scenario_4_class_container_x_method(tmp_path):
             step_name="test_m",
             step_index=0,
             step_path="TestC::test_m",
-            parent_path="TestC",
             vector_index=0,
             outcome="passed",
         )
@@ -373,15 +371,13 @@ def test_scenario_4_class_container_x_method(tmp_path):
     # Conditions live on the scope vectors; steps shed them.
     assert decode_lane_structs(steps["TestC"]["inputs"]) == {}
     assert decode_lane_structs(steps["TestC::test_m"]["inputs"]) == {}
-    assert container_v["parent_path"] == ""
     assert decode_lane_structs(container_v["inputs"]) == {"temp": 25}
-    assert method_v["parent_path"] == "TestC"
     assert decode_lane_structs(method_v["inputs"]) == {"vin": 3.3}
     # The measurement is nested on the method's scope vector.
     assert "measurement" not in kinds
     assert [m["name"] for m in method_v["measurements"]] == ["vout"]
     assert method_v["step_path"] == "TestC::test_m"
-    # Measurement's full condition = inputs merged up the parent_path chain.
+    # Measurement's full condition = inputs merged up the step hierarchy.
     merged = {
         **decode_lane_structs(container_v["inputs"]),
         **decode_lane_structs(method_v["inputs"]),

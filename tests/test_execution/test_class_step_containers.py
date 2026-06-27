@@ -10,7 +10,7 @@ Design contract (see ``project_followup_parametrized_step_nesting``):
   event pair is emitted **per outer iteration** — distinct events sharing
   one ``step_path`` but with distinct ``vector_index`` values and the
   outer-dim parameter values populated in ``inputs``.
-* Methods get ``parent_path`` equal to the container's ``step_path``.
+* Methods' ``step_path`` is ``"{container}/{method}"`` — parent derivable via ``rsplit``.
 * Outcome rollup uses ``escalate_outcome`` — worst child outcome wins.
 * Iteration outcomes are isolated: iteration N's container only rolls up
   iteration N's children, not prior iterations sharing the same step_path.
@@ -141,7 +141,7 @@ def test_unswept_class_emits_single_container(tmp_path: Path) -> None:
     assert len(container_ends) == 1, container_ends
     assert container_starts[0].get("vector_index", 0) == 0
     assert container_starts[0].get("inputs") in (None, {}), container_starts[0].get("inputs")
-    assert container_starts[0].get("parent_path", "") == ""
+    assert "/" not in (container_starts[0].get("step_path") or "")
 
 
 # ---------------------------------------------------------------------------
@@ -303,16 +303,17 @@ def test_canonical_composed_sweep_order(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. Methods' parent_path matches the container's step_path.
+# 4. Method step_paths are "{container}/{method}" — parent derivable from step_path.
 # ---------------------------------------------------------------------------
 
 
-def test_method_parent_path_matches_container(tmp_path: Path) -> None:
-    """Every method ``StepStarted`` has parent_path equal to its enclosing
-    class container's step_path. Container's parent_path is the empty string.
+def test_method_step_path_contains_container(tmp_path: Path) -> None:
+    """Every method ``StepStarted`` has ``step_path = "{container}/{method}"``.
+    Container is a root step (no "/" in step_path). Parent is derived via
+    ``step_path.rsplit("/", 1)[0]``.
     """
     session_id = str(uuid4())
-    test_file = tmp_path / "test_parent_path.py"
+    test_file = tmp_path / "test_step_paths.py"
     _write_test(
         test_file,
         """\
@@ -332,10 +333,12 @@ def test_method_parent_path_matches_container(tmp_path: Path) -> None:
     container = next(e for e in started if e.get("step_name") == "TestSeq")
     methods = [e for e in started if e.get("step_name") in {"test_a", "test_b"}]
 
-    assert container.get("parent_path", "") == ""
     container_path = container.get("step_path") or "TestSeq"
+    assert "/" not in container_path, f"Container should be root: {container_path}"
     for m in methods:
-        assert m.get("parent_path") == container_path, m
+        sp = m.get("step_path") or ""
+        assert sp.startswith(container_path + "/"), f"Expected {container_path}/*, got {sp!r}"
+        assert sp.rsplit("/", 1)[0] == container_path, m
 
 
 # ---------------------------------------------------------------------------

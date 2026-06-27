@@ -59,7 +59,6 @@ def _measurement_row(
             "step_name": step_name,
             "step_index": step_index,
             "step_path": step_name,
-            "parent_path": "",
             "step_started_at": run_started_at,
             "step_ended_at": run_ended_at,
             "vector_index": 0,

@@ -262,7 +262,7 @@ def test_inflight_schemas_carry_materialized_data_columns():
     """Inflight overlay must carry the same data columns as the materialized
     tables, so a live run renders identically to a finalized one.
 
-    Removing ``dynamic_attrs`` / ``vector_index`` / ``parent_path`` from
+    Removing ``dynamic_attrs`` / ``vector_index`` from
     either the inflight schema or the materialized table is the #228
     projection-drift bug — caught here against the real schema.
     """
@@ -284,7 +284,7 @@ def test_inflight_schemas_carry_materialized_data_columns():
         (
             "steps_materialized",
             INFLIGHT_STEPS_SCHEMA,
-            ("vector_index", "parent_path", "dynamic_attrs"),
+            ("vector_index", "dynamic_attrs"),
         ),
         ("measurements_materialized", INFLIGHT_MEASUREMENTS_SCHEMA, ("dynamic_attrs",)),
     )

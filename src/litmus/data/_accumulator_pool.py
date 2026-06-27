@@ -340,7 +340,6 @@ INFLIGHT_STEPS_SCHEMA = pa.schema(
         ("slot_id", pa.string()),
         ("step_name", pa.string()),
         ("step_path", pa.string()),
-        ("parent_path", pa.string()),
         ("vector_index", pa.int64()),
         ("outcome", pa.string()),
         ("started_at", pa.timestamp("us", tz="UTC")),

@@ -121,7 +121,7 @@ _INSTRUMENT_LIST = pa.list_(_INSTRUMENT_STRUCT)
 #   * ``record_type = 'run'`` — one row per run; run / UUT / station /
 #     environment context. Step / vector columns are NULL.
 #   * ``record_type = 'step'`` — one step-execution, keyed ``(step_path,
-#     vector_index, retry)`` and nestable via ``parent_path``; carries code
+#     vector_index, retry)``; carries code
 #     identity + timing + rolled-up outcome.
 #   * ``record_type = 'vector'`` — one execution carrier (a synthesized scope
 #     vector for non-looping steps, or an in-body iteration vector for a
@@ -146,10 +146,6 @@ RUN_ROW_SCHEMA = pa.schema(
         ("step_name", pa.string()),
         ("step_index", pa.int64()),
         ("step_path", pa.string()),
-        # parent_path: container's path (empty string for root steps).
-        # Enables hierarchical reconstruction (e.g. TestPowerSequence →
-        # test_efficiency) without joining other event types.
-        ("parent_path", pa.string()),
         ("step_started_at", pa.timestamp("us", tz="UTC")),
         ("step_ended_at", pa.timestamp("us", tz="UTC")),
         ("step_node_id", pa.string()),

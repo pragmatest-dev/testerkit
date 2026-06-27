@@ -30,9 +30,9 @@ A step is a named, ordered unit. Two kinds, but they share one event type and on
 
 2. **Method step.** One per pytest-collected item. The test function's body is the step's work.
 
-Whether a step is a class container or a method isn't a separate flag — it's implied by the nesting: a step is a container when at least one other step names it as its `parent_path`.
+Whether a step is a class container or a method isn't a separate flag — it's implied by the nesting: a step is a container when at least one other step's `step_path` starts with it as a prefix.
 
-Events: `StepStarted` when the step opens, `StepEnded` when it closes. `parent_path` on both events names the enclosing step (empty string for root-level).
+Events: `StepStarted` when the step opens, `StepEnded` when it closes. `step_path` encodes the full hierarchy.
 
 Identity: `(step_path, vector_index)` is unique per executed step instance within a run. For a method run as 3 parametrize variants, you get 3 `StepStarted` events with the same `step_path` (e.g., `"TestPower/test_voltage"`) and distinct `vector_index` 0/1/2.
 
@@ -52,8 +52,7 @@ Events: `MeasurementRecorded`. Carries the full effective `inputs` dict — oute
 
 | Field | Where it's set | Used for |
 |---|---|---|
-| `step_path` | Built from the chain of enclosing steps (e.g., `TestPower/test_voltage`) | Hierarchical identity; rolls up via `parent_path` |
-| `parent_path` | The enclosing step's path (the parent) | Find a step's children without a database join |
+| `step_path` | Built from the chain of enclosing steps (e.g., `TestPower/test_voltage`) | Hierarchical identity; parent derivable as `step_path.rsplit("/", 1)[0]` |
 | `step_index` | Assigned to each step before the run, when tests are collected | Sequence-relative ordering within a parent bucket |
 | `vector_index` | Pre-assigned at collection time for swept items; 0 for plain steps | Distinguishes sweep variants of the same logical step |
 | `step_name` | The function or class name | Display |
@@ -81,16 +80,16 @@ class TestPower:
 Event stream (condition-first):
 
 ```
-StepStarted ("TestPower",            vi=0, inputs={voltage:1},              parent_path="")
-  StepStarted ("test_warmup",        vi=0, inputs={voltage:1},              parent_path="TestPower")
+StepStarted ("TestPower",            vi=0, inputs={voltage:1})
+  StepStarted ("test_warmup",        vi=0, inputs={voltage:1})
   MeasurementRecorded("vin_warmup",                inputs={voltage:1})
   StepEnded   ("test_warmup",        vi=0)
-  StepStarted ("test_load",          vi=0, inputs={voltage:1, current:4},   parent_path="TestPower")
+  StepStarted ("test_load",          vi=0, inputs={voltage:1, current:4})
   MeasurementRecorded("vout_load",                 inputs={voltage:1, current:4})
   StepEnded   ("test_load",          vi=0)
-  StepStarted ("test_load",          vi=1, inputs={voltage:1, current:5},   parent_path="TestPower")
+  StepStarted ("test_load",          vi=1, inputs={voltage:1, current:5})
   ...
-  StepStarted ("test_cooldown",      vi=0, inputs={voltage:1},              parent_path="TestPower")
+  StepStarted ("test_cooldown",      vi=0, inputs={voltage:1})
   ...
 StepEnded   ("TestPower",            vi=0, outcome=<rolled-up>)
 StepStarted ("TestPower",            vi=1, inputs={voltage:2}, ...)
@@ -150,13 +149,13 @@ Severity ladder: `ABORTED > TERMINATED > ERRORED > FAILED > PASSED > DONE > SKIP
 
 ## Materialized record identity
 
-The at-rest per-run parquet contains three `record_type` values: `run`, `step`, and `vector` (querying also gives you a `measurement` record type, expanded from the measurements inside each vector). Container steps and method steps share the `step` record type — tell them apart by `parent_path`:
+The at-rest per-run parquet contains three `record_type` values: `run`, `step`, and `vector` (querying also gives you a `measurement` record type, expanded from the measurements inside each vector). Container steps and method steps share the `step` record type — tell them apart by `step_path` depth. The parent of any step is derivable as `step_path.rsplit("/", 1)[0] if "/" in step_path else ""`:
 
-- `parent_path = ''` → root-level (run-level test functions or class containers)
-- `parent_path = '<class_name>'` → method directly under a class container
-- `parent_path = '<class>/<method>'` → nested step (via `harness.step()` self-loops)
+- no `/` in `step_path` → root-level (run-level test functions or class containers)
+- one `/` in `step_path` → method directly under a class container (e.g. `TestPower/test_voltage`)
+- two or more `/` → nested step (via `harness.step()` self-loops)
 
-`vector` records appear only for Mode-2 in-body iterations (`vectors` fixture). They key on `(step_path, parent_path, vector_index, retry)` and sit below their enclosing `step` row. Mode-1 steps (parametrize / single) have no `vector` rows — the `step` row already carries the vector data.
+`vector` records appear only for Mode-2 in-body iterations (`vectors` fixture). They key on `(step_path, vector_index, retry)` and sit below their enclosing `step` row. Mode-1 steps (parametrize / single) have no `vector` rows — the `step` row already carries the vector data.
 
 `MAX(severity)` over `step` rows sharing a `step_path` aggregates "did this class ever fail in this run" across its iterations. See the [results storage reference](../../reference/data/parquet-schema.md) for the full column schema.
 

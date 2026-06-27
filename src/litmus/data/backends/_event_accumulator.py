@@ -271,7 +271,6 @@ class EventAccumulator:
                     "slot_id": s.slot_id,
                     "step_name": entry.get("name"),
                     "step_path": entry.get("step_path"),
-                    "parent_path": entry.get("parent_path"),
                     "vector_index": entry.get("vector_index", 0),
                     "outcome": entry.get("outcome"),
                     "started_at": started_at,
@@ -467,7 +466,6 @@ class EventAccumulator:
                     class_name=step_start.class_name if step_start else None,
                     module=step_start.module if step_start else None,
                     step_path=ref.step_path if ref else path,
-                    parent_path=(step_start.parent_path if step_start else "") or "",
                     markers=self._markers_by_node.get(node_id) if node_id else None,
                     step_started_at=step_start.occurred_at if step_start else None,
                     step_ended_at=self._step_end_occurred(path, vec),
@@ -529,7 +527,6 @@ class EventAccumulator:
                     class_name=step_entry.get("class_name"),
                     module=step_entry.get("module"),
                     step_path=path,
-                    parent_path=step_entry.get("parent_path") or "",
                     markers=step_entry.get("markers"),
                     step_started_at=_to_datetime(step_entry.get("started_at")),
                     step_ended_at=_to_datetime(step_entry.get("ended_at")),
@@ -574,7 +571,6 @@ class EventAccumulator:
                     class_name=None,
                     module=None,
                     step_path=path,
-                    parent_path="",
                     markers=None,
                     step_started_at=None,
                     step_ended_at=None,
@@ -600,14 +596,12 @@ class EventAccumulator:
         start = self._step_start_for(path, vec)
         end = self._step_end_for(path, vec)
         node_id = start.node_id if start else None
-        parent_path = (start.parent_path if start else (end.parent_path if end else "")) or ""
         row = MeasurementRow(
             record_type="vector",
             **run_context_from_run_started(self._run_started, event, include_env=True),
             step_name=event.step_name,
             step_index=idx,
             step_path=event.step_path or event.step_name,
-            parent_path=parent_path,
             step_started_at=start.occurred_at if start else None,
             step_ended_at=end.occurred_at if end else None,
             step_node_id=node_id,
@@ -750,10 +744,7 @@ class EventAccumulator:
         # methods can share ``step_index`` across their respective buckets.
         idx = start.step_index if start else (end.step_index if end else 0)
         node_id = start.node_id if start else None
-        # Per-vector parent_path / inputs / outputs come straight off the
-        # StepStarted / StepEnded events. parent_path defaults to "" so
-        # root steps look identical to today.
-        parent_path = (start.parent_path if start else (end.parent_path if end else "")) or ""
+        # Per-vector inputs / outputs come straight off the StepStarted / StepEnded events.
         inputs = dict(start.inputs) if start and getattr(start, "inputs", None) else {}
         outputs = dict(end.outputs) if end and getattr(end, "outputs", None) else {}
         input_units = (
@@ -783,7 +774,6 @@ class EventAccumulator:
                 (start.step_path if start else end.step_path if end else "")
                 or (start.step_name if start else end.step_name if end else "")
             ),
-            parent_path=parent_path,
             description=start.description if start else None,
             markers=self._markers_by_node.get(node_id) if node_id else None,
             outcome=end.outcome if end else None,

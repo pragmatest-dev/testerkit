@@ -321,7 +321,6 @@ class TestStep(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     name: str
     step_path: str = ""
-    parent_path: str = ""
     description: str | None = None
 
     # Code identity (populated from pytest.Item when available)
@@ -378,12 +377,9 @@ class CollectedItem(BaseModel):
     class_name: str | None = None
     function: str | None = None
     markers: str | None = None
-    # step_path / parent_path: computed at collection time so that
-    # unrun items (filtered out, errored before reach, or unrun
-    # vectors of a partial sweep) carry the same hierarchical
-    # identifier as executed step events would.
+    # step_path: computed at collection time so that unrun items
+    # carry the same hierarchical identifier as executed step events.
     step_path: str = ""
-    parent_path: str = ""
     step_index: int = 0
     vector_index: int = 0
     vector_count_planned: int = 1

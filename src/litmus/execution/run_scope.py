@@ -692,9 +692,8 @@ class RunScope:
         """
         # Auto-close any prior step that wasn't explicitly ended.
         # Exception: when the new step is a class method nesting under its
-        # class container (top of step_stack matches ``class_name``), keep
-        # the container open so subsequent ``parent_path`` derivation lands
-        # on the container's step_path. Pytest's plugin emits explicit
+        # class container (top of step_stack matches ``class_name``), the
+        # container step stays open while methods execute. Pytest's plugin emits explicit
         # ``end_step`` for the method on test teardown, so the container is
         # the only step that legitimately stays open across multiple
         # ``start_step`` calls.
@@ -716,13 +715,11 @@ class RunScope:
         # Build hierarchy path
         self._step_stack.append(name)
         step_path = "/".join(self._step_stack)
-        parent_path = "/".join(self._step_stack[:-1])
 
         step = TestStep(
             name=name,
             description=description,
             step_path=step_path,
-            parent_path=parent_path,
             node_id=node_id,
             file=file,
             module=module,
@@ -832,7 +829,6 @@ class RunScope:
                 step_name=step.name,
                 step_index=self._current_step_index,
                 step_path=step.step_path,
-                parent_path=step.parent_path or "",
                 description=step.description,
                 vector_index=vec_index,
                 retry=step.retry,
@@ -859,7 +855,6 @@ class RunScope:
                 step_name=step.name,
                 step_index=self._current_step_index,
                 step_path=step.step_path,
-                parent_path=step.parent_path or "",
                 outcome=step.outcome.value if step.outcome else None,
                 vector_index=vec_index,
                 retry=step.retry,

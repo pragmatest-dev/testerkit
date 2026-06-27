@@ -218,7 +218,6 @@ Emitted when an instrument is disconnected during teardown.
 | `step_name` | `str` | *required* |
 | `step_index` | `int` | *required* |
 | `step_path` | `str` | `''` |
-| `parent_path` | `str` | `''` |
 | `description` | `str \| None` | `None` |
 | `vector_index` | `int` | `0` |
 | `retry` | `int` | `0` |
@@ -237,7 +236,6 @@ Emitted when an instrument is disconnected during teardown.
 | `step_name` | `str` | *required* |
 | `step_index` | `int` | *required* |
 | `step_path` | `str` | `''` |
-| `parent_path` | `str` | `''` |
 | `outcome` | `str \| None` | `None` |
 | `vector_index` | `int` | `0` |
 | `retry` | `int` | `0` |

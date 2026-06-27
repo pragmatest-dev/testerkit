@@ -44,7 +44,6 @@ def _step(
             "step_index": step_index,
             "step_name": step_name,
             "step_path": step_path or step_name,
-            "parent_path": "",
             "step_started_at": started,
             "step_ended_at": ended,
             "step_outcome": outcome,

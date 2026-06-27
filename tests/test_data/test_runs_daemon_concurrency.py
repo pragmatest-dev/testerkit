@@ -48,7 +48,6 @@ def _step_row(
             "step_index": 0,
             "step_name": "step_a",
             "step_path": "step_a",
-            "parent_path": "",
             "step_started_at": started,
             "step_ended_at": ended,
             "step_outcome": "passed",

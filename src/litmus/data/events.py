@@ -454,7 +454,6 @@ class StepStarted(EventBase):
     step_name: str
     step_index: int
     step_path: str = ""
-    parent_path: str = ""
     description: str | None = None
 
     # Vector context — which sweep condition this execution is.
@@ -557,10 +556,6 @@ class StepEnded(EventBase):
     step_name: str
     step_index: int
     step_path: str = ""
-    # parent_path mirrors the StepStarted field so subscribers reconstructing
-    # the run hierarchy can walk parent → children without joining against
-    # other event types.
-    parent_path: str = ""
     # ``None`` is a valid value: a step that opened but never recorded
     # a measurement (and never had an outcome cascaded into it) ends
     # with no outcome stamped. The unified parquet preserves that signal —
@@ -603,7 +598,7 @@ class VectorStarted(EventBase):
     the fused step-execution≡vector boundary; this event is the in-body analog,
     nested inside the enclosing leaf step. The measurement's full condition is
     the merge of this vector's ``inputs`` with the enclosing steps' inputs along
-    ``parent_path``.
+    the step hierarchy.
     """
 
     event_type: Literal["test.vector_started"] = "test.vector_started"

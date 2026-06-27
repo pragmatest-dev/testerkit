@@ -33,7 +33,6 @@ Each item in `items` contains the pytest identity and collection-time manifest d
 | `function` | Test function name |
 | `markers` | pytest markers on the item |
 | `step_path` | Hierarchical step identifier, matching executed step events |
-| `parent_path` | Parent step path (class container, if any) |
 | `step_index` | Position within the parent sequence |
 | `vector_index` | 0-based position within the sweep expansion |
 | `vector_count_planned` | Total vectors collected for this logical step — drives placeholder row synthesis for unrun vectors |
@@ -56,7 +55,7 @@ There is **one parquet file per run**. Run, step, and vector records share the s
 
 Key step-row columns (full list in [Parquet schema](../../reference/data/parquet-schema.md)):
 
-- `step_name`, `step_path`, `step_index`, `parent_path`, `step_node_id`
+- `step_name`, `step_path`, `step_index`, `step_node_id`
 - `step_started_at`, `step_ended_at`, `step_vector_count`
 - `step_outcome` (rollup), `vector_outcome` (per vector), `run_outcome` (run-wide)
 - Run context repeated on every step row (so a step row is self-contained): `run_id`, `uut_serial_number`, `station_id`, `session_id`

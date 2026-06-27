@@ -225,7 +225,6 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             session_id VARCHAR,
             slot_id VARCHAR,
             step_name VARCHAR,
-            parent_path VARCHAR,
             outcome outcome_kind,
             started_at TIMESTAMPTZ,
             ended_at TIMESTAMPTZ,
@@ -513,7 +512,6 @@ _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("slot_id", "VARCHAR"),
     ("step_name", "VARCHAR"),
     ("step_path", "VARCHAR"),
-    ("parent_path", "VARCHAR"),
     ("outcome", "outcome_kind"),
     ("started_at", "TIMESTAMPTZ"),
     ("ended_at", "TIMESTAMPTZ"),
@@ -1233,7 +1231,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
     GROUP BY ``(run_id, step_path, step_retry, vector_index)`` plus all the
     step-level columns that are denormalized onto every row of a
     given step (step_name, step_outcome, step_started_at, step_ended_at,
-    parent_path, step_markers, …). Aggregates are only the actual rollups
+    step_markers, …). Aggregates are only the actual rollups
     (``measurement_count``, ``duration_s``).
     """
     flist = _file_list_sql(parquet_paths)
@@ -1257,7 +1255,6 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             session_id,
             slot_id,
             step_name,
-            parent_path,
             -- v2: step-level rollups live only on the 'step' record (the scope
             -- 'vector' record sheds them), so aggregate via ANY_VALUE FILTER
             -- rather than GROUP BY — otherwise the step row and its scope
@@ -1288,7 +1285,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
         GROUP BY
             filename, run_id,
             step_path, COALESCE(step_retry, 0), vector_index, step_index,
-            session_id, slot_id, step_name, parent_path,
+            session_id, slot_id, step_name,
             uut_serial_number, station_id
         ON CONFLICT (run_id, step_path, step_retry, vector_index) DO UPDATE SET
             step_index = excluded.step_index,
@@ -1296,7 +1293,6 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             session_id = excluded.session_id,
             slot_id = excluded.slot_id,
             step_name = excluded.step_name,
-            parent_path = excluded.parent_path,
             outcome = excluded.outcome,
             started_at = excluded.started_at,
             ended_at = excluded.ended_at,
@@ -1657,7 +1653,6 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             vector_index,
             step_index, file_path, session_id, slot_id,
             step_name,
-            parent_path,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
             duration_s, measurement_count,

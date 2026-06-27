@@ -327,7 +327,6 @@ class MeasurementRow(BaseModel):
     step_name: str
     step_index: int
     step_path: str = ""
-    parent_path: str = ""
     step_started_at: datetime | None = None
     step_ended_at: datetime | None = None
     step_node_id: str | None = None
@@ -891,7 +890,6 @@ def build_run_row(
         step_name="",
         step_index=0,
         step_path="",
-        parent_path="",
         step_started_at=None,
         step_ended_at=None,
         step_node_id=None,
@@ -957,7 +955,6 @@ def build_step_row(
         step_name=entry.get("name") or "",
         step_index=int(raw_idx) if raw_idx is not None else 0,
         step_path=entry.get("step_path") or "",
-        parent_path=entry.get("parent_path") or "",
         step_started_at=_to_datetime(entry.get("started_at")),
         step_ended_at=_to_datetime(entry.get("ended_at")),
         step_node_id=entry.get("node_id"),
@@ -1014,7 +1011,6 @@ def build_scope_vector_row(
         step_name=entry.get("name") or "",
         step_index=int(raw_idx) if raw_idx is not None else 0,
         step_path=entry.get("step_path") or "",
-        parent_path=entry.get("parent_path") or "",
         step_started_at=_to_datetime(entry.get("started_at")),
         step_ended_at=_to_datetime(entry.get("ended_at")),
         step_node_id=entry.get("node_id"),
@@ -1059,7 +1055,7 @@ def build_vector_row(
     A vector row appears ONLY for Mode-2 in-body iterations (the ``vectors``
     fixture / ``run_vector`` loop) — Mode 1 and class containers fuse into
     the ``step`` record. It carries the in-body iteration's own
-    ``(step_path, parent_path, vector_index, retry)`` identity, its
+    ``(step_path, vector_index, retry)`` identity, its
     ``inputs`` (this iteration's conditions), ``outputs``, and
     ``vector_outcome``. ``measurement_*`` columns are NULL.
 
@@ -1078,7 +1074,6 @@ def build_vector_row(
         step_name=entry.get("name") or "",
         step_index=int(raw_idx) if raw_idx is not None else 0,
         step_path=entry.get("step_path") or "",
-        parent_path=entry.get("parent_path") or "",
         step_started_at=_to_datetime(entry.get("step_started_at")),
         step_ended_at=_to_datetime(entry.get("step_ended_at")),
         step_node_id=entry.get("node_id"),
@@ -1118,7 +1113,6 @@ def vector_entry_dict(
     class_name: str | None,
     module: str | None,
     step_path: str,
-    parent_path: str = "",
     markers: str | None,
     step_started_at: datetime | None,
     step_ended_at: datetime | None,
@@ -1151,7 +1145,6 @@ def vector_entry_dict(
         "class_name": class_name,
         "module": module,
         "step_path": step_path,
-        "parent_path": parent_path,
         "markers": markers,
         "step_started_at": step_started_at.isoformat() if step_started_at else None,
         "step_ended_at": step_ended_at.isoformat() if step_ended_at else None,
@@ -1237,7 +1230,6 @@ def build_step_manifest(
                     class_name=step.class_name,
                     module=step.module,
                     step_path=step.step_path or step.name,
-                    parent_path=step.parent_path or "",
                     description=step.description,
                     markers=step.markers,
                     outcome=step.outcome.value if step.outcome else None,
@@ -1280,7 +1272,6 @@ def step_entry_dict(
     class_name: str | None,
     module: str | None,
     step_path: str,
-    parent_path: str = "",
     description: str | None,
     markers: str | None,
     outcome: str | None,
@@ -1303,9 +1294,7 @@ def step_entry_dict(
     pre-compute their values and pass them as kwargs. Timestamps are
     serialised here, ``duration_s`` derived from start/end.
 
-    ``parent_path`` mirrors the same field on ``StepStarted`` /
-    ``StepEnded`` so step-summary rows in the unified parquet preserve
-    the hierarchy. ``vector_index`` / ``inputs`` / ``outputs`` carry the
+    ``vector_index`` / ``inputs`` / ``outputs`` carry the
     per-vector identity so each (step_path, vector_index) is its own
     entry — a sweep of N variants produces N entries with the same
     step_path and vector_index 0..N-1.
@@ -1322,7 +1311,6 @@ def step_entry_dict(
         "class_name": class_name,
         "module": module,
         "step_path": step_path,
-        "parent_path": parent_path,
         "description": description,
         "markers": markers,
         "outcome": outcome,
@@ -1384,7 +1372,6 @@ def _append_not_started(
                 "class_name": ci.get("class_name"),
                 "module": ci.get("module"),
                 "step_path": step_path,
-                "parent_path": ci.get("parent_path") or "",
                 "description": None,
                 # No outcome stamped — the absence IS the receipt
                 # that this step never ran (the row was collected

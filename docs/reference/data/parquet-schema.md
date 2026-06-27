@@ -56,7 +56,6 @@ To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type
 | `step_name` | string | Test function or class name |
 | `step_index` | int64 | 0-based step order within the run |
 | `step_path` | string | Hierarchical path, e.g. `TestPower/test_efficiency` |
-| `parent_path` | string | Container path; empty for root steps. Enables tree reconstruction without joins. |
 | `step_started_at` | timestamp[us, UTC] | Step start (NULL for unrun planned steps) |
 | `step_ended_at` | timestamp[us, UTC] | Step end |
 | `step_node_id` | string | pytest node id (`tests/test_power.py::TestPower::test_efficiency`) |
