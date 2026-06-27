@@ -12,7 +12,7 @@ from typing import Any
 import pyarrow as pa
 
 from litmus.data.backends._row_helpers import (
-    INSTRUMENT_ARRAY_KEYS,
+    INSTRUMENT_STRUCT_FIELDS,
     LANE_FIELDS,
     MEASUREMENT_STRUCT_FIELDS,
 )
@@ -20,7 +20,9 @@ from litmus.data.backends._row_helpers import (
 __all__ = [
     "RUN_ROW_SCHEMA",
     "SCHEMA_VERSION",
-    "_INSTR_ARRAY_TYPES",
+    "INSTRUMENT_STRUCT_FIELDS",
+    "_INSTRUMENT_LIST",
+    "_INSTRUMENT_STRUCT",
     "_LANE_LIST",
     "_MEASUREMENT_LIST",
     "_MEASUREMENT_STRUCT",
@@ -84,6 +86,34 @@ assert [f.name for f in _MEASUREMENT_STRUCT] == list(MEASUREMENT_STRUCT_FIELDS),
     "schemas._MEASUREMENT_STRUCT drifted from _row_helpers.MEASUREMENT_STRUCT_FIELDS"
 )
 _MEASUREMENT_LIST = pa.list_(_MEASUREMENT_STRUCT)
+
+# Instrument inventory struct — the at-rest representation of one instrument
+# connected during a run. Carried as a ``LIST<STRUCT>`` on every row
+# (dense, self-describing). The daemon UNNESTs these into the flat
+# ``instruments_materialized`` table for queries. Field names must match
+# ``_row_helpers.INSTRUMENT_STRUCT_FIELDS`` (guarded below).
+_INSTRUMENT_STRUCT = pa.struct(
+    [
+        ("name", pa.string()),
+        ("id", pa.string()),
+        ("driver", pa.string()),
+        ("resource", pa.string()),
+        ("protocol", pa.string()),
+        ("manufacturer", pa.string()),
+        ("model", pa.string()),
+        ("serial_number", pa.string()),
+        ("firmware", pa.string()),
+        ("cal_due", pa.string()),
+        ("cal_last", pa.string()),
+        ("cal_certificate", pa.string()),
+        ("cal_lab", pa.string()),
+        ("mocked", pa.bool_()),
+    ]
+)
+assert [f.name for f in _INSTRUMENT_STRUCT] == list(INSTRUMENT_STRUCT_FIELDS), (
+    "schemas._INSTRUMENT_STRUCT drifted from _row_helpers.INSTRUMENT_STRUCT_FIELDS"
+)
+_INSTRUMENT_LIST = pa.list_(_INSTRUMENT_STRUCT)
 
 # Canonical row schema for the unified per-run parquet — a chronological
 # telling of the run. Every row carries an explicit ``record_type``
@@ -181,16 +211,13 @@ RUN_ROW_SCHEMA = pa.schema(
         # Nested measurements on the vector row; the daemon UNNESTs these into
         # the flat measurement fact at ingest.
         ("measurements", _MEASUREMENT_LIST),
+        # Instrument inventory on every row (dense, self-describing); the daemon
+        # UNNESTs these into the flat ``instruments_materialized`` table.
+        ("instruments", _INSTRUMENT_LIST),
     ]
 )
 
 _SCHEMA_DICT = {f.name: f.type for f in RUN_ROW_SCHEMA}
-
-# Instrument array columns have known list types
-_INSTR_ARRAY_TYPES: dict[str, pa.DataType] = {
-    k: pa.list_(pa.bool_()) if k == "step_instruments_mocked" else pa.list_(pa.string())
-    for k in INSTRUMENT_ARRAY_KEYS
-}
 
 
 def _infer_type_from_value(value: Any) -> pa.DataType:
@@ -209,10 +236,10 @@ def _infer_type_from_value(value: Any) -> pa.DataType:
 
 
 def _build_write_schema(rows: list[dict[str, Any]]) -> pa.Schema:
-    """Build complete Arrow schema: fixed canonical + instrument arrays.
+    """Build complete Arrow schema: fixed canonical + dynamic columns.
 
-    Fixed columns (including the nested ``inputs``/``outputs`` lanes) use
-    RUN_ROW_SCHEMA types. Instrument arrays use known list types. Any other
+    Fixed columns (including the nested ``inputs``/``outputs`` lanes and
+    the ``instruments`` struct list) use ``RUN_ROW_SCHEMA`` types. Any other
     stray column is inferred from its first non-None value. Passed to
     ``pa.Table.from_pylist()`` so Arrow validates at construction time.
 
@@ -235,12 +262,9 @@ def _build_write_schema(rows: list[dict[str, Any]]) -> pa.Schema:
             fields.append(field)
             used.add(field.name)
 
-    # Remaining columns sorted: instrument arrays, then dynamic
+    # Remaining dynamic columns inferred from values
     for key in sorted(all_keys - used):
-        if key in _INSTR_ARRAY_TYPES:
-            fields.append(pa.field(key, _INSTR_ARRAY_TYPES[key]))
-        else:
-            fields.append(pa.field(key, _infer_type_from_value(first_values.get(key))))
+        fields.append(pa.field(key, _infer_type_from_value(first_values.get(key))))
 
     return pa.schema(fields)
 

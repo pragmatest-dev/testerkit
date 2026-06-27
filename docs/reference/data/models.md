@@ -1037,7 +1037,7 @@ A test step containing test vectors.
 | `retry` | `int` | `0` |
 | `vectors` | `list[TestVector]` | `[]` |
 | `error_message` | `str \| None` | `None` |
-| `instrument_arrays` | `dict[str, list] \| None` | `None` |
+| `instrument_records` | `list[dict[str, Any]] \| None` | `None` |
 
 #### `CollectedItem` {#model-collecteditem}
 

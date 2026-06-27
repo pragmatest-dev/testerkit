@@ -120,7 +120,7 @@ def _render_inventory_tab(active_filter: str):
 
     Each row carries a status chip (Configured / In use / Observed)
     derived by joining the asset YAMLs against distinct instrument ids
-    seen in ``step_instruments_id`` across run history.
+    seen in ``instruments_materialized`` across run history.
     """
     rows_data = instrument_assets_with_provenance()
 

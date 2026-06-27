@@ -1,4 +1,4 @@
-"""Tests for instrument identity arrays in Parquet schema."""
+"""Tests for instruments list<struct> in Parquet schema."""
 
 from datetime import date
 
@@ -42,29 +42,29 @@ def _make_record(
     )
 
 
-EXPECTED_KEYS = [
-    "step_instruments_name",
-    "step_instruments_id",
-    "step_instruments_driver",
-    "step_instruments_resource",
-    "step_instruments_protocol",
-    "step_instruments_manufacturer",
-    "step_instruments_model",
-    "step_instruments_serial",
-    "step_instruments_firmware",
-    "step_instruments_cal_due",
-    "step_instruments_cal_last",
-    "step_instruments_cal_certificate",
-    "step_instruments_cal_lab",
-    "step_instruments_mocked",
-]
+EXPECTED_STRUCT_KEYS = {
+    "name",
+    "id",
+    "driver",
+    "resource",
+    "protocol",
+    "manufacturer",
+    "model",
+    "serial_number",
+    "firmware",
+    "cal_due",
+    "cal_last",
+    "cal_certificate",
+    "cal_lab",
+    "mocked",
+}
 
 
-class TestBuildInstrumentArrays:
-    """Tests for RunScope.build_instrument_arrays()."""
+class TestBuildInstrumentRecords:
+    """Tests for RunScope.build_instrument_records()."""
 
-    def test_build_instrument_arrays_14_keys(self):
-        """Verify build_instrument_arrays returns all 14 expected keys."""
+    def test_build_instrument_records_14_keys(self):
+        """Verify build_instrument_records returns dicts with all 14 struct keys."""
         from litmus.execution.run_scope import RunScope
 
         dmm = _make_record("dmm", instrument_id="keithley_001", serial="SN-DMM")
@@ -76,23 +76,25 @@ class TestBuildInstrumentArrays:
             instruments={"dmm": dmm, "psu": psu},
         )
 
-        arrays = logger.build_instrument_arrays()
+        records = logger.build_instrument_records()
 
-        assert set(arrays.keys()) == set(EXPECTED_KEYS)
-        # All arrays same length
-        lengths = [len(v) for v in arrays.values()]
-        assert all(length == 2 for length in lengths)
+        assert len(records) == 2
+        for rec in records:
+            assert set(rec.keys()) == EXPECTED_STRUCT_KEYS
 
-        assert arrays["step_instruments_name"] == ["dmm", "psu"]
-        assert arrays["step_instruments_id"] == ["keithley_001", "keysight_001"]
-        assert arrays["step_instruments_driver"] == ["drivers.FakeDriver", "drivers.FakeDriver"]
-        assert arrays["step_instruments_serial"] == ["SN-DMM", "SN-PSU"]
+        names = [r["name"] for r in records]
+        ids = [r["id"] for r in records]
+        serials = [r["serial_number"] for r in records]
 
-    def test_build_instrument_arrays_filtered(self):
+        assert names == ["dmm", "psu"]
+        assert ids == ["keithley_001", "keysight_001"]
+        assert serials == ["SN-DMM", "SN-PSU"]
+
+    def test_build_instrument_records_filtered(self):
         """Verify roles filter returns only requested instruments."""
         from litmus.execution.run_scope import RunScope
 
-        records = {
+        records_input = {
             "dmm": _make_record("dmm", serial="SN-DMM"),
             "psu": _make_record("psu", serial="SN-PSU"),
             "eload": _make_record("eload", serial="SN-ELOAD"),
@@ -101,17 +103,19 @@ class TestBuildInstrumentArrays:
         logger = RunScope(
             uut_serial="UUT001",
             station_id="station_001",
-            instruments=records,
+            instruments=records_input,
         )
 
-        arrays = logger.build_instrument_arrays(roles=["dmm", "psu"])
+        records = logger.build_instrument_records(roles=["dmm", "psu"])
 
-        assert len(arrays["step_instruments_name"]) == 2
-        assert arrays["step_instruments_name"] == ["dmm", "psu"]
-        assert arrays["step_instruments_serial"] == ["SN-DMM", "SN-PSU"]
+        assert len(records) == 2
+        names = [r["name"] for r in records]
+        serials = [r["serial_number"] for r in records]
+        assert names == ["dmm", "psu"]
+        assert serials == ["SN-DMM", "SN-PSU"]
 
-    def test_build_instrument_arrays_empty(self):
-        """No instruments produces empty lists for all 14 keys."""
+    def test_build_instrument_records_empty(self):
+        """No instruments produces empty list."""
         from litmus.execution.run_scope import RunScope
 
         logger = RunScope(
@@ -119,13 +123,10 @@ class TestBuildInstrumentArrays:
             station_id="station_001",
         )
 
-        arrays = logger.build_instrument_arrays()
+        records = logger.build_instrument_records()
+        assert records == []
 
-        assert set(arrays.keys()) == set(EXPECTED_KEYS)
-        for key in EXPECTED_KEYS:
-            assert arrays[key] == [], f"{key} should be empty list"
-
-    def test_build_instrument_arrays_with_calibration(self):
+    def test_build_instrument_records_with_calibration(self):
         """Verify calibration fields are correctly populated."""
         from litmus.execution.run_scope import RunScope
 
@@ -143,22 +144,24 @@ class TestBuildInstrumentArrays:
             instruments={"dmm": record},
         )
 
-        arrays = logger.build_instrument_arrays()
+        records = logger.build_instrument_records()
 
-        assert arrays["step_instruments_cal_due"] == ["2026-12-31"]
-        assert arrays["step_instruments_cal_last"] == ["2025-12-31"]
-        assert arrays["step_instruments_cal_certificate"] == ["CERT-001"]
-        assert arrays["step_instruments_cal_lab"] == ["NIST"]
+        assert len(records) == 1
+        rec = records[0]
+        assert rec["cal_due"] == "2026-12-31"
+        assert rec["cal_last"] == "2025-12-31"
+        assert rec["cal_certificate"] == "CERT-001"
+        assert rec["cal_lab"] == "NIST"
 
 
 class TestSetStepInstruments:
     """Tests for set_step_instruments()."""
 
     def test_set_step_instruments_caches(self):
-        """set_step_instruments caches the filtered arrays."""
+        """set_step_instruments caches the filtered records."""
         from litmus.execution.run_scope import RunScope
 
-        records = {
+        instruments_input = {
             "dmm": _make_record("dmm"),
             "psu": _make_record("psu"),
             "eload": _make_record("eload"),
@@ -167,20 +170,21 @@ class TestSetStepInstruments:
         logger = RunScope(
             uut_serial="UUT001",
             station_id="station_001",
-            instruments=records,
+            instruments=instruments_input,
         )
 
         result = logger.set_step_instruments(["dmm"])
 
-        assert result["step_instruments_name"] == ["dmm"]
-        assert logger._step_instrument_arrays == result
+        assert len(result) == 1
+        assert result[0]["name"] == "dmm"
+        assert logger._step_instrument_records == result
 
 
-class TestEmptyRowSchemaMatches:
-    """Verify _build_run_row fallback keys match build_instrument_arrays keys."""
+class TestInstrumentsColumn:
+    """Verify the instruments nested list<struct> column in run rows."""
 
-    def test_run_row_schema_matches(self):
-        """_build_run_row should have same step_instruments_* keys as build_instrument_arrays."""
+    def test_run_row_has_instruments_list(self):
+        """_build_run_row should have an instruments key with a list value."""
         from litmus.data.backends.parquet import ParquetBackend
 
         backend = ParquetBackend(data_dir="/tmp/litmus_test_run_row")
@@ -190,25 +194,22 @@ class TestEmptyRowSchemaMatches:
             station_id="station_001",
         )
 
-        # Get run row without instrument_arrays (triggers fallback)
-        row = backend._build_run_row(test_run, instrument_arrays=None)
+        row = backend._build_run_row(test_run, instrument_records=None)
 
-        # Extract step_instruments_* keys
-        row_instr_keys = sorted(k for k in row if k.startswith("step_instruments_"))
-
-        assert row_instr_keys == sorted(EXPECTED_KEYS)
+        assert "instruments" in row
+        assert isinstance(row["instruments"], list)
+        assert row["instruments"] == []
 
 
 class TestParquetRoundTrip:
-    """Test saving and reading back instrument arrays in Parquet."""
+    """Test saving and reading back instrument records in Parquet."""
 
     def test_parquet_round_trip(self, tmp_path):
-        """Save TestRun with instrument_arrays, read back, verify columns."""
+        """Save TestRun with instrument_records, read back, verify nested struct."""
         from litmus.data.backends.parquet import ParquetBackend
 
         backend = ParquetBackend(data_dir=tmp_path)
 
-        # Build a test run with a step that has instrument arrays
         test_run = TestRun(
             uut=UUT(serial="SN001"),
             station_id="station_001",
@@ -220,48 +221,49 @@ class TestParquetRoundTrip:
         vector.measurements.append(measurement)
         step.vectors.append(vector)
 
-        # Set per-step instrument arrays
-        step.instrument_arrays = {
-            "step_instruments_name": ["dmm"],
-            "step_instruments_id": ["keithley_001"],
-            "step_instruments_driver": ["drivers.Keithley2000"],
-            "step_instruments_resource": ["GPIB::16::INSTR"],
-            "step_instruments_protocol": ["visa"],
-            "step_instruments_manufacturer": ["Keithley"],
-            "step_instruments_model": ["2000"],
-            "step_instruments_serial": ["SN-DMM-001"],
-            "step_instruments_firmware": ["v1.2.3"],
-            "step_instruments_cal_due": ["2026-12-31"],
-            "step_instruments_cal_last": ["2025-12-31"],
-            "step_instruments_cal_certificate": ["CERT-001"],
-            "step_instruments_cal_lab": ["NIST"],
-            "step_instruments_mocked": [False],
-        }
+        step.instrument_records = [
+            {
+                "name": "dmm",
+                "id": "keithley_001",
+                "driver": "drivers.Keithley2000",
+                "resource": "GPIB::16::INSTR",
+                "protocol": "visa",
+                "manufacturer": "Keithley",
+                "model": "2000",
+                "serial_number": "SN-DMM-001",
+                "firmware": "v1.2.3",
+                "cal_due": "2026-12-31",
+                "cal_last": "2025-12-31",
+                "cal_certificate": "CERT-001",
+                "cal_lab": "NIST",
+                "mocked": False,
+            }
+        ]
         test_run.steps.append(step)
 
-        # Save
         parquet_path = backend.save_test_run(test_run)
 
-        # Read back
         import pyarrow.parquet as pq
 
         table = pq.read_table(parquet_path)
         rows = table.to_pylist()
 
-        # v2 nested schema: 1 run + 1 step + 1 scope vector (measurement nested
-        # on the vector). The scope vector carries the instrument arrays.
+        # v2 nested schema: 1 run + 1 step + 1 scope vector
         assert len(rows) == 3
         vec_rows = [r for r in rows if r["record_type"] == "vector"]
         assert len(vec_rows) == 1
         row = vec_rows[0]
         assert [m["name"] for m in row["measurements"]] == ["vout"]
 
-        # Verify instrument columns
-        assert row["step_instruments_name"] == ["dmm"]
-        assert row["step_instruments_id"] == ["keithley_001"]
-        assert row["step_instruments_driver"] == ["drivers.Keithley2000"]
-        assert row["step_instruments_resource"] == ["GPIB::16::INSTR"]
-        assert row["step_instruments_manufacturer"] == ["Keithley"]
-        assert row["step_instruments_serial"] == ["SN-DMM-001"]
-        assert row["step_instruments_cal_due"] == ["2026-12-31"]
-        assert row["step_instruments_cal_lab"] == ["NIST"]
+        instruments = row["instruments"]
+        assert len(instruments) == 1
+        inst = instruments[0]
+        assert inst["name"] == "dmm"
+        assert inst["id"] == "keithley_001"
+        assert inst["driver"] == "drivers.Keithley2000"
+        assert inst["resource"] == "GPIB::16::INSTR"
+        assert inst["manufacturer"] == "Keithley"
+        assert inst["serial_number"] == "SN-DMM-001"
+        assert inst["cal_due"] == "2026-12-31"
+        assert inst["cal_lab"] == "NIST"
+        assert inst["mocked"] is False

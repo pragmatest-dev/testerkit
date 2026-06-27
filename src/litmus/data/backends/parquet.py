@@ -46,7 +46,6 @@ from litmus.data._atomic import atomic_write_table
 from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.backends._row_helpers import (
     HAS_NUMPY,
-    INSTRUMENT_ARRAY_KEYS,
     REF_PATH_PREFIX,
     build_run_metadata,
     build_run_row,
@@ -113,19 +112,6 @@ def _is_stimulus_key(name: str) -> bool:
 def _params_from_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     """Split decoded inputs into vector params (drop stimulus signal-path keys)."""
     return {k: v for k, v in inputs.items() if not _is_stimulus_key(k)}
-
-
-def _ensure_instrument_arrays(d: dict[str, Any]) -> dict[str, Any]:
-    """Mutate ``d`` so every ``INSTRUMENT_ARRAY_KEYS`` key is present (default ``[]``).
-
-    Single source of truth for the schema-consistency invariant: any
-    write-side dict that flows into the parquet writer needs every
-    instrument-array column present, even when no instruments were
-    connected. Returns ``d`` for chaining.
-    """
-    for key in INSTRUMENT_ARRAY_KEYS:
-        d.setdefault(key, [])
-    return d
 
 
 def _build_parquet_metadata(
@@ -216,7 +202,7 @@ class ParquetBackend:
     def save_test_run(
         self,
         test_run: TestRun,
-        instrument_arrays: dict[str, list] | None = None,
+        instrument_records: list[dict[str, Any]] | None = None,
     ) -> Path:
         """Save test run to Parquet with analysis-ready schema.
 
@@ -255,7 +241,7 @@ class ParquetBackend:
         # identity immediately. Always present, including for runs with
         # no steps or measurements (in which case the run row alone is
         # the entire parquet — naturally handles the placeholder case).
-        rows: list[dict[str, Any]] = [self._build_run_row(test_run, instrument_arrays)]
+        rows: list[dict[str, Any]] = [self._build_run_row(test_run, instrument_records)]
 
         # Append a ``record_type='step'`` row for every (step, vector)
         # — containers, action steps, swept variants, and
@@ -291,7 +277,6 @@ class ParquetBackend:
         run_context = build_run_metadata(test_run)
         run_outcome = test_run.outcome.value if test_run.outcome else None
         run_ended_at = test_run.ended_at
-        empty_instruments = _ensure_instrument_arrays({})
         ref_saver = self._filestore_ref_saver(test_run)
 
         # ``build_step_manifest`` produces one entry per (step, vector)
@@ -307,9 +292,9 @@ class ParquetBackend:
                 else None
             )
             instruments = (
-                _ensure_instrument_arrays(dict(step.instrument_arrays))
-                if step is not None and step.instrument_arrays
-                else empty_instruments
+                list(step.instrument_records)
+                if step is not None and step.instrument_records
+                else []
             )
             rows.append(
                 build_step_row(
@@ -384,7 +369,7 @@ class ParquetBackend:
     def _build_run_row(
         self,
         test_run: TestRun,
-        instrument_arrays: dict[str, list] | None = None,
+        instrument_records: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Build the single ``record_type='run'`` row for the parquet.
 
@@ -392,12 +377,11 @@ class ParquetBackend:
         columns. Step and measurement columns are NULL. Always present (one per
         parquet); for empty runs it is the entire parquet.
         """
-        instruments = _ensure_instrument_arrays(dict(instrument_arrays or {}))
         return build_run_row(
             run_context=build_run_metadata(test_run),
             run_outcome=test_run.outcome.value if test_run.outcome else None,
             run_ended_at=test_run.ended_at,
-            instruments=instruments,
+            instruments=instrument_records or [],
         )
 
     def _build_file_metadata(self, test_run: TestRun) -> dict[bytes, bytes]:
@@ -544,10 +528,6 @@ class ParquetBackend:
 
         parquet_path = date_dir / filename
 
-        # Ensure instrument array columns exist for schema consistency
-        for row in rows:
-            _ensure_instrument_arrays(row)
-
         schema = _build_write_schema(rows)
         table = table_from_rows(rows, schema)
         batch = table.combine_chunks().to_batches()[0]
@@ -629,7 +609,7 @@ def _build_run_row_from_acc(
         run_context=run_context_from_run_started(s, s, include_env=True),
         run_outcome=run_outcome,
         run_ended_at=run_ended_at,
-        instruments=acc._build_instrument_arrays(),
+        instruments=acc._build_instrument_records(),
     )
 
 
@@ -648,7 +628,7 @@ def _build_step_row_from_acc(
         entry=entry,
         run_outcome=run_outcome,
         run_ended_at=run_ended_at,
-        instruments=acc._build_instrument_arrays(),
+        instruments=acc._build_instrument_records(),
     )
 
 
@@ -667,7 +647,7 @@ def _build_vector_row_from_acc(
         entry=entry,
         run_outcome=run_outcome,
         run_ended_at=run_ended_at,
-        instruments=acc._build_instrument_arrays(),
+        instruments=acc._build_instrument_records(),
     )
 
 
@@ -1063,12 +1043,9 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         vector_rows = step_vector_rows.get(sk, [])
         step_row = step_meta_rows.get(sk)
 
-        # Instrument arrays from the step row (fall back to a vector row).
+        # Instrument records from the step row (fall back to a vector row).
         instr_source = step_row or (vector_rows[0] if vector_rows else {})
-        step_instr: dict[str, list] = {}
-        for col, val in instr_source.items():
-            if col.startswith("step_instruments_") and val is not None:
-                step_instr[col] = val if isinstance(val, list) else [val]
+        step_instr: list[dict[str, Any]] = instr_source.get("instruments") or []
 
         vectors: list[TestVector] = []
         for vr in sorted(
@@ -1134,7 +1111,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                 ended_at=timing.get("ended_at"),
                 outcome=step_outcome,
                 vectors=vectors,
-                instrument_arrays=step_instr if step_instr else None,
+                instrument_records=step_instr if step_instr else None,
             )
         )
 

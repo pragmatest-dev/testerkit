@@ -53,16 +53,16 @@ if TYPE_CHECKING:
 
 
 # Re-exported from the data layer — lives there to avoid importing the
-# execution framework just for a tuple of column name strings.
+# execution framework just for a tuple of field name strings.
 from litmus.data.backends._row_helpers import (
-    INSTRUMENT_ARRAY_KEYS as INSTRUMENT_ARRAY_KEYS,  # noqa: F401
+    INSTRUMENT_STRUCT_FIELDS as INSTRUMENT_STRUCT_FIELDS,  # noqa: F401
 )
 
 
 def instrument_info_fields(rec: InstrumentRecord) -> dict[str, Any]:
     """Return ``{manufacturer, model, serial, firmware}`` from a record.
 
-    Shared by :meth:`RunScope.build_instrument_arrays` and the
+    Shared by :meth:`RunScope.build_instrument_records` and the
     plugin's ``InstrumentConnected`` event emitter — keeps the ``if
     rec.info else None`` dance in one place.
     """
@@ -497,7 +497,7 @@ class RunScope:
         push_current_vector(None)
         self._run_context = RunContext(self.test_run)
         self._instruments: dict[str, InstrumentRecord] = instruments or {}
-        self._step_instrument_arrays: dict[str, list] | None = None
+        self._step_instrument_records: list[dict[str, Any]] | None = None
 
         # Event log for typed event streaming
         self._event_log: EventLog | None = None
@@ -600,57 +600,51 @@ class RunScope:
 
         return _save
 
-    def build_instrument_arrays(self, roles: list[str] | None = None) -> dict[str, list]:
-        """Build parallel arrays for instrument identity and calibration.
+    def build_instrument_records(self, roles: list[str] | None = None) -> list[dict[str, Any]]:
+        """Build a list of instrument identity structs.
 
         Args:
             roles: If provided, only include instruments with these role names.
                    If None, include all instruments.
 
-        Returns dict with keys:
-        - step_instruments_name: List of instrument names/roles (e.g., ["dmm", "psu"])
-        - step_instruments_id: List of instrument IDs
-          (e.g., ["keithley_dmm_001", "keysight_psu_001"])
-        - step_instruments_driver: List of driver class paths
-          (e.g., ["drivers.Keithley2000"])
-        - step_instruments_resource: List of resources
-          (e.g., ["GPIB::16::INSTR", "GPIB::17::INSTR"])
-        - step_instruments_protocol: List of protocols (e.g., ["visa", "visa"])
-        - step_instruments_manufacturer: List of manufacturers
-        - step_instruments_model: List of models
-        - step_instruments_serial: List of serial numbers
-        - step_instruments_firmware: List of firmware versions
-        - step_instruments_cal_due: List of calibration due dates (ISO format)
-        - step_instruments_cal_last: List of last calibration dates (ISO format)
-        - step_instruments_cal_certificate: List of certificate numbers
-        - step_instruments_cal_lab: List of calibration labs
-
-        All arrays are the same length and in the same order.
+        Returns a list of dicts, one per instrument, each with the 14 struct
+        fields (name, id, driver, resource, protocol, manufacturer, model,
+        serial_number, firmware, cal_due, cal_last, cal_certificate, cal_lab,
+        mocked).
         """
-        arrays: dict[str, list] = {key: [] for key in INSTRUMENT_ARRAY_KEYS}
+        records: list[dict[str, Any]] = []
         for role, record in self._instruments.items():
             if roles is not None and role not in roles:
                 continue
             info = instrument_info_fields(record)
             cal = instrument_cal_fields(record)
-            arrays["step_instruments_name"].append(role)
-            arrays["step_instruments_id"].append(record.instrument_id)
-            arrays["step_instruments_driver"].append(record.driver)
-            arrays["step_instruments_resource"].append(record.resource)
-            arrays["step_instruments_protocol"].append(record.protocol)
-            arrays["step_instruments_manufacturer"].append(info["manufacturer"])
-            arrays["step_instruments_model"].append(info["model"])
-            arrays["step_instruments_serial"].append(info["serial"])
-            arrays["step_instruments_firmware"].append(info["firmware"])
-            arrays["step_instruments_cal_due"].append(cal["cal_due"])
-            arrays["step_instruments_cal_last"].append(cal["cal_last"])
-            arrays["step_instruments_cal_certificate"].append(cal["cal_certificate"])
-            arrays["step_instruments_cal_lab"].append(cal["cal_lab"])
-            arrays["step_instruments_mocked"].append(record.mocked)
-        return arrays
+            records.append(
+                {
+                    "name": role,
+                    "id": record.instrument_id,
+                    "driver": record.driver,
+                    "resource": record.resource,
+                    "protocol": record.protocol,
+                    "manufacturer": info["manufacturer"],
+                    "model": info["model"],
+                    "serial_number": info["serial"],
+                    "firmware": info["firmware"],
+                    "cal_due": cal["cal_due"],
+                    "cal_last": cal["cal_last"],
+                    "cal_certificate": cal["cal_certificate"],
+                    "cal_lab": cal["cal_lab"],
+                    "mocked": record.mocked,
+                }
+            )
+        return records
 
-    def set_step_instruments(self, roles: list[str]) -> dict[str, list]:
-        """Set the instrument arrays for the current test step.
+    @property
+    def step_instrument_records(self) -> list[dict[str, Any]] | None:
+        """The per-step filtered instrument records, or None if not set."""
+        return self._step_instrument_records
+
+    def set_step_instruments(self, roles: list[str]) -> list[dict[str, Any]]:
+        """Set the instrument records for the current test step.
 
         Filters instruments to only those used by the step (detected from
         fixture parameters) and caches the result.
@@ -659,11 +653,11 @@ class RunScope:
             roles: List of instrument role names used by this step.
 
         Returns:
-            The filtered instrument arrays dict.
+            The filtered instrument records list.
         """
-        arrays = self.build_instrument_arrays(roles=roles)
-        self._step_instrument_arrays = arrays
-        return arrays
+        records = self.build_instrument_records(roles=roles)
+        self._step_instrument_records = records
+        return records
 
     def start_step(
         self,
@@ -713,8 +707,8 @@ class RunScope:
             )
             if not nests_under_container:
                 self.end_step()
-        # Clear per-step instrument arrays so they don't leak between steps
-        self._step_instrument_arrays = None
+        # Clear per-step instrument records so they don't leak between steps
+        self._step_instrument_records = None
         # Reset per-step dedup sets — each step starts with a clean slate.
         self._step_seen_names = set()
         self._step_seen_repeatable = set()
@@ -784,11 +778,6 @@ class RunScope:
     def session_id(self) -> UUID:
         """Session ID for event correlation."""
         return self._session_id
-
-    @property
-    def step_instrument_arrays(self) -> dict[str, list] | None:
-        """Per-step instrument arrays, if set."""
-        return self._step_instrument_arrays
 
     def emit_step_started(self, step: TestStep, step_index: int) -> None:
         """Emit a StepStarted event for an externally-managed step.

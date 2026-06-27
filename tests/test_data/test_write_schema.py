@@ -7,7 +7,7 @@ import pytest
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 from litmus.data.schemas import (
-    _INSTR_ARRAY_TYPES,
+    _INSTRUMENT_LIST,  # noqa: PLC2701
     RUN_ROW_SCHEMA,
     _build_write_schema,
     table_from_rows,
@@ -81,24 +81,24 @@ class TestAllNoneColumn:
         assert schema.field("in_unknown").type == pa.string()
 
 
-class TestInstrArrayColumns:
-    """Instrument array columns get known list types."""
+class TestInstrumentsColumn:
+    """instruments column is a list<struct> with known type from RUN_ROW_SCHEMA."""
 
-    def test_instr_name_is_list_string(self):
-        rows = [{"run_id": "r1", "step_instruments_name": ["DMM1"]}]
-        schema = _build_write_schema(rows)
-        assert schema.field("step_instruments_name").type == pa.list_(pa.string())
+    def test_instruments_field_type_in_schema(self):
+        schema_field = RUN_ROW_SCHEMA.field("instruments")
+        assert schema_field.type == _INSTRUMENT_LIST
 
-    def test_instr_mocked_is_list_bool(self):
-        rows = [{"run_id": "r1", "step_instruments_mocked": [True, False]}]
-        schema = _build_write_schema(rows)
-        assert schema.field("step_instruments_mocked").type == pa.list_(pa.bool_())
+    def test_instruments_struct_has_14_fields(self):
+        from litmus.data.schemas import _INSTRUMENT_STRUCT
 
-    def test_all_instr_keys_in_type_map(self):
-        from litmus.execution.run_scope import INSTRUMENT_ARRAY_KEYS
+        assert len(_INSTRUMENT_STRUCT) == 14
 
-        for key in INSTRUMENT_ARRAY_KEYS:
-            assert key in _INSTR_ARRAY_TYPES
+    def test_instruments_struct_has_serial_number_not_serial(self):
+        from litmus.data.schemas import _INSTRUMENT_STRUCT
+
+        field_names = [f.name for f in _INSTRUMENT_STRUCT]
+        assert "serial_number" in field_names
+        assert "serial" not in field_names
 
 
 class TestWriteRejectsTypeMismatch:

@@ -26,24 +26,25 @@ try:
 except (ImportError, ValueError):
     HAS_NUMPY = False
 
-# Canonical list of instrument identity array column names.
-# Lives here (data layer) so the daemon and parquet backend can import it
-# without pulling in the execution framework.
-INSTRUMENT_ARRAY_KEYS: tuple[str, ...] = (
-    "step_instruments_name",
-    "step_instruments_id",
-    "step_instruments_driver",
-    "step_instruments_resource",
-    "step_instruments_protocol",
-    "step_instruments_manufacturer",
-    "step_instruments_model",
-    "step_instruments_serial",
-    "step_instruments_firmware",
-    "step_instruments_cal_due",
-    "step_instruments_cal_last",
-    "step_instruments_cal_certificate",
-    "step_instruments_cal_lab",
-    "step_instruments_mocked",
+# Canonical list of instrument struct field names for the at-rest
+# ``instruments`` LIST<STRUCT> column. Lives here (data layer) so the
+# daemon and parquet backend can import it without pulling in the
+# execution framework.
+INSTRUMENT_STRUCT_FIELDS: tuple[str, ...] = (
+    "name",
+    "id",
+    "driver",
+    "resource",
+    "protocol",
+    "manufacturer",
+    "model",
+    "serial_number",
+    "firmware",
+    "cal_due",
+    "cal_last",
+    "cal_certificate",
+    "cal_lab",
+    "mocked",
 )
 
 # Prefix for path references in output columns (legacy, use file:// URIs)
@@ -374,7 +375,7 @@ class MeasurementRow(BaseModel):
     # Dynamic namespaced columns
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
-    instruments: dict[str, list[str | bool | None]] = Field(default_factory=dict)
+    instruments: list[dict[str, Any]] = Field(default_factory=list)
     # Optional per-slot engineering unit for inputs / outputs (name → unit),
     # flowed into the lane's ``unit`` field at encode time.
     input_units: dict[str, str] = Field(default_factory=dict)
@@ -389,8 +390,8 @@ class MeasurementRow(BaseModel):
         ``inputs`` / ``outputs`` are encoded as nested EAV lane structs
         (``LIST<STRUCT>``; see :func:`encode_lane_structs`) under the
         ``inputs`` / ``outputs`` keys. ``input_units`` / ``output_units``
-        ride into each lane's ``unit`` field. ``instruments`` keys pass
-        through (already ``step_instruments_``-prefixed).
+        ride into each lane's ``unit`` field. ``instruments`` passes
+        through as a ``list[dict]`` (nested LIST<STRUCT> at rest).
 
         ``at_rest=True`` drops the flat measurement scalar columns: at rest a
         measurement lives in the vector row's nested ``measurements`` list, not
@@ -402,7 +403,6 @@ class MeasurementRow(BaseModel):
         exclude = {
             "inputs",
             "outputs",
-            "instruments",
             "input_units",
             "output_units",
             "output_pins",
@@ -412,7 +412,6 @@ class MeasurementRow(BaseModel):
         row = self.model_dump(exclude=exclude)
         row["inputs"] = encode_lane_structs(self.inputs, self.input_units)
         row["outputs"] = encode_lane_structs(self.outputs, self.output_units, self.output_pins)
-        row.update(self.instruments)
         return row
 
 
@@ -758,7 +757,7 @@ def build_row(
     step_name: str,
     step_index: int,
     vector: TestVector,
-    instrument_arrays: dict[str, list[str | bool | None]],
+    instrument_records: list[dict[str, Any]],
     ref_saver: Callable[[str, str, Any], str] | None = None,
     *,
     denormalize_conditions: bool = True,
@@ -818,7 +817,7 @@ def build_row(
         outputs=(
             build_output_columns(vector, ref_saver=ref_saver) if denormalize_conditions else {}
         ),
-        instruments=instrument_arrays,
+        instruments=instrument_records,
     )
 
 
@@ -841,7 +840,7 @@ def iter_rows(test_run: TestRun) -> Iterator[dict[str, Any]]:
                     step.name,
                     step_index,
                     vector,
-                    step.instrument_arrays or {},
+                    step.instrument_records or [],
                     # step_path falls back to step.name so the daemon's
                     # GROUP BY (step_path, vector_index) gives each
                     # logical step its own row even when the producer
@@ -867,7 +866,7 @@ def build_run_row(
     run_context: dict[str, Any],
     run_outcome: str | None,
     run_ended_at: datetime | None,
-    instruments: dict[str, list],
+    instruments: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Build the single ``record_type = 'run'`` row for a parquet.
 
@@ -921,7 +920,7 @@ def build_step_row(
     entry: dict[str, Any],
     run_outcome: str | None,
     run_ended_at: datetime | None,
-    instruments: dict[str, list],
+    instruments: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Build one ``record_type = 'step'`` row from a step manifest entry.
 
@@ -988,7 +987,7 @@ def build_scope_vector_row(
     entry: dict[str, Any],
     run_outcome: str | None,
     run_ended_at: datetime | None,
-    instruments: dict[str, list],
+    instruments: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Synthesize one scope ``vector`` row from a step manifest entry (v2).
 
@@ -1053,7 +1052,7 @@ def build_vector_row(
     entry: dict[str, Any],
     run_outcome: str | None,
     run_ended_at: datetime | None,
-    instruments: dict[str, list],
+    instruments: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Build one ``record_type = 'vector'`` row from a vector manifest entry.
 

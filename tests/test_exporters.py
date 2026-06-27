@@ -37,11 +37,24 @@ def sample_test_run() -> TestRun:
                 started_at=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
                 ended_at=datetime(2026, 3, 4, 10, 1, 0, tzinfo=UTC),
                 outcome=Outcome.PASSED,
-                instrument_arrays={
-                    "step_instruments_name": ["DMM_01"],
-                    "step_instruments_resource": ["TCPIP::192.168.1.10"],
-                    "step_instruments_driver": ["Keysight34465A"],
-                },
+                instrument_records=[
+                    {
+                        "name": "DMM_01",
+                        "id": "",
+                        "driver": "Keysight34465A",
+                        "resource": "TCPIP::192.168.1.10",
+                        "protocol": None,
+                        "manufacturer": None,
+                        "model": None,
+                        "serial_number": None,
+                        "firmware": None,
+                        "cal_due": None,
+                        "cal_last": None,
+                        "cal_certificate": None,
+                        "cal_lab": None,
+                        "mocked": False,
+                    }
+                ],
                 vectors=[
                     TestVector(
                         index=0,
@@ -336,7 +349,7 @@ class TestMeasurementRow:
             step.name,
             0,
             vector,
-            {},
+            [],
         )
 
         assert isinstance(row, MeasurementRow)
@@ -361,7 +374,7 @@ class TestMeasurementRow:
             step.name,
             0,
             vector,
-            {},
+            [],
         )
         flat = row.to_flat_dict()
 
@@ -508,17 +521,30 @@ class TestSaveRefToDir:
         assert content["serial"] == "UUT001"
 
 
-class TestInstrumentArrayKeys:
-    def test_keys_match_build_output(self):
-        """INSTRUMENT_ARRAY_KEYS stays in sync with build_instrument_arrays()."""
-        from litmus.execution.run_scope import INSTRUMENT_ARRAY_KEYS, RunScope
+class TestInstrumentStructKeys:
+    def test_struct_fields_match_row_helpers(self):
+        """INSTRUMENT_STRUCT_FIELDS stays in sync with build_instrument_records output."""
+        from litmus.data.backends._row_helpers import INSTRUMENT_STRUCT_FIELDS
+        from litmus.execution.run_scope import RunScope
+        from litmus.models.instrument import CalibrationInfo, InstrumentInfo, InstrumentRecord
 
+        record = InstrumentRecord(
+            role="dmm",
+            instrument_id="inst_001",
+            driver="drivers.FakeDriver",
+            resource="GPIB::1::INSTR",
+            protocol="visa",
+            info=InstrumentInfo(manufacturer="Acme", model="M1", serial="SN1", firmware="v1"),
+            calibration=CalibrationInfo(),
+        )
         logger = RunScope(
             uut_serial="UUT001",
             station_id="station_001",
+            instruments={"dmm": record},
         )
-        arrays = logger.build_instrument_arrays()
-        assert set(INSTRUMENT_ARRAY_KEYS) == set(arrays.keys())
+        records = logger.build_instrument_records()
+        assert len(records) == 1
+        assert set(records[0].keys()) == set(INSTRUMENT_STRUCT_FIELDS)
 
 
 class TestReconstructTestRun:
@@ -566,8 +592,8 @@ class TestReconstructTestRun:
 
         assert rebuilt.custom_metadata == {"operator_badge": "EMP-123"}
 
-    def test_roundtrip_instrument_arrays(self, sample_test_run: TestRun, tmp_path: Path):
-        """instrument_arrays survives Parquet save → reconstruct."""
+    def test_roundtrip_instrument_records(self, sample_test_run: TestRun, tmp_path: Path):
+        """instrument_records survives Parquet save → reconstruct."""
         from litmus.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
 
         backend = ParquetBackend(data_dir=tmp_path)
@@ -575,10 +601,12 @@ class TestReconstructTestRun:
         rebuilt = reconstruct_test_run_from_file(pq_file)
 
         step = rebuilt.steps[0]
-        assert step.instrument_arrays is not None
-        assert step.instrument_arrays["step_instruments_name"] == ["DMM_01"]
-        assert step.instrument_arrays["step_instruments_resource"] == ["TCPIP::192.168.1.10"]
-        assert step.instrument_arrays["step_instruments_driver"] == ["Keysight34465A"]
+        assert step.instrument_records is not None
+        assert len(step.instrument_records) == 1
+        rec = step.instrument_records[0]
+        assert rec["name"] == "DMM_01"
+        assert rec["resource"] == "TCPIP::192.168.1.10"
+        assert rec["driver"] == "Keysight34465A"
 
     def test_csv_subscriber_includes_custom_columns(self, sample_test_run: TestRun, tmp_path: Path):
         """CSV subscriber includes custom_* columns from RunStarted."""

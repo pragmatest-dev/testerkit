@@ -1792,7 +1792,7 @@ class TestHarness:
         # Register with logger and emit event via public API
         if self._logger is not None:
             self._current_step_index = self._logger.register_step(step)
-            step.instrument_arrays = self._logger.step_instrument_arrays
+            step.instrument_records = self._logger.step_instrument_records
             self._logger.emit_step_started(step, self._current_step_index)
 
         # Set contextvar for concurrency-safe resolution

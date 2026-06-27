@@ -120,8 +120,10 @@ class TestMaterializer:
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         table = pq.read_table(pq_files[0])
         row = table.to_pylist()[0]
-        assert row["step_instruments_name"] == ["dmm"]
-        assert row["step_instruments_manufacturer"] == ["Keithley"]
+        instruments = row["instruments"]
+        assert len(instruments) == 1
+        assert instruments[0]["name"] == "dmm"
+        assert instruments[0]["manufacturer"] == "Keithley"
 
     def test_materialize_without_outcome_falls_back_to_aborted(self, tmp_path):
         """``outcome=None`` falls back to ``"aborted"`` — the orphan-sweep semantic."""

@@ -15,7 +15,6 @@ from __future__ import annotations
 from typing import Any
 
 from litmus.data.backends._row_helpers import (
-    INSTRUMENT_ARRAY_KEYS,
     MeasurementRow,
     _append_not_started,
     _to_datetime,
@@ -348,25 +347,27 @@ class EventAccumulator:
     # Pure projection helpers — used by both snapshot and parquet write
     # ------------------------------------------------------------------
 
-    def _build_instrument_arrays(self) -> dict[str, list]:
-        """Build instrument arrays from cached InstrumentConnected events."""
-        arrays: dict[str, list] = {k: [] for k in INSTRUMENT_ARRAY_KEYS}
-        for inst in self._instruments:
-            arrays["step_instruments_name"].append(inst.role)
-            arrays["step_instruments_id"].append(inst.instrument_id)
-            arrays["step_instruments_driver"].append(inst.driver)
-            arrays["step_instruments_resource"].append(inst.resource)
-            arrays["step_instruments_protocol"].append(inst.protocol)
-            arrays["step_instruments_manufacturer"].append(inst.manufacturer)
-            arrays["step_instruments_model"].append(inst.model)
-            arrays["step_instruments_serial"].append(inst.serial)
-            arrays["step_instruments_firmware"].append(inst.firmware)
-            arrays["step_instruments_cal_due"].append(inst.cal_due)
-            arrays["step_instruments_cal_last"].append(inst.cal_last)
-            arrays["step_instruments_cal_certificate"].append(inst.cal_certificate)
-            arrays["step_instruments_cal_lab"].append(inst.cal_lab)
-            arrays["step_instruments_mocked"].append(inst.mocked)
-        return arrays
+    def _build_instrument_records(self) -> list[dict[str, Any]]:
+        """Build instrument records from cached InstrumentConnected events."""
+        return [
+            {
+                "name": inst.role,
+                "id": inst.instrument_id,
+                "driver": inst.driver,
+                "resource": inst.resource,
+                "protocol": inst.protocol,
+                "manufacturer": inst.manufacturer,
+                "model": inst.model,
+                "serial_number": inst.serial,
+                "firmware": inst.firmware,
+                "cal_due": inst.cal_due,
+                "cal_last": inst.cal_last,
+                "cal_certificate": inst.cal_certificate,
+                "cal_lab": inst.cal_lab,
+                "mocked": inst.mocked,
+            }
+            for inst in self._instruments
+        ]
 
     def _step_start_for(self, step_path: str, vector_index: int) -> Any:
         """Find the cached StepStarted for a (step_path, vector_index).
@@ -641,7 +642,7 @@ class EventAccumulator:
             # the EAV join resolves them by the shared vector key.
             inputs={},
             outputs={},
-            instruments=self._build_instrument_arrays(),
+            instruments=self._build_instrument_records(),
         )
         flat = row.to_flat_dict()
         flat["record_type"] = "measurement"

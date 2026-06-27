@@ -70,7 +70,7 @@ class MeasurementView(BaseModel):
     limit_comparator: str | None = None
     characteristic_id: str | None = None
     spec_ref: str | None = None
-    # Per-measurement signal path (distinct from per-step step_instruments_* arrays)
+    # Per-measurement signal path (distinct from per-step instruments list)
     uut_pin: str | None = None
     fixture_connection: str | None = None
     instrument_name: str | None = None
@@ -136,50 +136,37 @@ class RunView(BaseModel):
 
 
 def _instruments_from_step_rows(rows: list[dict[str, Any]]) -> list[InstrumentView]:
-    """Reconstruct InstrumentView list from per-step step_instruments_* parallel arrays.
+    """Reconstruct InstrumentView list from the nested ``instruments`` list on step rows.
 
-    All rows within a step share the same step_instruments_* arrays (written once per step).
-    Uses the first row that has a non-empty step_instruments_name list.
+    All rows within a step share the same ``instruments`` list (written once per step).
+    Uses the first row that has a non-empty list.
     """
-    names: list[Any] = []
-    source_row: dict[str, Any] = {}
+    records: list[dict[str, Any]] = []
     for row in rows:
-        candidate = row.get("step_instruments_name")
+        candidate = row.get("instruments")
         if candidate:
-            names = candidate
-            source_row = row
+            records = candidate
             break
-    if not names:
-        return []
-
-    instruments: list[InstrumentView] = []
-    for i, name in enumerate(names):
-        if name is None:
-            continue
-
-        def _get(col: str, *, _i: int = i, _r: dict = source_row) -> Any:
-            lst = _r.get(col) or []
-            return lst[_i] if _i < len(lst) else None
-
-        instruments.append(
-            InstrumentView(
-                role=str(name),
-                instrument_id=str(_get("step_instruments_id") or ""),
-                driver=_opt_str(_get("step_instruments_driver")),
-                resource=_opt_str(_get("step_instruments_resource")),
-                protocol=_opt_str(_get("step_instruments_protocol")),
-                manufacturer=_opt_str(_get("step_instruments_manufacturer")),
-                model=_opt_str(_get("step_instruments_model")),
-                serial=_opt_str(_get("step_instruments_serial")),
-                firmware=_opt_str(_get("step_instruments_firmware")),
-                cal_due=_opt_str(_get("step_instruments_cal_due")),
-                cal_last=_opt_str(_get("step_instruments_cal_last")),
-                cal_certificate=_opt_str(_get("step_instruments_cal_certificate")),
-                cal_lab=_opt_str(_get("step_instruments_cal_lab")),
-                mocked=bool(_get("step_instruments_mocked")),
-            )
+    return [
+        InstrumentView(
+            role=str(rec.get("name") or ""),
+            instrument_id=str(rec.get("id") or ""),
+            driver=_opt_str(rec.get("driver")),
+            resource=_opt_str(rec.get("resource")),
+            protocol=_opt_str(rec.get("protocol")),
+            manufacturer=_opt_str(rec.get("manufacturer")),
+            model=_opt_str(rec.get("model")),
+            serial=_opt_str(rec.get("serial_number")),
+            firmware=_opt_str(rec.get("firmware")),
+            cal_due=_opt_str(rec.get("cal_due")),
+            cal_last=_opt_str(rec.get("cal_last")),
+            cal_certificate=_opt_str(rec.get("cal_certificate")),
+            cal_lab=_opt_str(rec.get("cal_lab")),
+            mocked=bool(rec.get("mocked")),
         )
-    return instruments
+        for rec in records
+        if rec.get("name") is not None
+    ]
 
 
 def _measurements_for_step(
@@ -237,7 +224,7 @@ def build_run_view(
 
     Each step's ``MeasurementView``s come from ``measurement_rows``
     filtered by ``step_index``; instruments are reconstructed from
-    the per-step ``step_instruments_*`` arrays carried on those
+    the per-step ``instruments`` list carried on those
     rows. Measurement-less steps render with empty instruments and
     measurements but still appear in the view.
     """
