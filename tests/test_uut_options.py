@@ -34,7 +34,6 @@ def _find_parquet_by_serial(uut_serial: str, *, timeout: float = 15.0) -> Path |
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         matches = list(_CANONICAL_RESULTS.glob(f"runs/**/*_{uut_serial}.parquet"))
-        matches = [m for m in matches if not m.stem.endswith("_steps")]
         if matches:
             return max(matches, key=lambda p: p.stat().st_mtime)
         time.sleep(0.2)
@@ -53,7 +52,7 @@ def _find_parquet_since(start_mtime: float, *, timeout: float = 15.0) -> Path | 
         matches = [
             p
             for p in _CANONICAL_RESULTS.glob("runs/**/*.parquet")
-            if not p.stem.endswith("_steps") and p.stat().st_mtime > start_mtime
+            if p.stat().st_mtime > start_mtime
         ]
         if matches:
             return max(matches, key=lambda p: p.stat().st_mtime)

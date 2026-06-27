@@ -333,7 +333,7 @@ class TestListRecent:
         assert len(rows) <= 2
 
     def test_aggregates_steps(self, fixture_data):
-        """num_steps and num_measurements come from aggregating _steps.parquet."""
+        """num_steps and num_measurements are aggregated from the run's step/measurement rows."""
         with RunsQuery() as q:
             run_a = q.get(fixture_data["run_a"])
             run_b = q.get(fixture_data["run_b"])

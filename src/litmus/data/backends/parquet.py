@@ -877,23 +877,10 @@ def _deserialize_ref(
 
 
 def read_step_results(parquet_path: Path) -> list[dict[str, Any]]:
-    """Read step results from sibling _steps.parquet or file-level metadata.
-
-    Checks for ``{stem}_steps.parquet`` first (new format). Falls back to
-    JSON in file-level metadata (legacy format).
+    """Read the step-results manifest from the parquet's file-level metadata.
 
     Returns an empty list if no step results are stored.
     """
-    # Try sibling _steps.parquet first
-    steps_path = parquet_path.with_name(parquet_path.stem + "_steps.parquet")
-    if steps_path.exists():
-        try:
-            table = pq.read_table(steps_path)
-            return table.to_pylist()
-        except (OSError, pa.ArrowInvalid):
-            pass
-
-    # Fall back to JSON metadata (legacy files)
     try:
         pf = pq.ParquetFile(parquet_path)
         raw_metadata = pf.schema_arrow.metadata or {}

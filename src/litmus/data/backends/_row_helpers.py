@@ -480,14 +480,11 @@ def run_context_from_run_started(
     """Run-level context kwargs derived from a cached ``RunStarted`` event.
 
     Streaming-path counterpart to :func:`build_run_metadata` (which
-    operates on a ``TestRun`` model). Both ``the accumulator-to-parquet path``
-    and ``_write_steps_parquet`` use this — they previously had drifting
-    copies of the same dict, missing different fields.
+    operates on a ``TestRun`` model).
 
     ``event`` supplies the row's ``run_id`` (a measurement event may carry
-    it before ``RunStarted`` arrives, and the steps writer passes
-    ``run_started`` itself). When ``run_started`` is ``None`` (events
-    arrived before RunStarted), falls back to a sparse dict with
+    it before ``RunStarted`` arrives). When ``run_started`` is ``None``
+    (events arrived before RunStarted), falls back to a sparse dict with
     placeholder defaults.
 
     Set ``include_env=True`` to include environment columns

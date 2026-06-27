@@ -66,7 +66,7 @@ def _step(
     return populated
 
 
-def _write_steps_file(runs_dir: Path, run_id: str, rows: list[dict]) -> Path:
+def _write_run_parquet(runs_dir: Path, run_id: str, rows: list[dict]) -> Path:
     """Write the unified per-run parquet and return its path."""
     runs_dir.mkdir(parents=True, exist_ok=True)
     cols = {f.name: [r[f.name] for r in rows] for f in RUN_ROW_SCHEMA}
@@ -107,7 +107,7 @@ def fixture_data() -> dict[str, str]:
             outcome="failed",
         ),
     ]
-    flat_path = _write_steps_file(runs_dir, run_flat, flat)
+    flat_path = _write_run_parquet(runs_dir, run_flat, flat)
 
     nested = [
         _step(
@@ -136,7 +136,7 @@ def fixture_data() -> dict[str, str]:
             outcome="failed",
         ),
     ]
-    nested_path = _write_steps_file(runs_dir, run_nested, nested)
+    nested_path = _write_run_parquet(runs_dir, run_nested, nested)
 
     notifier = RunStore()
     try:
@@ -240,8 +240,8 @@ class TestListForSession:
                 uut_serial="SN002",
             ),
         ]
-        path_a = _write_steps_file(canonical_runs, run_a, slot_a_steps)
-        path_b = _write_steps_file(canonical_runs, run_b, slot_b_steps)
+        path_a = _write_run_parquet(canonical_runs, run_a, slot_a_steps)
+        path_b = _write_run_parquet(canonical_runs, run_b, slot_b_steps)
 
         notifier = RunStore()
         try:

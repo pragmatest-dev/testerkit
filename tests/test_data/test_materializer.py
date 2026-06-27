@@ -320,11 +320,7 @@ class TestMaterializer:
 
         materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
 
-        pq_files = [
-            f
-            for f in (tmp_path / "results" / "runs").rglob("*.parquet")
-            if not f.stem.endswith("_steps")
-        ]
+        pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         manifest = read_step_results(pq_files[0])
         assert len(manifest) == 2
         assert manifest[0]["name"] == "test_voltage"

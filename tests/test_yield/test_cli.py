@@ -144,9 +144,8 @@ class TestMetricsCLI:
 
     def test_pareto_default_dispatches_to_part_lens(self, fixture_data):
         """Default ``--group-by`` is ``part`` — exits 0 even when the fixture
-        only has measurement parquets (no ``_steps.parquet``); content is
-        verified separately for the measurement lens which uses the
-        always-populated measurements view.
+        has no step rows; content is verified separately for the measurement
+        lens which uses the always-populated measurements view.
         """
         runner = CliRunner()
         result = runner.invoke(main, ["metrics", "pareto", "--part", fixture_data["part"]])

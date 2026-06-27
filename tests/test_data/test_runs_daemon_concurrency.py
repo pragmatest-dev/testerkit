@@ -69,7 +69,7 @@ def _step_row(
     return populated
 
 
-def _write_steps_parquet(runs_dir: Path, *, run_id: str, started: datetime) -> Path:
+def _write_run_parquet(runs_dir: Path, *, run_id: str, started: datetime) -> Path:
     """Write a unified ``{run_id}.parquet`` with one step-summary row.
     Skips ``notify_new_run`` so the daemon picks it up via background sweep."""
     runs_dir.mkdir(parents=True, exist_ok=True)
@@ -103,7 +103,7 @@ def test_fresh_daemon_spawns_within_timeout(tmp_path: Path) -> None:
 
     base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
     for i in range(50):
-        _write_steps_parquet(
+        _write_run_parquet(
             runs_dir,
             run_id=f"fresh-spawn-{i:03d}-{uuid4()}",
             started=base + timedelta(seconds=i),
@@ -132,7 +132,7 @@ def test_query_during_ingest_does_not_hang():
 
     base = datetime(2026, 2, 1, 10, 0, 0, tzinfo=UTC)
     for i in range(50):
-        _write_steps_parquet(
+        _write_run_parquet(
             runs_dir,
             run_id=f"concurrent-{i:03d}-{uuid4()}",
             started=base + timedelta(seconds=i),

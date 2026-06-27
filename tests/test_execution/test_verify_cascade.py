@@ -81,11 +81,7 @@ def _read_measurement_row(serial: str, measurement_name: str, *, timeout: float 
     deadline = time.monotonic() + timeout
     parquet = None
     while time.monotonic() < deadline:
-        matches = [
-            p
-            for p in _CANONICAL_RESULTS.glob(f"runs/**/*_{serial}.parquet")
-            if not p.stem.endswith("_steps")
-        ]
+        matches = list(_CANONICAL_RESULTS.glob(f"runs/**/*_{serial}.parquet"))
         if matches:
             parquet = max(matches, key=lambda p: p.stat().st_mtime)
             break
@@ -235,11 +231,7 @@ def test_in_test_vector_iteration_allows_repeat_name(pytester: pytest.Pytester) 
     deadline = time.monotonic() + 15.0
     parquet = None
     while time.monotonic() < deadline:
-        matches = [
-            p
-            for p in _CANONICAL_RESULTS.glob(f"runs/**/*_{serial}.parquet")
-            if not p.stem.endswith("_steps")
-        ]
+        matches = list(_CANONICAL_RESULTS.glob(f"runs/**/*_{serial}.parquet"))
         if matches:
             parquet = max(matches, key=lambda p: p.stat().st_mtime)
             break
