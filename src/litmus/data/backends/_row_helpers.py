@@ -336,6 +336,10 @@ class MeasurementRow(BaseModel):
     step_function: str | None = None
     step_markers: str | None = None
     step_vector_count: int | None = None
+    # 0-based outer (item) retry — pytest-rerunfailures rerun count of this
+    # step. On step + scope-vector rows; NULL on run/measurement rows. The
+    # inner per-vector retry is ``vector_retry``.
+    step_retry: int | None = None
     vector_index: int = 0
     # 0-based retry counter — 0 for the first execution, N for the Nth retry.
     # Per-measurement (NULL on step / run rows). Companion to ``RetryConfig.max_retries``
@@ -947,7 +951,6 @@ def build_step_row(
     ctx = dict(run_context)
     ctx["run_ended_at"] = run_ended_at
     raw_vi = entry.get("vector_index")
-    raw_vc = entry.get("vector_count")
     raw_idx = entry.get("index")
     row = MeasurementRow(
         record_type="step",
@@ -965,7 +968,8 @@ def build_step_row(
         step_function=entry.get("function"),
         step_markers=entry.get("markers"),
         step_outcome=entry.get("outcome"),
-        step_vector_count=raw_vc if raw_vc is not None else 1,
+        step_vector_count=None,
+        step_retry=entry.get("step_retry") or 0,
         vector_index=raw_vi if raw_vi is not None else 0,
         vector_retry=None,
         measurement_name=None,
@@ -1022,8 +1026,11 @@ def build_scope_vector_row(
         step_markers=entry.get("markers"),
         step_outcome=None,
         step_vector_count=None,
+        step_retry=entry.get("step_retry") or 0,
         vector_index=raw_vi if raw_vi is not None else 0,
-        vector_retry=0,
+        # Scope vector runs once per step execution → its (step_path,
+        # vector_index) occurrence ordinal equals the step's attempt count.
+        vector_retry=entry.get("step_retry") or 0,
         vector_started_at=_to_datetime(entry.get("started_at")),
         vector_ended_at=_to_datetime(entry.get("ended_at")),
         vector_outcome=entry.get("outcome"),
@@ -1083,6 +1090,7 @@ def build_vector_row(
         step_markers=entry.get("markers"),
         step_outcome=None,
         step_vector_count=None,
+        step_retry=entry.get("step_retry") or 0,
         vector_index=raw_vi if raw_vi is not None else 0,
         vector_retry=raw_retry if raw_retry is not None else 0,
         vector_started_at=_to_datetime(entry.get("started_at")),
@@ -1117,6 +1125,7 @@ def vector_entry_dict(
     step_ended_at: datetime | None,
     vector_index: int,
     retry: int,
+    step_retry: int = 0,
     outcome: str | None,
     started_at: datetime | None,
     ended_at: datetime | None,
@@ -1131,7 +1140,8 @@ def vector_entry_dict(
 
     Distinct from :func:`step_entry_dict` — a vector entry keys on
     ``(step_path, vector_index, retry)`` and carries vector-grain timing
-    and outcome. Timestamps are serialised here.
+    and outcome. ``step_retry`` is the enclosing step's outer (item) attempt.
+    Timestamps are serialised here.
     """
     return {
         "index": index,
@@ -1148,6 +1158,7 @@ def vector_entry_dict(
         "step_ended_at": step_ended_at.isoformat() if step_ended_at else None,
         "vector_index": vector_index,
         "retry": retry,
+        "step_retry": step_retry,
         "outcome": outcome,
         "started_at": started_at.isoformat() if started_at else None,
         "ended_at": ended_at.isoformat() if ended_at else None,
@@ -1243,9 +1254,8 @@ def build_step_manifest(
                         build_measurement_struct(m)
                         for m in (vector.measurements if vector is not None else [])
                     ],
-                    has_measurements=measurement_count > 0,
                     measurement_count=measurement_count,
-                    vector_count=len(step.vectors) if step.vectors else 1,
+                    step_retry=step.retry,
                 )
             )
 
@@ -1284,10 +1294,8 @@ def step_entry_dict(
     output_units: dict[str, str] | None = None,
     output_pins: dict[str, str] | None = None,
     measurements: list[dict[str, Any]] | None = None,
-    has_measurements: bool,
     measurement_count: int,
-    vector_count: int,
-    retry_count: int = 0,
+    step_retry: int = 0,
 ) -> dict[str, Any]:
     """Single source of truth for one step manifest entry's shape.
 
@@ -1329,10 +1337,8 @@ def step_entry_dict(
         "output_units": output_units or {},
         "output_pins": output_pins or {},
         "measurements": measurements or [],
-        "has_measurements": has_measurements,
         "measurement_count": measurement_count,
-        "vector_count": vector_count,
-        "retry_count": retry_count,
+        "step_retry": step_retry,
     }
 
 
@@ -1391,9 +1397,8 @@ def _append_not_started(
                 "vector_index": vi,
                 "inputs": {},
                 "outputs": {},
-                "has_measurements": False,
                 "measurement_count": 0,
-                "vector_count": 0,
+                "step_retry": 0,
             }
         )
         next_index += 1

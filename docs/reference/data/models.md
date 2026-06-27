@@ -1034,6 +1034,7 @@ A test step containing test vectors.
 | `started_at` | `datetime` | *via* `_utcnow()` |
 | `ended_at` | `datetime \| None` | `None` |
 | `outcome` | `Outcome \| None` | `None` |
+| `retry` | `int` | `0` |
 | `vectors` | `list[TestVector]` | `[]` |
 | `error_message` | `str \| None` | `None` |
 | `instrument_arrays` | `dict[str, list] \| None` | `None` |
@@ -1502,10 +1503,8 @@ One row from the ``steps`` table — full denormalized run + step context.
 | `started_at` | `datetime \| None` | `None` |
 | `ended_at` | `datetime \| None` | `None` |
 | `duration_s` | `float \| None` | `None` |
-| `has_measurements` | `bool \| None` | `None` |
 | `measurement_count` | `int \| None` | `None` |
-| `vector_count` | `int \| None` | `None` |
-| `retry_count` | `int \| None` | `None` |
+| `step_retry` | `int \| None` | `None` |
 | `markers` | `str \| None` | `None` |
 | `uut_serial` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |

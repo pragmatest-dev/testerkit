@@ -1271,6 +1271,7 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
             module=getattr(cls, "__module__", None),
             inputs=dict(outer_values),
             vector_index=vi,
+            step_retry=getattr(item, "execution_count", 1) - 1,
         )
         setattr(
             logger_inst,
@@ -1377,6 +1378,7 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
             node_id=item.nodeid,
             step_index=step_idx,
             vector_index=vec_idx,
+            step_retry=getattr(item, "execution_count", 1) - 1,
             inputs=inputs,
         )
         try:

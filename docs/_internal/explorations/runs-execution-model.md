@@ -527,12 +527,44 @@ at the test level. (In-body Mode-2 vector retries are *not* fused — those rows
 - **vector retry** (inner) = the harness `run_with_retry` loop re-runs one vector *in place*,
   before `StepEnded` → `vector_retry++`.
 
-**Lockstep vs independent — why both are needed:** in the **vectored / non-looping** case
-there's one scope vector per step execution, so step and vector move in **lockstep** —
-`step_retry` and the scope vector's retry are the same number (redundant but accurate). In the
-**inner-loop** case they diverge: one step execution holds N vectors that retry independently,
-so `step_retry` (outer) × `vector_retry` (inner) compose. Storing **both** covers both shapes;
-each row carries its step attempt and its own attempt — no reconstruction. (Contrast: unstored,
+**Retry definitions — count the right grain.**
+- `step_retry` = how many times the **step (the pytest item) executed** (− 1). One count per
+  step *execution*, **not** per vector. *Do not* count `step_index` occurrences across vector
+  rows — a vectorized step has N vectors sharing one `step_index`, so that would count its
+  vectors as step retries. Source: `item.execution_count − 1`, stamped on `StepStarted` at emit.
+- `vector_retry` = how many times this **`(step_index, vector_index)` executed** (− 1).
+
+The two relate by grain, not by a floor:
+- **Scope vector (1 per step execution): `vector_retry = step_retry`.** The single vector runs
+  exactly once per step execution, so its occurrence count *is* the step's — you know it from
+  the step, no separate counting (S1, S3 → equal).
+- **Iteration vectors (inner loop):** count occurrences of `(step_index, vector_index)`. Tracks
+  `step_retry` as a baseline but **diverges** — *above* on an in-body `litmus_retry` (S4:
+  `(0,1)` runs 3×), *below* on a conditional skip (a vector that doesn't run every attempt). So
+  neither bounds the other; they're independent counts that coincide only when a vector runs
+  once per step attempt.
+
+A step rerun and an in-body retry both make the vector's `(step_index, vector_index)` appear
+again and both count toward `vector_retry`; cause is irrelevant to the count.
+
+**Where it's computed.** `step_retry` is event-stamped (`execution_count`). `vector_retry` can
+*also* be event-time: a `{(step_path, vector_index): count}` cache on the **session-scoped
+`RunScope`** (which survives reruns — they run in-process) increments per vector execution; the
+scope vector just takes `step_retry`. (Equivalently, derive at ingest via
+`ROW_NUMBER() OVER (PARTITION BY step_path, vector_index ORDER BY time)`.)
+
+Worked rows (S1: 1:1 step rerun; S4: loop + in-body retry of vec 1):
+
+```
+S1   step_retry vector_index vector_retry
+       0          0            0
+       1          0            1     ← (0,0) ran twice; scope vector ⇒ vector_retry = step_retry
+S4     0          0..2         0       (attempt 0, three points)
+       1          0            1       (attempt 1: each ran once per attempt ⇒ tracks step_retry)
+       1          1            1
+       1          1            2     ← (0,1) ran an extra in-body time ⇒ above step_retry
+       1          2            1
+``` (Contrast: unstored,
 you'd attribute vectors to step attempts by `[started_at, ended_at]` containment + `ROW_NUMBER`
 — correct but fragile to timestamp coincidence; the stored coordinate removes that, timestamps
 stay informational.)

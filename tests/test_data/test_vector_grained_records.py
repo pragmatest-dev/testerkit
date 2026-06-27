@@ -424,16 +424,27 @@ def test_scenario_5_retry_mode1(tmp_path):
         )
 
     kinds = _by_kind(_materialize(acc, tmp_path))
-    # StepStarted/StepEnded key on (step_path, vector_index); the retry rides
-    # on the event. The manifest's retry_count reflects the re-execution.
-    assert len(kinds["step"]) == 1
-    # One scope vector (the step's execution, retry=0).
-    assert len(kinds["vector"]) == 1
+    # De-fuse: StepStarted/StepEnded key on (step_path, step_retry,
+    # vector_index), so the two attempts (step_retry 0 and 1) are TWO distinct
+    # step execution rows — never fused. Each gets its own scope vector.
+    steps = sorted(kinds["step"], key=lambda r: r["step_retry"])
+    assert len(steps) == 2
+    assert [s["step_retry"] for s in steps] == [0, 1]
+    assert [s["step_outcome"] for s in steps] == ["failed", "passed"]
+    vrows = sorted(kinds["vector"], key=lambda r: r["step_retry"])
+    assert len(vrows) == 2
+    assert [v["step_retry"] for v in vrows] == [0, 1]
+    # Scope vector runs once per step execution, so its (step_path,
+    # vector_index) occurrence ordinal IS the step's attempt: vector_retry =
+    # step_retry (0 for the first attempt, 1 for the rerun).
+    assert [v["vector_retry"] for v in vrows] == [0, 1]
 
     path = materialize_run_to_parquet(acc, tmp_path / "results2", outcome="passed")
     assert path is not None
     manifest = read_step_results(path)
-    assert manifest[0]["retry_count"] == 1
+    # The manifest is one entry per execution; no derived retry_count rollup.
+    assert "retry_count" not in manifest[0]
+    assert {e["step_retry"] for e in manifest} == {0, 1}
 
 
 def test_scenario_5_retry_mode2(tmp_path):
@@ -483,11 +494,75 @@ def test_scenario_5_retry_mode2(tmp_path):
 
     kinds = _by_kind(_materialize(acc, tmp_path))
     # Two in-body vector rows (retries); NO extra scope vector (looped step).
+    # vector_retry = the (step_path, vector_index) occurrence ordinal — vec 0
+    # ran twice, so the two rows are ordinals 0 and 1.
     vrows = sorted(kinds["vector"], key=lambda r: r["vector_retry"])
     assert len(vrows) == 2
     assert [v["vector_index"] for v in vrows] == [0, 0]
     assert [v["vector_retry"] for v in vrows] == [0, 1]
     assert [v["vector_outcome"] for v in vrows] == ["failed", "passed"]
+
+
+def test_scenario_5_retry_mode2_per_vector_ordinal(tmp_path):
+    """vector_retry is the occurrence ordinal PER (step_path, vector_index).
+
+    A 2-point in-body loop where only vec 1 retries in-body: vec 0 and vec 2
+    each ran once (ordinal 0); vec 1 ran twice (ordinals 0 and 1). The ordinal
+    is counted independently per vector point, not as a step-wide retry.
+    """
+    acc = EventAccumulator()
+    rid, sid = uuid4(), uuid4()
+    acc.on_event(_run_started(rid, sid))
+    acc.on_event(
+        StepStarted(
+            session_id=sid, run_id=rid, step_name="test_sweep", step_index=0, step_path="test_sweep"
+        )
+    )
+    # Execution order: vec0(r0), vec1(r0 fail), vec1(r1 pass), vec2(r0).
+    plan = ((0, 0, "passed"), (1, 0, "failed"), (1, 1, "passed"), (2, 0, "passed"))
+    for tick, (vi, retry, outcome) in enumerate(plan):
+        ts = datetime(2026, 6, 18, 12, 0, tick, tzinfo=UTC)
+        acc.on_event(
+            VectorStarted(
+                session_id=sid,
+                run_id=rid,
+                step_name="test_sweep",
+                step_index=0,
+                step_path="test_sweep",
+                vector_index=vi,
+                retry=retry,
+                occurred_at=ts,
+            )
+        )
+        acc.on_event(
+            VectorEnded(
+                session_id=sid,
+                run_id=rid,
+                step_name="test_sweep",
+                step_index=0,
+                step_path="test_sweep",
+                vector_index=vi,
+                retry=retry,
+                outcome=outcome,
+            )
+        )
+    acc.on_event(
+        StepEnded(
+            session_id=sid,
+            run_id=rid,
+            step_name="test_sweep",
+            step_index=0,
+            step_path="test_sweep",
+            outcome="passed",
+        )
+    )
+
+    kinds = _by_kind(_materialize(acc, tmp_path))
+    by_vec_retry = sorted(
+        ((v["vector_index"], v["vector_retry"]) for v in kinds["vector"]),
+    )
+    # vec0→ord0, vec1→ord0 & ord1, vec2→ord0. The ordinal is per-vector.
+    assert by_vec_retry == [(0, 0), (1, 0), (1, 1), (2, 0)]
 
 
 # ---------------------------------------------------------------------------

@@ -39,6 +39,27 @@ liveness watchdog for dead holders).
   utilization (superset of run inventory; closest asset-utilization number).
 - **Read-only observe mode** (task #12) — writers lease, readers subscribe to channels (no lock).
 
+## Future — sequences (deferred): step identity is authored, not computed
+Revisit step identity when the sequence spec lands. Decided 2026-06-27 (de-fuse
+retry-model discussion), prior art compared:
+- **TestStand:** a step's identity is an authored **GUID stored in the sequence file**;
+  calling the same code module at two steps → **two GUIDs**. Identity is a property of
+  the sequence, separate from the code module *and* from position.
+- **OpenHTF:** phases identified by **name** (the code) — repeat-ambiguous, the same
+  limitation Litmus has today.
+
+Litmus today keys retry on `step_path` (the **code** identity), which is correct *because*
+pytest can't place the same code twice (parametrize collapses to vectors, reruns carry
+`step_retry`). A future sequence that runs the same module at two positions breaks that —
+`assign_indices` would fold the second placement into the first as extra vectors. So when
+sequences arrive: carry an **authored per-placement step identity** (the TestStand-GUID
+model), distinct from `step_path` (code) and `step_index` (position), and key retry counts
+on the **instance** identity. Nothing to change until then — `step_path` is the correct
+computed instance-identity for the pytest era, and the retry-counting logic is identity-
+agnostic, so the authored id slots in without touching the counter. See the retry model in
+`runs-execution-model.md` ("Retry definitions") and the de-fuse guard
+`tests/test_data/test_retry_model.py` (S1–S6).
+
 ## Reference (durable)
 - Working principles — `development-axioms.md`
 - Runs data model map — `runs-architecture-map.md` (`run→step→vector→measurement`)

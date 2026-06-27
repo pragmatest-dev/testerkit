@@ -53,15 +53,11 @@ class StepRow(BaseModel):
     started_at: datetime | None = None
     ended_at: datetime | None = None
     duration_s: float | None = None
-    has_measurements: bool | None = None
     measurement_count: int | None = None
-    vector_count: int | None = None
-    # 0-based retry rollup. ``0`` when the step recorded a non-NULL
-    # outcome on its first attempt (or didn't go through the retry loop
-    # at all — container steps, action steps with no measurements).
-    # ``N`` when the step retried N times. ``WHERE retry_count > 0``
-    # finds anything that retried.
-    retry_count: int | None = None
+    # 0-based outer (item) retry — pytest-rerunfailures rerun count of this
+    # step. ``0`` for the first attempt; ``N`` for the Nth rerun. Each
+    # execution is its own row, so ``WHERE step_retry > 0`` finds reruns.
+    step_retry: int | None = None
     markers: str | None = None
     uut_serial: str | None = None
     station_id: str | None = None

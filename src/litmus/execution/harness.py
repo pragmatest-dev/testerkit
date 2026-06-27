@@ -573,25 +573,41 @@ class Context:
         ContextVars, so step/vector context resolves to this iteration. No-op
         outside a run scope (bare Context unit tests). Resolution mirrors
         :meth:`_emit_observation` so in-body vectors land on the same timeline.
+
+        ``vector_retry`` is sourced here as the 0-based occurrence ordinal of
+        this ``(step_path, vector_index)`` across the whole run, via the
+        session-scoped :meth:`RunScope.next_vector_occurrence` counter. Because
+        the counter survives pytest reruns, it counts in-body ``litmus_retry``
+        re-executions AND outer item reruns alike. The ordinal is written back
+        onto the active :class:`TestVector` so the matching ``VectorEnded`` and
+        any nested ``MeasurementRecorded`` (which read ``vector.retry``) carry
+        the identical value — keeping the vector key consistent across events.
         """
         if self._session_id is None:
             return
         run_scope = get_current_run_scope()
-        event_log = getattr(run_scope, "event_log", None) if run_scope is not None else None
+        if run_scope is None:
+            return
+        event_log = run_scope.event_log
         if event_log is None:
             return
         step = get_current_step()
         vector = get_current_vector()
         run_id = getattr(getattr(run_scope, "test_run", None), "id", None)
+        step_path = getattr(step, "step_path", "") if step else ""
+        vector_index = getattr(vector, "index", 0) if vector else 0
+        occurrence = run_scope.next_vector_occurrence(step_path, vector_index)
+        if vector is not None:
+            vector.retry = occurrence
         event_log.emit(
             VectorStarted(
                 session_id=self._session_id,
                 run_id=run_id,
                 step_name=getattr(step, "name", "") if step else "",
                 step_index=getattr(step, "step_index", 0) if step else 0,
-                step_path=getattr(step, "step_path", "") if step else "",
-                vector_index=getattr(vector, "index", 0) if vector else 0,
-                retry=getattr(vector, "retry", 0) if vector else 0,
+                step_path=step_path,
+                vector_index=vector_index,
+                retry=occurrence,
                 inputs=dict(vector.params) if vector is not None else {},
                 input_units=dict(vector.param_units) if vector is not None else {},
                 node_id=getattr(step, "node_id", None) if step else None,
@@ -607,7 +623,9 @@ class Context:
         if self._session_id is None:
             return
         run_scope = get_current_run_scope()
-        event_log = getattr(run_scope, "event_log", None) if run_scope is not None else None
+        if run_scope is None:
+            return
+        event_log = run_scope.event_log
         if event_log is None:
             return
         step = get_current_step()
@@ -1619,7 +1637,6 @@ class TestHarness:
                     harness.measure("voltage", dmm.measure())
         """
         self._current_vector = vector
-        self._retry_index = 0
 
         # Configure mocks for this vector if using mocks
         if self._mock_instruments and self._instruments:
@@ -1714,7 +1731,9 @@ class TestHarness:
 
             try:
                 with self.run_vector(vector) as test_vector:
-                    test_vector.retry = retry
+                    # vector.retry is the run-wide occurrence ordinal, stamped
+                    # by _emit_vector_started (inside run_vector) — NOT the
+                    # in-body attempt index. Don't overwrite it here.
                     last_vector = test_vector
 
                     result = test_fn(vector)

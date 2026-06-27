@@ -515,6 +515,28 @@ class RunScope:
         # second call (e.g. pytest_sessionfinish finalizing on KeyboardInterrupt
         # before the run fixture's teardown) does not double-emit.
         self._finalized: bool = False
+        # Per-(step_path, vector_index) execution count for iteration vectors.
+        # Survives pytest reruns (RunScope is session-scoped, set once per run),
+        # so it counts every occurrence of a vector point across the whole run —
+        # in-body retries AND outer item reruns alike. Sourced as the event-time
+        # ``vector_retry`` (the occurrence ordinal) at VectorStarted emit.
+        self._vector_occurrences: dict[tuple[str, int], int] = {}
+
+    def next_vector_occurrence(self, step_path: str, vector_index: int) -> int:
+        """Return the 0-based occurrence ordinal of ``(step_path, vector_index)``.
+
+        Returns the current count then increments, so the first execution of a
+        vector point yields 0, the second 1, and so on. Because :class:`RunScope`
+        persists across pytest reruns (they run in-process under one session),
+        this counts BOTH in-body ``litmus_retry`` re-executions and outer pytest
+        item reruns of the point — the cause is irrelevant to the count. Stamped
+        as ``vector_retry`` on ``VectorStarted`` so the value rides the event
+        instead of being re-derived downstream.
+        """
+        key = (step_path, vector_index)
+        n = self._vector_occurrences.get(key, 0)
+        self._vector_occurrences[key] = n + 1
+        return n
 
     def record_external_outcome(self, outcome: Outcome | None) -> None:
         """Fold a run-level outcome contribution that has no owning step.
@@ -650,6 +672,7 @@ class RunScope:
         *,
         step_index: int | None = None,
         vector_index: int | None = None,
+        step_retry: int = 0,
         inputs: dict[str, Any] | None = None,
         node_id: str | None = None,
         file: str | None = None,
@@ -712,6 +735,7 @@ class RunScope:
             class_name=class_name,
             function=function,
             markers=markers,
+            retry=step_retry,
         )
         self._next_step_index(step_index)
         self.test_run.steps.append(step)
@@ -822,6 +846,7 @@ class RunScope:
                 parent_path=step.parent_path or "",
                 description=step.description,
                 vector_index=vec_index,
+                retry=step.retry,
                 inputs=inputs,
                 input_units=input_units,
                 node_id=step.node_id,
@@ -848,6 +873,7 @@ class RunScope:
                 parent_path=step.parent_path or "",
                 outcome=step.outcome.value if step.outcome else None,
                 vector_index=vec_index,
+                retry=step.retry,
                 vector_outcome=vec_outcome,
                 inputs=inputs,
                 outputs=coerce_dict(vec.observations) if vec is not None else {},

@@ -218,6 +218,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         CREATE TABLE IF NOT EXISTS steps_materialized (
             run_id VARCHAR NOT NULL,
             step_path VARCHAR NOT NULL,
+            step_retry BIGINT NOT NULL DEFAULT 0,
             vector_index BIGINT NOT NULL DEFAULT 0,
             step_index INTEGER,
             file_path VARCHAR,
@@ -229,15 +230,12 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             started_at TIMESTAMPTZ,
             ended_at TIMESTAMPTZ,
             duration_s DOUBLE,
-            has_measurements BOOLEAN,
             measurement_count INTEGER,
-            vector_count INTEGER,
-            retry_count INTEGER,
             markers VARCHAR,
             uut_serial VARCHAR,
             station_id VARCHAR,
             dynamic_attrs MAP(VARCHAR, VARCHAR),
-            PRIMARY KEY (run_id, step_path, vector_index)
+            PRIMARY KEY (run_id, step_path, step_retry, vector_index)
         )
     """)
     for col, sql_type in _STEPS_PERSISTED_COLUMNS:
@@ -477,17 +475,11 @@ _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("started_at", "TIMESTAMPTZ"),
     ("ended_at", "TIMESTAMPTZ"),
     ("duration_s", "DOUBLE"),
-    ("has_measurements", "BOOLEAN"),
+    # 0-based outer (item) retry — pytest-rerunfailures rerun count of this
+    # step. Part of the PK so a rerun is a distinct row (the de-fuse), never
+    # overwriting the prior attempt.
+    ("step_retry", "BIGINT"),
     ("measurement_count", "INTEGER"),
-    ("vector_count", "INTEGER"),
-    # 0-based retry rollup: max(vector_retry) over the step's measurement
-    # rows, with COALESCE(..., 0). Reads as the count of retries that
-    # actually happened: 0 when the step recorded a non-NULL outcome on
-    # its first attempt (or didn't go through the retry loop at all —
-    # container steps, action steps with no measurements); N when the
-    # step retried N times (i.e. produced measurements at vector_retry
-    # values 0..N).
-    ("retry_count", "INTEGER"),
     ("markers", "VARCHAR"),
     ("uut_serial", "VARCHAR"),
     ("station_id", "VARCHAR"),
@@ -1108,25 +1100,27 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
 def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]) -> None:
     """Populate ``steps_materialized`` from the unified per-run parquets.
 
-    GROUP BY ``(run_id, step_path, vector_index)`` plus all the
+    GROUP BY ``(run_id, step_path, step_retry, vector_index)`` plus all the
     step-level columns that are denormalized onto every row of a
     given step (step_name, step_outcome, step_started_at, step_ended_at,
-    parent_path, step_vector_count, step_markers, …). Aggregates are
-    only the actual rollups (``measurement_count``, ``has_measurements``,
-    ``duration_s``).
+    parent_path, step_markers, …). Aggregates are only the actual rollups
+    (``measurement_count``, ``duration_s``).
     """
     flist = _file_list_sql(parquet_paths)
     # ``dynamic_attrs`` is rebuilt per step row from the vector record's nested
     # lanes (v2: the step record sheds inputs/outputs onto its scope vector).
-    # The step grain is (step_path, vector_index); within a group the vector at
-    # that vector_index is the scope vector (non-looping step) or the iteration
-    # vector (Mode-2 loop), so ANY_VALUE of the per-'vector'-row MAP is exact.
+    # The step grain is (step_path, step_retry, vector_index); within a group
+    # the vector at that vector_index is the scope vector (non-looping step) or
+    # the iteration vector (Mode-2 loop), so ANY_VALUE of the per-'vector'-row
+    # MAP is exact. ``step_retry`` is part of the grain so a rerun is a distinct
+    # row, never fused onto the prior attempt (the de-fuse).
     map_expr = _dynamic_attrs_map_expr()
     conn.execute(f"""
         INSERT INTO steps_materialized BY NAME
         SELECT
             run_id,
             step_path,
+            COALESCE(step_retry, 0) AS step_retry,
             vector_index,
             step_index,
             filename AS file_path,
@@ -1152,22 +1146,6 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 SUM(len(measurements)) FILTER (WHERE record_type = 'vector'), 0
             ) AS INTEGER)
                 AS measurement_count,
-            (COALESCE(
-                SUM(len(measurements)) FILTER (WHERE record_type = 'vector'), 0
-            ) > 0)
-                AS has_measurements,
-            CAST(
-                ANY_VALUE(step_vector_count) FILTER (WHERE record_type = 'step') AS INTEGER
-            ) AS vector_count,
-            -- retry_count = COUNT of re-executions (max retry seen on the
-            -- vector boundary rows), NOT a MAX over measurement vector_retry.
-            -- A measurement-less retry is a real 'vector' row, so it counts;
-            -- a measurement at vector_retry=N without a re-execution boundary
-            -- does not inflate the count (Mode-1 fuses, no extra vector row).
-            CAST(
-                COALESCE(MAX(vector_retry) FILTER (WHERE record_type = 'vector'), 0)
-                AS INTEGER
-            ) AS retry_count,
             ANY_VALUE(step_markers) FILTER (WHERE record_type = 'step') AS markers,
             uut_serial,
             station_id,
@@ -1179,10 +1157,10 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
         WHERE run_id IS NOT NULL AND record_type <> 'run'
         GROUP BY
             filename, run_id,
-            step_path, vector_index, step_index,
+            step_path, COALESCE(step_retry, 0), vector_index, step_index,
             session_id, slot_id, step_name, parent_path,
             uut_serial, station_id
-        ON CONFLICT (run_id, step_path, vector_index) DO UPDATE SET
+        ON CONFLICT (run_id, step_path, step_retry, vector_index) DO UPDATE SET
             step_index = excluded.step_index,
             file_path = excluded.file_path,
             session_id = excluded.session_id,
@@ -1193,10 +1171,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             started_at = excluded.started_at,
             ended_at = excluded.ended_at,
             duration_s = excluded.duration_s,
-            has_measurements = excluded.has_measurements,
             measurement_count = excluded.measurement_count,
-            vector_count = excluded.vector_count,
-            retry_count = excluded.retry_count,
             markers = excluded.markers,
             uut_serial = excluded.uut_serial,
             station_id = excluded.station_id,
@@ -1545,13 +1520,14 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
         SELECT
             run_id,
             COALESCE(step_path, '') AS step_path,
+            step_retry,
             vector_index,
             step_index, file_path, session_id, slot_id,
             step_name,
             parent_path,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
-            duration_s, has_measurements, measurement_count, vector_count, retry_count,
+            duration_s, measurement_count,
             markers, uut_serial, station_id,
             dynamic_attrs
         FROM overlay.inflight_steps

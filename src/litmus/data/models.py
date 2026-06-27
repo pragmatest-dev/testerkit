@@ -334,6 +334,10 @@ class TestStep(BaseModel):
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
     outcome: Outcome | None = None
+    # 0-based outer (item) retry — 0 for the first attempt, N for the Nth
+    # pytest-rerunfailures rerun of this step. Distinct from a vector's own
+    # inner retry; the de-fuse keys each execution by both axes.
+    retry: int = 0
     vectors: list[TestVector] = Field(default_factory=list)
     error_message: str | None = None
     instrument_arrays: dict[str, list] | None = None

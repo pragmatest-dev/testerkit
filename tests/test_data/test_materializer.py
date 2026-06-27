@@ -324,10 +324,9 @@ class TestMaterializer:
         manifest = read_step_results(pq_files[0])
         assert len(manifest) == 2
         assert manifest[0]["name"] == "test_voltage"
-        assert manifest[0]["has_measurements"] is True
+        assert manifest[0]["measurement_count"] > 0
         assert manifest[0]["measurement_count"] == 1
         assert manifest[1]["name"] == "configure_uut"
-        assert manifest[1]["has_measurements"] is False
         assert manifest[1]["measurement_count"] == 0
         assert manifest[1]["node_id"] == "tests/test_hw.py::configure_uut"
 
