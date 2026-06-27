@@ -20,6 +20,8 @@ pytest = no per-test daemon spawning.
 """
 
 import os
+import shutil
+import signal
 from pathlib import Path
 
 import pytest
@@ -65,6 +67,46 @@ os.environ.setdefault("LITMUS_HOME", str(_PROJECT_DATA.parent))
 # wires up on first spawn (see
 # ``_runs_duckdb_daemon._start_event_subscriber``).
 (_PROJECT_DATA / "events").mkdir(parents=True, exist_ok=True)
+
+
+def _stop_scratch_daemons(data_dir: Path) -> None:
+    """SIGTERM any store daemon whose pid file lives under ``data_dir``.
+
+    All four store managers write a ``*_pid`` file (``_runs_duckdb_pid``,
+    ``_duckdb_pid``, ``_flight_pid``, ``_files_catalog_pid``). A stray
+    daemon left from a previous session would keep serving the
+    about-to-be-wiped dir (and leak its ~95 gRPC threads), so stop it
+    first. Best-effort: stale/dead/reused pids and permission errors are
+    ignored — tests respawn fresh daemons regardless.
+    """
+    for pid_file in data_dir.rglob("*_pid"):
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, 0)  # liveness probe — raises if not alive
+            os.kill(pid, signal.SIGTERM)
+        except (ValueError, OSError):
+            pass
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _clean_scratch_data_dir():
+    """Start each test session from an empty scratch data dir — like CI.
+
+    ``<repo>/data`` is gitignored scratch shared by every test and never
+    otherwise reset, so it accumulates run / measurement / file rows
+    across local runs indefinitely. Any test that reads GLOBAL state
+    (e.g. ``distinct_values`` capped at ``LIMIT 500``) then flakes once
+    enough has piled up — passing in isolation, failing only in the full
+    suite. Stop stray daemons bound to the old dir, wipe the scratch, and
+    recreate the events dir the runs daemon subscribes to; tests then
+    spawn fresh daemons against empty data. CI runs from a clean checkout
+    so it never saw this — only persistent local dev did.
+    """
+    _stop_scratch_daemons(_PROJECT_DATA)
+    for sub in ("runs", "events", "channels", "files"):
+        shutil.rmtree(_PROJECT_DATA / sub, ignore_errors=True)
+    (_PROJECT_DATA / "events").mkdir(parents=True, exist_ok=True)
+    yield
 
 
 @pytest.fixture(autouse=True)
