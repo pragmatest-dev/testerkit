@@ -499,11 +499,15 @@ at the test level. (In-body Mode-2 vector retries are *not* fused — those rows
   it (same collected item).
 - `vector_index` = the point within the step (parametrize variant *or* in-body sweep
   point; timestamps tell those two apart — parametrize coincident, in-body nested).
-- **`step_retry` / `vector_retry` = the attempt coordinates the producer OBSERVED** —
-  pytest-rerunfailures witnessed the step rerun, `litmus_retry` witnessed the vector rerun.
-  Two distinct axes (today's single `vector_retry` wrongly conflates them). **Stored, not
-  derived**: an observed source fact like `outcome` or a timestamp — and nearly free (mostly
-  0, RLE → ~nothing).
+- **`step_retry` / `vector_retry` = the attempt coordinates the producer OBSERVED** — two
+  distinct axes (the *outer* item attempt, the *inner* in-body vector attempt). **Stored, not
+  derived**: an observed source fact like `outcome` or a timestamp — nearly free (mostly 0,
+  RLE → ~nothing). *Sourcing status (verified 2026-06-27):* `vector_retry` IS sourced — the
+  harness `run_with_retry` loop sets `vector.retry` → `VectorStarted.retry` (`harness.py:1693`/
+  `:587`). **`step_retry` is NOT** — `StepStarted.retry` is never passed at emit
+  (`run_scope.py:816`), so it's always 0. So this isn't un-conflating one field; it's *adding
+  the missing outer axis* and sourcing it (from the pytest item-rerun count — confirm the exact
+  pytest-rerunfailures attribute, likely `item.execution_count`, when implementing).
 - **Full execution identity = `(step_index, step_retry, vector_index, vector_retry)`.** Every
   execution is a distinct row at that key. A rerun is a *different key* (incremented retry),
   so it can't overwrite the prior attempt — which **is** the anti-fusing mechanism.
@@ -517,19 +521,21 @@ at the test level. (In-body Mode-2 vector retries are *not* fused — those rows
 
   *Store what was observed; derive what's aggregated.*
 
-**Two independent retry axes** — why one field was always wrong:
-- **step retry** = pytest-rerunfailures reruns the whole test *item* → step + all inner
-  vectors re-execute → `step_retry++`.
-- **vector retry** = `litmus_retry` re-runs one inner vector *in place*, before `StepEnded`
-  → `vector_retry++`.
+**Two retry axes — outer (item) and inner (vector):**
+- **step retry** (outer) = a failed test *item* re-runs via pytest-rerunfailures → the whole
+  step + its inner loop re-execute → `step_retry++`.
+- **vector retry** (inner) = the harness `run_with_retry` loop re-runs one vector *in place*,
+  before `StepEnded` → `vector_retry++`.
 
-They compose (attempt-1 inner retries, item still fails, pytest reruns → attempt 2 with its
-own inner retries). Because each row carries **both** coordinates, a vector knows its step
-attempt directly (`step_retry`) and its own attempt (`vector_retry`) — **no reconstruction.**
-(Contrast: with retry *unstored* you'd attribute vectors to step attempts by
-`[started_at, ended_at]` window containment + `ROW_NUMBER` — correct but fragile to timestamp
-coincidence/ordering. Storing the observed coordinate removes that fragility; timestamps stay
-purely informational.)
+**Lockstep vs independent — why both are needed:** in the **vectored / non-looping** case
+there's one scope vector per step execution, so step and vector move in **lockstep** —
+`step_retry` and the scope vector's retry are the same number (redundant but accurate). In the
+**inner-loop** case they diverge: one step execution holds N vectors that retry independently,
+so `step_retry` (outer) × `vector_retry` (inner) compose. Storing **both** covers both shapes;
+each row carries its step attempt and its own attempt — no reconstruction. (Contrast: unstored,
+you'd attribute vectors to step attempts by `[started_at, ended_at]` containment + `ROW_NUMBER`
+— correct but fragile to timestamp coincidence; the stored coordinate removes that, timestamps
+stay informational.)
 
 **Derived at ingest — only the aggregates:**
 - step attempts = `COUNT(DISTINCT step_retry)` per `step_index`
@@ -560,11 +566,13 @@ deleted. The line is observation-vs-aggregate, not store-nothing.
   vector_retry)` identity instead of `(step_path, vector_index)` — so a rerun is a distinct
   key (no overwrite, no fusing); emit one row per execution, each with its own
   boundaries/outcome.
-- **Un-conflate `vector_retry`**: split today's single field into `step_retry` (pytest item
-  rerun) + `vector_retry` (in-body vector rerun) in `RUN_ROW_SCHEMA`; both stored as observed
-  coordinates. *Verify first:* `StepStarted.retry` carries the pytest item-rerun count
-  distinctly from the in-body `VectorStarted.retry` — i.e. the two axes are separable at the
-  producer, not already merged upstream.
+- **Source `step_retry` (NEW — verified missing 2026-06-27).** `vector_retry` is already
+  sourced (harness `run_with_retry` → `VectorStarted.retry`); `step_retry` is **not** —
+  `StepStarted.retry` is never passed at emit (`run_scope.py:816`), always 0. So the producer
+  must stamp it: read the pytest item-rerun count (likely `item.execution_count` from
+  pytest-rerunfailures) in the runtest hook → `StepStarted.retry`. Then add `step_retry` to
+  `RUN_ROW_SCHEMA` alongside the already-present `vector_retry`. **This is a producer change,
+  not just an at-rest schema edit** — the de-fuse touches producer + accumulator + schema.
 - Drop the dead **rollups** `retry_count` / `has_measurements` / `vector_count` (the metadata
   blob via `step_entry_dict`, the daemon projection, the inflight overlay, `StepRow`) — no
   consumer left.
