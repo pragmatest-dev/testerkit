@@ -473,3 +473,101 @@ lifted from `stash@{0}` (re-pointed at the vector grain).
   explicit fail, AND exception; `REPEAT` is a phase-level retry.
 - **pytest-rerunfailures** — each attempt is its own report (attempt-as-record).
 - **TestStand** — step has a first-class Status; steps own measurements.
+
+## Retry & outcomes — de-fuse to one row per execution (0.3.0 design, 2026-06-27)
+
+**Resolves the known gap flagged at the top** ("Mode-1 rerun retry_count not carried")
+and supersedes the narrow "drop retry_count" framing. The v2 contract already declared
+*"every execution materializes a row — no Mode-1 fusing"*; the implementation never
+delivered it. This is finishing that kill, and `retry_count` falls out dead as a
+consequence — it was only ever the patch over the un-killed fusing.
+
+**The bug (verified 2026-06-27).** The accumulator keys `_step_starts`/`_step_ends` by
+`(step_path, vector_index)` — no attempt — so a `StepStarted(retry=1)` *overwrites* the
+`retry=0` entry: one step row per `(step_path, vector_index)` however many times it reran.
+`_build_scope_vector_results_from_events` then synthesizes the scope vector hardcoded to
+`retry=0`. So Mode-1/scope reruns fuse into one row. `test_scenario_4` *asserts* the fused
+shape (`kinds["step"] == 1`, `kinds["vector"] == 1`) — the de-fuse was never even attempted
+at the test level. (In-body Mode-2 vector retries are *not* fused — those rows are keyed
+`(step_path, vector_index, retry)` and are already distinct.)
+
+**The model — stable indices + two OBSERVED retry coordinates; derive only aggregates.**
+- `step_index` = **execution position**. Assigned in `assign_indices` from collection
+  order, which *is* execution order; there is no separate "collection vs execution" index.
+  **Stable**: parametrize variants share it (`StepKey` uses `func.__name__`, so the `[N]`
+  suffix never reaches the key — verified `hooks.py:714` + `assign_indices`); a rerun reuses
+  it (same collected item).
+- `vector_index` = the point within the step (parametrize variant *or* in-body sweep
+  point; timestamps tell those two apart — parametrize coincident, in-body nested).
+- **`step_retry` / `vector_retry` = the attempt coordinates the producer OBSERVED** —
+  pytest-rerunfailures witnessed the step rerun, `litmus_retry` witnessed the vector rerun.
+  Two distinct axes (today's single `vector_retry` wrongly conflates them). **Stored, not
+  derived**: an observed source fact like `outcome` or a timestamp — and nearly free (mostly
+  0, RLE → ~nothing).
+- **Full execution identity = `(step_index, step_retry, vector_index, vector_retry)`.** Every
+  execution is a distinct row at that key. A rerun is a *different key* (incremented retry),
+  so it can't overwrite the prior attempt — which **is** the anti-fusing mechanism.
+
+**Coordinate vs rollup — the distinction that resolves the whole thread.**
+- A per-row **retry coordinate** (`step_retry`/`vector_retry`) is a *source fact* the
+  producer witnessed. **Store it** — it's the de-fuse key *and* a self-describing read
+  convenience (a row says "step attempt 1, vector attempt 0" standalone).
+- **`retry_count`** is a derived *aggregate* (`MAX(vector_retry)`). **Don't store it** —
+  derive on demand. Killing the rollup was right; it never required killing the coordinate.
+
+  *Store what was observed; derive what's aggregated.*
+
+**Two independent retry axes** — why one field was always wrong:
+- **step retry** = pytest-rerunfailures reruns the whole test *item* → step + all inner
+  vectors re-execute → `step_retry++`.
+- **vector retry** = `litmus_retry` re-runs one inner vector *in place*, before `StepEnded`
+  → `vector_retry++`.
+
+They compose (attempt-1 inner retries, item still fails, pytest reruns → attempt 2 with its
+own inner retries). Because each row carries **both** coordinates, a vector knows its step
+attempt directly (`step_retry`) and its own attempt (`vector_retry`) — **no reconstruction.**
+(Contrast: with retry *unstored* you'd attribute vectors to step attempts by
+`[started_at, ended_at]` window containment + `ROW_NUMBER` — correct but fragile to timestamp
+coincidence/ordering. Storing the observed coordinate removes that fragility; timestamps stay
+purely informational.)
+
+**Derived at ingest — only the aggregates:**
+- step attempts = `COUNT(DISTINCT step_retry)` per `step_index`
+- vector attempts = `COUNT` rows per `(step_index, step_retry, vector_index)`
+- "retried?" / retry rate / any rollup — computed from the stored coordinates, never stored
+  back.
+
+**Outcomes get better, not just tidier.** Today fusing runs `retry_aware_rollup`, which
+collapses node-id-sharing steps to their *final* attempt — **destroying** attempt-1's
+outcome at the projection layer (a passed-after-retry reads identical to a passed-first-try;
+only `retry_count` hinted, and only at "how many," never "what"). One honest row per
+execution keeps every attempt's real outcome, and the rollup becomes derived:
+- **First-Pass Yield** = first step-attempt's outcome (now a *real, direct* metric)
+- **final/effective** = last attempt's outcome
+- **retried?** = attempt count > 1
+
+`retry_aware_rollup` dissolves — it existed only to pick a winner from rows fusing destroyed.
+
+**Where things live — observed in the archive, aggregates at ingest.** Store the *source
+facts* (`step_retry`/`vector_retry`, indices, outcomes, timestamps) in parquet — that's what
+lets an external/lakehouse reader interpret a row standalone. Derive the *aggregates* (counts,
+rates, rollups) at DuckDB ingest, recomputed on rebuild (no drift). Never bake an *aggregate*
+into the archive — that's the `retry_count`-in-the-metadata-blob anti-pattern this session
+deleted. The line is observation-vs-aggregate, not store-nothing.
+
+**The work (at-rest → rides the 0.3.0 `schema_version` bump):**
+- Accumulator: key step + scope-vector by the **full** `(step_path, step_retry, vector_index,
+  vector_retry)` identity instead of `(step_path, vector_index)` — so a rerun is a distinct
+  key (no overwrite, no fusing); emit one row per execution, each with its own
+  boundaries/outcome.
+- **Un-conflate `vector_retry`**: split today's single field into `step_retry` (pytest item
+  rerun) + `vector_retry` (in-body vector rerun) in `RUN_ROW_SCHEMA`; both stored as observed
+  coordinates. *Verify first:* `StepStarted.retry` carries the pytest item-rerun count
+  distinctly from the in-body `VectorStarted.retry` — i.e. the two axes are separable at the
+  producer, not already merged upstream.
+- Drop the dead **rollups** `retry_count` / `has_measurements` / `vector_count` (the metadata
+  blob via `step_entry_dict`, the daemon projection, the inflight overlay, `StepRow`) — no
+  consumer left.
+- Remove **`retry_aware_rollup`**; the outcome rollup becomes a query-layer aggregation.
+- Flip `test_scenario_4` from asserting one fused row to asserting two execution rows — the
+  test that locked in the bug becomes the test that proves the fix.
