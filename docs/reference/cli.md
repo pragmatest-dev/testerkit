@@ -469,6 +469,7 @@ Show details for a specific test run.
 | `-o`/`--output` | `text` | Output file or directory |
 | `-t`/`--template` | `text` | Report template name  *(default: `default`)* |
 | `--env` | `flag` | Show environment snapshot |
+| `-v`/`--verbose` | `flag` | Show each step's full step_path (and the run's parquet file) as a location locator |
 
 ### `litmus station` (group) {#cli-station}
 
