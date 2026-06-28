@@ -7,6 +7,7 @@ import json
 import click
 
 from litmus.cli._common import _get_data_dir
+from litmus.cli._time import resolve_since_until
 from litmus.cli.root import main
 
 
@@ -14,12 +15,53 @@ def _base_filters(func):
     """Shared filter options for yield and gold commands."""
     func = click.option("--data-dir", default=None, help="Results directory")(func)
     func = click.option("--phase", default=None, help="Test phase (or 'all')")(func)
-    func = click.option("--since", default=None, help="Start date (ISO format)")(func)
-    func = click.option("--until", "until_date", default=None, help="End date (ISO format)")(func)
+    func = click.option(
+        "--since",
+        default=None,
+        help=(
+            "Include runs started at or after this time.  "
+            "Accepts a relative duration (e.g. '7d', '4h', '30m') or an ISO "
+            "date/datetime (e.g. '2024-01-01', '2024-01-01T08:00:00').  "
+            "Bare values are interpreted as local time unless --utc is set."
+        ),
+    )(func)
+    func = click.option(
+        "--until",
+        "until_date",
+        default=None,
+        help="Include runs started at or before this time.  Same format as --since.",
+    )(func)
     func = click.option("--part", default=None, help="Part ID")(func)
     func = click.option("--station", default=None, help="Station ID")(func)
+    func = click.option(
+        "--utc",
+        "utc_mode",
+        is_flag=True,
+        envvar="LITMUS_UTC",
+        help=(
+            "Interpret bare --since/--until values as UTC.  "
+            "Also enabled by setting LITMUS_UTC=1 in the environment."
+        ),
+    )(func)
     func = click.option("--json", "as_json", is_flag=True, help="Output as JSON")(func)
     return func
+
+
+def _resolve_time_filters(
+    since: str | None,
+    until_date: str | None,
+    utc_mode: bool,
+) -> tuple[str | None, str | None]:
+    """Convert ``--since`` / ``--until`` values to UTC ISO strings for the query layer.
+
+    Raises :class:`click.BadParameter` on parse failure.
+    """
+    try:
+        since_utc = resolve_since_until(since, utc=utc_mode) if since else None
+        until_utc = resolve_since_until(until_date, utc=utc_mode) if until_date else None
+    except ValueError as exc:
+        raise click.BadParameter(str(exc)) from None
+    return since_utc, until_utc
 
 
 def _measurements_query(data_dir: str | None):
@@ -38,8 +80,9 @@ def metrics_group():
 @metrics_group.command("summary")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def metrics_summary(data_dir, phase, since, until_date, part, station, period, as_json):
+def metrics_summary(data_dir, phase, since, until_date, part, station, utc_mode, period, as_json):
     """Yield summary: FPY, final yield, run counts, RTY, DPMO, DPPM, duration stats."""
+    since, until_date = _resolve_time_filters(since, until_date, utc_mode)
     with _measurements_query(data_dir) as store:
         rows = store.yield_summary(
             part=part,
@@ -99,8 +142,11 @@ def metrics_summary(data_dir, phase, since, until_date, part, station, period, a
         "measurements by name (the historical default)."
     ),
 )
-def metrics_pareto(data_dir, phase, since, until_date, part, station, top_n, group_by, as_json):
+def metrics_pareto(
+    data_dir, phase, since, until_date, part, station, utc_mode, top_n, group_by, as_json
+):
     """Top failures (Pareto). Group by part / step / measurement."""
+    since, until_date = _resolve_time_filters(since, until_date, utc_mode)
     if group_by == "step":
         from litmus.analysis.steps_query import StepsQuery
 
@@ -174,8 +220,9 @@ def metrics_pareto(data_dir, phase, since, until_date, part, station, top_n, gro
 @metrics_group.command("ppk")
 @_base_filters
 @click.option("--min-samples", default=10, help="Minimum sample count")
-def metrics_ppk(data_dir, phase, since, until_date, part, station, min_samples, as_json):
+def metrics_ppk(data_dir, phase, since, until_date, part, station, utc_mode, min_samples, as_json):
     """Process performance (Ppk/Pp) per measurement."""
+    since, until_date = _resolve_time_filters(since, until_date, utc_mode)
     with _measurements_query(data_dir) as store:
         rows = store.ppk(
             part=part,
@@ -220,8 +267,9 @@ def metrics_ppk(data_dir, phase, since, until_date, part, station, min_samples, 
 @metrics_group.command("trend")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def metrics_trend(data_dir, phase, since, until_date, part, station, period, as_json):
+def metrics_trend(data_dir, phase, since, until_date, part, station, utc_mode, period, as_json):
     """Yield trend over time."""
+    since, until_date = _resolve_time_filters(since, until_date, utc_mode)
     with _measurements_query(data_dir) as store:
         rows = store.trend(
             part=part,
@@ -249,8 +297,9 @@ def metrics_trend(data_dir, phase, since, until_date, part, station, period, as_
 @metrics_group.command("retest")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def metrics_retest(data_dir, phase, since, until_date, part, station, period, as_json):
+def metrics_retest(data_dir, phase, since, until_date, part, station, utc_mode, period, as_json):
     """Retest rates: how often UUTs are retried."""
+    since, until_date = _resolve_time_filters(since, until_date, utc_mode)
     with _measurements_query(data_dir) as store:
         rows = store.retest(
             part=part,
@@ -282,8 +331,9 @@ def metrics_retest(data_dir, phase, since, until_date, part, station, period, as
 @metrics_group.command("time-loss")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def metrics_time_loss(data_dir, phase, since, until_date, part, station, period, as_json):
+def metrics_time_loss(data_dir, phase, since, until_date, part, station, utc_mode, period, as_json):
     """Time lost to failures and errors."""
+    since, until_date = _resolve_time_filters(since, until_date, utc_mode)
     with _measurements_query(data_dir) as store:
         rows = store.time_loss(
             part=part,

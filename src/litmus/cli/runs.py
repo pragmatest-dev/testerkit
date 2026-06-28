@@ -8,6 +8,7 @@ from pathlib import Path
 import click
 
 from litmus.cli._common import _get_data_dir
+from litmus.cli._time import format_ts, resolve_since_until
 from litmus.cli.root import main
 
 
@@ -29,17 +30,58 @@ def _find_parquet_for_run(run_id: str, data_dir: str) -> Path | None:
 @main.command()
 @click.option("--data-dir", default=None, help="Results directory")
 @click.option("--limit", default=20, help="Number of runs to show")
+@click.option(
+    "--since",
+    default=None,
+    help=(
+        "Show runs started at or after this time.  "
+        "Accepts a relative duration (e.g. '7d', '4h', '30m') or an absolute "
+        "ISO date/datetime (e.g. '2024-01-01', '2024-01-01T08:00:00', "
+        "'2024-01-01T08:00:00+05:00').  "
+        "Bare values are interpreted as local time unless --utc is set."
+    ),
+)
+@click.option(
+    "--until",
+    default=None,
+    help=("Show runs started at or before this time.  Same format as --since."),
+)
+@click.option(
+    "--utc",
+    "utc_mode",
+    is_flag=True,
+    envvar="LITMUS_UTC",
+    help=(
+        "Display timestamps in UTC (trailing Z) and interpret bare "
+        "--since/--until values as UTC.  "
+        "Also enabled by setting LITMUS_UTC=1 in the environment."
+    ),
+)
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def runs(data_dir: str | None, limit: int, as_json: bool):
+def runs(
+    data_dir: str | None,
+    limit: int,
+    since: str | None,
+    until: str | None,
+    utc_mode: bool,
+    as_json: bool,
+):
     """List recent test runs."""
+    from litmus.analysis.runs_query import RunsQuery
     from litmus.data._flight_errors import FlightPermanentError
-    from litmus.data.backends.parquet import ParquetBackend
 
     data_dir = _get_data_dir(data_dir)
 
-    backend = ParquetBackend(data_dir=data_dir)
+    # Convert --since / --until to UTC strings before handing to the query layer.
     try:
-        test_runs = backend.list_runs(limit=limit)
+        since_utc = resolve_since_until(since, utc=utc_mode) if since else None
+        until_utc = resolve_since_until(until, utc=utc_mode) if until else None
+    except ValueError as exc:
+        raise click.BadParameter(str(exc)) from None
+
+    try:
+        with RunsQuery(_data_dir=data_dir) as q:
+            test_runs = q.list_recent(limit=limit, since=since_utc, until=until_utc)
     except FlightPermanentError as exc:
         raise click.ClickException(str(exc)) from None
 
@@ -55,16 +97,22 @@ def runs(data_dir: str | None, limit: int, as_json: bool):
         click.echo(json.dumps(runs_data, indent=2, default=str))
         return
 
-    click.echo(f"{'Run ID':<10} {'UUT Serial':<15} {'Project':<20} {'Station':<20} {'Outcome':<10}")
-    click.echo("-" * 80)
+    click.echo(
+        f"{'Run ID':<10} {'Started':<26} {'UUT Serial':<15} "
+        f"{'Project':<20} {'Station':<20} {'Outcome':<10}"
+    )
+    click.echo("-" * 106)
 
     for run in test_runs:
-        run_id = (run.test_run_id or "")[:8]
+        run_id = (run.run_id or "")[:8]
+        started = format_ts(run.started_at, utc=utc_mode)
         uut = run.uut_serial_number or ""
         project = run.project_name or ""
         station = run.station_id or ""
         outcome = run.outcome or ""
-        click.echo(f"{run_id:<10} {uut:<15} {project:<20} {station:<20} {outcome:<10}")
+        click.echo(
+            f"{run_id:<10} {started:<26} {uut:<15} {project:<20} {station:<20} {outcome:<10}"
+        )
 
 
 @main.command()
@@ -88,6 +136,16 @@ def runs(data_dir: str | None, limit: int, as_json: bool):
     default=False,
     help="Show each step's full step_path (and the run's parquet file) as a location locator",
 )
+@click.option(
+    "--utc",
+    "utc_mode",
+    is_flag=True,
+    envvar="LITMUS_UTC",
+    help=(
+        "Display timestamps in UTC (trailing Z).  "
+        "Also enabled by setting LITMUS_UTC=1 in the environment."
+    ),
+)
 def show(
     run_id: str,
     data_dir: str | None,
@@ -96,6 +154,7 @@ def show(
     template: str,
     env: bool,
     verbose: bool,
+    utc_mode: bool,
 ):
     """Show details for a specific test run.
 
@@ -139,8 +198,8 @@ def show(
     click.echo(f"  UUT Serial: {data.uut_serial_number}")
     click.echo(f"  Station: {data.station_id}")
     click.echo(f"  Outcome: {data.outcome}")
-    click.echo(f"  Started: {data.started_at}")
-    click.echo(f"  Ended: {data.ended_at}")
+    click.echo(f"  Started: {format_ts(data.started_at, utc=utc_mode)}")
+    click.echo(f"  Ended:   {format_ts(data.ended_at, utc=utc_mode)}")
     click.echo(f"  Steps: {len(data.step_names)}")
     click.echo(f"  Measurements: {data.total_measurements} ({data.failed_measurements} failed)")
 

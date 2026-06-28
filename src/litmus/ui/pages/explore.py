@@ -11,6 +11,7 @@ view is shareable by copy-paste.
 from __future__ import annotations
 
 import datetime
+import json
 import logging
 import traceback
 from collections import defaultdict
@@ -520,19 +521,42 @@ async def explore_page(request: Request):
         await _refresh_all()
 
     async def _on_since_change(e: Any) -> None:
-        result = _parse_iso_date(e.value)
-        if e.value and result is None:
+        local_str = e.value
+        # Validate format before conversion attempt.
+        if local_str and _parse_iso_date(local_str) is None:
             ui.notify("Invalid date format — use YYYY-MM-DD", type="warning")
             return
-        state["filter_set"].since = result
+        # Browser converts local date → UTC date (symmetric to display path).
+        # Falls back to the raw local value when no JS client is available.
+        utc_str = local_str
+        if local_str:
+            try:
+                converted = await ui.run_javascript(
+                    f"return window.litmusLocalToUtcDate({json.dumps(local_str)})"
+                )
+                if converted and isinstance(converted, str):
+                    utc_str = converted
+            except Exception:  # noqa: BLE001 — no client (tests); use local value
+                pass
+        state["filter_set"].since = _parse_iso_date(utc_str)
         await _refresh_all()
 
     async def _on_until_change(e: Any) -> None:
-        result = _parse_iso_date(e.value)
-        if e.value and result is None:
+        local_str = e.value
+        if local_str and _parse_iso_date(local_str) is None:
             ui.notify("Invalid date format — use YYYY-MM-DD", type="warning")
             return
-        state["filter_set"].until = result
+        utc_str = local_str
+        if local_str:
+            try:
+                converted = await ui.run_javascript(
+                    f"return window.litmusLocalToUtcDate({json.dumps(local_str)})"
+                )
+                if converted and isinstance(converted, str):
+                    utc_str = converted
+            except Exception:  # noqa: BLE001 — no client (tests); use local value
+                pass
+        state["filter_set"].until = _parse_iso_date(utc_str)
         await _refresh_all()
 
     # ── Layout ──────────────────────────────────────────────────────

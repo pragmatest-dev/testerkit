@@ -22,6 +22,39 @@ from litmus.utils.enum_meta import render_enum_reference as _render_enum_referen
 
 logger = logging.getLogger(__name__)
 
+
+# =============================================================================
+# UTC timestamp normalization
+# =============================================================================
+
+
+def _parse_utc_timestamp(value: str) -> datetime:
+    """Parse an ISO/RFC3339 timestamp string and return a UTC-aware datetime.
+
+    MCP is a machine/agent contract — the server is UTC-only and never
+    interprets bare inputs as local time.  Rules:
+
+    - A value with an explicit offset (e.g. ``"2024-01-01T12:00:00+05:30"``,
+      ``"2024-01-01T12:00:00Z"``) is converted to UTC.
+    - A bare/naive value (e.g. ``"2024-01-01T12:00:00"``) is treated as UTC
+      and stamped with ``tzinfo=UTC`` without shifting the wall-clock value.
+
+    Args:
+        value: ISO 8601 / RFC 3339 timestamp string.
+
+    Returns:
+        UTC-aware :class:`datetime`.
+
+    Raises:
+        ValueError: If ``value`` cannot be parsed by :func:`datetime.fromisoformat`.
+    """
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        # Bare input — treat as UTC (server is UTC-only; callers must send UTC).
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
 # =============================================================================
 # Project root management
 # =============================================================================
@@ -1236,7 +1269,8 @@ def events_query(
         session_id: Filter by session UUID.
         event_type: Filter by event type (e.g. "channel.started").
         role: Filter by instrument role.
-        since: ISO timestamp — only events after this time.
+        since: ISO timestamp (UTC; bare values without an offset are treated as UTC).
+            Only events after this time are returned.
         limit: Max events to return (default 100).
         data_dir: Explicit results directory (takes precedence).
     """
@@ -1244,7 +1278,7 @@ def events_query(
 
     store = EventStore(_data_dir=data_dir)
     try:
-        since_dt = datetime.fromisoformat(since) if since else None
+        since_dt = _parse_utc_timestamp(since) if since else None
         sid = UUID(session_id) if session_id else None
         # ``role`` filtering happens client-side (it inspects event
         # fields not directly indexed in SQL). Over-fetch a bit so
@@ -1319,6 +1353,17 @@ def channels_query(
     Shared implementation for HTTP API and MCP tool. Each row carries its
     ``sample_offset`` — the sample's per-session position. That's part of the
     channel ticket (``channel://…&sample_offset=N``), so it travels with the data.
+
+    Args:
+        channel_id: Channel to query.
+        session_id: Filter to a specific session.
+        since: ISO timestamp (UTC; bare values without an offset are treated as UTC).
+            Only samples at or after this time are returned.
+        until: ISO timestamp (UTC; bare values without an offset are treated as UTC).
+            Only samples at or before this time are returned.
+        last_n: Return only the last N rows.
+        max_points: Downsample to at most this many rows (LTTB).
+        data_dir: Explicit results directory (takes precedence).
     """
     from litmus.data.channels.client import channel_query_client
     from litmus.data.data_dir import resolve_data_dir
@@ -1327,8 +1372,8 @@ def channels_query(
     if not (base / "channels").exists():
         return {"channel_id": channel_id, "data": []}
 
-    since_dt = datetime.fromisoformat(since) if since else None
-    until_dt = datetime.fromisoformat(until) if until else None
+    since_dt = _parse_utc_timestamp(since) if since else None
+    until_dt = _parse_utc_timestamp(until) if until else None
     with channel_query_client(base / "channels") as client:
         table = client.query(
             channel_id,
@@ -1768,8 +1813,11 @@ def metrics_tool(
         part: Filter by part/part number.
         station: Filter by station name.
         phase: Filter by test phase (default: exclude development, 'all' = no filter).
-        since: Start date (ISO format, inclusive).
-        until: End date (ISO format, inclusive).
+        since: Start date (ISO 8601 date or UTC timestamp, inclusive). The server is
+            UTC-only; date-only values (e.g. ``"2024-01-01"``) are compared against UTC
+            dates in DuckDB. Timestamps with explicit offsets are converted to UTC.
+        until: End date (ISO 8601 date or UTC timestamp, inclusive). Same UTC rules as
+            ``since``.
         period: Time bucket — day, week, or month (default: day).
         top_n: Number of top failures for pareto (default: 10).
         min_samples: Minimum sample count for ppk (default: 10).

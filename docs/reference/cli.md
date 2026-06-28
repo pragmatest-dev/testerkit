@@ -246,10 +246,11 @@ Top failures (Pareto). Group by part / step / measurement.
 | Argument / option | Type | Description |
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
+| `--utc` | `flag` | Interpret bare --since/--until values as UTC.  Also enabled by setting LITMUS_UTC=1 in the environment. |
 | `--station` | `text` | Station ID |
 | `--part` | `text` | Part ID |
-| `--until` | `text` | End date (ISO format) |
-| `--since` | `text` | Start date (ISO format) |
+| `--until` | `text` | Include runs started at or before this time.  Same format as --since. |
+| `--since` | `text` | Include runs started at or after this time.  Accepts a relative duration (e.g. '7d', '4h', '30m') or an ISO date/datetime (e.g. '2024-01-01', '2024-01-01T08:00:00').  Bare values are interpreted as local time unless --utc is set. |
 | `--phase` | `text` | Test phase (or 'all') |
 | `--data-dir` | `text` | Results directory |
 | `--top` | `integer` | Number of top failures  *(default: `10`)* |
@@ -262,10 +263,11 @@ Process performance (Ppk/Pp) per measurement.
 | Argument / option | Type | Description |
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
+| `--utc` | `flag` | Interpret bare --since/--until values as UTC.  Also enabled by setting LITMUS_UTC=1 in the environment. |
 | `--station` | `text` | Station ID |
 | `--part` | `text` | Part ID |
-| `--until` | `text` | End date (ISO format) |
-| `--since` | `text` | Start date (ISO format) |
+| `--until` | `text` | Include runs started at or before this time.  Same format as --since. |
+| `--since` | `text` | Include runs started at or after this time.  Accepts a relative duration (e.g. '7d', '4h', '30m') or an ISO date/datetime (e.g. '2024-01-01', '2024-01-01T08:00:00').  Bare values are interpreted as local time unless --utc is set. |
 | `--phase` | `text` | Test phase (or 'all') |
 | `--data-dir` | `text` | Results directory |
 | `--min-samples` | `integer` | Minimum sample count  *(default: `10`)* |
@@ -277,10 +279,11 @@ Retest rates: how often UUTs are retried.
 | Argument / option | Type | Description |
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
+| `--utc` | `flag` | Interpret bare --since/--until values as UTC.  Also enabled by setting LITMUS_UTC=1 in the environment. |
 | `--station` | `text` | Station ID |
 | `--part` | `text` | Part ID |
-| `--until` | `text` | End date (ISO format) |
-| `--since` | `text` | Start date (ISO format) |
+| `--until` | `text` | Include runs started at or before this time.  Same format as --since. |
+| `--since` | `text` | Include runs started at or after this time.  Accepts a relative duration (e.g. '7d', '4h', '30m') or an ISO date/datetime (e.g. '2024-01-01', '2024-01-01T08:00:00').  Bare values are interpreted as local time unless --utc is set. |
 | `--phase` | `text` | Test phase (or 'all') |
 | `--data-dir` | `text` | Results directory |
 | `--period` | `{day, week, month}` | *(default: `day`)* |
@@ -292,10 +295,11 @@ Yield summary: FPY, final yield, run counts, RTY, DPMO, DPPM, duration stats.
 | Argument / option | Type | Description |
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
+| `--utc` | `flag` | Interpret bare --since/--until values as UTC.  Also enabled by setting LITMUS_UTC=1 in the environment. |
 | `--station` | `text` | Station ID |
 | `--part` | `text` | Part ID |
-| `--until` | `text` | End date (ISO format) |
-| `--since` | `text` | Start date (ISO format) |
+| `--until` | `text` | Include runs started at or before this time.  Same format as --since. |
+| `--since` | `text` | Include runs started at or after this time.  Accepts a relative duration (e.g. '7d', '4h', '30m') or an ISO date/datetime (e.g. '2024-01-01', '2024-01-01T08:00:00').  Bare values are interpreted as local time unless --utc is set. |
 | `--phase` | `text` | Test phase (or 'all') |
 | `--data-dir` | `text` | Results directory |
 | `--period` | `{day, week, month}` | *(default: `day`)* |
@@ -307,10 +311,11 @@ Time lost to failures and errors.
 | Argument / option | Type | Description |
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
+| `--utc` | `flag` | Interpret bare --since/--until values as UTC.  Also enabled by setting LITMUS_UTC=1 in the environment. |
 | `--station` | `text` | Station ID |
 | `--part` | `text` | Part ID |
-| `--until` | `text` | End date (ISO format) |
-| `--since` | `text` | Start date (ISO format) |
+| `--until` | `text` | Include runs started at or before this time.  Same format as --since. |
+| `--since` | `text` | Include runs started at or after this time.  Accepts a relative duration (e.g. '7d', '4h', '30m') or an ISO date/datetime (e.g. '2024-01-01', '2024-01-01T08:00:00').  Bare values are interpreted as local time unless --utc is set. |
 | `--phase` | `text` | Test phase (or 'all') |
 | `--data-dir` | `text` | Results directory |
 | `--period` | `{day, week, month}` | *(default: `day`)* |
@@ -322,10 +327,11 @@ Yield trend over time.
 | Argument / option | Type | Description |
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
+| `--utc` | `flag` | Interpret bare --since/--until values as UTC.  Also enabled by setting LITMUS_UTC=1 in the environment. |
 | `--station` | `text` | Station ID |
 | `--part` | `text` | Part ID |
-| `--until` | `text` | End date (ISO format) |
-| `--since` | `text` | Start date (ISO format) |
+| `--until` | `text` | Include runs started at or before this time.  Same format as --since. |
+| `--since` | `text` | Include runs started at or after this time.  Accepts a relative duration (e.g. '7d', '4h', '30m') or an ISO date/datetime (e.g. '2024-01-01', '2024-01-01T08:00:00').  Bare values are interpreted as local time unless --utc is set. |
 | `--phase` | `text` | Test phase (or 'all') |
 | `--data-dir` | `text` | Results directory |
 | `--period` | `{day, week, month}` | *(default: `day`)* |
@@ -364,6 +370,9 @@ List recent test runs.
 |---|---|---|
 | `--data-dir` | `text` | Results directory |
 | `--limit` | `integer` | Number of runs to show  *(default: `20`)* |
+| `--since` | `text` | Show runs started at or after this time.  Accepts a relative duration (e.g. '7d', '4h', '30m') or an absolute ISO date/datetime (e.g. '2024-01-01', '2024-01-01T08:00:00', '2024-01-01T08:00:00+05:00').  Bare values are interpreted as local time unless --utc is set. |
+| `--until` | `text` | Show runs started at or before this time.  Same format as --since. |
+| `--utc` | `flag` | Display timestamps in UTC (trailing Z) and interpret bare --since/--until values as UTC.  Also enabled by setting LITMUS_UTC=1 in the environment. |
 | `--json` | `flag` | Output as JSON |
 
 ### `litmus sbom` {#cli-sbom}
@@ -470,6 +479,7 @@ Show details for a specific test run.
 | `-t`/`--template` | `text` | Report template name  *(default: `default`)* |
 | `--env` | `flag` | Show environment snapshot |
 | `-v`/`--verbose` | `flag` | Show each step's full step_path (and the run's parquet file) as a location locator |
+| `--utc` | `flag` | Display timestamps in UTC (trailing Z).  Also enabled by setting LITMUS_UTC=1 in the environment. |
 
 ### `litmus station` (group) {#cli-station}
 

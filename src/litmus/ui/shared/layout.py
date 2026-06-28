@@ -186,7 +186,7 @@ def create_layout(title: str = "Litmus"):
     # development; production deploys hash-stable mtimes.
     from pathlib import Path
 
-    from litmus.ui.shared.components import local_time_init_script
+    from litmus.ui.shared.components import local_date_input_init_script, local_time_init_script
 
     css_path = Path(__file__).parent.parent / "static" / "global.css"
     try:
@@ -203,6 +203,13 @@ def create_layout(title: str = "Litmus"):
         f" {local_time_init_script()} "
         "});</script>"
     )
+    # Date conversion helpers for the INPUT edge: browser converts a
+    # local date the operator typed/picked to its UTC equivalent before
+    # the server sees it (symmetric to the display path above).
+    # ``window.litmusLocalToUtcDate`` / ``window.litmusUtcToLocalDate``
+    # are called via ``await ui.run_javascript(...)`` from async page
+    # handlers on ``/metrics`` and ``/explore``.
+    ui.add_head_html(f"<script>{local_date_input_init_script()}</script>")
     ui.query("body").classes("bg-slate-50")
 
     create_sidebar()

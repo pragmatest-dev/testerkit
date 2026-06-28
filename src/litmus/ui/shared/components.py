@@ -280,6 +280,65 @@ def local_time_init_script() -> str:
     """
 
 
+def local_date_input_init_script() -> str:
+    """Return the JS that installs browser-local date conversion helpers.
+
+    Two pure functions are installed on ``window``:
+
+    * ``window.litmusLocalToUtcDate(dateStr)`` — converts a YYYY-MM-DD or
+      YYYY/MM/DD date string interpreted as **browser-local midnight** to the
+      corresponding UTC date as YYYY-MM-DD.  This is the *input edge*: the
+      operator picks or types a local date; the browser converts to the UTC
+      equivalent before the server uses it for queries.
+    * ``window.litmusUtcToLocalDate(dateStr)`` — inverse: a UTC YYYY-MM-DD
+      date string to the browser-local date as YYYY-MM-DD.  Exposed for
+      symmetry (e.g. initialising a picker from a UTC date stored in the URL).
+
+    Both functions are safe to call with an empty string or ``null``/
+    ``undefined`` (return ``''``).  Malformed input falls back to returning
+    the original string unchanged so the caller can surface a validation
+    message.
+
+    Called from :func:`~litmus.ui.shared.layout.create_layout` so the
+    functions are available on every page that hosts date filter inputs
+    (``/metrics``, ``/explore``).
+    """
+    return r"""
+    window.litmusLocalToUtcDate = function(localDateStr) {
+      if (!localDateStr) return '';
+      try {
+        var parts = String(localDateStr).split(/[-\/]/);
+        if (parts.length < 3) return String(localDateStr);
+        var y = parseInt(parts[0], 10);
+        var m = parseInt(parts[1], 10) - 1;
+        var d = parseInt(parts[2], 10);
+        if (isNaN(y) || isNaN(m) || isNaN(d)) return String(localDateStr);
+        var midnight = new Date(y, m, d, 0, 0, 0);
+        var pad = function(n) { return String(n).padStart(2, '0'); };
+        return midnight.getUTCFullYear() + '-'
+          + pad(midnight.getUTCMonth() + 1) + '-'
+          + pad(midnight.getUTCDate());
+      } catch(e) { return String(localDateStr); }
+    };
+    window.litmusUtcToLocalDate = function(utcDateStr) {
+      if (!utcDateStr) return '';
+      try {
+        var parts = String(utcDateStr).split('-');
+        if (parts.length < 3) return String(utcDateStr);
+        var y = parseInt(parts[0], 10);
+        var m = parseInt(parts[1], 10) - 1;
+        var d = parseInt(parts[2], 10);
+        if (isNaN(y) || isNaN(m) || isNaN(d)) return String(utcDateStr);
+        var utcMidnight = new Date(Date.UTC(y, m, d, 0, 0, 0));
+        var pad = function(n) { return String(n).padStart(2, '0'); };
+        return utcMidnight.getFullYear() + '-'
+          + pad(utcMidnight.getMonth() + 1) + '-'
+          + pad(utcMidnight.getDate());
+      } catch(e) { return String(utcDateStr); }
+    };
+    """
+
+
 def info_field(label: str, value: str) -> None:
     """Render a read-only label/value pair (small label on top, bold value below).
 
