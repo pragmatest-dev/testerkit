@@ -18,7 +18,7 @@ my_project/
 │   └── power_board.yaml
 ├── stations/                       # WHERE you test
 │   └── bench_1.yaml
-├── fixtures/                       # HOW pins connect to instruments
+├── fixtures/                       # HOW parts are connected to instruments
 │   └── power_board_fixture.yaml
 ├── tests/                          # Test code + sidecar
 │   ├── conftest.py
