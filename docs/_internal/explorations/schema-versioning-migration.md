@@ -239,7 +239,15 @@ Out of scope / deferred: the package yank (needs go-ahead, §2); writing any `1.
 
 ## §6. Open items
 
-- [ ] **Package yank 0.2.0/0.2.1** — user go-ahead required (outward-facing).
+- [~] **Package yank 0.2.0/0.2.1** — **APPROVED 2026-06-27** (rationale: upcoming data-
+      versioning refactors). Pending manual execution: PyPI yanks only via the web UI (no
+      CLI/API path), so the owner clicks it at
+      `https://pypi.org/manage/project/litmus-test/releases/`. Public reason string (final):
+      "Pre-1.0 on-disk data formats; abandoned by the 0.3.0 schema-versioning reset (all stores
+      restart at schema 1.0). Unsupported going forward — install 0.3.0 or later." Timing note:
+      yanking both makes `0.1.3` the highest non-yanked release, so `pip install litmus-test`
+      resolves *backward* to 0.1.3 until 0.3.0 ships — lean toward folding the yank into the
+      0.3.0 release so the index points forward, but either order is acceptable.
 - [ ] Confirm no real archived 0.2.x data exists anywhere worth an adapter (assumed none).
 - [ ] **Follow-on, not C3 — Query-API grain surface.** Decided (2026-06-27): **no `VectorQuery`**
       — `StepsQuery` is already vector-grained (`steps_materialized` PK `(run_id, step_path,
@@ -257,3 +265,6 @@ Out of scope / deferred: the package yank (needs go-ahead, §2); writing any `1.
 - **2026-06-27** — C3 contract shaped and locked via discussion; this diary written. No code yet.
   Predecessor reshapes already committed on `feat/0.3.0-at-rest-reshape`: C4, C5, #7, #8, #9, #10.
   C3 is **gated** only by the package-yank go-ahead (§6); the engineering (§5) is unblocked.
+- **2026-06-27** — Package yank **approved** (rationale: upcoming data-versioning refactors).
+  Final public reason string authored (§6). Execution is manual (PyPI web-UI only); owner to
+  click. The go-ahead gate is now cleared — C3 engineering (§5) can start whenever.
