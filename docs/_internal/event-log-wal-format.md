@@ -27,8 +27,8 @@ flush writes a RecordBatch into that stream.
 {data_dir}/events/{date}/{session_id}-{pid}[_{segment:04d}].arrow
 ```
 
-- `{date}` — ISO 8601 date when the EventLog was constructed
-  (`date.today().isoformat()`).
+- `{date}` — UTC ISO 8601 date when the EventLog was constructed
+  (`datetime.now(UTC).date().isoformat()`). Disk is canonical UTC; only UIs localize.
 - `{session_id}` — UUID of the session this log writes for.
 - `{pid}` — OS process ID of the writing process. Each process gets its
   own file so concurrent orchestrator + worker processes never clobber

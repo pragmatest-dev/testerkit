@@ -14,7 +14,7 @@ import socket
 import warnings
 import weakref
 from collections.abc import Callable, Sequence
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -390,7 +390,8 @@ class ChannelStore:
             }
         )
         session_short = str(self._session_id)[:8]
-        today = date.today().isoformat()
+        # UTC date dir — disk is canonical UTC; only UIs localize.
+        today = datetime.now(UTC).date().isoformat()
         path = self._channels_dir / today / f"{channel_id}_{session_short}.arrow"
         writer = _ChannelWriter(
             channel_id,

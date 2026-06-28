@@ -160,3 +160,17 @@ class TestEventLog:
             f"Expected schema_version={EVENT_LOG_SCHEMA_VERSION!r}, "
             f"got {schema.metadata[b'schema_version']!r}"
         )
+
+    def test_date_dir_is_utc(self, tmp_path):
+        """Date-partitioned directory name equals the UTC date (task #19 — UTC everywhere)."""
+        from datetime import UTC, datetime
+
+        log = EventLog(tmp_path / "events", uuid4())
+        log.emit(RunStarted(station_id="st1", uut_serial_number="SN001"))
+        log.close()
+
+        expected_date = datetime.now(UTC).date().isoformat()
+        date_dirs = [p.name for p in (tmp_path / "events").iterdir() if p.is_dir()]
+        assert date_dirs == [expected_date], (
+            f"Expected UTC date dir '{expected_date}', got {date_dirs}"
+        )

@@ -401,6 +401,24 @@ class TestNoneValues:
         store.close()
 
 
+class TestUTCDateDir:
+    """Task #19 — UTC everywhere: date-partitioned directory name must be the UTC date."""
+
+    def test_channel_date_dir_is_utc(self, tmp_path: Path) -> None:
+        """Channel store uses the UTC date for its date-partitioned directory."""
+        from datetime import UTC, datetime
+
+        store = ChannelStore(tmp_path, uuid4())
+        store.write("dmm.dc_voltage", 3.3)
+        store.close()
+
+        expected_date = datetime.now(UTC).date().isoformat()
+        date_dirs = [p.name for p in (tmp_path / "channels").iterdir() if p.is_dir()]
+        assert date_dirs == [expected_date], (
+            f"Expected UTC date dir '{expected_date}', got {date_dirs}"
+        )
+
+
 class TestSchemaVersionStamp:
     """C3: schema_version is stamped into every channel Arrow IPC file.
 

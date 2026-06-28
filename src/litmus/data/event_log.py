@@ -16,7 +16,7 @@ import json
 import os
 import warnings
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -206,7 +206,8 @@ class EventLog:
         self._session_id = session_id
         self._on_emit = on_emit
         self._on_flush = on_flush
-        date_dir = self.log_dir / date.today().isoformat()
+        # UTC date dir — disk is canonical UTC; only UIs localize.
+        date_dir = self.log_dir / datetime.now(UTC).date().isoformat()
         date_dir.mkdir(parents=True, exist_ok=True)
         self._ipc = _EventIPCWriter(
             path=date_dir / f"{session_id}-{os.getpid()}.arrow",

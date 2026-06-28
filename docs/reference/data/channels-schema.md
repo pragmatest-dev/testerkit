@@ -12,7 +12,7 @@ Each Litmus channel produces one or more **Arrow IPC stream files** (`.arrow` ex
 └── ...
 ```
 
-`{date}` is the local system date of the first write to the channel (`YYYY-MM-DD`). `{session8}` is the first eight hex characters of the session UUID. Each channel gets its own file tree — two channels from the same session land in two separate files.
+`{date}` is the UTC date of the first write to the channel (`YYYY-MM-DD`). `{session8}` is the first eight hex characters of the session UUID. Each channel gets its own file tree — two channels from the same session land in two separate files.
 
 **Segment rotation.** Instead of a single growing file, the store writes a new segment file each time the buffered sample count reaches the flush threshold. Closed segments are immediately readable by any Arrow-capable reader; the in-progress segment becomes readable once it is flushed and closed. This means a long-running session produces several numbered segments per channel; all are needed for a complete picture.
 
