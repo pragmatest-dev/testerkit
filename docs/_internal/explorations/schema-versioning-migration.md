@@ -237,6 +237,46 @@ So **migration is "re-index that also persists the adapter output."** Consequenc
 Out of scope / deferred: the package yank (needs go-ahead, §2); writing any `1.x → 2.0` adapter
 (YAGNI until a real bump); the optional rewrite-compaction tool (strategy 2 above).
 
+## §5.1 Verification — how C3 gets tested
+
+The catch: C3 ships a *version-aware* seam whose only version is `1.0` and whose only adapter is
+identity — so the seam's real value (project an old MAJOR forward) can't be exercised by
+production code until the first `2.0`. Testing therefore splits into "directly testable now" and
+"de-risk the dormant path with synthetic inputs." The bare stamp-round-trip the earlier plan
+listed is only the first of these.
+
+**Directly testable now (the bulk of §5):**
+
+- **Stamp round-trip, per store.** Write via each store → read the stamp back → assert `1.0`.
+  Events asserts *both* coordinates (envelope + event-catalog).
+- **Whitelist-dispatch reader — all three branches**, via a doctored-stamp fixture (tamper or
+  strip the metadata key on a written artifact):
+  - `1.0` → reads
+  - synthetic unknown (`2.0`/`5.0`) → refuses, "unsupported schema version"
+  - absent → refuses, "pre-1.0 / regenerate"
+  This tests the dispatch logic with no second real version needed.
+- **No-unstamped-write convention** — a `tests/test_conventions.py`-style guard that fails if any
+  durable write path ships without a stamp, so a future store can't silently regress to
+  unversioned (which the reader would then refuse at read time).
+
+**De-risk the dormant adapter path (otherwise untested until 2.0):**
+
+- **Test-only synthetic adapter.** Register a throwaway non-identity transform *in the suite only*
+  (e.g. a fake column rename, `0.9→1.0` or `1.0→2.0`), feed it a doctored-stamp fixture, and
+  assert both sinks end-to-end: **re-index** (old-stamp fixture → daemon index holds current-shape
+  rows) and **migrate** (old-stamp fixture → adapter → new file is stamped current, content
+  transformed, atomic-swapped). This is the highest-value C3 test — it exercises the exact
+  machinery that is otherwise dormant until a real bump.
+- **Frozen golden 1.0 corpus, committed now.** One small golden file per store at the 1.0 shape,
+  checked in. Two payoffs: pins the 1.0 on-disk shape against accidental drift today, and
+  *becomes the regression input* the real `1.0→2.0` adapter is tested against later. This is what
+  turns "support 1.0 forever" from a promise into a passing forward-migration test.
+
+**Honest caveat:** until a second *real* version exists, this tests the machinery with synthetic
+inputs, not a real migration. The first production adapter at `2.0` is still where it meets real
+old data — but the golden corpus shrinks that risk to "we have a real frozen 1.0 file and a
+passing forward-migration test," not "we find out at 2.0."
+
 ## §6. Open items
 
 - [~] **Package yank 0.2.0/0.2.1** — **APPROVED 2026-06-27**, but **execution sequenced to the
@@ -272,3 +312,7 @@ Out of scope / deferred: the package yank (needs go-ahead, §2); writing any `1.
   cite an unpublished 0.3.0). Now a 0.3.0 release-checklist step, not a do-now action. Final
   public reason string authored (§6). The go-ahead *decision* gate is cleared — C3 engineering
   (§5) can start whenever; the yank itself waits for release day.
+- **2026-06-27** — Added §5.1 Verification: stamp round-trip per store, three-branch
+  whitelist-reader test (known/unknown/absent via doctored fixtures), no-unstamped-write
+  convention, a test-only synthetic adapter exercising both re-index + migrate sinks, and a
+  committed frozen golden 1.0 corpus as the future `1.0→2.0` adapter's regression input.
