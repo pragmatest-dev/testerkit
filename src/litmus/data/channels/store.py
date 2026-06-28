@@ -31,6 +31,7 @@ from litmus.data._push_relay import PushRelay
 from litmus.data.channels import flight_manager
 from litmus.data.channels.index import ChannelIndex, _decimate_table, _to_utc
 from litmus.data.channels.models import (
+    CHANNEL_SCHEMA_VERSION,
     CHANNELS_PUT_COMMAND,
     SCALAR_SCHEMA,
     ChannelDescriptor,
@@ -383,7 +384,10 @@ class ChannelStore:
         if writer is not None:
             return writer
         schema = _infer_schema(self._normalize_value(first_value, sample_interval)).with_metadata(
-            {b"litmus.channel_descriptor": self._registry[channel_id].model_dump_json().encode()}
+            {
+                b"litmus.channel_descriptor": self._registry[channel_id].model_dump_json().encode(),
+                b"schema_version": CHANNEL_SCHEMA_VERSION.encode(),
+            }
         )
         session_short = str(self._session_id)[:8]
         today = date.today().isoformat()

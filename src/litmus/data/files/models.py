@@ -6,6 +6,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+# FIRST stamp of the FileStore sidecar format. The sidecar
+# ({filename}.meta.json) is a published, directly-readable consumer
+# surface — version it so readers can detect format changes.
+FILE_METADATA_SCHEMA_VERSION = "1.0"
+
 
 class FileArtifactMetadata(BaseModel):
     """Metadata persisted next to a FileStore artifact as a sidecar.
@@ -45,3 +50,8 @@ class FileArtifactMetadata(BaseModel):
     # catalog can be filtered by run and the UI can link back. Persisted in the
     # sidecar so a daemon-restart rescan recovers it. ``None`` for run-less writes.
     run_id: str | None = None
+    # Schema version stamp — included in every sidecar so readers can detect
+    # format changes without scanning field presence. Defaults to the current
+    # version so old sidecars (missing this field) still validate: Pydantic
+    # fills in the default, giving backward-tolerant reads.
+    schema_version: str = Field(default=FILE_METADATA_SCHEMA_VERSION)

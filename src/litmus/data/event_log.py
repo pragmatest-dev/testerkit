@@ -27,6 +27,15 @@ from litmus.data._event_filters import event_matches_role
 from litmus.data._ipc_writer import BufferedIPCWriter, read_ipc_batches
 from litmus.data.events import TYPED_PAYLOAD_COLUMNS, EventBase
 
+# Internal migration/ingest key for the event WAL IPC format.
+#
+# This is NOT a published consumer contract — consumers read events via
+# the daemon index / Query API, never the raw Arrow IPC files directly.
+# Bump this constant (and add a migration entry in
+# ``docs/_internal/event-log-wal-format.md``) whenever the column set or
+# types in ``_IPC_SCHEMA`` change in a backward-incompatible way.
+EVENT_LOG_SCHEMA_VERSION = "1.0"
+
 # Schema for the index columns stored in IPC files.
 #
 # Envelope fields (id, event_type, occurred_at, received_at,
@@ -37,6 +46,10 @@ from litmus.data.events import TYPED_PAYLOAD_COLUMNS, EventBase
 # and the list. Promotion duplicates the value (it remains inside
 # ``json``) but lets the daemon push WHERE filters down into DuckDB
 # instead of returning rows for Python to post-filter.
+#
+# The ``schema_version`` Arrow metadata key carries ``EVENT_LOG_SCHEMA_VERSION``
+# so every written IPC file is stamped with its format version. The daemon
+# ingest path selects columns by name and is unaffected by schema metadata.
 _IPC_SCHEMA = pa.schema(
     [
         ("id", pa.string()),
@@ -58,7 +71,8 @@ _IPC_SCHEMA = pa.schema(
         ("event_offset", pa.int64()),
         ("json", pa.string()),
         *((col, pa.string()) for col in TYPED_PAYLOAD_COLUMNS),
-    ]
+    ],
+    metadata={b"schema_version": EVENT_LOG_SCHEMA_VERSION.encode()},
 )
 
 _DEFAULT_FLUSH_THRESHOLD = 50

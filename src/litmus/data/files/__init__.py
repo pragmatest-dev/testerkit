@@ -21,7 +21,7 @@ this factory rather than constructing per-call.
 
 from __future__ import annotations
 
-from litmus.data.files.models import FileArtifactMetadata
+from litmus.data.files.models import FILE_METADATA_SCHEMA_VERSION, FileArtifactMetadata
 from litmus.data.files.serializers import (
     Serializer,
     find_serializer,
@@ -30,6 +30,7 @@ from litmus.data.files.serializers import (
 from litmus.data.files.store import FileStore
 
 __all__ = [
+    "FILE_METADATA_SCHEMA_VERSION",
     "FileArtifactMetadata",
     "FileStore",
     "Serializer",

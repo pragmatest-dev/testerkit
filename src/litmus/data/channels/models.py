@@ -30,6 +30,13 @@ class SubscribePolicy(StrEnum):
     LATEST = "latest"
 
 
+# C3 schema-version stamp — first stamp of the channel Arrow IPC format.
+# Channel ``.arrow`` files are a published, directly-readable consumer
+# surface (DuckDB / pandas / Polars can open them without Litmus), so
+# this is a real consumer-facing version contract. Bump when the durable
+# at-rest column shape changes in a breaking way; add a migration note.
+CHANNEL_SCHEMA_VERSION = "1.0"
+
 # Channels rides the shared DuckDBFlightServer under this db name. The do_put
 # descriptor is ``CHANNELS_FLIGHT_DB\0<table>`` — the put-hook reads the
 # ``channel_id`` column off the wire batch, so the table slot is a constant.

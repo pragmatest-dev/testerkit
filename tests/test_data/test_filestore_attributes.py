@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 from pydantic import BaseModel
 
-from litmus.data.files import FileArtifactMetadata, FileStore
+from litmus.data.files import FILE_METADATA_SCHEMA_VERSION, FileArtifactMetadata, FileStore
 from litmus.data.models import Waveform
 
 
@@ -259,3 +259,53 @@ class TestCollisionPairsSidecar:
         # Filenames are distinct (...dup.bin / ...dup_2.bin)
         assert uri_a.endswith("dup.bin")
         assert uri_b.endswith("dup_2.bin")
+
+
+# --------------------------------------------------------------------- #
+# C3 schema_version stamp                                                #
+# --------------------------------------------------------------------- #
+
+
+class TestSchemaVersion:
+    """C3 — FileStore sidecar carries a schema_version field.
+
+    The sidecar is a published, directly-readable consumer surface.
+    Every new write must carry ``schema_version = FILE_METADATA_SCHEMA_VERSION``
+    so downstream readers can detect format changes without guessing.
+
+    Old sidecars (missing the field) must still validate: Pydantic fills
+    in the default, giving backward-tolerant reads.
+    """
+
+    def test_schema_version_present_in_sidecar_after_write(self, store: FileStore) -> None:
+        """write() auto-includes schema_version via model_dump_json()."""
+        sid = _session_id()
+        uri = store.write("artifact", b"hello", session_id=sid)
+        meta = store.read_attributes(uri)
+        assert meta is not None
+        assert meta.schema_version == FILE_METADATA_SCHEMA_VERSION
+
+    def test_schema_version_present_in_raw_sidecar_json(self, store: FileStore) -> None:
+        """Confirm the field appears in the persisted JSON, not just in the model."""
+        import json
+
+        sid = _session_id()
+        uri = store.write("artifact", b"hello", session_id=sid)
+        filename = uri.rsplit("/", 1)[-1]
+        today = datetime.now(UTC).date().isoformat()
+        session_dir = store._files_dir / today / sid
+        raw = (session_dir / f"{filename}.meta.json").read_bytes()
+        sidecar_dict = json.loads(raw)
+        assert "schema_version" in sidecar_dict
+        assert sidecar_dict["schema_version"] == FILE_METADATA_SCHEMA_VERSION
+
+    def test_old_sidecar_without_field_still_validates(self) -> None:
+        """Sidecars written before C3 (no schema_version key) validate via default."""
+        old_sidecar_json = (
+            b'{"mime": "application/octet-stream", "extension": ".bin",'
+            b' "size_bytes": 5, "attributes": {}, "instrument_role": "",'
+            b' "resource": "", "run_id": null}'
+        )
+        meta = FileArtifactMetadata.model_validate_json(old_sidecar_json)
+        # Default fills in the current version — backward-tolerant reads
+        assert meta.schema_version == FILE_METADATA_SCHEMA_VERSION
