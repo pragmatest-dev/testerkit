@@ -81,6 +81,13 @@ def runs(data_dir: str | None, limit: int, as_json: bool):
 @click.option("-o", "--output", default=None, help="Output file or directory")
 @click.option("-t", "--template", default="default", help="Report template name")
 @click.option("--env", is_flag=True, default=False, help="Show environment snapshot")
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    default=False,
+    help="Show each step's full step_path (and the run's parquet file) as a location locator",
+)
 def show(
     run_id: str,
     data_dir: str | None,
@@ -88,6 +95,7 @@ def show(
     output: str | None,
     template: str,
     env: bool,
+    verbose: bool,
 ):
     """Show details for a specific test run.
 
@@ -136,28 +144,29 @@ def show(
     click.echo(f"  Steps: {len(data.step_names)}")
     click.echo(f"  Measurements: {data.total_measurements} ({data.failed_measurements} failed)")
 
-    # Show step results if available
-    pq_path = _find_parquet_for_run(run_id, data_dir)
-    if pq_path and not env:
-        from litmus.data.backends.parquet import read_step_results
+    # Step results from the daemon's steps view — the same per-step source
+    # the UI and API use (StepsQuery). Resolving the run already goes through
+    # the daemon (RunsQuery, via load_run_data above), so this adds no new
+    # dependency and uses the one blessed per-(step, vector) grouping.
+    # include_incomplete=True keeps collected-but-never-ran steps (ended_at
+    # NULL) visible. step_path already carries the function identity, so no
+    # separate file/function location suffix is shown.
+    if not env:
+        from litmus.analysis.steps_query import StepsQuery
 
-        manifest = read_step_results(pq_path)
-        if manifest:
+        with StepsQuery(_data_dir=data_dir) as q:
+            steps = q.list_for_run(run_id, include_incomplete=True)
+        if steps:
             click.echo("\nStep Results:")
-            for entry in manifest:
-                mc = entry.get("measurement_count")
-                meas_info = f" ({mc} measurements)" if mc else ""
-                outcome = entry.get("outcome") or "never_ran"
-                if outcome == "never_ran":
-                    func = entry.get("function", "")
-                    loc = f" [{func}]" if func else ""
-                else:
-                    loc = entry.get("file") or ""
-                    if loc and entry.get("function"):
-                        loc = f" [{loc}::{entry['function']}]"
-                    elif loc:
-                        loc = f" [{loc}]"
-                click.echo(f"  {entry['index']:>2}. {entry['name']}: {outcome}{meas_info}{loc}")
+            if verbose and steps[0].file_path:
+                click.echo(f"  file: {steps[0].file_path}")
+            for s in steps:
+                meas_info = f" ({s.measurement_count} measurements)" if s.measurement_count else ""
+                outcome = s.outcome or "never_ran"
+                # Default shows the concise step_name; -v shows the full
+                # step_path (container/function locator).
+                name = (s.step_path or s.step_name) if verbose else (s.step_name or s.step_path)
+                click.echo(f"  {(s.step_index or 0):>2}. {name or ''}: {outcome}{meas_info}")
 
     if data.measurements and not env:
         click.echo("\nMeasurements:")

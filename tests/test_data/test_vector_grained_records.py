@@ -33,7 +33,7 @@ import pyarrow.parquet as pq
 
 from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.backends._row_helpers import decode_lane_structs
-from litmus.data.backends.parquet import materialize_run_to_parquet, read_step_results
+from litmus.data.backends.parquet import materialize_run_to_parquet
 from litmus.data.events import (
     MeasurementRecorded,
     Observation,
@@ -437,10 +437,10 @@ def test_scenario_5_retry_mode1(tmp_path):
 
     path = materialize_run_to_parquet(acc, tmp_path / "results2", outcome="passed")
     assert path is not None
-    manifest = read_step_results(path)
-    # The manifest is one entry per execution; no derived retry_count rollup.
-    assert "retry_count" not in manifest[0]
-    assert {e["step_retry"] for e in manifest} == {0, 1}
+    step_rows = [r for r in pq.read_table(path).to_pylist() if r["record_type"] == "step"]
+    # One step row per execution; no derived retry_count rollup column.
+    assert "retry_count" not in step_rows[0]
+    assert {r["step_retry"] for r in step_rows} == {0, 1}
 
 
 def test_scenario_5_retry_mode2(tmp_path):

@@ -118,8 +118,6 @@ def _build_parquet_metadata(
     *,
     environment_json: str | None = None,
     custom_metadata: dict[str, Any] | None = None,
-    step_results: list[dict[str, Any]] | None = None,
-    profile_facets: dict[str, str] | None = None,
 ) -> dict[bytes, bytes]:
     """Build Parquet file-level metadata.
 
@@ -132,27 +130,9 @@ def _build_parquet_metadata(
         metadata[b"environment_json"] = environment_json.encode("utf-8")
     if custom_metadata:
         metadata[b"custom_metadata"] = json.dumps(custom_metadata, default=str).encode("utf-8")
-    if step_results:
-        # step_results is a step-level summary; the per-vector nested
-        # measurements (which carry raw datetimes) live in the parquet rows,
-        # not this JSON metadata.
-        slim = [{k: v for k, v in e.items() if k != "measurements"} for e in step_results]
-        metadata[b"step_results"] = json.dumps(slim).encode("utf-8")
-    if profile_facets:
-        metadata[b"profile_facets_json"] = json.dumps(profile_facets).encode("utf-8")
 
-    from litmus import __version__
-
-    metadata[b"litmus_version"] = __version__.encode("utf-8")
     metadata[b"schema_version"] = SCHEMA_VERSION.encode()
     return metadata
-
-
-# Lazy version lookup: ``litmus/__init__.py`` re-exports ``LitmusClient``
-# (which depends on this module via ``ParquetBackend``), so a top-level
-# ``from litmus import __version__`` would cycle. Module load-time would
-# break; deferring to call time is fine because the function only runs
-# at parquet-write time, well after the full package is loaded.
 
 
 class ParquetMeasurementWriter:
@@ -343,9 +323,8 @@ class ParquetBackend:
         Item 1d: ref writes route through FileStore (one canonical home
         for all blobs) instead of the per-parquet sibling ``{stem}_ref/``.
         The vector_id-shortened prefix on the FileStore filename preserves
-        the audit trail. Shared by the measurement, step-row, and
-        step_results-metadata writers so a blob is claim-checked the same
-        way regardless of which lane carries it.
+        the audit trail. Shared by the measurement and step-row writers so
+        a blob is claim-checked the same way regardless of which lane carries it.
 
         Lazy import: ``data.files`` transitively pulls PIL / serializers
         that are only needed when this writer runs. Top-level would add
@@ -389,10 +368,6 @@ class ParquetBackend:
         return _build_parquet_metadata(
             environment_json=test_run.environment_json,
             custom_metadata=dict(test_run.custom_metadata) or None,
-            step_results=build_step_manifest(
-                test_run, ref_saver=self._filestore_ref_saver(test_run)
-            ),
-            profile_facets=test_run.profile_facets or None,
         )
 
     def list_runs(self, limit: int = 50) -> list[RunSummary]:
@@ -454,14 +429,6 @@ class ParquetBackend:
                 vectors_seen[key] = vector_info
 
         return list(vectors_seen.values())
-
-    def get_steps(self, run_id: str) -> list[dict[str, Any]]:
-        """Get step results for a run from the unified parquet's file-level metadata."""
-        with self._run_store_ctx() as store:
-            pq_file = store.find_run_file(run_id)
-        if pq_file is None:
-            return []
-        return read_step_results(Path(pq_file))
 
     def get_run_metadata(self, run_id: str) -> dict[str, str] | None:
         """Get file-level metadata (config snapshots) for a run."""
@@ -655,11 +622,9 @@ def _build_file_metadata_from_acc(acc: EventAccumulator) -> dict[bytes, bytes]:
     s = acc._run_started
     if not s:
         return _build_parquet_metadata()
-    results = acc._build_step_results_from_events() or None
     return _build_parquet_metadata(
         environment_json=s.environment_json,
         custom_metadata=dict(s.custom_metadata) or None,
-        step_results=results,
     )
 
 
@@ -854,22 +819,6 @@ def _deserialize_ref(
     ) as exc:
         logger.warning("Failed to load reference %s: %s", ref, exc)
         return ref
-
-
-def read_step_results(parquet_path: Path) -> list[dict[str, Any]]:
-    """Read the step-results manifest from the parquet's file-level metadata.
-
-    Returns an empty list if no step results are stored.
-    """
-    try:
-        pf = pq.ParquetFile(parquet_path)
-        raw_metadata = pf.schema_arrow.metadata or {}
-        results_bytes = raw_metadata.get(b"step_results")
-        if results_bytes:
-            return json.loads(results_bytes)
-    except (OSError, pa.ArrowInvalid, json.JSONDecodeError):
-        pass
-    return []
 
 
 def load_ref(

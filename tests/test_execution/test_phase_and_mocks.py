@@ -273,21 +273,3 @@ class TestProfileFacetsStamping:
             "test_phase": "production",
             "part": "tps54302",
         }
-
-    def test_parquet_metadata_uses_profile_facets_json_key(self) -> None:
-        """Parquet file-level metadata key is ``profile_facets_json``."""
-        from litmus.data.backends.parquet import _build_parquet_metadata
-
-        meta = _build_parquet_metadata(
-            profile_facets={"test_phase": "production", "part": "tps54302"}
-        )
-        assert b"profile_facets_json" in meta
-        assert b"facets_json" not in meta
-
-    def test_parquet_metadata_omits_key_when_no_facets(self) -> None:
-        from litmus.data.backends.parquet import _build_parquet_metadata
-
-        meta = _build_parquet_metadata(profile_facets=None)
-        assert b"profile_facets_json" not in meta
-        meta2 = _build_parquet_metadata(profile_facets={})
-        assert b"profile_facets_json" not in meta2

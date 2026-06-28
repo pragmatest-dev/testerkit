@@ -13,7 +13,6 @@ import pyarrow.parquet as pq
 from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.backends.parquet import (
     materialize_run_to_parquet,
-    read_step_results,
     reconstruct_test_run_from_file,
 )
 from litmus.data.events import (
@@ -251,8 +250,8 @@ class TestMaterializer:
         assert row["step_class"] == "TestPower"
         assert row["step_function"] == "test_5v_rail"
 
-    def test_step_results_metadata(self, tmp_path):
-        """Step results are written to Parquet file-level metadata."""
+    def test_step_results_rows(self, tmp_path):
+        """Step results are readable from ``record_type='step'`` rows in parquet."""
         acc = EventAccumulator()
         run_id = uuid4()
         session_id = uuid4()
@@ -323,14 +322,24 @@ class TestMaterializer:
         materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
 
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
-        manifest = read_step_results(pq_files[0])
-        assert len(manifest) == 2
-        assert manifest[0]["name"] == "test_voltage"
-        assert manifest[0]["measurement_count"] > 0
-        assert manifest[0]["measurement_count"] == 1
-        assert manifest[1]["name"] == "configure_uut"
-        assert manifest[1]["measurement_count"] == 0
-        assert manifest[1]["node_id"] == "tests/test_hw.py::configure_uut"
+        rows = pq.read_table(pq_files[0]).to_pylist()
+        steps = sorted(
+            (r for r in rows if r["record_type"] == "step"),
+            key=lambda r: r["step_index"],
+        )
+        # Measurements are nested on the vector rows; count per step_index.
+        meas_by_step: dict[int, int] = {}
+        for r in rows:
+            if r["record_type"] == "vector":
+                meas_by_step[r["step_index"]] = meas_by_step.get(r["step_index"], 0) + len(
+                    r.get("measurements") or []
+                )
+        assert len(steps) == 2
+        assert steps[0]["step_name"] == "test_voltage"
+        assert meas_by_step.get(steps[0]["step_index"], 0) == 1
+        assert steps[1]["step_name"] == "configure_uut"
+        assert meas_by_step.get(steps[1]["step_index"], 0) == 0
+        assert steps[1]["step_function"] == "configure_uut"
 
     def test_measurement_before_run_started(self, tmp_path):
         """Graceful fallback when RunStarted never arrives.

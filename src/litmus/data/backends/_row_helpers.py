@@ -1177,8 +1177,8 @@ def build_step_manifest(
 
     ``ref_saver`` claim-checks blob observations through the same saver
     the measurement path uses (``build_output_columns``) so a raw blob
-    never reaches the step-record lane structs or the ``step_results``
-    JSON metadata. Without it, blobs fall back to ``repr()``.
+    never reaches the step-record lane structs. Without it, blobs fall back
+    to ``repr()``.
     """
     manifest: list[dict[str, Any]] = []
     executed_node_ids: set[str] = set()
@@ -1210,7 +1210,7 @@ def build_step_manifest(
             # StepEnded.outputs / observations into its step entry. Routed
             # through ``build_output_columns`` (same as the measurement
             # path) so blobs are claim-checked via ``ref_saver`` rather
-            # than reaching the lane structs / step_results JSON raw.
+            # than reaching the lane structs raw.
             outputs = (
                 build_output_columns(vector, ref_saver=ref_saver) if vector is not None else {}
             )

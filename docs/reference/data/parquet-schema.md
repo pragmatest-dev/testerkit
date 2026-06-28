@@ -388,7 +388,6 @@ Beyond columns, each Parquet file carries metadata:
 |-----|-------------|
 | `environment_json` | Full environment snapshot (Python version, OS, Litmus version, top-level deps, lockfile hash) |
 | `custom_metadata` | Run-level custom metadata set via `run_context.set()`, serialized as a JSON object |
-| `litmus_version` | Litmus version that produced this file |
 | `schema_version` | Schema version (`"2.0"`) |
 
 ```python
