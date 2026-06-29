@@ -31,10 +31,7 @@ __all__ = [
     "table_from_rows",
 ]
 
-# Bumped to 2.0 for the v2 at-rest reshape (nested measurements under
-# vector rows; run/step/vector record types) — a breaking change from the
-# 1.0 flat measurement-row schema. Stamped into parquet metadata.
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "1.0"
 
 # EAV lane struct — the nested at-rest representation of one input / output
 # entry. ``value_type`` selects which ``value_*`` lane holds the value. Field
