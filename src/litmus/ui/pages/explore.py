@@ -11,7 +11,6 @@ view is shareable by copy-paste.
 from __future__ import annotations
 
 import datetime
-import json
 import logging
 import traceback
 from collections import defaultdict
@@ -43,6 +42,7 @@ from litmus.ui.shared.components import (
     render_empty_card,
     render_skeleton,
     subscribe_with_refresh,
+    utc_date_input,
 )
 from litmus.ui.shared.layout import create_layout
 
@@ -521,41 +521,24 @@ async def explore_page(request: Request):
         await _refresh_all()
 
     async def _on_since_change(e: Any) -> None:
-        local_str = e.value
-        # Validate format before conversion attempt.
-        if local_str and _parse_iso_date(local_str) is None:
+        # e.args is the UTC string already converted in the browser by
+        # utc_date_input's js_handler — Python never calls back to JS for this.
+        args = e.args
+        utc_str = (args[0] if isinstance(args, list) else args) or ""
+        utc_str = str(utc_str) if utc_str is not None else ""
+        if utc_str and _parse_iso_date(utc_str) is None:
             ui.notify("Invalid date format — use YYYY-MM-DD", type="warning")
             return
-        # Browser converts local date → UTC date (symmetric to display path).
-        # Falls back to the raw local value when no JS client is available.
-        utc_str = local_str
-        if local_str:
-            try:
-                converted = await ui.run_javascript(
-                    f"return window.litmusLocalToUtcDate({json.dumps(local_str)})"
-                )
-                if converted and isinstance(converted, str):
-                    utc_str = converted
-            except Exception:  # noqa: BLE001 — no client (tests); use local value
-                pass
         state["filter_set"].since = _parse_iso_date(utc_str)
         await _refresh_all()
 
     async def _on_until_change(e: Any) -> None:
-        local_str = e.value
-        if local_str and _parse_iso_date(local_str) is None:
+        args = e.args
+        utc_str = (args[0] if isinstance(args, list) else args) or ""
+        utc_str = str(utc_str) if utc_str is not None else ""
+        if utc_str and _parse_iso_date(utc_str) is None:
             ui.notify("Invalid date format — use YYYY-MM-DD", type="warning")
             return
-        utc_str = local_str
-        if local_str:
-            try:
-                converted = await ui.run_javascript(
-                    f"return window.litmusLocalToUtcDate({json.dumps(local_str)})"
-                )
-                if converted and isinstance(converted, str):
-                    utc_str = converted
-            except Exception:  # noqa: BLE001 — no client (tests); use local value
-                pass
         state["filter_set"].until = _parse_iso_date(utc_str)
         await _refresh_all()
 
@@ -791,37 +774,19 @@ def _build_facet_widget(  # noqa: PLR0913
     """Render one compact facet block and return its primary widget."""
     if facet.kind is FacetKind.DATE:
         with ui.row().classes("gap-2 items-end"):
-            since_input = (
-                ui.input(
-                    "Since",
-                    value=filter_set.since.isoformat() if filter_set.since else "",
-                )
-                .classes("w-36")
-                .props("dense outlined")
+            since_handle = utc_date_input(
+                "Since",
+                value=filter_set.since.isoformat() if filter_set.since else None,
+                on_change=on_since_change,
+                classes="w-36",
             )
-            with since_input.add_slot("append"):
-                ui.icon("event").on("click", lambda: since_menu.open()).classes("cursor-pointer")
-            with ui.menu() as since_menu:
-                ui.date(
-                    value=filter_set.since.isoformat() if filter_set.since else None,
-                    on_change=on_since_change,
-                ).bind_value(since_input)
-            until_input = (
-                ui.input(
-                    "Until",
-                    value=filter_set.until.isoformat() if filter_set.until else "",
-                )
-                .classes("w-36")
-                .props("dense outlined")
+            utc_date_input(
+                "Until",
+                value=filter_set.until.isoformat() if filter_set.until else None,
+                on_change=on_until_change,
+                classes="w-36",
             )
-            with until_input.add_slot("append"):
-                ui.icon("event").on("click", lambda: until_menu.open()).classes("cursor-pointer")
-            with ui.menu() as until_menu:
-                ui.date(
-                    value=filter_set.until.isoformat() if filter_set.until else None,
-                    on_change=on_until_change,
-                ).bind_value(until_input)
-        return since_input
+        return since_handle
 
     if facet.kind is FacetKind.ENUM:
         assert facet.enum_class is not None

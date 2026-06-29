@@ -1,6 +1,5 @@
 """Yield & manufacturing metrics page."""
 
-import json
 import logging
 import traceback
 from datetime import UTC, datetime, timedelta
@@ -22,6 +21,7 @@ from litmus.ui.shared.components import (
     render_empty_card,
     render_skeleton,
     subscribe_with_refresh,
+    utc_date_input,
 )
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import get_runs_filter_options
@@ -118,42 +118,6 @@ async def metrics_page(
     loaded_tabs: set[str] = set()
     filters_sig: dict[str, Any] = {"value": None}
 
-    # UTC-converted date strings for since/until — maintained by
-    # ``_sync_utc_dates()``.  Initialised to the URL params directly; the
-    # JS conversion runs on the first ``_load_active_tab`` call so even the
-    # initial render uses the correct UTC date.  The picker widgets always
-    # show LOCAL dates; only the query path uses these UTC values.
-    _utc_dates: dict[str, str | None] = {"since": since or None, "until": until or None}
-
-    async def _sync_utc_dates() -> None:
-        """Convert local picker dates → UTC via browser JS and cache in ``_utc_dates``.
-
-        Called at the top of every ``_load_active_tab`` invocation so both the
-        initial page load and subsequent filter changes use UTC dates for queries.
-        Falls back to the picker value unchanged when the JS call fails (e.g.
-        during server-side tests with no connected client).
-        """
-        if since_filter is None or until_filter is None:
-            return
-        since_local = since_filter.value or ""
-        until_local = until_filter.value or ""
-        try:
-            utc_s = await ui.run_javascript(
-                f"return window.litmusLocalToUtcDate({json.dumps(since_local)})"
-            )
-            utc_u = await ui.run_javascript(
-                f"return window.litmusLocalToUtcDate({json.dumps(until_local)})"
-            )
-            _utc_dates["since"] = (
-                (utc_s or None) if isinstance(utc_s, str) else (since_local or None)
-            )
-            _utc_dates["until"] = (
-                (utc_u or None) if isinstance(utc_u, str) else (until_local or None)
-            )
-        except Exception:  # noqa: BLE001 — no client (tests/background); fall back to raw values
-            _utc_dates["since"] = since_local or None
-            _utc_dates["until"] = until_local or None
-
     def update_url() -> None:
         if (
             phase_filter is None
@@ -198,10 +162,10 @@ async def metrics_page(
             list(phase_filter.value or []) or None,
             list(part_filter.value or []) or None,
             list(station_filter.value or []) or None,
-            # Use UTC-converted dates (set by _sync_utc_dates before each load).
-            # These are the UTC equivalents of the local dates the operator picked.
-            _utc_dates["since"],
-            _utc_dates["until"],
+            # since_filter.value / until_filter.value are UTC strings from the
+            # UtcDateHandle — the JS layer converts before Python ever sees them.
+            since_filter.value,
+            until_filter.value,
         )
 
     # ---------------------------------------------------------------------------
@@ -348,10 +312,6 @@ async def metrics_page(
             )
         ):
             return
-        # Convert the local dates the operator picked to UTC before querying.
-        # Runs on every load (initial + filter changes) so the query always
-        # uses UTC-equivalent dates.  Fallback: raw picker values (no JS client).
-        await _sync_utc_dates()
         sig = _current_filters()
         if sig != filters_sig["value"]:
             loaded_tabs.clear()
@@ -446,27 +406,19 @@ async def metrics_page(
                 placeholder="Leave blank for all",
             ).classes("w-40")
 
-            with ui.input("Since (optional)", value=since).classes("w-40") as since_input:
-                with since_input.add_slot("append"):
-                    ui.icon("event").on("click", lambda: since_menu.open()).classes(
-                        "cursor-pointer"
-                    )
-                with ui.menu() as since_menu:
-                    since_filter = ui.date(
-                        value=since or None,
-                        on_change=_on_filter_change,
-                    ).bind_value(since_input)
+            since_filter = utc_date_input(
+                "Since (optional)",
+                value=since or None,
+                on_change=_on_filter_change,
+                classes="w-40",
+            )
 
-            with ui.input("Until (optional)", value=until).classes("w-40") as until_input:
-                with until_input.add_slot("append"):
-                    ui.icon("event").on("click", lambda: until_menu.open()).classes(
-                        "cursor-pointer"
-                    )
-                with ui.menu() as until_menu:
-                    until_filter = ui.date(
-                        value=until or None,
-                        on_change=_on_filter_change,
-                    ).bind_value(until_input)
+            until_filter = utc_date_input(
+                "Until (optional)",
+                value=until or None,
+                on_change=_on_filter_change,
+                classes="w-40",
+            )
 
             ui.button("Refresh", icon="refresh", on_click=_on_filter_change).props("outline")
 

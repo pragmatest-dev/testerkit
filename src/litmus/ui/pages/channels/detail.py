@@ -15,12 +15,14 @@ from litmus.data.data_dir import resolve_data_dir
 from litmus.data.event_store import EventStore
 from litmus.ui.shared.components import (
     LiveBadge,
+    UtcDateHandle,
     data_table,
     format_datetime,
     info_field,
     lookup_session_label,
     push_url_state,
     session_filter_banner,
+    utc_date_input,
 )
 from litmus.ui.shared.event_binding import ui_channel_data, ui_subscribe
 from litmus.ui.shared.layout import create_layout
@@ -199,23 +201,18 @@ def channel_detail_page(
         # Filters first (above chart + data) so the page reads top-down.
         with ui.card().classes("w-full"):
             with ui.row().classes("items-end gap-3 flex-wrap p-2"):
-                with ui.input("Since", value=since).classes("w-44") as since_input:
-                    with since_input.add_slot("append"):
-                        ui.icon("event").on("click", lambda: since_menu.open()).classes(
-                            "cursor-pointer"
-                        )
-                    with ui.menu() as since_menu:
-                        ui.date(on_change=lambda _: refresh()).bind_value(since_input)
-                filters.since_input = since_input
-
-                with ui.input("Until", value=until).classes("w-44") as until_input:
-                    with until_input.add_slot("append"):
-                        ui.icon("event").on("click", lambda: until_menu.open()).classes(
-                            "cursor-pointer"
-                        )
-                    with ui.menu() as until_menu:
-                        ui.date(on_change=lambda _: refresh()).bind_value(until_input)
-                filters.until_input = until_input
+                filters.since_handle = utc_date_input(
+                    "Since",
+                    value=since or None,
+                    on_change=lambda _: refresh(),
+                    classes="w-44",
+                )
+                filters.until_handle = utc_date_input(
+                    "Until",
+                    value=until or None,
+                    on_change=lambda _: refresh(),
+                    classes="w-44",
+                )
 
                 ui.button(
                     "Clear", icon="clear", on_click=lambda: _clear_filters(filters, refresh)
@@ -257,8 +254,8 @@ async def _clear_filters(filters: _Filters, refresh: Callable[[], Awaitable[None
     its only affordance is the session banner's Clear button (which
     navigates to a URL without the param).
     """
-    filters.since_input.set_value("")
-    filters.until_input.set_value("")
+    filters.since_handle.clear()
+    filters.until_handle.clear()
     await refresh()
 
 
@@ -558,21 +555,25 @@ def _render_data_table(card: ui.card, rows: list[dict[str, Any]]) -> None:
 
 
 class _Filters:
-    """Lazy-read filter values from the input widgets.
+    """Lazy-read filter values from the UTC date handles.
 
     ``session_id`` is intentionally NOT here — it's URL-only and
     flows through the page-level ``session`` parameter, never via
     a filter widget (see :func:`session_filter_banner`).
+
+    ``.since_handle`` / ``.until_handle`` are :class:`UtcDateHandle` instances
+    whose ``.value`` is always UTC or ``None`` — the JS layer converts before
+    Python sees any value.
     """
 
-    since_input: ui.input
-    until_input: ui.input
+    since_handle: UtcDateHandle
+    until_handle: UtcDateHandle
 
     def since(self) -> str:
-        return (self.since_input.value or "").strip()
+        return (self.since_handle.value or "").strip()
 
     def until(self) -> str:
-        return (self.until_input.value or "").strip()
+        return (self.until_handle.value or "").strip()
 
 
 def _extract_scalar(row: dict[str, Any]) -> Any:

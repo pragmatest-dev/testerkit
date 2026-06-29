@@ -203,12 +203,13 @@ def create_layout(title: str = "Litmus"):
         f" {local_time_init_script()} "
         "});</script>"
     )
-    # Date conversion helpers for the INPUT edge: browser converts a
-    # local date the operator typed/picked to its UTC equivalent before
-    # the server sees it (symmetric to the display path above).
-    # ``window.litmusLocalToUtcDate`` / ``window.litmusUtcToLocalDate``
-    # are called via ``await ui.run_javascript(...)`` from async page
-    # handlers on ``/metrics`` and ``/explore``.
+    # Date/datetime conversion helpers for the INPUT edge.  All four
+    # functions (litmusLocalToUtcDate, litmusUtcToLocalDate,
+    # litmusLocalToUtcDateTime, litmusUtcToLocalDateTime) live entirely in
+    # the browser JS layer — called directly from the js_handler of
+    # utc_date_input widgets.  Python performs no timezone math.
+    # Also installs the MutationObserver that localizes the initial
+    # displayed value of .litmus-date-utc inputs on page load.
     ui.add_head_html(f"<script>{local_date_input_init_script()}</script>")
     ui.query("body").classes("bg-slate-50")
 
