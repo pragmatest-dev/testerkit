@@ -124,9 +124,12 @@ Once a plan is approved, it is the contract. Execution is faithful execution.
 - **Top-level imports only. No lazy imports — period.** Circular deps are fixed
   by extracting shared components, not by in-function imports or `# noqa`. The
   only exception is genuinely heavy optional deps behind extras (numpy, h5py).
-- **Terse comments.** Code is the source of truth. No multi-line explanatory
-  blocks, no narrating what the code already says. Verbose comments bloat diffs
-  and drift.
+- **Self-describing code, not comments.** The default is zero comments — a clear
+  name says what a comment would. Don't explain *what* the code does or narrate a
+  decision in a block above a line; rename, restructure, or extract until the code
+  reads on its own. Rationale belongs in the commit message or a repo doc, never a
+  comment. Reach for a comment only for a genuine non-obvious *why* the code can't
+  carry (a subtle invariant, a workaround) — and then one terse line. **[hard rule]**
 - **No tombstones.** When you remove code or a feature, delete it cleanly. Never
   leave a comment or doc section narrating the removal ("X removed", "if revived
   …"). Git history and the commit message are the record. **[hard rule]**
