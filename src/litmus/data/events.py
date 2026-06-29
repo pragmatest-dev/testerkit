@@ -495,7 +495,8 @@ class MeasurementRecorded(EventBase):
     step_index: int
     step_path: str = ""
     vector_index: int = 0
-    retry: int = 0  # 0 for first execution, N for Nth retry
+    step_retry: int = 0  # outer item-attempt axis (de-fuse identity)
+    retry: int = 0  # inner vector retry — 0 for first execution, N for Nth
 
     # Measurement fields
     measurement_name: str

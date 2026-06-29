@@ -295,6 +295,7 @@ A single measurement. Normalized: carries only measurement-specific fields.
 | `step_index` | `int` | *required* |
 | `step_path` | `str` | `''` |
 | `vector_index` | `int` | `0` |
+| `step_retry` | `int` | `0` |
 | `retry` | `int` | `0` |
 | `measurement_name` | `str` | *required* |
 | `measurement_timestamp` | `datetime \| None` | `None` |

@@ -655,3 +655,35 @@ def test_inputs_auto_projected_to_parquet(tmp_path: Path) -> None:
 
     by_vi = {r.vector_index: r.inputs for r in container_rows}
     assert by_vi == {0: {"voltage": 1}, 1: {"voltage": 2}, 2: {"voltage": 3}}, by_vi
+
+
+def test_configure_overrides_parametrize_in_stored_inputs(tmp_path: Path) -> None:
+    """``configure()`` overrides a parametrize key (and adds new ones) in the
+    stored step inputs, while keys it never touches keep their swept value."""
+    session_id = str(uuid4())
+    test_file = tmp_path / "test_configure_override.py"
+    _write_test(
+        test_file,
+        """\
+        import pytest
+
+        @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
+        class TestSeq:
+            def test_one(self, voltage, context):
+                context.configure("voltage", voltage + 100)
+                context.configure("trim", 7)
+        """,
+    )
+    result = _run_pytest(test_file, session_id=session_id)
+    assert result.returncode == 0, result.stderr
+
+    rows = _read_steps(session_id)
+    method_rows = [r for r in rows if r.step_name == "test_one"]
+    assert len(method_rows) == 3, [(r.step_path, r.vector_index) for r in method_rows]
+
+    by_vi = {r.vector_index: r.inputs for r in method_rows}
+    assert by_vi == {
+        0: {"voltage": 101, "trim": 7},
+        1: {"voltage": 102, "trim": 7},
+        2: {"voltage": 103, "trim": 7},
+    }, by_vi

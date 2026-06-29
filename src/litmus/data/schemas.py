@@ -151,10 +151,6 @@ RUN_ROW_SCHEMA = pa.schema(
         ("step_class", pa.string()),
         ("step_function", pa.string()),
         ("step_markers", pa.string()),
-        # step_vector_count: total planned vectors for this step (1 for
-        # non-swept; N for sweep with N variants). Stored as a hint so
-        # consumers can detect partial-runs without joining the manifest.
-        ("step_vector_count", pa.int32()),
         # step_retry: 0-based outer (item) retry — pytest-rerunfailures rerun
         # count of this step. Distinct from vector_retry (the inner per-vector
         # retry). Both stamp every execution so a rerun is a distinct row.

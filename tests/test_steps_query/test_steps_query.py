@@ -47,7 +47,6 @@ def _step(
             "step_started_at": started,
             "step_ended_at": ended,
             "step_outcome": outcome,
-            "step_vector_count": 1,
             "vector_index": 0,
             # measurement_name None → step-summary row (no measurement);
             # measurement_count is computed from row count downstream.

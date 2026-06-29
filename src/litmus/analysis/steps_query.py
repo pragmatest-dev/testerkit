@@ -46,8 +46,9 @@ class StepRow(BaseModel):
     step_path: str | None = None
     parent_path: str | None = None
     # vector_index: 0 for non-swept steps; 0..N-1 for sweep variants of the
-    # same logical step. The composite (run_id, step_path, vector_index) is
-    # the per-vector identity within a run.
+    # same logical step. The composite (run_id, step_path, step_retry,
+    # vector_index) is the per-execution identity within a run — step_retry
+    # distinguishes reruns of the same logical step.
     vector_index: int | None = None
     outcome: str | None = None
     started_at: datetime | None = None
@@ -151,7 +152,7 @@ class StepsQuery:
             FROM steps
             WHERE run_id LIKE '{sql_escape(prefix)}%'
             {ended_clause}
-            ORDER BY step_index
+            ORDER BY step_index, step_retry, vector_index
         """)
         step_rows: list[StepRow] = []
         for r in rows:
@@ -247,7 +248,7 @@ class StepsQuery:
             FROM steps
             WHERE session_id = '{sql_escape(session_id)}'
             {ended_clause}
-            ORDER BY slot_id, step_index
+            ORDER BY slot_id, step_index, step_retry, vector_index
         """)
         step_rows: list[StepRow] = []
         for r in rows:
@@ -264,17 +265,20 @@ class StepsQuery:
         matches ``step_index``.
         """
         rows = self.list_for_run(run_id)
-        nodes_by_path: dict[str, StepNode] = {}
+        parent_anchor: dict[str, StepNode] = {}
         roots: list[StepNode] = []
         for row in rows:
             node = StepNode(step=row)
             path = row.step_path or row.step_name or ""
-            nodes_by_path[path] = node
+            # Anchor parent attachment to the first node at a path; every
+            # execution (rerun / sweep variant) keeps its own node, so reruns
+            # are never overwritten and lost.
+            parent_anchor.setdefault(path, node)
             if "/" not in path:
                 roots.append(node)
                 continue
             parent_path = path.rsplit("/", 1)[0]
-            parent = nodes_by_path.get(parent_path)
+            parent = parent_anchor.get(parent_path)
             if parent is not None:
                 parent.children.append(node)
             else:

@@ -611,3 +611,79 @@ deleted. The line is observation-vs-aggregate, not store-nothing.
 - Remove **`retry_aware_rollup`**; the outcome rollup becomes a query-layer aggregation.
 - Flip `test_scenario_4` from asserting one fused row to asserting two execution rows — the
   test that locked in the bug becomes the test that proves the fix.
+
+## Inputs are vector-scoped and stable — honor `configure()` at the vector grain (decided 2026-06-29)
+
+**Decision.** The vector *is* the input set: it binds inputs, outputs, and measurements for one
+execution. Inputs are **vector-scoped and stable** — every measurement in a vector shares one
+input set. We do **not** support a per-measurement input axis (e.g. `configure()` between two
+measurements of the same vector yielding different inputs per measurement). One input set per
+vector, full stop.
+
+**What this settles.**
+- **Storage:** one input set per vector row; measurements carry no inputs at rest
+  (`_measurement_event_struct` correctly omits them). "Input search misses measurements with
+  extra inputs" is a non-issue *by decision* — there is no per-measurement input to miss.
+- **Event:** `MeasurementRecorded.inputs` stays on the wire for live subscribers (computed at
+  measure time, `run_scope.py`), understood to be vector-stable — never persisted per
+  measurement. Keep it; don't store it.
+- **`vector_index` is positional and ALWAYS unstable — never an analysis key.** It reorders
+  when vectors vary (validation vs production run different vectors), so the identity of a
+  vector is its **input values**, not its index. Any analysis keyed on `vector_index` alone is
+  wrong by construction. Corollary: the at-rest layer must not *merge* two executions just
+  because they share a positional `(step_path, vector_index, retry)` — distinct input sets are
+  distinct vectors.
+
+**The defect this exposes — inputs lane is snapshotted too early.** The stored inputs lane is
+sourced from the **start** event (`StepStarted`/`VectorStarted`) in the accumulator, while
+outputs come from the **end** event. `configure()` runs in the test body, *after* the start
+event, so configure-added inputs never reach the stored lane — though they appear on the live
+event and in the CSV/DataFrame export (`iter_rows`→`build_row`, which reads in-memory
+`vector.params` at end). So the canonical stored surface is the lossy one and disagrees with
+the other two.
+
+**Seed on Started, latch on Ended — per row grain.** Each Step/Vector parquet row is seeded by
+its `Started` event and latched (overwritten) by its `Ended` event at write time. `configure()`
+mutates the in-memory params, so the `Ended` snapshot captures the change: the **step row
+latches `StepEnded`**, each **vector row latches its `VectorEnded`**. While in-flight (no End
+yet) the overlay reads the Started snapshot; at finalize End wins. This is `_end_overrides_start`
+applied uniformly per grain — no special "step stays at Start" rule. `configure()` overriding a
+parametrize key is visible because per-grain / per-vector End snapshots differ.
+
+**The one real wrinkle — the Mode-1 bridge.** For `configure()` to reach `StepEnded`, the
+configured values must be in `vec.params` by step end:
+- **Mode-2 (in-body loop):** already handled — the harness re-reads the live context into each
+  `vector.params` at vector end (`harness.py:1699`), so `VectorEnded` carries it.
+- **Mode-1 (scope):** NOT automatic — `configure()` writes `Context._params`, but the scope
+  vector's params come from the `active_vector_params` ContextVar seeded once at
+  `autouse.py:156` (before the body). So `_emit_step_event` (step end) merges the live context
+  into `vec.params` — but **only the keys `configure()` actually set** (`Context.configured_params`,
+  tracked separately from parametrize `set_params` seeds), so a configured key overrides while
+  untouched parametrize values are preserved. Gated to Mode-1 via `_step_ran_inbody_loop` (the
+  in-body occurrence tracker) so it never folds context onto a multi-vector step's `vectors[0]`.
+
+No-drift: overlay and parquet differ *only while a block is in-flight*; once `End` arrives both
+converge.
+
+## Deferred to before 0.3.0 — de-fuse / configure robustness follow-ons
+
+These were surfaced during the de-fuse review and consciously deferred (out of the de-fuse
+commit's scope); the common-path behaviour is correct, these harden edges. **Must land before
+tagging 0.3.0.** Tracked as a task; recorded here so it survives memory.
+
+1. **Rerun iteration-vector step timing** — an in-body vector in a rerun step reads the
+   *lowest-retry* StepStarted/StepEnded timing (`_min_retry_match`), not its own attempt's. Needs
+   `step_retry` on `VectorStarted`/`VectorEnded` so the accumulator can resolve per-attempt.
+2. **Scope-vs-iteration aliasing (Scenario A)** — a step-scope measurement recorded *before* an
+   in-body loop in the same step emits `(step_path, vector_index=0, retry=0)`, identical to
+   in-body iteration 0, so the two merge. Needs a producer-side scope coordinate.
+3. **Data-dependent Mode classification** — `_step_ran_inbody_loop` keys on `step_path` alone;
+   if one parametrize variant (or rerun attempt) loops and another doesn't, the non-looping one
+   is misclassified Mode-2 and its `configure()` inputs are skipped. Needs a per-execution loop
+   signal (ties to #1's `step_retry`-on-vector-events).
+4. **Ambient-context coupling** — the step-end merge reads `get_current_context()`, which at a
+   container/auto-close `StepEnded` may not be the step's owning context. Thread the owning
+   `Context` into `_emit_step_event` instead.
+5. **`configured_params` vs `set_params`-after-`configure`** (minor) — a parametrize `set_params`
+   landing after `configure()` for the same key is still reported as configured. Contrived;
+   tighten the contract if it ever bites.

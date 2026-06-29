@@ -335,7 +335,6 @@ class RunParquetRow(BaseModel):
     step_class: str | None = None
     step_function: str | None = None
     step_markers: str | None = None
-    step_vector_count: int | None = None
     # 0-based outer (item) retry — pytest-rerunfailures rerun count of this
     # step. On step + scope-vector rows; NULL on run/measurement rows. The
     # inner per-vector retry is ``vector_retry``.
@@ -899,7 +898,6 @@ def build_run_row(
         step_function=None,
         step_markers=None,
         step_outcome=None,
-        step_vector_count=None,
         vector_index=0,
         vector_retry=None,
         # Measurement payload: NULL on run rows.
@@ -964,7 +962,6 @@ def build_step_row(
         step_function=entry.get("function"),
         step_markers=entry.get("markers"),
         step_outcome=entry.get("outcome"),
-        step_vector_count=None,
         step_retry=entry.get("step_retry") or 0,
         vector_index=raw_vi if raw_vi is not None else 0,
         vector_retry=None,
@@ -1020,7 +1017,6 @@ def build_scope_vector_row(
         step_function=entry.get("function"),
         step_markers=entry.get("markers"),
         step_outcome=None,
-        step_vector_count=None,
         step_retry=entry.get("step_retry") or 0,
         vector_index=raw_vi if raw_vi is not None else 0,
         # Scope vector runs once per step execution → its (step_path,
@@ -1083,7 +1079,6 @@ def build_vector_row(
         step_function=entry.get("function"),
         step_markers=entry.get("markers"),
         step_outcome=None,
-        step_vector_count=None,
         step_retry=entry.get("step_retry") or 0,
         vector_index=raw_vi if raw_vi is not None else 0,
         vector_retry=raw_retry if raw_retry is not None else 0,

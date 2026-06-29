@@ -51,7 +51,6 @@ def _step_row(
             "step_started_at": started,
             "step_ended_at": ended,
             "step_outcome": "passed",
-            "step_vector_count": 1,
             "vector_index": 0,
             "measurement_name": None,
             "run_id": run_id,

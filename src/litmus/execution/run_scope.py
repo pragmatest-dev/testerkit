@@ -36,6 +36,7 @@ from litmus.execution._state import (
     get_active_limits,
     get_active_part_context,
     get_active_vector_params,
+    get_current_context,
     get_current_step,
     get_current_vector,
     push_current_step,
@@ -538,6 +539,14 @@ class RunScope:
         self._vector_occurrences[key] = n + 1
         return n
 
+    def _step_ran_inbody_loop(self, step_path: str) -> bool:
+        """True if an in-body vector loop emitted vectors for ``step_path``.
+
+        ``next_vector_occurrence`` fires only on the Mode-2 in-body path, so a
+        ``step_path`` recorded here ran a loop; absent means Mode-1 (scope).
+        """
+        return any(p == step_path for (p, _) in self._vector_occurrences)
+
     def record_external_outcome(self, outcome: Outcome | None) -> None:
         """Fold a run-level outcome contribution that has no owning step.
 
@@ -817,6 +826,10 @@ class RunScope:
         if self._event_log is None:
             return
         vec = step.vectors[0] if step.vectors else None
+        if not is_start and vec is not None and not self._step_ran_inbody_loop(step.step_path):
+            ctx = get_current_context()
+            if ctx is not None:
+                vec.params = {**vec.params, **coerce_dict(ctx.configured_params)}
         vec_index = vec.index if vec is not None else 0
         inputs = coerce_dict(vec.params) if vec is not None else {}
         input_units = dict(vec.param_units) if vec is not None else {}
@@ -956,6 +969,7 @@ class RunScope:
                 step_index=self._current_step_index,
                 step_path=step.step_path,
                 vector_index=vector.index,
+                step_retry=step.retry,
                 retry=vector.retry,
                 # Measurement fields
                 measurement_name=measurement.name,

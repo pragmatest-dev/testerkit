@@ -63,7 +63,6 @@ def _step_row(
             "step_started_at": step_started_at,
             "step_ended_at": step_ended_at,
             "step_outcome": run_outcome,
-            "step_vector_count": 1,
             "vector_index": 0,
             "measurement_name": None,
             "uut_serial_number": uut_serial,

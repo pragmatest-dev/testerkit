@@ -230,7 +230,7 @@ class RunStore:
                    duration_s, measurement_count, step_retry, markers
             FROM steps
             WHERE run_id LIKE '{_sql_escape(prefix)}%'
-            ORDER BY step_index
+            ORDER BY step_index, step_retry, vector_index
         """)
 
     def find_channel_refs(self, session_shorts: set[str]) -> list[dict[str, Any]]:

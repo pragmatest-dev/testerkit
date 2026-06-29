@@ -205,6 +205,9 @@ class Context:
                 "at runtime. Pass session_id= explicitly to enable the blob path."
             )
         self._params: dict[str, Any] = {}
+        # Keys written via ``configure()`` (NOT parametrize ``set_params``) — the
+        # subset that may override a vector's seeded params at step end.
+        self._configured: set[str] = set()
         self._observations: dict[str, Any] = {}
         # Optional engineering unit per configured / observed name.
         self._param_units: dict[str, str] = {}
@@ -259,6 +262,7 @@ class Context:
                 Rides onto the vector's lane ``unit`` field → the EAV unit column.
         """
         self._params[key] = value
+        self._configured.add(key)
         if unit is not None:
             self._param_units[key] = unit
 
@@ -885,6 +889,15 @@ class Context:
         if self._parent is not None:
             result.update(self._parent.params)
         result.update(self._params)
+        return result
+
+    @property
+    def configured_params(self) -> dict[str, Any]:
+        """Only values set via ``configure()`` (excludes parametrize seeds), parent-merged."""
+        result: dict[str, Any] = {}
+        if self._parent is not None:
+            result.update(self._parent.configured_params)
+        result.update({k: self._params[k] for k in self._configured if k in self._params})
         return result
 
     @property
