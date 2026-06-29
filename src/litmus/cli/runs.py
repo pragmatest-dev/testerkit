@@ -182,7 +182,7 @@ def show(
             raise SystemExit(1)
 
         out_path = output or "."
-        result = generate_report(data, out_path, fmt=fmt, template=template)
+        result = generate_report(data, out_path, fmt=fmt, template=template, utc=utc_mode)
         click.echo(f"Report generated: {result}")
         return
 

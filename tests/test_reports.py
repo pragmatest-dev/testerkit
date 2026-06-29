@@ -276,3 +276,54 @@ class TestCLI:
         )
         assert result.exit_code == 0
         assert "SN-001" in result.output
+
+
+class TestReportTimezone:
+    """Report timestamp rule: one timezone per report, stated once, bare format.
+
+    A report renders in a single zone (local by default, UTC with ``--utc``);
+    every timestamp is plain ``YYYY-MM-DD HH:MM:SS`` and the zone is declared
+    once. These guard the pure helpers; the end-to-end render is covered by the
+    generate_report tests above.
+    """
+
+    def test_utc_label(self) -> None:
+        from litmus.reports.core import _report_zone_label
+
+        assert _report_zone_label(utc=True) == "UTC"
+
+    def test_local_label_has_offset(self) -> None:
+        from litmus.reports.core import _report_zone_label
+
+        label = _report_zone_label(utc=False)
+        assert "UTC" in label and ("+" in label or "-" in label)
+
+    def test_utc_render_from_aware(self) -> None:
+        from litmus.reports.core import _to_report_ts
+
+        dt = datetime(2026, 6, 15, 8, 30, 0, tzinfo=UTC)
+        assert _to_report_ts(dt, utc=True) == "2026-06-15 08:30:00"
+
+    def test_utc_render_from_iso_string(self) -> None:
+        from litmus.reports.core import _to_report_ts
+
+        # ReportData stores ISO strings; +offset is normalized to UTC.
+        assert _to_report_ts("2026-06-15T14:30:00+06:00", utc=True) == "2026-06-15 08:30:00"
+
+    def test_naive_string_assumed_utc(self) -> None:
+        from litmus.reports.core import _to_report_ts
+
+        assert _to_report_ts("2026-06-15T08:30:00", utc=True) == "2026-06-15 08:30:00"
+
+    def test_empty_is_blank(self) -> None:
+        from litmus.reports.core import _to_report_ts
+
+        assert _to_report_ts("", utc=True) == ""
+        assert _to_report_ts(None, utc=True) == ""
+
+    def test_no_per_value_offset_in_output(self) -> None:
+        from litmus.reports.core import _to_report_ts
+
+        # Bare format only — the zone is declared once, not per value.
+        out = _to_report_ts(datetime(2026, 6, 15, 8, 30, 0, tzinfo=UTC), utc=False)
+        assert "+" not in out and "Z" not in out and "UTC" not in out

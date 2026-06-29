@@ -61,6 +61,7 @@
   <div class="meta-card">
     <h3>Execution</h3>
     <dl>
+      <dt>Timezone</dt><dd>{{ report_tz }}</dd>
       <dt>Started</dt><dd>{{ data.started_at | fmt_dt }}</dd>
       <dt>Ended</dt><dd>{{ data.ended_at | fmt_dt }}</dd>
       {% if data.operator_id %}<dt>Operator</dt><dd>{{ data.operator_id }}</dd>{% endif %}
