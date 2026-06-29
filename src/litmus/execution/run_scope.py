@@ -683,6 +683,7 @@ class RunScope:
         class_name: str | None = None,
         function: str | None = None,
         markers: str | None = None,
+        instrument_roles: list[str] | None = None,
     ):
         """Begin a new test step. Supports nesting via step_path.
 
@@ -751,6 +752,10 @@ class RunScope:
         # current_step / current_vector instead of collapsing to None.
         self._step_tokens.append(push_current_step(step))
         self._vector_tokens.append(push_current_vector(vector))
+
+        if instrument_roles is not None:
+            self.set_step_instruments(instrument_roles)
+            step.instrument_records = self._step_instrument_records
 
         self._emit_step_event(step, is_start=True)
 
@@ -852,6 +857,7 @@ class RunScope:
                 module=step.module,
                 class_name=step.class_name,
                 function=step.function,
+                instrument_records=list(step.instrument_records or []),
             )
         else:
             # Aggregate per-vector outcomes via the severity ladder so a

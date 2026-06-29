@@ -76,6 +76,9 @@ _active_vector_index_var: ContextVar[int] = ContextVar("_active_vector_index")
 _active_connection_var: ContextVar[FixtureConnection | None] = ContextVar("_active_connection")
 _slot_id_var: ContextVar[str | None] = ContextVar("_slot_id", default=None)
 _active_slot_runner_var: ContextVar[Any] = ContextVar("_active_slot_runner", default=None)
+_registered_instrument_roles_var: ContextVar[frozenset[str]] = ContextVar(
+    "_registered_instrument_roles", default=frozenset()
+)
 
 
 # --- Session-scoped getters (create-and-store on first access) ---
@@ -609,6 +612,16 @@ def get_active_slot_runner() -> Any:
 def set_active_slot_runner(value: Any) -> None:
     """Set the active slot runner. Returns None."""
     _active_slot_runner_var.set(value)
+
+
+def get_registered_instrument_roles() -> frozenset[str]:
+    """Return instrument role names registered from station config, or empty set."""
+    return _registered_instrument_roles_var.get()
+
+
+def set_registered_instrument_roles(value: frozenset[str]) -> None:
+    """Set the registered instrument role names. Returns None."""
+    _registered_instrument_roles_var.set(value)
 
 
 # -----------------------------------------------------------------------------

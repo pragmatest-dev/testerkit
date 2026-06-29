@@ -508,6 +508,7 @@ class EventAccumulator:
                     output_units=output_units,
                     output_pins=output_pins,
                     measurements=by_iteration.get(key, []),
+                    instrument_records=list(getattr(step_start, "instrument_records", None) or []),
                 )
             )
         return entries
@@ -570,6 +571,7 @@ class EventAccumulator:
                     output_units=step_entry.get("output_units") or {},
                     output_pins=step_entry.get("output_pins") or {},
                     measurements=by_scope.get((path, step_retry, vec_idx), []),
+                    instrument_records=step_entry.get("instrument_records") or [],
                 )
             )
         # Orphan measurements — a MeasurementRecorded whose (step_path,
@@ -812,4 +814,5 @@ class EventAccumulator:
             output_pins=output_pins,
             measurement_count=meas_count,
             step_retry=step_retry,
+            instrument_records=list(getattr(start, "instrument_records", None) or []),
         )

@@ -8,7 +8,7 @@ added in one place.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -749,116 +749,6 @@ def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
     return f"file://{REF_PATH_PREFIX}{filename}"
 
 
-def build_row(
-    test_run: TestRun,
-    measurement: Measurement,
-    step_name: str,
-    step_index: int,
-    vector: TestVector,
-    instrument_records: list[dict[str, Any]],
-    ref_saver: Callable[[str, str, Any], str] | None = None,
-    *,
-    denormalize_conditions: bool = True,
-    step_path: str = "",
-    step_started_at: datetime | None = None,
-    step_ended_at: datetime | None = None,
-    step_node_id: str | None = None,
-    step_module: str | None = None,
-    step_file: str | None = None,
-    step_class: str | None = None,
-    step_function: str | None = None,
-    step_markers: str | None = None,
-    step_outcome: str | None = None,
-    meta: dict[str, Any] | None = None,
-) -> RunParquetRow:
-    """Build a complete RunParquetRow from test execution context.
-
-    Args:
-        meta: Pre-computed run metadata from ``build_run_metadata()``.
-            If ``None``, computed from ``test_run`` (backwards-compatible).
-    """
-    if meta is None:
-        meta = build_run_metadata(test_run)
-    meas = build_measurement_fields(measurement)
-
-    return RunParquetRow(
-        record_type="vector",
-        **meta,
-        **meas,
-        # Step/vector context
-        step_name=step_name,
-        step_index=step_index,
-        step_path=step_path,
-        step_started_at=step_started_at,
-        step_ended_at=step_ended_at,
-        step_node_id=step_node_id,
-        step_module=step_module,
-        step_file=step_file,
-        step_class=step_class,
-        step_function=step_function,
-        step_markers=step_markers,
-        vector_index=vector.index,
-        vector_retry=vector.retry,
-        vector_started_at=vector.started_at,
-        vector_ended_at=vector.ended_at,
-        # Outcomes (cascade: vector → step → run; all non-Optional with default PASSED)
-        step_outcome=step_outcome,
-        vector_outcome=vector.outcome.value if vector.outcome else None,
-        run_outcome=test_run.outcome.value if test_run.outcome else None,
-        # v2: at rest a measurement references (does not copy) its vector —
-        # the in/out conditions live on the vector record and the EAV join
-        # resolves them by the shared vector key (the at-rest path passes
-        # denormalize_conditions=False). Standalone/export callers
-        # (iter_rows → CSV/DataFrame) denormalize the vector's conditions
-        # back onto the flat row. custom_metadata is a run-level fact.
-        inputs=build_input_columns(vector) if denormalize_conditions else {},
-        outputs=(
-            build_output_columns(vector, ref_saver=ref_saver) if denormalize_conditions else {}
-        ),
-        instruments=instrument_records,
-    )
-
-
-def iter_rows(test_run: TestRun) -> Iterator[dict[str, Any]]:
-    """Yield one denormalized flat row dict per measurement in ``test_run``.
-
-    Joins run-level context (UUT, station, operator, etc.) onto each
-    measurement and denormalizes the enclosing vector's conditions back
-    onto the flat row — the analysis/export view (CSV, DataFrames).
-    No ``ref_saver`` is used, so non-serializable observation values
-    (Waveform, ndarray, bytes, etc.) fall back to ``repr()`` strings in
-    the output columns. The flat row is stamped ``record_type='measurement'``.
-    """
-    for step_index, step in enumerate(test_run.steps):
-        for vector in step.vectors:
-            for measurement in vector.measurements:
-                row = build_row(
-                    test_run,
-                    measurement,
-                    step.name,
-                    step_index,
-                    vector,
-                    step.instrument_records or [],
-                    # step_path falls back to step.name so the daemon's
-                    # GROUP BY (step_path, vector_index) gives each
-                    # logical step its own row even when the producer
-                    # didn't set an explicit path.
-                    step_path=step.step_path or step.name,
-                    step_started_at=step.started_at,
-                    step_ended_at=step.ended_at,
-                    step_node_id=step.node_id,
-                    step_module=step.module,
-                    step_file=step.file,
-                    step_class=step.class_name,
-                    step_function=step.function,
-                    step_markers=step.markers,
-                    step_outcome=step.outcome.value if step.outcome else None,
-                ).to_flat_dict()
-                row["record_type"] = "measurement"
-                row.pop("measurements", None)
-                yield row
-
-
 def build_run_row(
     *,
     run_context: dict[str, Any],
@@ -1123,6 +1013,7 @@ def vector_entry_dict(
     output_units: dict[str, str] | None = None,
     output_pins: dict[str, str] | None = None,
     measurements: list[dict[str, Any]] | None = None,
+    instrument_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Single source of truth for one in-body vector manifest entry's shape.
 
@@ -1155,6 +1046,7 @@ def vector_entry_dict(
         "output_units": output_units or {},
         "output_pins": output_pins or {},
         "measurements": measurements or [],
+        "instrument_records": instrument_records or [],
     }
 
 
@@ -1242,6 +1134,7 @@ def build_step_manifest(
                     ],
                     measurement_count=measurement_count,
                     step_retry=step.retry,
+                    instrument_records=list(step.instrument_records or []),
                 )
             )
 
@@ -1281,6 +1174,7 @@ def step_entry_dict(
     measurements: list[dict[str, Any]] | None = None,
     measurement_count: int,
     step_retry: int = 0,
+    instrument_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Single source of truth for one step manifest entry's shape.
 
@@ -1321,6 +1215,7 @@ def step_entry_dict(
         "measurements": measurements or [],
         "measurement_count": measurement_count,
         "step_retry": step_retry,
+        "instrument_records": instrument_records or [],
     }
 
 

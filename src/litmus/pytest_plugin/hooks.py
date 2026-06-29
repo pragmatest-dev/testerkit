@@ -31,6 +31,7 @@ from litmus.execution._state import (
     get_active_slot_runner,
     get_channel_store,
     get_current_run_scope,
+    get_registered_instrument_roles,
     set_active_instruments,
     set_active_profile,
     set_collected_items,
@@ -39,6 +40,7 @@ from litmus.execution._state import (
     set_current_step_aliases,
     set_current_step_config,
     set_instrument_records,
+    set_registered_instrument_roles,
     set_test_node_aliases,
     set_test_node_configs,
 )
@@ -248,6 +250,7 @@ def pytest_configure(config):
         return
 
     instruments_map = station_model.instruments or {}
+    set_registered_instrument_roles(frozenset(instruments_map.keys()))
 
     # Sequences (deleted) used to inject per-test fixture aliases. The
     # alias machinery and per-test config map are gone with them; setters
@@ -1262,6 +1265,8 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
         # is about to be appended (``len(steps)`` before append).  Children
         # appended afterwards are this iteration's children for rollup.
         first_step_index = len(logger_inst.test_run.steps)
+        fixture_names: list[str] = list(getattr(item, "fixturenames", []))
+        roles = sorted(set(fixture_names) & get_registered_instrument_roles())
         logger_inst.start_step(
             cls.__name__,
             class_name=cls.__name__,
@@ -1269,6 +1274,7 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
             inputs=dict(outer_values),
             vector_index=vi,
             step_retry=getattr(item, "execution_count", 1) - 1,
+            instrument_roles=roles,
         )
         setattr(
             logger_inst,
@@ -1372,6 +1378,8 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
         step_idx, vec_idx, inputs = _step_vector_for_item(item)
         # Open the class container if we just transitioned to a new class.
         _ensure_class_container(logger_inst, item)
+        fixture_names: list[str] = list(getattr(item, "fixturenames", []))
+        roles = sorted(set(fixture_names) & get_registered_instrument_roles())
         logger_inst.start_step(
             func_name,
             function=func_name,
@@ -1382,6 +1390,7 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
             vector_index=vec_idx,
             step_retry=getattr(item, "execution_count", 1) - 1,
             inputs=inputs,
+            instrument_roles=roles,
         )
         try:
             outcome_obj = yield

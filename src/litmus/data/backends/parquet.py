@@ -595,7 +595,7 @@ def _build_step_row_from_acc(
         entry=entry,
         run_outcome=run_outcome,
         run_ended_at=run_ended_at,
-        instruments=acc._build_instrument_records(),
+        instruments=entry.get("instrument_records") or [],
     )
 
 
@@ -614,7 +614,7 @@ def _build_vector_row_from_acc(
         entry=entry,
         run_outcome=run_outcome,
         run_ended_at=run_ended_at,
-        instruments=acc._build_instrument_records(),
+        instruments=entry.get("instrument_records") or [],
     )
 
 

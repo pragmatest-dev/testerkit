@@ -55,10 +55,16 @@ and #12 (read-only observe). Verified findings against current source noted inli
   client"). Split them: **timeout = how long to wait for a live holder** (`-1` = forever);
   **heartbeat = detect + recover a dead holder**, independent of the wait.
 - **Reservation events (#11).** Emit `instrument.reserved` / `instrument.released` at step
-  acquire/release → **event-sourced utilization** (accurate at step grain). Must be
-  event-sourced because instruments are also reserved in **interactive** sessions that produce
-  no run — reservation events are the superset; the run-scoped C5 inventory is a subset. This is
-  the closest "asset utilization" number short of instrumenting the drivers themselves.
+  acquire/release. Two consumers, not one:
+  1. **Event-sourced utilization** (the *temporal* span — when/how-long, accurate at step
+     grain). Must be event-sourced because instruments are also reserved in **interactive**
+     sessions that produce no run, so for *utilization* the event log is the superset.
+  2. **The step/vector at-rest instrument set (#26).** *Which* instruments a step reserved is a
+     **source of the step's at-rest `instruments` set** in the C5 column — so #11 feeds the
+     at-rest reshape, it is not disjoint from it. (Corrected 2026-06-29: the prior framing
+     "run-scoped C5 inventory is a subset" wrongly treated C5 as run-grain only. The C5 column
+     is **multi-grain** — run/step/vector; the superset/subset relation holds only for the
+     *temporal* utilization data, not the instrument set.)
 - **Read-only observe (#12).** Writers take the step lease; **readers subscribe to the channel
   stream** the writer publishes (no lock, no contention). One writer + N channel-subscriber
   readers. Lets an interactive user watch a running automated test's instrument live without
@@ -66,6 +72,11 @@ and #12 (read-only observe). Verified findings against current source noted inli
 
 ## Relationship to other work
 
-Independent of the 0.3.0 at-rest reshape and 0.4.0 analytics. The reservation events feed a
-later instrument-**utilization** view (event-sourced), which is the follow-on explicitly kept
-*out* of C5 (run-scoped instrument inventory).
+The locking architecture is independent of 0.4.0 analytics. It is **not independent of the
+instrument-set work (#26)**: the reservation signal (which instruments a step leased) is a
+**source of the step/vector instrument set stored at rest** — so #11 and the #26 producer
+share that signal and must be designed together. The follow-on instrument-set work **includes
+reservation changes**. What stays purely event-sourced and out of the at-rest `instruments`
+column is the **temporal utilization** span (when/how-long), which feeds a later utilization
+view. (Corrected 2026-06-29 from "Independent of the 0.3.0 at-rest reshape… run-scoped
+instrument inventory.")

@@ -11,7 +11,6 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.backends._row_helpers import RunParquetRow, build_row
 from litmus.data.exporters.csv_exporter import CsvSubscriber
 from litmus.data.exporters.json_exporter import JsonSubscriber
 from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
@@ -334,68 +333,6 @@ class TestPluginWarnings:
         assert call_count == 1
 
         event_log.close()
-
-
-class TestRunParquetRow:
-    def test_build_row_standalone(self, sample_test_run: TestRun):
-        """build_row() returns RunParquetRow with expected typed fields."""
-        step = sample_test_run.steps[0]
-        vector = step.vectors[0]
-        measurement = vector.measurements[0]
-
-        row = build_row(
-            sample_test_run,
-            measurement,
-            step.name,
-            0,
-            vector,
-            [],
-        )
-
-        assert isinstance(row, RunParquetRow)
-        assert row.run_id == str(sample_test_run.id)
-        assert row.uut_serial_number == "UUT001"
-        assert row.station_id == "station_001"
-        assert row.step_name == "test_voltage"
-        assert row.measurement_name == "vout"
-        assert row.measurement_value == 3.3
-        assert row.measurement_unit == "V"
-        assert row.measurement_outcome == "passed"
-
-    def test_to_flat_dict(self, sample_test_run: TestRun):
-        """Roundtrip: build → flatten → verify in_*/out_* keys present."""
-        step = sample_test_run.steps[0]
-        vector = step.vectors[0]
-        measurement = vector.measurements[0]
-
-        row = build_row(
-            sample_test_run,
-            measurement,
-            step.name,
-            0,
-            vector,
-            [],
-        )
-        flat = row.to_flat_dict()
-
-        assert isinstance(flat, dict)
-        assert flat["run_id"] == str(sample_test_run.id)
-        assert flat["measurement_name"] == "vout"
-        # Vector had params={"vin": 5.0} → encoded into the nested inputs lanes.
-        from litmus.data.backends._row_helpers import decode_lane_structs
-
-        assert decode_lane_structs(flat["inputs"])["vin"] == 5.0
-
-    def test_iter_rows(self, sample_test_run: TestRun):
-        """``iter_rows(test_run)`` yields a flat row dict per measurement."""
-        from litmus.data.backends._row_helpers import iter_rows
-
-        rows = list(iter_rows(sample_test_run))
-        assert len(rows) == 2
-        assert all(isinstance(r, dict) for r in rows)
-        assert rows[0]["measurement_name"] == "vout"
-        assert rows[1]["measurement_name"] == "iout"
-        assert rows[0]["uut_serial_number"] == "UUT001"
 
 
 class TestEventSubscriberLifecycle:

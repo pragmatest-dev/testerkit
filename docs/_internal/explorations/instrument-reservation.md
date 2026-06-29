@@ -67,9 +67,14 @@ that could couple them is decoupled by design:
   the catalog it has; reservation events join later as 1.1. In fact **C3, shipping *in*
   0.3.0, lays the versioning seam this branch's new events ride** — an argument for
   C3-before-instruments, not for coupling.
-- **C5's `instruments` column** is inventory only (identity + cal). Reservation/temporal
-  spans are excluded from it by **#17's HARD RLE constraint** — they land as a separate
-  fact/column later. No overlap with the at-rest reshape.
+- **C5's `instruments` column** stores the instrument set (identity + cal) at the **run, step,
+  and vector grains** — each row its own effective set, with the step/vector set sourced from
+  fixture parameters / **reservations**. So the reservation signal (*which* instruments a step
+  leased — the #11 acquire/release) is a **source of the step's at-rest set**: they integrate,
+  they are not disjoint. What *is* excluded from the column is the **temporal** reservation span
+  (*when* / how-long), by **#17's HARD RLE constraint** — that lands as a separate event-sourced
+  fact/column later. (Corrected 2026-06-29: the prior "inventory only / no overlap with the
+  at-rest reshape" framing reflected the wrong run-scoped-only model.)
 - **The §4.3 out-of-band collision is pre-existing** — 0.3.0 neither introduces nor worsens
   it. A known limitation, not a 0.3.0 regression. (Worth a changelog "known limitation"
   line; not a blocker.)
