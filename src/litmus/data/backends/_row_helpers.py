@@ -253,7 +253,7 @@ def _to_datetime(value: Any) -> datetime | None:
     return None
 
 
-class MeasurementRow(BaseModel):
+class RunParquetRow(BaseModel):
     """A single denormalized row for streaming and storage.
 
     Three row kinds, distinguished by the explicit ``record_type``
@@ -771,8 +771,8 @@ def build_row(
     step_markers: str | None = None,
     step_outcome: str | None = None,
     meta: dict[str, Any] | None = None,
-) -> MeasurementRow:
-    """Build a complete MeasurementRow from test execution context.
+) -> RunParquetRow:
+    """Build a complete RunParquetRow from test execution context.
 
     Args:
         meta: Pre-computed run metadata from ``build_run_metadata()``.
@@ -782,7 +782,7 @@ def build_row(
         meta = build_run_metadata(test_run)
     meas = build_measurement_fields(measurement)
 
-    return MeasurementRow(
+    return RunParquetRow(
         record_type="vector",
         **meta,
         **meas,
@@ -881,7 +881,7 @@ def build_run_row(
     """
     ctx = dict(run_context)
     ctx["run_ended_at"] = run_ended_at
-    row = MeasurementRow(
+    row = RunParquetRow(
         record_type="run",
         **ctx,
         # Step / vector context: NULL on run rows. ``step_name`` and
@@ -949,7 +949,7 @@ def build_step_row(
     ctx["run_ended_at"] = run_ended_at
     raw_vi = entry.get("vector_index")
     raw_idx = entry.get("index")
-    row = MeasurementRow(
+    row = RunParquetRow(
         record_type="step",
         **ctx,
         step_name=entry.get("name") or "",
@@ -1005,7 +1005,7 @@ def build_scope_vector_row(
     ctx["run_ended_at"] = run_ended_at
     raw_vi = entry.get("vector_index")
     raw_idx = entry.get("index")
-    row = MeasurementRow(
+    row = RunParquetRow(
         record_type="vector",
         **ctx,
         step_name=entry.get("name") or "",
@@ -1068,7 +1068,7 @@ def build_vector_row(
     raw_vi = entry.get("vector_index")
     raw_retry = entry.get("retry")
     raw_idx = entry.get("index")
-    row = MeasurementRow(
+    row = RunParquetRow(
         record_type="vector",
         **ctx,
         step_name=entry.get("name") or "",

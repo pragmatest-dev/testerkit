@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.backends._row_helpers import MeasurementRow, build_row
+from litmus.data.backends._row_helpers import RunParquetRow, build_row
 from litmus.data.exporters.csv_exporter import CsvSubscriber
 from litmus.data.exporters.json_exporter import JsonSubscriber
 from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
@@ -336,9 +336,9 @@ class TestPluginWarnings:
         event_log.close()
 
 
-class TestMeasurementRow:
+class TestRunParquetRow:
     def test_build_row_standalone(self, sample_test_run: TestRun):
-        """build_row() returns MeasurementRow with expected typed fields."""
+        """build_row() returns RunParquetRow with expected typed fields."""
         step = sample_test_run.steps[0]
         vector = step.vectors[0]
         measurement = vector.measurements[0]
@@ -352,7 +352,7 @@ class TestMeasurementRow:
             [],
         )
 
-        assert isinstance(row, MeasurementRow)
+        assert isinstance(row, RunParquetRow)
         assert row.run_id == str(sample_test_run.id)
         assert row.uut_serial_number == "UUT001"
         assert row.station_id == "station_001"

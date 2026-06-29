@@ -2,7 +2,7 @@
 
 The registry is the single source of truth for facetable measurement
 columns. These tests catch drift between the registry and the actual
-``MeasurementRow`` model — a column that's no longer on the row would
+``RunParquetRow`` model — a column that's no longer on the row would
 produce SQL errors only at runtime; checking at import time is much
 cheaper.
 """
@@ -25,7 +25,7 @@ from litmus.analysis.measurement_facets import (
     SummaryCounts,
     facets_by_kind,
 )
-from litmus.data.backends._row_helpers import MeasurementRow
+from litmus.data.backends._row_helpers import RunParquetRow
 from litmus.data.models import Outcome
 from litmus.models.enums import Comparator
 
@@ -36,10 +36,10 @@ class TestRegistry:
         assert len(cols) == len(set(cols)), f"duplicate facet columns: {cols}"
 
     def test_every_column_is_a_real_measurement_field(self):
-        model_fields = set(MeasurementRow.model_fields)
+        model_fields = set(RunParquetRow.model_fields)
         for facet in MEASUREMENT_FACETS:
             assert facet.column in model_fields, (
-                f"{facet.column!r} is in MEASUREMENT_FACETS but not on MeasurementRow"
+                f"{facet.column!r} is in MEASUREMENT_FACETS but not on RunParquetRow"
             )
 
     def test_enum_facets_have_enum_class(self):

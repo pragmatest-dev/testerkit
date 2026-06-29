@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from litmus.data.backends._row_helpers import (
-    MeasurementRow,
+    RunParquetRow,
     _append_not_started,
     _to_datetime,
     run_context_from_run_started,
@@ -596,7 +596,7 @@ class EventAccumulator:
         start = self._step_start_for(path, vec)
         end = self._step_end_for(path, vec)
         node_id = start.node_id if start else None
-        row = MeasurementRow(
+        row = RunParquetRow(
             record_type="vector",
             **run_context_from_run_started(self._run_started, event, include_env=True),
             step_name=event.step_name,

@@ -27,7 +27,7 @@ from litmus.analysis.measurement_facets import (
 )
 from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.analysis.metrics import calculate_fpy, calculate_ppk
-from litmus.data.backends._row_helpers import MeasurementRow
+from litmus.data.backends._row_helpers import RunParquetRow
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.run_store import RunStore
 from litmus.data.schemas import _build_write_schema, table_from_rows
@@ -84,9 +84,9 @@ def _row(
     station_name: str = "STA-MQS",
     test_phase: str = "production",
     step_index: int = 0,
-) -> MeasurementRow:
-    """Build a vector MeasurementRow carrying one nested measurement."""
-    return MeasurementRow(
+) -> RunParquetRow:
+    """Build a vector RunParquetRow carrying one nested measurement."""
+    return RunParquetRow(
         record_type="vector",
         session_id="sess-1",
         run_id=run_id,
@@ -118,12 +118,12 @@ def _row(
 
 def _write_measurements(
     runs_dir: Path,
-    rows: list[MeasurementRow],
+    rows: list[RunParquetRow],
     *,
     filename: str = "20260101T100000Z_SN001.parquet",
     notify: bool = True,
 ) -> Path:
-    """Write vector MeasurementRows to a parquet file and (optionally) notify the daemon."""
+    """Write vector RunParquetRows to a parquet file and (optionally) notify the daemon."""
     runs_dir.mkdir(parents=True, exist_ok=True)
     flat_rows = [r.to_flat_dict(at_rest=True) for r in rows]
     schema = _build_write_schema(flat_rows)
@@ -537,7 +537,7 @@ def dynamic_axis_data() -> dict[str, str]:
     canonical_runs = resolve_data_dir() / "runs" / "dyn" / "2026-03-01"
     run = f"dyn-{uuid4()}"
     rows = [
-        MeasurementRow(
+        RunParquetRow(
             record_type="vector",
             session_id="sess-dyn",
             run_id=run,
@@ -696,7 +696,7 @@ def parametric_scope_data() -> dict[str, str]:
     canonical_runs = resolve_data_dir() / "runs" / "pscope" / "2026-03-01"
     run_id = f"pscope-{uuid4()}"
     rows = [
-        MeasurementRow(
+        RunParquetRow(
             record_type="vector",
             session_id="sess-pscope",
             run_id=run_id,
@@ -863,7 +863,7 @@ def distinct_role_data() -> dict[str, str]:
         canonical_runs = resolve_data_dir() / "runs" / "dv-role" / "2026-04-01"
         run = f"dvr-{uuid4()}"
         rows = [
-            MeasurementRow(
+            RunParquetRow(
                 record_type="vector",
                 session_id="sess-dvr",
                 run_id=run,
@@ -942,7 +942,7 @@ def mixed_type_field_data() -> dict[str, str]:
         canonical_runs = resolve_data_dir() / "runs" / "mixed-type" / "2026-05-01"
         run = f"mt-{uuid4()}"
         rows = [
-            MeasurementRow(
+            RunParquetRow(
                 record_type="vector",
                 session_id="sess-mt",
                 run_id=run,
@@ -1016,9 +1016,9 @@ def _step_row(
     step_outcome: str = "passed",
     station_name: str = "STA-RTY",
     test_phase: str = "production",
-) -> MeasurementRow:
-    """Build a step MeasurementRow (record_type='step')."""
-    return MeasurementRow(
+) -> RunParquetRow:
+    """Build a step RunParquetRow (record_type='step')."""
+    return RunParquetRow(
         record_type="step",
         session_id="sess-rty",
         run_id=run_id,
