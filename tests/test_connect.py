@@ -22,6 +22,7 @@ import pytest
 
 from litmus.connect import StationConnection
 from litmus.data.data_dir import resolve_data_dir
+from litmus.instruments.locks import ResourceInUse
 from litmus.models.station import StationConfig, StationInstrumentConfig
 
 # Canonical data dir — resolved through the project's
@@ -255,3 +256,155 @@ class TestSessionStartedFields:
         assert "session.ended" in event_types
         assert "run.started" not in event_types
         assert "run.ended" not in event_types
+
+
+def _make_station_locking(**instruments) -> StationConfig:
+    """Station with non-mocked instruments for lock-behaviour tests."""
+    inst_configs = {}
+    for role, resource in instruments.items():
+        inst_configs[role] = StationInstrumentConfig(
+            type="generic",
+            resource=resource,
+            mock=False,
+        )
+    return StationConfig(id="test-station", name="Test Station", instruments=inst_configs)
+
+
+@pytest.fixture()
+def _patch_driver_loading(monkeypatch):
+    """Replace load_and_connect + verify_and_wrap to avoid real hardware."""
+    monkeypatch.setattr(
+        "litmus.instruments.pool.load_and_connect",
+        lambda *a, **kw: object(),
+    )
+    monkeypatch.setattr(
+        "litmus.instruments.pool.verify_and_wrap",
+        lambda driver, *a, **kw: driver,
+    )
+
+
+class TestReservationAPI:
+    """Phase 2a: reserve/release_reservation/reservation on StationConnection."""
+
+    def test_instrument_reserve_false_attaches_without_lock(self):
+        """instrument(role, reserve=False) attaches but does not hold a lock."""
+        station = _make_station(dmm="GPIB::16::INSTR")
+        with StationConnection(station, data_dir=_CANONICAL_DATA, mock=True) as conn:
+            dmm = conn.instrument("dmm", reserve=False)
+            assert dmm is not None
+            assert "dmm" in conn.instruments
+
+    def test_instrument_reserve_true_default(self):
+        """instrument(role) with default reserve=True attaches and is callable."""
+        station = _make_station(dmm="GPIB::16::INSTR")
+        with StationConnection(station, data_dir=_CANONICAL_DATA, mock=True) as conn:
+            dmm = conn.instrument("dmm")
+            assert dmm is not None
+
+    def test_explicit_reserve_and_release_reservation(self):
+        """conn.reserve() and conn.release_reservation() are directly callable."""
+        station = _make_station(dmm="GPIB::16::INSTR")
+        with StationConnection(station, data_dir=_CANONICAL_DATA, mock=True) as conn:
+            conn.instrument("dmm", reserve=False)
+            conn.reserve("dmm")
+            conn.release_reservation("dmm")
+            assert "dmm" in conn.instruments
+
+    def test_reservation_context_manager(self):
+        """with conn.reservation(role): enters and exits without error."""
+        station = _make_station(dmm="GPIB::16::INSTR")
+        with StationConnection(station, data_dir=_CANONICAL_DATA, mock=True) as conn:
+            conn.instrument("dmm", reserve=False)
+            with conn.reservation("dmm"):
+                assert "dmm" in conn.instruments
+            assert "dmm" in conn.instruments
+
+    def test_reservation_releases_on_exception(self):
+        """reservation() releases even when the body raises."""
+        station = _make_station(dmm="GPIB::16::INSTR")
+        with StationConnection(station, data_dir=_CANONICAL_DATA, mock=True) as conn:
+            conn.instrument("dmm", reserve=False)
+            with pytest.raises(ValueError):
+                with conn.reservation("dmm"):
+                    raise ValueError("test")
+            assert "dmm" in conn.instruments
+
+    def test_release_frees_reservation_and_disconnects(self):
+        """release() disconnects the driver (reservation is freed as part of this)."""
+        station = _make_station(dmm="GPIB::16::INSTR")
+        with StationConnection(station, data_dir=_CANONICAL_DATA, mock=True) as conn:
+            conn.instrument("dmm")
+            conn.release("dmm")
+            assert "dmm" not in conn.instruments
+
+    def test_release_all_via_stop(self):
+        """stop() calls release_all() which frees all instruments and reservations."""
+        station = _make_station(dmm="GPIB::16::INSTR", psu="GPIB::17::INSTR")
+        conn = StationConnection(station, data_dir=_CANONICAL_DATA, mock=True)
+        conn.start()
+        conn.instrument("dmm")
+        conn.instrument("psu")
+        conn.stop()
+        assert len(conn.instruments) == 0
+
+
+class TestReservationLocking:
+    """Phase 2a lock-behaviour tests using real file locks (driver loading patched)."""
+
+    def test_instrument_reserves_by_default(self, _patch_driver_loading):
+        """instrument(role) with default reserve=True holds a file lock."""
+        station = _make_station_locking(dmm="GPIB::16::INSTR")
+        with StationConnection(station, data_dir=_CANONICAL_DATA, mock=False) as conn:
+            conn.instrument("dmm")
+            assert conn._pool is not None
+            assert "dmm" in conn._pool._locks
+
+    def test_instrument_reserve_false_holds_no_lock(self, _patch_driver_loading):
+        """instrument(role, reserve=False) does not acquire a file lock."""
+        station = _make_station_locking(dmm="GPIB::16::INSTR")
+        with StationConnection(station, data_dir=_CANONICAL_DATA, mock=False) as conn:
+            conn.instrument("dmm", reserve=False)
+            assert conn._pool is not None
+            assert "dmm" not in conn._pool._locks
+
+    def test_reservation_context_manager_acquires_and_releases_lock(self, _patch_driver_loading):
+        """reservation() acquires the lock on enter and releases on exit."""
+        station = _make_station_locking(dmm="GPIB::16::INSTR")
+        with StationConnection(station, data_dir=_CANONICAL_DATA, mock=False) as conn:
+            conn.instrument("dmm", reserve=False)
+            assert conn._pool is not None
+
+            with conn.reservation("dmm"):
+                assert "dmm" in conn._pool._locks
+
+            assert "dmm" not in conn._pool._locks
+
+    def test_two_connections_contend_on_same_resource(self, _patch_driver_loading):
+        """A second connection cannot reserve a resource already held by a first."""
+        station = _make_station_locking(dmm="GPIB::16::INSTR")
+        conn1 = StationConnection(station, data_dir=_CANONICAL_DATA, mock=False)
+        conn2 = StationConnection(station, data_dir=_CANONICAL_DATA, mock=False)
+        conn1.start()
+        conn2.start()
+        try:
+            conn1.instrument("dmm")
+            with pytest.raises(ResourceInUse):
+                conn2.instrument("dmm", timeout=0)
+        finally:
+            conn1.stop()
+            conn2.stop()
+
+    def test_reentrant_reserve_via_context_manager(self, _patch_driver_loading):
+        """Nested reservation() calls do not deadlock; outer release restores state."""
+        station = _make_station_locking(dmm="GPIB::16::INSTR")
+        with StationConnection(station, data_dir=_CANONICAL_DATA, mock=False) as conn:
+            conn.instrument("dmm", reserve=False)
+            assert conn._pool is not None
+
+            with conn.reservation("dmm"):
+                with conn.reservation("dmm"):
+                    assert "dmm" in conn._pool._locks
+
+                assert "dmm" in conn._pool._locks
+
+            assert "dmm" not in conn._pool._locks

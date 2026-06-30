@@ -22,7 +22,8 @@ Usage::
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -247,18 +248,25 @@ class StationConnection:
         deregister_cleanup(str(self._session_id))
         self._started = False
 
-    def instrument(self, role: str, timeout: float = 0) -> Any:
-        """Connect and lock a single instrument by role.
+    def instrument(self, role: str, *, reserve: bool = True, timeout: float = 0) -> Any:
+        """Attach an instrument by role and optionally reserve it.
 
         Args:
             role: Instrument role name from station config.
-            timeout: Seconds to wait for lock. 0 = fail immediately.
+            reserve: If ``True`` (default), acquire the exclusive file lock
+                after connecting. The protective default suits interactive
+                use — pass ``reserve=False`` for attach-only with
+                self-managed reservations.
+            timeout: Seconds to wait for the lock. ``0`` = fail immediately;
+                ``-1`` = wait indefinitely for a live holder. Ignored when
+                ``reserve=False``.
 
         Returns:
             Proxied driver instance.
 
         Raises:
-            ResourceInUse: If the resource is locked by another process.
+            ResourceInUse: If ``reserve=True`` and the resource is locked by
+                another process and ``timeout`` expires.
             KeyError: If the role is not in the station config.
         """
         if not self._started:
@@ -286,7 +294,66 @@ class StationConnection:
             mocked=self._mock or inst_config.mock,
         )
 
-        return self._pool.acquire(role, record, inst_config, timeout=timeout)
+        inst = self._pool.attach(role, record, inst_config)
+        if reserve:
+            self._pool.reserve(role, timeout=timeout)
+        return inst
+
+    def reserve(self, role: str, *, timeout: float = 0) -> None:
+        """Acquire the exclusive file lock for an attached instrument.
+
+        The common interactive path gets the lock implicitly via
+        ``instrument(role)`` (default ``reserve=True``). Call this only for
+        explicit grain management: e.g., a UI "take control" action, or when
+        attaching once and reserving per command.
+
+        Re-entrant for the same holder (``viLock``-style refcount). Each
+        ``reserve`` call must be paired with a ``release_reservation``.
+
+        Args:
+            role: Instrument role already attached via ``instrument(role, ...)``.
+            timeout: Seconds to wait. ``0`` = fail immediately; ``-1`` = wait
+                forever for a live holder.
+
+        Raises:
+            ResourceInUse: If the resource is held by another process.
+        """
+        if self._pool:
+            self._pool.reserve(role, timeout=timeout)
+
+    def release_reservation(self, role: str) -> None:
+        """Release one refcount of the file lock, leaving the driver attached.
+
+        Pair with ``reserve``. The driver remains in ``instruments`` after
+        this call; only the exclusive lock is freed. Use ``release(role)`` to
+        both free all lock refcounts and disconnect the driver.
+        """
+        if self._pool:
+            self._pool.release_reservation(role)
+
+    @contextmanager
+    def reservation(self, role: str, *, timeout: float = 0) -> Iterator[None]:
+        """Context manager: reserve on entry, release on exit (leak-proof).
+
+        Matches PyVISA's ``lock_context()``. Use for RAII-style grain control
+        when the session manages explicit reservation boundaries.
+
+        The instrument must already be attached before entering the block.
+        The reservation is released even if an exception is raised.
+
+        Args:
+            role: Instrument role already attached via
+                ``instrument(role, reserve=False)`` or the pytest fixture.
+            timeout: Seconds to wait on entry.
+
+        Raises:
+            ResourceInUse: On entry, if the resource is held by another process.
+        """
+        self.reserve(role, timeout=timeout)
+        try:
+            yield
+        finally:
+            self.release_reservation(role)
 
     def release(self, role: str) -> None:
         """Disconnect and unlock a single instrument.
