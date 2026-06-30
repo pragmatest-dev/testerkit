@@ -18,6 +18,19 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def ensure_utc(dt: datetime) -> datetime:
+    """Normalize a datetime to UTC-aware.
+
+    Naive inputs are assumed UTC (the server's storage convention) and
+    stamped without shifting the wall-clock value; aware inputs are
+    converted to UTC. The server only ever reasons in UTC, so every
+    datetime crossing a receive/parse boundary passes through here.
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
 class StimulusRecord(BaseModel):
     """Record of a stimulus applied during test execution.
 

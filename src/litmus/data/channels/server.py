@@ -29,6 +29,7 @@ import pyarrow as pa
 
 from litmus.data._duckdb_flight_server import DuckDBFlightServer
 from litmus.data.channels.models import CHANNELS_FLIGHT_DB, sample_schema
+from litmus.data.models import ensure_utc
 
 if TYPE_CHECKING:
     from litmus.data.channels.store import ChannelStore
@@ -72,9 +73,9 @@ def _make_query_hook(store: ChannelStore):  # type: ignore[no-untyped-def]
         if "last_n" in params:
             kwargs["last_n"] = int(params["last_n"][0])
         if "start" in params:
-            kwargs["start"] = datetime.fromisoformat(params["start"][0])
+            kwargs["start"] = ensure_utc(datetime.fromisoformat(params["start"][0]))
         if "end" in params:
-            kwargs["end"] = datetime.fromisoformat(params["end"][0])
+            kwargs["end"] = ensure_utc(datetime.fromisoformat(params["end"][0]))
         return store.query(channel_id, **kwargs)  # type: ignore[arg-type]
 
     return hook

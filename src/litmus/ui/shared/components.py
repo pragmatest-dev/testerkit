@@ -10,7 +10,7 @@ import re
 import time
 import uuid
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
@@ -42,7 +42,7 @@ def format_datetime(dt: datetime | str | None) -> str:
         if dt.tzinfo is None:
             iso = dt.isoformat() + "Z"
         else:
-            iso = dt.astimezone().isoformat()
+            iso = dt.astimezone(UTC).isoformat()
     else:
         iso = str(dt)
     # Server-side fallback so text appears immediately even before

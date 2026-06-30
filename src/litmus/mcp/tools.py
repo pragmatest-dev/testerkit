@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import UUID
 
+from litmus.data.models import ensure_utc
 from litmus.utils.enum_meta import lookup_enum as _lookup_enum_fn
 from litmus.utils.enum_meta import render_enum_reference as _render_enum_reference_fn
 
@@ -48,11 +49,7 @@ def _parse_utc_timestamp(value: str) -> datetime:
     Raises:
         ValueError: If ``value`` cannot be parsed by :func:`datetime.fromisoformat`.
     """
-    dt = datetime.fromisoformat(value)
-    if dt.tzinfo is None:
-        # Bare input — treat as UTC (server is UTC-only; callers must send UTC).
-        return dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
+    return ensure_utc(datetime.fromisoformat(value))
 
 
 # =============================================================================
