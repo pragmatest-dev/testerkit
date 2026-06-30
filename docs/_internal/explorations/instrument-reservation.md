@@ -334,3 +334,14 @@ read-only `connect()`/observe entry that routes to channel subscription instead 
 5. **[open]** §4.2 guard: dedupe shared-detection by resolved resource — warn vs auto-merge.
 6. **[open]** §4.3 fencing mechanism: file lock vs a coordinator-registered discoverable
    claim (these may be the same thing once the coordinator is station-scoped).
+7. **[open]** **Station identity scope (verified 2026-06-29).** Today station resolution is
+   project-local, CWD-anchored: `connect()` → `find_station_config` reads the project's
+   `stations/` YAML, and `_find_project_config` walks CWD ancestors for `litmus.yaml`
+   (`connect.py:488-493,506-533`). There is **no global station registry**. So two processes
+   agree on "the same station" only by sharing the project folder — even though the lock
+   namespace (`LITMUS_HOME/locks/`, resource-keyed) is already machine-global. **Asymmetry:
+   locks global, station identity project-local.** A station-scoped coordinator that
+   *out-of-context* processes (an interactive UI started elsewhere) can join therefore needs
+   a global station registry + addressing — which collides with data-dir resolution, config
+   precedence, and multi-project-on-one-machine semantics. Big blast radius; do not design
+   under #11. This is the substrate the "connecting = joining" keystone assumes.
