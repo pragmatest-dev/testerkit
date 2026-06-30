@@ -492,6 +492,7 @@ class RunScope:
         # contextvar pointing at the wrong step), so we keep a full stack.
         self._step_tokens: list[Token[TestStep | None]] = []
         self._vector_tokens: list[Token[TestVector | None]] = []
+        self._owning_contexts: list[Any] = []
         # Clear contextvars — each logger owns its execution context
         push_current_step(None)
         push_current_vector(None)
@@ -688,6 +689,7 @@ class RunScope:
         # current_step / current_vector instead of collapsing to None.
         self._step_tokens.append(push_current_step(step))
         self._vector_tokens.append(push_current_vector(vector))
+        self._owning_contexts.append(get_current_context())
 
         self._emit_step_event(step, is_start=True)
 
@@ -742,7 +744,9 @@ class RunScope:
         self._current_step_index = step_index
         self._emit_step_event(step, is_start=False)
 
-    def _emit_step_event(self, step: TestStep, *, is_start: bool) -> None:
+    def _emit_step_event(
+        self, step: TestStep, *, is_start: bool, owning_context: Any = None
+    ) -> None:
         """Emit a StepStarted or StepEnded event for ``step``.
 
         Single helper used by :meth:`start_step` and :meth:`end_step` so the
@@ -764,7 +768,7 @@ class RunScope:
             return
         vec = step.vectors[0] if step.vectors else None
         if not is_start and vec is not None and not self._step_ran_inbody_loop(step.step_path):
-            ctx = get_current_context()
+            ctx = owning_context if owning_context is not None else get_current_context()
             if ctx is not None:
                 vec.params = {**vec.params, **coerce_dict(ctx.configured_params)}
         vec_index = vec.index if vec is not None else 0
@@ -943,8 +947,9 @@ class RunScope:
         if vector is not None:
             vector.ended_at = _utcnow()
 
+        owning = self._owning_contexts[-1] if self._owning_contexts else None
         if step is not None:
-            self._emit_step_event(step, is_start=False)
+            self._emit_step_event(step, is_start=False, owning_context=owning)
 
         # Pop step from hierarchy stack
         if self._step_stack:
@@ -958,6 +963,8 @@ class RunScope:
             reset_current_step(self._step_tokens.pop())
         if self._vector_tokens:
             reset_current_vector(self._vector_tokens.pop())
+        if self._owning_contexts:
+            self._owning_contexts.pop()
 
     def measure(
         self,

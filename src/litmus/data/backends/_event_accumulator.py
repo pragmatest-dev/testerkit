@@ -438,6 +438,33 @@ class EventAccumulator:
         retries = [r for (p, r, v) in cache if p == step_path and v == vector_index]
         return cache.get((step_path, min(retries), vector_index)) if retries else None
 
+    @staticmethod
+    def _step_event_at(
+        cache: dict[tuple[str, int, int], Any],
+        step_path: str,
+        step_retry: int,
+        vector_index: int,
+    ) -> Any:
+        """Cached step event for a vector's OWN ``(step_path, step_retry)``.
+
+        An in-body iteration vector reads its enclosing step's identity and
+        timing; the de-fuse keys steps by ``(step_path, step_retry,
+        vector_index)``, so a rerun has a distinct StepStarted/StepEnded per
+        attempt. Resolving by the vector's own ``step_retry`` makes attempt 1's
+        iteration vectors read attempt 1's step span — not attempt 0's, which
+        the retry-invariant :meth:`_min_retry_match` would return. The enclosing
+        leaf step's ``vector_index`` is 0 for the common Mode-2 step, so the
+        ``step_retry``-exact lookup falls through to it; the final
+        retry-invariant match preserves behaviour for parametrized Mode-2 steps
+        whose StepStarted sits at a nonzero index.
+        """
+        return (
+            cache.get((step_path, step_retry, vector_index))
+            or cache.get((step_path, step_retry, 0))
+            or EventAccumulator._min_retry_match(cache, step_path, vector_index)
+            or EventAccumulator._min_retry_match(cache, step_path, 0)
+        )
+
     def _step_start_for(self, step_path: str, vector_index: int) -> Any:
         return self._min_retry_match(self._step_starts, step_path, vector_index)
 
@@ -512,8 +539,10 @@ class EventAccumulator:
             path, vec, retry = key
             start = self._vector_starts.get(key)
             end = self._vector_ends.get(key)
-            step_start = self._step_start_for(path, vec) or self._step_start_for(path, 0)
             ref = start or end
+            step_retry_v = getattr(ref, "step_retry", 0) or 0 if ref else 0
+            step_start = self._step_event_at(self._step_starts, path, step_retry_v, vec)
+            step_end = self._step_event_at(self._step_ends, path, step_retry_v, vec)
             node_id = getattr(ref, "node_id", None) or (step_start.node_id if step_start else None)
             inputs = _end_overrides_start(start, end, "inputs")
             outputs = dict(end.outputs) if end and getattr(end, "outputs", None) else {}
@@ -523,7 +552,6 @@ class EventAccumulator:
             )
             output_pins = dict(end.output_pins) if end and getattr(end, "output_pins", None) else {}
             step_idx_v = ref.step_index if ref else 0
-            step_retry_v = getattr(step_start, "retry", 0) or 0 if step_start else 0
             v_roles = reserved_by_step.get((step_idx_v, step_retry_v), set())
             v_instruments = [structs_by_role[r] for r in v_roles if r in structs_by_role]
             entries.append(
@@ -538,7 +566,7 @@ class EventAccumulator:
                     step_path=ref.step_path if ref else path,
                     markers=self._markers_by_node.get(node_id) if node_id else None,
                     step_started_at=step_start.occurred_at if step_start else None,
-                    step_ended_at=self._step_end_occurred(path, vec),
+                    step_ended_at=step_end.occurred_at if step_end else None,
                     vector_index=vec,
                     retry=retry,
                     step_retry=step_retry_v,
@@ -555,10 +583,6 @@ class EventAccumulator:
                 )
             )
         return entries
-
-    def _step_end_occurred(self, path: str, vector_index: int) -> Any:
-        end = self._step_end_for(path, vector_index) or self._step_end_for(path, 0)
-        return end.occurred_at if end else None
 
     def _build_scope_vector_results_from_events(self) -> list[dict[str, Any]]:
         """Synthesize one scope ``vector`` entry per step-execution (v2).

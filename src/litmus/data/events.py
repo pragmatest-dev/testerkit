@@ -608,6 +608,7 @@ class VectorStarted(EventBase):
     step_path: str = ""
     vector_index: int = 0
     retry: int = 0
+    step_retry: int = 0
     inputs: dict[str, Any] = Field(default_factory=dict)
     input_units: dict[str, str] = Field(default_factory=dict)
     node_id: str | None = None
@@ -624,6 +625,7 @@ class VectorEnded(EventBase):
     step_path: str = ""
     vector_index: int = 0
     retry: int = 0
+    step_retry: int = 0
     outcome: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)

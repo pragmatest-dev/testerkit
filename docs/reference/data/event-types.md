@@ -262,6 +262,7 @@ An in-body loop vector is entered (Mode 2: the ``vectors`` fixture or a ``run_ve
 | `step_path` | `str` | `''` |
 | `vector_index` | `int` | `0` |
 | `retry` | `int` | `0` |
+| `step_retry` | `int` | `0` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `input_units` | `dict[str, str]` | `{}` |
 | `node_id` | `str \| None` | `None` |
@@ -277,6 +278,7 @@ Completion of an in-body loop vector (Mode 2). Carries the vector's verdict and 
 | `step_path` | `str` | `''` |
 | `vector_index` | `int` | `0` |
 | `retry` | `int` | `0` |
+| `step_retry` | `int` | `0` |
 | `outcome` | `str \| None` | `None` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `outputs` | `dict[str, Any]` | `{}` |

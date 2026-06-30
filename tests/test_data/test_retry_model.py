@@ -253,6 +253,98 @@ def test_s6_partial_then_full(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# #24-1 — a rerun step's in-body iteration vectors must read THEIR OWN
+#   attempt's step span and step_retry, not the lowest attempt's. Before the
+#   fix the accumulator resolved the enclosing step via the retry-invariant
+#   lowest match, so attempt 1's vectors carried attempt 0's step_started_at
+#   and step_retry=0. The vectors now carry step_retry on their own event, and
+#   the accumulator resolves the step span at that attempt.
+# ---------------------------------------------------------------------------
+
+
+def test_rerun_iteration_vector_reads_own_attempt_step_span(tmp_path):
+    acc, rid, sid = _new_acc()
+
+    def step_start(sr, t):
+        acc.on_event(
+            StepStarted(
+                session_id=sid,
+                run_id=rid,
+                step_name=_SP,
+                step_index=0,
+                step_path=_SP,
+                retry=sr,
+                occurred_at=_tick(t),
+            )
+        )
+
+    def step_end(sr, t):
+        acc.on_event(
+            StepEnded(
+                session_id=sid,
+                run_id=rid,
+                step_name=_SP,
+                step_index=0,
+                step_path=_SP,
+                retry=sr,
+                outcome="passed",
+                occurred_at=_tick(t),
+            )
+        )
+
+    def vector(vr, sr, t):
+        acc.on_event(
+            VectorStarted(
+                session_id=sid,
+                run_id=rid,
+                step_name=_SP,
+                step_index=0,
+                step_path=_SP,
+                vector_index=0,
+                retry=vr,
+                step_retry=sr,
+                occurred_at=_tick(t),
+            )
+        )
+        acc.on_event(
+            VectorEnded(
+                session_id=sid,
+                run_id=rid,
+                step_name=_SP,
+                step_index=0,
+                step_path=_SP,
+                vector_index=0,
+                retry=vr,
+                step_retry=sr,
+                outcome="passed",
+                occurred_at=_tick(t),
+            )
+        )
+
+    # attempt 0 then a rerun (attempt 1), each with its own step span
+    step_start(0, 0)
+    vector(vr=0, sr=0, t=1)
+    step_end(0, 2)
+    step_start(1, 10)
+    vector(vr=1, sr=1, t=11)
+    step_end(1, 12)
+
+    rows = _materialize(acc, tmp_path)
+    vrows = {r["vector_retry"]: r for r in rows if r["record_type"] == "vector"}
+    assert set(vrows) == {0, 1}
+
+    assert vrows[0]["step_retry"] == 0
+    assert vrows[0]["step_started_at"] == _tick(0)
+    assert vrows[0]["step_ended_at"] == _tick(2)
+
+    # The decisive #24-1 fact: attempt 1's iteration vector reads attempt 1's
+    # step span, not attempt 0's.
+    assert vrows[1]["step_retry"] == 1
+    assert vrows[1]["step_started_at"] == _tick(10)
+    assert vrows[1]["step_ended_at"] == _tick(12)
+
+
 def test_runscope_next_vector_occurrence_counts_per_point():
     from litmus.execution.run_scope import RunScope
 
