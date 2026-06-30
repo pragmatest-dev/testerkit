@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from litmus.instruments.locks import ResourceInUse
 from litmus.instruments.server import (
     InstrumentServer,
     RemoteInstrumentProxy,
@@ -361,7 +362,7 @@ class TestPoolIntegration:
             v = inst.measure_voltage()
             assert v == pytest.approx(3.3)
 
-            pool.release_all()
+            pool.disconnect_all()
         finally:
             os.environ.pop("_LITMUS_INSTRUMENT_SERVER", None)
             os.environ.pop("_LITMUS_SHARED_ROLES", None)
@@ -398,7 +399,7 @@ class TestPoolIntegration:
         # Should NOT be a RemoteInstrumentProxy
         assert not isinstance(inst, RemoteInstrumentProxy)
 
-        pool.release_all()
+        pool.disconnect_all()
 
 
 class TestSubprocessSerialization:
@@ -513,3 +514,259 @@ class TestConnectToServer:
         host, port = connect_to_server("localhost:8080")
         assert host == "localhost"
         assert port == 8080
+
+
+class TestServerLeases:
+    """Step-duration refcounted per-connection lease table.
+
+    Tests the _RESERVE / _RELEASE verbs on InstrumentServer and the
+    RemoteInstrumentProxy.reserve / release_reservation surface.
+    """
+
+    def test_reserve_timeout_zero_refused_when_held(self):
+        """B RESERVE with timeout=0 raises ResourceInUse while A holds the lease."""
+        driver = FakeDriver()
+        server = InstrumentServer({"dmm": driver})
+        server.start()
+        try:
+            proxy_a = RemoteInstrumentProxy(_addr(server), "dmm")
+            proxy_b = RemoteInstrumentProxy(_addr(server), "dmm")
+            try:
+                proxy_a.reserve(timeout=0)
+                with pytest.raises(ResourceInUse):
+                    proxy_b.reserve(timeout=0)
+            finally:
+                proxy_a.release_reservation()
+                proxy_a._disconnect()
+                proxy_b._disconnect()
+        finally:
+            server.stop(force=True)
+
+    def test_reserve_waits_for_live_holder(self):
+        """B RESERVE with positive timeout blocks until A releases, then succeeds."""
+        driver = FakeDriver()
+        server = InstrumentServer({"dmm": driver})
+        server.start()
+        try:
+            proxy_a = RemoteInstrumentProxy(_addr(server), "dmm")
+            proxy_b = RemoteInstrumentProxy(_addr(server), "dmm")
+            try:
+                proxy_a.reserve(timeout=0)
+
+                result: list[bool] = []
+                error: list[Exception] = []
+
+                def b_reserve():
+                    try:
+                        proxy_b.reserve(timeout=2.0)
+                        result.append(True)
+                    except Exception as exc:
+                        error.append(exc)
+
+                t = threading.Thread(target=b_reserve, daemon=True)
+                t.start()
+
+                time.sleep(0.05)
+                proxy_a.release_reservation()
+
+                t.join(timeout=3.0)
+                assert not t.is_alive()
+                assert error == []
+                assert result == [True]
+
+                proxy_b.release_reservation()
+            finally:
+                proxy_a._disconnect()
+                proxy_b._disconnect()
+        finally:
+            server.stop(force=True)
+
+    def test_operation_refused_while_different_client_holds_lease(self):
+        """B RPC on a leased resource raises RuntimeError(ResourceInUse) while A holds."""
+        driver = FakeDriver()
+        server = InstrumentServer({"dmm": driver})
+        server.start()
+        try:
+            proxy_a = RemoteInstrumentProxy(_addr(server), "dmm")
+            proxy_b = RemoteInstrumentProxy(_addr(server), "dmm")
+            try:
+                proxy_a.reserve(timeout=0)
+                with pytest.raises(RuntimeError, match="ResourceInUse"):
+                    proxy_b.measure_voltage()
+            finally:
+                proxy_a.release_reservation()
+                proxy_a._disconnect()
+                proxy_b._disconnect()
+        finally:
+            server.stop(force=True)
+
+    def test_operation_allowed_after_release(self):
+        """B's RPC succeeds once A releases the lease."""
+        driver = FakeDriver()
+        server = InstrumentServer({"dmm": driver})
+        server.start()
+        try:
+            proxy_a = RemoteInstrumentProxy(_addr(server), "dmm")
+            proxy_b = RemoteInstrumentProxy(_addr(server), "dmm")
+            try:
+                proxy_a.reserve(timeout=0)
+                proxy_a.release_reservation()
+                result = proxy_b.measure_voltage()
+                assert result == pytest.approx(3.3)
+            finally:
+                proxy_a._disconnect()
+                proxy_b._disconnect()
+        finally:
+            server.stop(force=True)
+
+    def test_reentrant_reserve_needs_matching_releases(self):
+        """Two RESERVEs from the same connection require two RELEASEs to free the lease."""
+        driver = FakeDriver()
+        server = InstrumentServer({"dmm": driver})
+        server.start()
+        try:
+            proxy_a = RemoteInstrumentProxy(_addr(server), "dmm")
+            proxy_b = RemoteInstrumentProxy(_addr(server), "dmm")
+            try:
+                proxy_a.reserve(timeout=0)
+                proxy_a.reserve(timeout=0)
+
+                proxy_a.release_reservation()
+                with pytest.raises(ResourceInUse):
+                    proxy_b.reserve(timeout=0)
+
+                proxy_a.release_reservation()
+                proxy_b.reserve(timeout=0)
+                proxy_b.release_reservation()
+            finally:
+                proxy_a._disconnect()
+                proxy_b._disconnect()
+        finally:
+            server.stop(force=True)
+
+    def test_unleased_ops_behave_as_before(self):
+        """Without any reservation, both clients call the driver freely."""
+        driver = FakeDriver()
+        server = InstrumentServer({"dmm": driver})
+        server.start()
+        try:
+            proxy_a = RemoteInstrumentProxy(_addr(server), "dmm")
+            proxy_b = RemoteInstrumentProxy(_addr(server), "dmm")
+            try:
+                results = []
+                errors: list[Exception] = []
+
+                def measure(proxy, name):
+                    try:
+                        results.append((name, proxy.measure_voltage()))
+                    except Exception as exc:
+                        errors.append(exc)
+
+                t1 = threading.Thread(target=measure, args=(proxy_a, "a"))
+                t2 = threading.Thread(target=measure, args=(proxy_b, "b"))
+                t1.start()
+                t2.start()
+                t1.join(timeout=5)
+                t2.join(timeout=5)
+
+                assert errors == []
+                assert len(results) == 2
+                assert all(v == pytest.approx(3.3) for _, v in results)
+            finally:
+                proxy_a._disconnect()
+                proxy_b._disconnect()
+        finally:
+            server.stop(force=True)
+
+    def test_disconnect_releases_all_leases(self):
+        """A client that disconnects without releasing frees its leases."""
+        driver = FakeDriver()
+        server = InstrumentServer({"dmm": driver})
+        server.start()
+        try:
+            proxy_a = RemoteInstrumentProxy(_addr(server), "dmm")
+            proxy_b = RemoteInstrumentProxy(_addr(server), "dmm")
+            try:
+                proxy_a.reserve(timeout=0)
+                proxy_a.reserve(timeout=0)
+
+                proxy_a._disconnect()
+
+                proxy_b.reserve(timeout=1.0)
+                proxy_b.release_reservation()
+            finally:
+                proxy_b._disconnect()
+        finally:
+            server.stop(force=True)
+
+    def test_concurrent_roles_skip_leasing(self):
+        """Concurrent roles are not subject to lease arbitration."""
+        switch = FakeSwitch()
+        server = InstrumentServer(
+            {"matrix": switch},
+            concurrent_roles={"matrix"},
+        )
+        server.start()
+        try:
+            proxy_a = RemoteInstrumentProxy(_addr(server), "matrix")
+            proxy_b = RemoteInstrumentProxy(_addr(server), "matrix")
+            try:
+                proxy_a.reserve(timeout=0)
+                proxy_a.reserve(timeout=0)
+                proxy_b.reserve(timeout=0)
+                proxy_b.close_channels(["r0c0"])
+                proxy_a.release_reservation()
+                proxy_a.release_reservation()
+                proxy_b.release_reservation()
+            finally:
+                proxy_a._disconnect()
+                proxy_b._disconnect()
+        finally:
+            server.stop(force=True)
+
+    def test_meta_lock_guards_dead_client_rebind(self, monkeypatch):
+        """Concurrent dead-client lock reclaims end up on one shared replacement lock."""
+        import litmus.instruments.server as srv_mod
+
+        monkeypatch.setattr(srv_mod, "_DEAD_CLIENT_TIMEOUT", 0.05)
+
+        driver = FakeDriver()
+        server = InstrumentServer({"dmm": driver})
+        server.start()
+
+        original_lock = server._locks["dmm"]
+        original_lock.acquire()
+
+        try:
+            proxy_a = RemoteInstrumentProxy(_addr(server), "dmm")
+            proxy_b = RemoteInstrumentProxy(_addr(server), "dmm")
+
+            results: list[float] = []
+            errors: list[Exception] = []
+
+            def do_rpc(proxy):
+                try:
+                    results.append(proxy.measure_voltage())
+                except Exception as exc:
+                    errors.append(exc)
+
+            t1 = threading.Thread(target=do_rpc, args=(proxy_a,), daemon=True)
+            t2 = threading.Thread(target=do_rpc, args=(proxy_b,), daemon=True)
+            t1.start()
+            t2.start()
+            t1.join(timeout=5)
+            t2.join(timeout=5)
+
+            assert errors == [], f"unexpected errors: {errors}"
+            assert len(results) == 2
+            assert all(v == pytest.approx(3.3) for v in results)
+            assert server._locks["dmm"] is not original_lock
+
+            proxy_a._disconnect()
+            proxy_b._disconnect()
+        finally:
+            try:
+                original_lock.release()
+            except RuntimeError:
+                pass
+            server.stop(force=True)

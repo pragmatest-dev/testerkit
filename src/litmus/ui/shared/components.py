@@ -1750,7 +1750,7 @@ class InstrumentToggle:
 
     def _toggle(self) -> None:
         if self.connected:
-            self._station.release(self.role)
+            self._station.disconnect(self.role)
         else:
             try:
                 self._station.instrument(self.role)

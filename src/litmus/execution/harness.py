@@ -539,14 +539,14 @@ class Context:
             )
             return
         run_scope = get_current_run_scope()
-        event_log = getattr(run_scope, "event_log", None) if run_scope is not None else None
-        if event_log is None:
+        if run_scope is None or run_scope.event_log is None:
             _log.debug(
                 "Observation %r not emitted: no active RunScope / event_log. "
                 "Run inside a run-scope context to land observations on the event timeline.",
                 key,
             )
             return
+        event_log = run_scope.event_log
 
         # Pull step/vector context from active ContextVars; defaults
         # are fine when called outside a step/vector (defensive).
@@ -559,7 +559,7 @@ class Context:
                 session_id=self._session_id,
                 run_id=run_id,
                 step_name=getattr(step, "name", "") if step else "",
-                step_index=getattr(step, "step_index", 0) if step else 0,
+                step_index=run_scope._current_step_index,
                 step_path=getattr(step, "step_path", "") if step else "",
                 vector_index=getattr(vector, "index", 0) if vector else 0,
                 retry=getattr(vector, "retry", 0) if vector else 0,
@@ -608,10 +608,11 @@ class Context:
                 session_id=self._session_id,
                 run_id=run_id,
                 step_name=getattr(step, "name", "") if step else "",
-                step_index=getattr(step, "step_index", 0) if step else 0,
+                step_index=run_scope._current_step_index,
                 step_path=step_path,
                 vector_index=vector_index,
                 retry=occurrence,
+                step_retry=getattr(step, "retry", 0) if step else 0,
                 inputs=dict(vector.params) if vector is not None else {},
                 input_units=dict(vector.param_units) if vector is not None else {},
                 node_id=getattr(step, "node_id", None) if step else None,
@@ -641,10 +642,11 @@ class Context:
                 session_id=self._session_id,
                 run_id=run_id,
                 step_name=getattr(step, "name", "") if step else "",
-                step_index=getattr(step, "step_index", 0) if step else 0,
+                step_index=run_scope._current_step_index,
                 step_path=getattr(step, "step_path", "") if step else "",
                 vector_index=getattr(vector, "index", 0) if vector else 0,
                 retry=getattr(vector, "retry", 0) if vector else 0,
+                step_retry=getattr(step, "retry", 0) if step else 0,
                 outcome=outcome.value if outcome is not None else None,
                 inputs=dict(vector.params) if vector is not None else {},
                 outputs=dict(vector.observations) if vector is not None else {},
@@ -1805,7 +1807,6 @@ class TestHarness:
         # Register with logger and emit event via public API
         if self._logger is not None:
             self._current_step_index = self._logger.register_step(step)
-            step.instrument_records = self._logger.step_instrument_records
             self._logger.emit_step_started(step, self._current_step_index)
 
         # Set contextvar for concurrency-safe resolution

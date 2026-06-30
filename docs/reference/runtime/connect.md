@@ -40,7 +40,7 @@ station.start()
 try:
     dmm = station.instrument("dmm")
     # ... work ...
-    station.release("dmm")
+    station.disconnect("dmm")
 finally:
     station.stop()
 ```
@@ -75,7 +75,7 @@ Constructor: `StationConnection(station_config: StationConfig, *, data_dir: Path
 | Method | Returns | Description |
 |---|---|---|
 | `instrument(role, timeout: float = 0)` | proxied driver | Connect and lock a single instrument by role. Raises `ResourceInUse` if the underlying resource address is locked. |
-| `release(role)` | `None` | Disconnect and unlock a single instrument. |
+| `disconnect(role)` | `None` | Disconnect and unlock a single instrument. |
 | `configure(role, method, **parameters)` | `None` | Emit an `InstrumentConfigure` event — for UI-initiated operations the user needs in the event log. |
 | `start_instrument_server(roles: set[str] \| None = None)` | `str` (`host:port`) | Start the instrument server so external processes can share these instruments. |
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
@@ -68,20 +69,57 @@ class ResourceInUse(Exception):
         super().__init__(msg)
 
 
+_registry: dict[tuple[str, int, UUID, str], tuple[int, BaseFileLock]] = {}
+_lock_to_key: dict[int, tuple[str, int, UUID, str]] = {}
+_registry_lock = threading.Lock()
+
+
+def _holder_key(resource: str, meta: ResourceMeta) -> tuple[str, int, UUID, str]:
+    return (resource, meta.pid, meta.session_id, meta.role)
+
+
 def acquire_resource(resource: str, meta: ResourceMeta, timeout: float = 0) -> BaseFileLock:
     """Acquire a file lock for a physical resource.
+
+    Re-entrant for the same holder: if ``(pid, session_id, role)`` already
+    holds *resource*, the acquisition increments a refcount and returns
+    immediately without contending — enabling nested steps where a
+    class-container step holds the lease while a method step re-acquires the
+    same instrument.  N acquires from the same holder require N calls to
+    :func:`release_resource`; the underlying ``fcntl.flock`` is released only
+    when the refcount reaches zero.
+
+    A *different* holder contends normally: ``timeout=0`` raises
+    :exc:`ResourceInUse` immediately; ``timeout>0`` waits up to that many
+    seconds; ``timeout=-1`` blocks indefinitely until the current holder
+    releases.  Dead-holder recovery on the ``timeout=-1`` path requires no
+    heartbeat watchdog because ``fcntl.flock`` auto-releases on process death
+    (including SIGKILL) — the file-lock substrate handles it at the OS level.
+    The server-path heartbeat/timeout split is a separate concern addressed in
+    a later phase.
 
     Args:
         resource: Resource address (e.g. ``GPIB::16::INSTR``).
         meta: Metadata about the acquirer (written into lock file).
-        timeout: Seconds to wait. 0 = fail immediately.
+        timeout: Seconds to wait for a live holder.  ``0`` = fail immediately;
+            positive = bounded wait; ``-1`` = wait forever.
 
     Returns:
-        The held ``FileLock`` — caller must keep a reference.
+        The held ``FileLock`` — caller must keep a reference and pass it to
+        :func:`release_resource`.
 
     Raises:
-        ResourceInUse: If the lock is held by another process.
+        ResourceInUse: If the lock is held by a different holder and
+            ``timeout`` expires before it is released.
     """
+    key = _holder_key(resource, meta)
+
+    with _registry_lock:
+        if key in _registry:
+            refcount, existing_lock = _registry[key]
+            _registry[key] = (refcount + 1, existing_lock)
+            return existing_lock
+
     lock_path = _lock_dir() / f"{_sanitize_resource(resource)}.lock"
     lock = FileLock(lock_path)
     try:
@@ -90,18 +128,42 @@ def acquire_resource(resource: str, meta: ResourceMeta, timeout: float = 0) -> B
         holder = lock_holder(resource)
         raise ResourceInUse(resource, holder) from None
 
-    # Write metadata into the lock file (cosmetic / diagnostic)
     try:
         lock_path.write_text(meta.model_dump_json())
     except OSError:
-        pass  # Non-critical — lock is already held
+        pass
+
+    with _registry_lock:
+        _registry[key] = (1, lock)
+        _lock_to_key[id(lock)] = key
 
     return lock
 
 
 def release_resource(resource: str, lock: BaseFileLock) -> None:
-    """Release a resource lock."""
-    lock.release()
+    """Release a resource lock.
+
+    Decrements the re-entrancy refcount for the holder associated with *lock*.
+    The underlying ``fcntl.flock`` is released only when the refcount reaches
+    zero, that is, after as many :func:`release_resource` calls as there were
+    :func:`acquire_resource` calls from the same holder.
+    """
+    should_release = False
+    with _registry_lock:
+        key = _lock_to_key.get(id(lock))
+        if key is not None and key[0] == resource:
+            refcount, _ = _registry[key]
+            if refcount > 1:
+                _registry[key] = (refcount - 1, lock)
+            else:
+                del _registry[key]
+                del _lock_to_key[id(lock)]
+                should_release = True
+        else:
+            should_release = True
+
+    if should_release:
+        lock.release()
 
 
 def lock_holder(resource: str) -> ResourceMeta | None:

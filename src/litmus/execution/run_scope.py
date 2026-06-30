@@ -63,9 +63,8 @@ from litmus.data.backends._row_helpers import (
 def instrument_info_fields(rec: InstrumentRecord) -> dict[str, Any]:
     """Return ``{manufacturer, model, serial, firmware}`` from a record.
 
-    Shared by :meth:`RunScope.build_instrument_records` and the
-    plugin's ``InstrumentConnected`` event emitter — keeps the ``if
-    rec.info else None`` dance in one place.
+    Used by the plugin's ``InstrumentConnected`` event emitter — keeps the
+    ``if rec.info else None`` dance in one place.
     """
     info = rec.info
     return {
@@ -493,12 +492,12 @@ class RunScope:
         # contextvar pointing at the wrong step), so we keep a full stack.
         self._step_tokens: list[Token[TestStep | None]] = []
         self._vector_tokens: list[Token[TestVector | None]] = []
+        self._owning_contexts: list[Any] = []
         # Clear contextvars — each logger owns its execution context
         push_current_step(None)
         push_current_vector(None)
         self._run_context = RunContext(self.test_run)
         self._instruments: dict[str, InstrumentRecord] = instruments or {}
-        self._step_instrument_records: list[dict[str, Any]] | None = None
 
         # Event log for typed event streaming
         self._event_log: EventLog | None = None
@@ -609,65 +608,6 @@ class RunScope:
 
         return _save
 
-    def build_instrument_records(self, roles: list[str] | None = None) -> list[dict[str, Any]]:
-        """Build a list of instrument identity structs.
-
-        Args:
-            roles: If provided, only include instruments with these role names.
-                   If None, include all instruments.
-
-        Returns a list of dicts, one per instrument, each with the 14 struct
-        fields (name, id, driver, resource, protocol, manufacturer, model,
-        serial_number, firmware, cal_due, cal_last, cal_certificate, cal_lab,
-        mocked).
-        """
-        records: list[dict[str, Any]] = []
-        for role, record in self._instruments.items():
-            if roles is not None and role not in roles:
-                continue
-            info = instrument_info_fields(record)
-            cal = instrument_cal_fields(record)
-            records.append(
-                {
-                    "name": role,
-                    "id": record.instrument_id,
-                    "driver": record.driver,
-                    "resource": record.resource,
-                    "protocol": record.protocol,
-                    "manufacturer": info["manufacturer"],
-                    "model": info["model"],
-                    "serial_number": info["serial"],
-                    "firmware": info["firmware"],
-                    "cal_due": cal["cal_due"],
-                    "cal_last": cal["cal_last"],
-                    "cal_certificate": cal["cal_certificate"],
-                    "cal_lab": cal["cal_lab"],
-                    "mocked": record.mocked,
-                }
-            )
-        return records
-
-    @property
-    def step_instrument_records(self) -> list[dict[str, Any]] | None:
-        """The per-step filtered instrument records, or None if not set."""
-        return self._step_instrument_records
-
-    def set_step_instruments(self, roles: list[str]) -> list[dict[str, Any]]:
-        """Set the instrument records for the current test step.
-
-        Filters instruments to only those used by the step (detected from
-        fixture parameters) and caches the result.
-
-        Args:
-            roles: List of instrument role names used by this step.
-
-        Returns:
-            The filtered instrument records list.
-        """
-        records = self.build_instrument_records(roles=roles)
-        self._step_instrument_records = records
-        return records
-
     def start_step(
         self,
         name: str,
@@ -683,7 +623,6 @@ class RunScope:
         class_name: str | None = None,
         function: str | None = None,
         markers: str | None = None,
-        instrument_roles: list[str] | None = None,
     ):
         """Begin a new test step. Supports nesting via step_path.
 
@@ -716,8 +655,6 @@ class RunScope:
             )
             if not nests_under_container:
                 self.end_step()
-        # Clear per-step instrument records so they don't leak between steps
-        self._step_instrument_records = None
         # Reset per-step dedup sets — each step starts with a clean slate.
         self._step_seen_names = set()
         self._step_seen_repeatable = set()
@@ -752,10 +689,7 @@ class RunScope:
         # current_step / current_vector instead of collapsing to None.
         self._step_tokens.append(push_current_step(step))
         self._vector_tokens.append(push_current_vector(vector))
-
-        if instrument_roles is not None:
-            self.set_step_instruments(instrument_roles)
-            step.instrument_records = self._step_instrument_records
+        self._owning_contexts.append(get_current_context())
 
         self._emit_step_event(step, is_start=True)
 
@@ -810,7 +744,9 @@ class RunScope:
         self._current_step_index = step_index
         self._emit_step_event(step, is_start=False)
 
-    def _emit_step_event(self, step: TestStep, *, is_start: bool) -> None:
+    def _emit_step_event(
+        self, step: TestStep, *, is_start: bool, owning_context: Any = None
+    ) -> None:
         """Emit a StepStarted or StepEnded event for ``step``.
 
         Single helper used by :meth:`start_step` and :meth:`end_step` so the
@@ -832,7 +768,7 @@ class RunScope:
             return
         vec = step.vectors[0] if step.vectors else None
         if not is_start and vec is not None and not self._step_ran_inbody_loop(step.step_path):
-            ctx = get_current_context()
+            ctx = owning_context if owning_context is not None else get_current_context()
             if ctx is not None:
                 vec.params = {**vec.params, **coerce_dict(ctx.configured_params)}
         vec_index = vec.index if vec is not None else 0
@@ -857,7 +793,6 @@ class RunScope:
                 module=step.module,
                 class_name=step.class_name,
                 function=step.function,
-                instrument_records=list(step.instrument_records or []),
             )
         else:
             # Aggregate per-vector outcomes via the severity ladder so a
@@ -1012,8 +947,9 @@ class RunScope:
         if vector is not None:
             vector.ended_at = _utcnow()
 
+        owning = self._owning_contexts[-1] if self._owning_contexts else None
         if step is not None:
-            self._emit_step_event(step, is_start=False)
+            self._emit_step_event(step, is_start=False, owning_context=owning)
 
         # Pop step from hierarchy stack
         if self._step_stack:
@@ -1027,6 +963,8 @@ class RunScope:
             reset_current_step(self._step_tokens.pop())
         if self._vector_tokens:
             reset_current_vector(self._vector_tokens.pop())
+        if self._owning_contexts:
+            self._owning_contexts.pop()
 
     def measure(
         self,

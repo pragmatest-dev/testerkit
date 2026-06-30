@@ -228,7 +228,6 @@ Emitted when an instrument is disconnected during teardown.
 | `module` | `str \| None` | `None` |
 | `class_name` | `str \| None` | `None` |
 | `function` | `str \| None` | `None` |
-| `instrument_records` | `list[dict[str, Any]]` | `[]` |
 
 ### `test.step_ended` — `StepEnded`
 
@@ -263,6 +262,7 @@ An in-body loop vector is entered (Mode 2: the ``vectors`` fixture or a ``run_ve
 | `step_path` | `str` | `''` |
 | `vector_index` | `int` | `0` |
 | `retry` | `int` | `0` |
+| `step_retry` | `int` | `0` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `input_units` | `dict[str, str]` | `{}` |
 | `node_id` | `str \| None` | `None` |
@@ -278,6 +278,7 @@ Completion of an in-body loop vector (Mode 2). Carries the vector's verdict and 
 | `step_path` | `str` | `''` |
 | `vector_index` | `int` | `0` |
 | `retry` | `int` | `0` |
+| `step_retry` | `int` | `0` |
 | `outcome` | `str \| None` | `None` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `outputs` | `dict[str, Any]` | `{}` |
@@ -388,6 +389,33 @@ Emitted when a driver configure method is called via proxy.
 | `method` | `str` | *required* |
 | `parameters` | `dict[str, Any]` | `{}` |
 | `resource` | `str` | `''` |
+
+## Instrument (reservation) events
+
+### `instrument.reserved` — `InstrumentReserved`
+
+Emitted by the pool when an exclusive instrument reservation is acquired.
+
+| Field | Type | Default |
+|---|---|---|
+| `role` | `str` | *required* |
+| `instrument_id` | `str` | *required* |
+| `resource` | `str` | *required* |
+| `waited_ms` | `float` | *required* |
+| `step_index` | `int \| None` | `None` |
+| `step_retry` | `int \| None` | `None` |
+
+### `instrument.released` — `InstrumentReleased`
+
+Emitted by the pool when an instrument reservation is released.
+
+| Field | Type | Default |
+|---|---|---|
+| `role` | `str` | *required* |
+| `instrument_id` | `str` | *required* |
+| `resource` | `str` | *required* |
+| `step_index` | `int \| None` | `None` |
+| `step_retry` | `int \| None` | `None` |
 
 ## Channel (lifecycle) events
 

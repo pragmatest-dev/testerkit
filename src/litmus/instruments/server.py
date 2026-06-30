@@ -13,19 +13,22 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from multiprocessing.connection import Client, Listener
 from typing import Any
 
+from litmus.instruments.locks import ResourceInUse
+
 logger = logging.getLogger(__name__)
 
-# Sentinel for property reads vs method calls
 _GETATTR = "__getattr__"
 _SETATTR = "__setattr__"
 _DIR = "__dir__"
 _DISCONNECT = "__disconnect__"
+_RESERVE = "__reserve__"
+_RELEASE = "__release__"
 
-# Heartbeat timeout (seconds) — server considers client dead if no message
-_HEARTBEAT_TIMEOUT = 15.0
+_DEAD_CLIENT_TIMEOUT = 15.0
 
 
 class InstrumentServer:
@@ -37,12 +40,20 @@ class InstrumentServer:
     different resources run concurrently. Switches with
     ``concurrent=True`` skip the lock entirely.
 
+    Lease arbitration is per-resource, refcounted, and re-entrant per
+    connection. A client sends ``_RESERVE`` to acquire an exclusive step-
+    duration lease; ``_RELEASE`` decrements the refcount. Normal RPC
+    operations are refused when a *different* connection holds the lease.
+    When no lease is held the per-resource ``threading.Lock`` serialises
+    all callers as before, preserving existing behaviour unchanged.
+
     Args:
         instruments: Connected driver instances keyed by role.
         resources: Map of role → resource string (e.g., VISA address).
             Roles sharing a resource string share a lock. Roles without
             an entry get a unique lock (equivalent to per-role locking).
         concurrent_roles: Roles that allow concurrent access (e.g., switches).
+            These skip both the per-resource lock and the lease table.
     """
 
     def __init__(
@@ -54,20 +65,21 @@ class InstrumentServer:
         self._instruments = instruments
         self._concurrent_roles = concurrent_roles or set()
 
-        # Build per-resource locks. Roles sharing a resource share a lock.
         resource_map = resources or {}
         concurrent = concurrent_roles or set()
         self._role_to_resource: dict[str, str] = {}
         for role in instruments:
             if role in concurrent:
                 continue
-            # Fall back to role name as resource key (unique lock per role)
             self._role_to_resource[role] = resource_map.get(role, role)
 
         unique_resources = set(self._role_to_resource.values())
         self._locks: dict[str, threading.Lock] = {
             resource: threading.Lock() for resource in unique_resources
         }
+        self._meta_lock = threading.Lock()
+        self._leases: dict[str, tuple[int, int]] = {}
+        self._lease_condition = threading.Condition(threading.Lock())
         self._listener: Listener | None = None
         self._serve_thread: threading.Thread | None = None
         self._stopping = threading.Event()
@@ -95,7 +107,6 @@ class InstrumentServer:
         self._address = addr
         self._stopping.clear()
 
-        # Owner counts as a client
         with self._ref_lock:
             self._ref_count = 1
 
@@ -147,7 +158,7 @@ class InstrumentServer:
                     break
                 conn = self._listener.accept()
             except OSError:
-                break  # Listener closed
+                break
 
             with self._ref_lock:
                 self._ref_count += 1
@@ -160,17 +171,101 @@ class InstrumentServer:
             )
             t.start()
 
+    def _acquire_lease(self, resource_key: str, conn_id: int, timeout: float) -> bool:
+        """Acquire or increment the refcounted lease for resource_key.
+
+        Re-entrant for the same conn_id: increments without blocking.
+        Blocks up to ``timeout`` seconds (``-1`` = forever) waiting for a
+        different holder to release. Returns ``False`` immediately when
+        ``timeout >= 0`` and the deadline has passed.
+        """
+        deadline = None if timeout < 0 else time.monotonic() + timeout
+        with self._lease_condition:
+            while True:
+                existing = self._leases.get(resource_key)
+                if existing is None:
+                    self._leases[resource_key] = (1, conn_id)
+                    return True
+                refcount, holder = existing
+                if holder == conn_id:
+                    self._leases[resource_key] = (refcount + 1, conn_id)
+                    return True
+                if deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return False
+                    self._lease_condition.wait(remaining)
+                else:
+                    self._lease_condition.wait()
+
+    def _release_lease(self, resource_key: str, conn_id: int) -> None:
+        """Decrement the lease refcount; notify waiters when it reaches zero."""
+        with self._lease_condition:
+            existing = self._leases.get(resource_key)
+            if existing is None:
+                return
+            refcount, holder = existing
+            if holder != conn_id:
+                return
+            if refcount > 1:
+                self._leases[resource_key] = (refcount - 1, conn_id)
+            else:
+                del self._leases[resource_key]
+                self._lease_condition.notify_all()
+
+    def _release_all_leases(self, conn_id: int) -> None:
+        """Release every lease held by conn_id. Called on disconnect."""
+        with self._lease_condition:
+            released_keys = [k for k, (_, holder) in self._leases.items() if holder == conn_id]
+            for key in released_keys:
+                del self._leases[key]
+            if released_keys:
+                self._lease_condition.notify_all()
+
     def _handle_client(self, conn: Any) -> None:
         """Handle requests from a single client connection."""
+        conn_id = id(conn)
         try:
             while not self._stopping.is_set():
                 try:
                     msg = conn.recv()
                 except (EOFError, OSError):
-                    break  # Client disconnected
+                    break
 
                 if msg[0] == _DISCONNECT:
                     break
+
+                if msg[0] == _RESERVE:
+                    _, role, timeout = msg
+                    resource_key = self._role_to_resource.get(role)
+                    if resource_key is None:
+                        try:
+                            conn.send(("ok", None))
+                        except (OSError, EOFError):
+                            break
+                        continue
+                    granted = self._acquire_lease(resource_key, conn_id, timeout)
+                    try:
+                        if granted:
+                            conn.send(("ok", None))
+                        else:
+                            conn.send(("resource_in_use", resource_key))
+                    except (OSError, EOFError):
+                        if granted:
+                            self._release_lease(resource_key, conn_id)
+                        break
+                    continue
+
+                if msg[0] == _RELEASE:
+                    _, role = msg
+                    resource_key = self._role_to_resource.get(role)
+                    if resource_key is not None:
+                        self._release_lease(resource_key, conn_id)
+                    try:
+                        conn.send(("ok", None))
+                    except (OSError, EOFError):
+                        break
+                    continue
 
                 role, action, *rest = msg
                 driver = self._instruments.get(role)
@@ -179,35 +274,42 @@ class InstrumentServer:
                     continue
 
                 resource_key = self._role_to_resource.get(role)
+
+                if resource_key:
+                    with self._lease_condition:
+                        existing = self._leases.get(resource_key)
+                        refused = existing is not None and existing[1] != conn_id
+                    if refused:
+                        try:
+                            conn.send(
+                                (
+                                    "error",
+                                    f"ResourceInUse: {resource_key!r} reserved by another client",
+                                )
+                            )
+                        except (OSError, EOFError):
+                            break
+                        continue
+
                 lock = self._locks.get(resource_key) if resource_key else None
                 try:
                     if lock is not None:
-                        # Timeout prevents deadlock if another client
-                        # crashed while holding the lock. After timeout,
-                        # force-acquire: the dead client won't release.
-                        if not lock.acquire(timeout=_HEARTBEAT_TIMEOUT):
+                        if not lock.acquire(timeout=_DEAD_CLIENT_TIMEOUT):
                             logger.warning(
                                 "Lock for '%s' timed out after %.0fs — "
                                 "possible dead client, force-proceeding",
                                 role,
-                                _HEARTBEAT_TIMEOUT,
+                                _DEAD_CLIENT_TIMEOUT,
                             )
-                            # Force re-create the lock (old holder is dead).
-                            # KNOWN RACE: if multiple threads time out on
-                            # the same resource simultaneously, each may
-                            # rebind ``self._locks[resource_key]`` and
-                            # acquire its own copy — briefly violating
-                            # mutual exclusion. Acceptable for the
-                            # heartbeat-timeout recovery case (rare; only
-                            # fires when a client process has actually
-                            # died), but a focused fix would protect the
-                            # rebind with a class-level meta-lock or
-                            # switch to a supervisor-style recovery.
-                            resource_key = self._role_to_resource.get(role)
                             if resource_key:
-                                self._locks[resource_key] = threading.Lock()
-                                lock = self._locks[resource_key]
-                                lock.acquire()
+                                with self._meta_lock:
+                                    if self._locks.get(resource_key) is lock:
+                                        replacement = threading.Lock()
+                                        self._locks[resource_key] = replacement
+                                        lock = replacement
+                                    else:
+                                        lock = self._locks[resource_key]
+                            lock.acquire()
                     try:
                         result = self._dispatch(driver, action, rest)
                         conn.send(("ok", result))
@@ -220,6 +322,7 @@ class InstrumentServer:
                     except (OSError, EOFError):
                         break
         finally:
+            self._release_all_leases(conn_id)
             try:
                 conn.close()
             except OSError:
@@ -238,7 +341,6 @@ class InstrumentServer:
         if action == _GETATTR:
             name = rest[0]
             attr = getattr(driver, name)
-            # Return a type tag so we never pickle callables (lambdas, methods)
             if callable(attr):
                 return ("callable", name)
             return ("value", attr)
@@ -251,7 +353,6 @@ class InstrumentServer:
         if action == _DIR:
             return dir(driver)
 
-        # Method call: action is the method name
         if action.startswith("_"):
             raise ValueError(f"Cannot invoke private method via RPC: {action!r}")
         args = rest[0] if rest else ()
@@ -281,7 +382,6 @@ class RemoteInstrumentProxy:
         conn = object.__getattribute__(self, "_conn")
         role = object.__getattribute__(self, "_role")
 
-        # Ask server whether this attribute is callable or a plain value
         conn.send((role, _GETATTR, name))
         status, result = conn.recv()
         if status == "error":
@@ -289,7 +389,7 @@ class RemoteInstrumentProxy:
 
         tag, payload = result
         if tag == "callable":
-            # Return a wrapper that makes the actual RPC call
+
             def _remote_call(*args: Any, **kwargs: Any) -> Any:
                 conn.send((role, name, args, kwargs))
                 st, res = conn.recv()
@@ -322,6 +422,41 @@ class RemoteInstrumentProxy:
         role = object.__getattribute__(self, "_role")
         address = object.__getattribute__(self, "_address")
         return f"<RemoteInstrumentProxy({role!r}, {address[0]}:{address[1]})>"
+
+    def reserve(self, timeout: float = 0) -> None:
+        """Acquire an exclusive step-duration lease on the server.
+
+        Re-entrant for this proxy's connection: a second call increments
+        the refcount without blocking. Each call requires a matching
+        :meth:`release_reservation`.
+
+        Args:
+            timeout: Seconds to wait for a live holder.  ``0`` = fail
+                immediately; positive = bounded wait; ``-1`` = wait forever.
+
+        Raises:
+            ResourceInUse: If a different connection holds the lease and
+                ``timeout`` expires before it is released.
+            RuntimeError: On unexpected server errors.
+        """
+        conn = object.__getattribute__(self, "_conn")
+        role = object.__getattribute__(self, "_role")
+        conn.send((_RESERVE, role, timeout))
+        status, result = conn.recv()
+        if status == "resource_in_use":
+            raise ResourceInUse(result)
+        if status == "error":
+            raise RuntimeError(result)
+
+    def release_reservation(self) -> None:
+        """Decrement the lease refcount on the server.
+
+        A no-op (server-side) if no lease is held by this connection.
+        """
+        conn = object.__getattribute__(self, "_conn")
+        role = object.__getattribute__(self, "_role")
+        conn.send((_RELEASE, role))
+        _status, _result = conn.recv()
 
     def disconnect(self) -> None:
         """Public lifecycle method: ask remote driver to disconnect, then

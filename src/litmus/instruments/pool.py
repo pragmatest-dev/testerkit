@@ -8,6 +8,7 @@ This is NOT a user-facing API.
 from __future__ import annotations
 
 import os
+import time
 import warnings
 from datetime import UTC, datetime
 from typing import Any
@@ -16,7 +17,12 @@ from uuid import UUID
 from filelock._api import BaseFileLock
 
 from litmus.data.event_log import EventLog
-from litmus.data.events import InstrumentConnected, InstrumentDisconnected
+from litmus.data.events import (
+    InstrumentConnected,
+    InstrumentDisconnected,
+    InstrumentReleased,
+    InstrumentReserved,
+)
 from litmus.instruments.lifecycle import (
     disconnect,
     load_and_connect,
@@ -58,6 +64,7 @@ class InstrumentPool:
         self._active: dict[str, Any] = {}
         self._records: dict[str, InstrumentRecord] = {}
         self._locks: dict[str, BaseFileLock] = {}
+        self._remote_proxies: dict[str, Any] = {}
 
     @property
     def active(self) -> dict[str, Any]:
@@ -67,6 +74,216 @@ class InstrumentPool:
     def records(self) -> dict[str, InstrumentRecord]:
         return self._records
 
+    def connect(
+        self,
+        role: str,
+        record: InstrumentRecord,
+        inst_config: StationInstrumentConfig | None = None,
+    ) -> Any:
+        """Load → connect → verify → wrap → emit InstrumentConnected. No lock acquired.
+
+        Idempotent: if the role is already active, returns the existing driver.
+        If the role is served by a remote instrument server, delegates to
+        ``_acquire_remote`` (proxy, no local connection, no lock).
+        """
+        if role in self._active:
+            return self._active[role]
+
+        shared_roles = os.environ.get("_LITMUS_SHARED_ROLES", "")
+        server_addr = os.environ.get("_LITMUS_INSTRUMENT_SERVER", "")
+        if role in shared_roles.split(",") and server_addr:
+            return self._acquire_remote(role, record, server_addr)
+
+        use_mock = self._mock_all or record.mocked
+        record.mocked = use_mock
+        mock_config = (inst_config.mock_config if inst_config else None) or {}
+
+        driver_class = _resolve_driver_class(record) if not use_mock else None
+        driver = load_and_connect(
+            record,
+            mock=use_mock,
+            mock_config=mock_config,
+            driver_class=driver_class,
+        )
+
+        observer = self._build_observer(role, record, inst_config, driver, driver_class)
+        inst = verify_and_wrap(
+            driver,
+            role,
+            record,
+            self._event_log,
+            self._session_id,
+            observer=observer,
+        )
+
+        self._active[role] = inst
+        self._records[role] = record
+        self._emit_connected(role, record)
+        return inst
+
+    def reserve(
+        self,
+        role: str,
+        timeout: float = 0,
+        *,
+        step_index: int | None = None,
+        step_retry: int | None = None,
+    ) -> None:
+        """Acquire the exclusive file lock for an already-attached role.
+
+        Re-entrant for the same ``(pid, session_id, role)`` holder: increments
+        the refcount without contending. Each call requires a matching
+        ``release_reservation``.
+
+        For remote/shared roles the server owns arbitration; this is a no-op
+        at the client (server leases are Phase 2b). For mocked or resource-less
+        roles, no lock is taken but an event is still emitted.
+
+        Raises:
+            ResourceInUse: If the resource is held by a different process and
+                ``timeout`` expires (``0`` = fail immediately; ``-1`` = wait
+                forever for a live holder).
+        """
+        shared_roles = os.environ.get("_LITMUS_SHARED_ROLES", "")
+        server_addr = os.environ.get("_LITMUS_INSTRUMENT_SERVER", "")
+        if role in shared_roles.split(",") and server_addr:
+            raw = self._remote_proxies.get(role)
+            if raw is not None:
+                t0 = time.monotonic()
+                raw.reserve(timeout)
+                waited_ms = (time.monotonic() - t0) * 1000.0
+                record = self._records.get(role)
+                if self._event_log is not None and record is not None:
+                    self._event_log.emit(
+                        InstrumentReserved(
+                            session_id=self._session_id,
+                            run_id=self._run_id,
+                            role=role,
+                            instrument_id=record.instrument_id,
+                            resource=record.resource,
+                            waited_ms=waited_ms,
+                            step_index=step_index,
+                            step_retry=step_retry,
+                        )
+                    )
+            return
+
+        record = self._records.get(role)
+        if record is None:
+            return
+
+        if record.mocked or not record.resource:
+            if self._event_log is not None:
+                self._event_log.emit(
+                    InstrumentReserved(
+                        session_id=self._session_id,
+                        run_id=self._run_id,
+                        role=role,
+                        instrument_id=record.instrument_id,
+                        resource=record.resource,
+                        waited_ms=0.0,
+                        step_index=step_index,
+                        step_retry=step_retry,
+                    )
+                )
+            return
+
+        meta = ResourceMeta(
+            pid=os.getpid(),
+            session_id=self._session_id,
+            station_id=self._station_id,
+            role=role,
+            acquired_at=datetime.now(UTC),
+        )
+        t0 = time.monotonic()
+        lock = acquire_resource(record.resource, meta, timeout=timeout)
+        waited_ms = (time.monotonic() - t0) * 1000.0
+        self._locks[role] = lock
+        if self._event_log is not None:
+            self._event_log.emit(
+                InstrumentReserved(
+                    session_id=self._session_id,
+                    run_id=self._run_id,
+                    role=role,
+                    instrument_id=record.instrument_id,
+                    resource=record.resource,
+                    waited_ms=waited_ms,
+                    step_index=step_index,
+                    step_retry=step_retry,
+                )
+            )
+
+    def release_reservation(
+        self,
+        role: str,
+        *,
+        step_index: int | None = None,
+        step_retry: int | None = None,
+    ) -> None:
+        """Release one refcount of the file lock, leaving the driver attached.
+
+        The underlying flock is freed only when all outstanding ``reserve``
+        refcounts have been released. A no-op if no reservation is held.
+        """
+        shared_roles = os.environ.get("_LITMUS_SHARED_ROLES", "")
+        server_addr = os.environ.get("_LITMUS_INSTRUMENT_SERVER", "")
+        if role in shared_roles.split(",") and server_addr:
+            raw = self._remote_proxies.get(role)
+            if raw is not None:
+                raw.release_reservation()
+                record = self._records.get(role)
+                if self._event_log is not None and record is not None:
+                    self._event_log.emit(
+                        InstrumentReleased(
+                            session_id=self._session_id,
+                            run_id=self._run_id,
+                            role=role,
+                            instrument_id=record.instrument_id,
+                            resource=record.resource,
+                            step_index=step_index,
+                            step_retry=step_retry,
+                        )
+                    )
+            return
+
+        record = self._records.get(role)
+        if record is None:
+            return
+
+        if record.mocked or not record.resource:
+            if self._event_log is not None:
+                self._event_log.emit(
+                    InstrumentReleased(
+                        session_id=self._session_id,
+                        run_id=self._run_id,
+                        role=role,
+                        instrument_id=record.instrument_id,
+                        resource=record.resource,
+                        step_index=step_index,
+                        step_retry=step_retry,
+                    )
+                )
+            return
+
+        lock = self._locks.get(role)
+        if lock is None:
+            return
+        release_resource(record.resource, lock)
+        if self._event_log is not None:
+            self._event_log.emit(
+                InstrumentReleased(
+                    session_id=self._session_id,
+                    run_id=self._run_id,
+                    role=role,
+                    instrument_id=record.instrument_id,
+                    resource=record.resource,
+                    step_index=step_index,
+                    step_retry=step_retry,
+                )
+            )
+        if not lock.is_locked:
+            del self._locks[role]
+
     def acquire(
         self,
         role: str,
@@ -74,73 +291,18 @@ class InstrumentPool:
         inst_config: StationInstrumentConfig | None = None,
         timeout: float = 0,
     ) -> Any:
-        """Lock → load → connect → verify → wrap → emit InstrumentConnected.
+        """Back-compat composite: connect + reserve.
 
-        If the role is served by a remote instrument server (indicated by
-        ``_LITMUS_SHARED_ROLES`` and ``_LITMUS_INSTRUMENT_SERVER`` env vars),
-        returns a ``RemoteInstrumentProxy`` instead of connecting locally.
-
-        Returns the proxied driver instance.
+        Existing callers (pytest fixture, route_manager) continue working
+        unchanged. If ``reserve`` fails, cleans up the connection so no resources
+        remain held.
         """
-        # Check if this role is served remotely by the instrument server
-        shared_roles = os.environ.get("_LITMUS_SHARED_ROLES", "")
-        server_addr = os.environ.get("_LITMUS_INSTRUMENT_SERVER", "")
-        if role in shared_roles.split(",") and server_addr:
-            return self._acquire_remote(role, record, server_addr)
-        use_mock = self._mock_all or record.mocked
-        record.mocked = use_mock
-        mock_config = (inst_config.mock_config if inst_config else None) or {}
-
-        # Acquire resource lock (skip for mocks with no real resource)
-        lock: BaseFileLock | None = None
-        if record.resource and not record.mocked:
-            meta = ResourceMeta(
-                pid=os.getpid(),
-                session_id=self._session_id,
-                station_id=self._station_id,
-                role=role,
-                acquired_at=datetime.now(UTC),
-            )
-            lock = acquire_resource(record.resource, meta, timeout=timeout)
-
+        inst = self.connect(role, record, inst_config)
         try:
-            # Resolve driver class once — used for both connection and observer
-            driver_class = _resolve_driver_class(record) if not use_mock else None
-            driver = load_and_connect(
-                record,
-                mock=use_mock,
-                mock_config=mock_config,
-                driver_class=driver_class,
-            )
-
-            # Build observer from driver class + YAML overrides
-            observer = self._build_observer(
-                role,
-                record,
-                inst_config,
-                driver,
-                driver_class,
-            )
-
-            inst = verify_and_wrap(
-                driver,
-                role,
-                record,
-                self._event_log,
-                self._session_id,
-                observer=observer,
-            )
+            self.reserve(role, timeout=timeout)
         except BaseException:
-            if lock is not None:
-                release_resource(record.resource, lock)
+            self.disconnect(role)
             raise
-
-        self._active[role] = inst
-        self._records[role] = record
-        if lock is not None:
-            self._locks[role] = lock
-
-        self._emit_connected(role, record)
         return inst
 
     def _acquire_remote(
@@ -158,8 +320,8 @@ class InstrumentPool:
 
         address = connect_to_server(server_addr)
         proxy = RemoteInstrumentProxy(address, role)
+        self._remote_proxies[role] = proxy
 
-        # Wrap in observer proxy if event log is active
         if self._event_log is not None:
             observer = self._build_observer(role, record, None, proxy)
             if observer is not None:
@@ -204,10 +366,11 @@ class InstrumentPool:
             driver_instance=driver,
         )
 
-    def release(self, role: str) -> None:
-        """Emit InstrumentDisconnected → disconnect → release lock."""
+    def disconnect(self, role: str) -> None:
+        """Emit InstrumentDisconnected → disconnect → drain all lock refcounts."""
         inst = self._active.pop(role, None)
         record = self._records.pop(role, None)
+        self._remote_proxies.pop(role, None)
 
         if inst is not None:
             if self._event_log and record:
@@ -222,13 +385,14 @@ class InstrumentPool:
             disconnect(inst, role)
 
         lock = self._locks.pop(role, None)
-        if lock is not None and record:
-            release_resource(record.resource, lock)
+        if lock is not None and record and record.resource:
+            while lock.is_locked:
+                release_resource(record.resource, lock)
 
-    def release_all(self) -> None:
-        """Release all instruments in reverse acquisition order."""
+    def disconnect_all(self) -> None:
+        """Disconnect all instruments in reverse acquisition order."""
         for role in reversed(list(self._active)):
-            self.release(role)
+            self.disconnect(role)
 
     def _emit_connected(self, role: str, record: InstrumentRecord) -> None:
         if not self._event_log:

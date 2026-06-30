@@ -66,6 +66,7 @@ class _FakeRunScope:
     def __init__(self, event_log: _FakeEventLog, run_id: UUID) -> None:
         self.event_log = event_log
         self.test_run = _FakeTestRun(id=run_id)
+        self._current_step_index = 0
 
 
 @pytest.fixture

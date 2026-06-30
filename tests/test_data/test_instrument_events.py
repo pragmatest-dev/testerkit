@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 from uuid import uuid4
 
+from litmus.data.event_log import EVENT_LOG_SCHEMA_VERSION
 from litmus.data.events import (
     ChannelStarted,
     InstrumentConfigure,
     InstrumentDisconnected,
+    InstrumentReleased,
+    InstrumentReserved,
     InstrumentSet,
 )
 
@@ -66,3 +69,46 @@ class TestSerialization:
         data = json.loads(event.model_dump_json())
         assert data["event_type"] == "fixture.instrument_disconnected"
         assert data["role"] == "dmm"
+
+    def test_instrument_reserved_roundtrip(self):
+        event = InstrumentReserved(
+            session_id=uuid4(),
+            role="dmm",
+            instrument_id="keithley_dmm_001",
+            resource="GPIB0::22::INSTR",
+            waited_ms=12.5,
+        )
+        data = json.loads(event.model_dump_json())
+        assert data["event_type"] == "instrument.reserved"
+        assert data["role"] == "dmm"
+        assert data["instrument_id"] == "keithley_dmm_001"
+        assert data["resource"] == "GPIB0::22::INSTR"
+        assert data["waited_ms"] == 12.5
+
+    def test_instrument_reserved_uncontended_waited_ms_zero(self):
+        event = InstrumentReserved(
+            session_id=uuid4(),
+            role="psu",
+            instrument_id="psu-001",
+            resource="GPIB0::5::INSTR",
+            waited_ms=0.0,
+        )
+        data = json.loads(event.model_dump_json())
+        assert data["waited_ms"] == 0.0
+
+    def test_instrument_released_roundtrip(self):
+        event = InstrumentReleased(
+            session_id=uuid4(),
+            role="dmm",
+            instrument_id="keithley_dmm_001",
+            resource="GPIB0::22::INSTR",
+        )
+        data = json.loads(event.model_dump_json())
+        assert data["event_type"] == "instrument.released"
+        assert data["role"] == "dmm"
+        assert data["instrument_id"] == "keithley_dmm_001"
+        assert data["resource"] == "GPIB0::22::INSTR"
+
+
+def test_event_catalog_version_is_1_1():
+    assert EVENT_LOG_SCHEMA_VERSION == "1.1"

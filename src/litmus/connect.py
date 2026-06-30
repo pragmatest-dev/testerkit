@@ -16,13 +16,14 @@ Usage::
     station = litmus.connect("cell-7")
     station.start()
     dmm = station.instrument("dmm")
-    station.release("dmm")
+    station.disconnect("dmm")
     station.stop()
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ from litmus.data.channels.store import ChannelStore
 from litmus.data.event_log import EventLog
 from litmus.data.event_store import EventStore
 from litmus.data.events import InstrumentConfigure
+from litmus.execution._state import get_current_run_scope, get_current_step
 from litmus.execution.session_scope import SessionScope, build_session_started, open_session
 from litmus.instruments.pool import InstrumentPool
 from litmus.models.data_options import SessionOptions, StreamTuning
@@ -43,6 +45,14 @@ from litmus.signals import deregister_cleanup, register_cleanup
 # declares a patient lease floor — never shorter than this, though a project
 # that configured an even longer ``session.idle_lease_seconds`` keeps it.
 _INTERACTIVE_IDLE_LEASE_SECONDS = 3600.0
+
+
+def _current_execution_key() -> tuple[int | None, int | None]:
+    step = get_current_step()
+    run_scope = get_current_run_scope()
+    if step is None or run_scope is None:
+        return None, None
+    return run_scope._current_step_index, step.retry
 
 
 class StationConnection:
@@ -222,7 +232,7 @@ class StationConnection:
 
         # Release all instruments
         if self._pool:
-            self._pool.release_all()
+            self._pool.disconnect_all()
 
         # End the session via the primitive: emit SessionEnded (best-effort fast-path
         # — connect is the sole producer of its session), then close stores. The
@@ -247,18 +257,25 @@ class StationConnection:
         deregister_cleanup(str(self._session_id))
         self._started = False
 
-    def instrument(self, role: str, timeout: float = 0) -> Any:
-        """Connect and lock a single instrument by role.
+    def instrument(self, role: str, *, reserve: bool = True, timeout: float = 0) -> Any:
+        """Connect an instrument by role and optionally reserve it.
 
         Args:
             role: Instrument role name from station config.
-            timeout: Seconds to wait for lock. 0 = fail immediately.
+            reserve: If ``True`` (default), acquire the exclusive file lock
+                after connecting. The protective default suits interactive
+                use — pass ``reserve=False`` for connect-only with
+                self-managed reservations.
+            timeout: Seconds to wait for the lock. ``0`` = fail immediately;
+                ``-1`` = wait indefinitely for a live holder. Ignored when
+                ``reserve=False``.
 
         Returns:
             Proxied driver instance.
 
         Raises:
-            ResourceInUse: If the resource is locked by another process.
+            ResourceInUse: If ``reserve=True`` and the resource is locked by
+                another process and ``timeout`` expires.
             KeyError: If the role is not in the station config.
         """
         if not self._started:
@@ -286,15 +303,91 @@ class StationConnection:
             mocked=self._mock or inst_config.mock,
         )
 
-        return self._pool.acquire(role, record, inst_config, timeout=timeout)
+        inst = self._pool.connect(role, record, inst_config)
+        if reserve:
+            step_index, step_retry = _current_execution_key()
+            self._pool.reserve(
+                role,
+                timeout=timeout,
+                step_index=step_index,
+                step_retry=step_retry,
+            )
+        return inst
 
-    def release(self, role: str) -> None:
+    def reserve(self, role: str, *, timeout: float = 0) -> None:
+        """Acquire the exclusive file lock for a connected instrument.
+
+        The common interactive path gets the lock implicitly via
+        ``instrument(role)`` (default ``reserve=True``). Call this only for
+        explicit grain management: e.g., a UI "take control" action, or when
+        connecting once and reserving per command.
+
+        Re-entrant for the same holder (``viLock``-style refcount). Each
+        ``reserve`` call must be paired with a ``release_reservation``.
+
+        Args:
+            role: Instrument role already connected via ``instrument(role, ...)``.
+            timeout: Seconds to wait. ``0`` = fail immediately; ``-1`` = wait
+                forever for a live holder.
+
+        Raises:
+            ResourceInUse: If the resource is held by another process.
+        """
+        if self._pool:
+            step_index, step_retry = _current_execution_key()
+            self._pool.reserve(
+                role,
+                timeout=timeout,
+                step_index=step_index,
+                step_retry=step_retry,
+            )
+
+    def release_reservation(self, role: str) -> None:
+        """Release one refcount of the file lock, leaving the driver connected.
+
+        Pair with ``reserve``. The driver remains in ``instruments`` after
+        this call; only the exclusive lock is freed. Use ``disconnect(role)`` to
+        both free all lock refcounts and disconnect the driver.
+        """
+        if self._pool:
+            step_index, step_retry = _current_execution_key()
+            self._pool.release_reservation(
+                role,
+                step_index=step_index,
+                step_retry=step_retry,
+            )
+
+    @contextmanager
+    def reservation(self, role: str, *, timeout: float = 0) -> Iterator[None]:
+        """Context manager: reserve on entry, release on exit (leak-proof).
+
+        Matches PyVISA's ``lock_context()``. Use for RAII-style grain control
+        when the session manages explicit reservation boundaries.
+
+        The instrument must already be connected before entering the block.
+        The reservation is released even if an exception is raised.
+
+        Args:
+            role: Instrument role already connected via
+                ``instrument(role, reserve=False)`` or the pytest fixture.
+            timeout: Seconds to wait on entry.
+
+        Raises:
+            ResourceInUse: On entry, if the resource is held by another process.
+        """
+        self.reserve(role, timeout=timeout)
+        try:
+            yield
+        finally:
+            self.release_reservation(role)
+
+    def disconnect(self, role: str) -> None:
         """Disconnect and unlock a single instrument.
 
         Emits InstrumentDisconnected, disconnects driver, releases lock.
         """
         if self._pool:
-            self._pool.release(role)
+            self._pool.disconnect(role)
 
     def configure(self, role: str, method: str, **parameters: Any) -> None:
         """Emit an InstrumentConfigure event for a UI-initiated operation.

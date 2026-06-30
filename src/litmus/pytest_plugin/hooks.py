@@ -31,6 +31,7 @@ from litmus.execution._state import (
     get_active_slot_runner,
     get_channel_store,
     get_current_run_scope,
+    get_instrument_pool,
     get_registered_instrument_roles,
     set_active_instruments,
     set_active_profile,
@@ -1265,8 +1266,6 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
         # is about to be appended (``len(steps)`` before append).  Children
         # appended afterwards are this iteration's children for rollup.
         first_step_index = len(logger_inst.test_run.steps)
-        fixture_names: list[str] = list(getattr(item, "fixturenames", []))
-        roles = sorted(set(fixture_names) & get_registered_instrument_roles())
         logger_inst.start_step(
             cls.__name__,
             class_name=cls.__name__,
@@ -1274,7 +1273,6 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
             inputs=dict(outer_values),
             vector_index=vi,
             step_retry=getattr(item, "execution_count", 1) - 1,
-            instrument_roles=roles,
         )
         setattr(
             logger_inst,
@@ -1380,6 +1378,26 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
         _ensure_class_container(logger_inst, item)
         fixture_names: list[str] = list(getattr(item, "fixturenames", []))
         roles = sorted(set(fixture_names) & get_registered_instrument_roles())
+        pool = get_instrument_pool()
+        step_retry = getattr(item, "execution_count", 1) - 1
+        reserved: list[str] = []
+        if pool is not None:
+            try:
+                for role in roles:
+                    pool.reserve(
+                        role,
+                        step_index=step_idx,
+                        step_retry=step_retry,
+                    )
+                    reserved.append(role)
+            except BaseException:
+                for r in reserved:
+                    pool.release_reservation(
+                        r,
+                        step_index=step_idx,
+                        step_retry=step_retry,
+                    )
+                raise
         logger_inst.start_step(
             func_name,
             function=func_name,
@@ -1388,9 +1406,8 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
             node_id=item.nodeid,
             step_index=step_idx,
             vector_index=vec_idx,
-            step_retry=getattr(item, "execution_count", 1) - 1,
+            step_retry=step_retry,
             inputs=inputs,
-            instrument_roles=roles,
         )
         try:
             outcome_obj = yield
@@ -1401,6 +1418,13 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
             logger_inst.end_step()
             logger_inst._step_seen_names.clear()
             logger_inst._step_seen_repeatable.clear()
+            if pool is not None:
+                for role in reserved:
+                    pool.release_reservation(
+                        role,
+                        step_index=step_idx,
+                        step_retry=step_retry,
+                    )
         return
 
     yield

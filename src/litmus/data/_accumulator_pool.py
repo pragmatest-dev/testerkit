@@ -38,6 +38,7 @@ import pyarrow as pa
 from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.events import (
     InstrumentConnected,
+    InstrumentReserved,
     MeasurementRecorded,
     Observation,
     RunEnded,
@@ -72,6 +73,7 @@ _EVENT_CLASSES: dict[str, type] = {
     "test.vector_started": VectorStarted,
     "test.vector_ended": VectorEnded,
     "fixture.instrument_connected": InstrumentConnected,
+    "instrument.reserved": InstrumentReserved,
 }
 
 

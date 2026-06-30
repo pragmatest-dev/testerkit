@@ -31,6 +31,7 @@ from litmus.execution._state import (
     set_active_vector_index,
     set_active_vector_params,
     set_current_run_scope,
+    set_instrument_pool,
     set_instrument_records,
 )
 from litmus.execution.accessors import InstrumentAccessor
@@ -699,14 +700,16 @@ def instruments(
         use_mock = mock_instruments or (inline_config.mock if inline_config else False)
         record.mocked = use_mock
         try:
-            pool.acquire(role, record, inline_config)
+            pool.connect(role, record, inline_config)
         except ValueError:
             continue
 
     set_active_instruments(pool.active)
+    set_instrument_pool(pool)
     yield pool.active
 
-    pool.release_all()
+    pool.disconnect_all()
+    set_instrument_pool(None)
 
 
 @pytest.fixture

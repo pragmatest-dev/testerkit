@@ -310,7 +310,7 @@ the **P3 reaper (derived)**; explicit `SessionEnded` is a quiescence-proven fast
    may be reaped while a hung-but-alive process still holds its lock — correct, don't yank a lock
    from a live process. The only link is the uniform one: instrument *activity* emits session-tagged
    events that renew the lease like any operation. So locks impose **zero concerns on session
-   management.** Graceful close additionally calls `pool.release_all()` as a courtesy; the **session
+   management.** Graceful close additionally calls `pool.disconnect_all()` as a courtesy; the **session
    + UI "in-use" indicator** clear via the **derived `SessionEnded`** (the indicator keys off
    `session.ended`), independent of the lock. **Residual (not a session concern):** hardware
    safe-state on abrupt death → next-acquirer re-init (follow-on #36).
