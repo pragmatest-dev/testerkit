@@ -246,3 +246,13 @@ no-run/bench usage captured) for a quieter log. Decide alongside #18's coverage 
   `reserve`/`release_reservation`, `@contextmanager reservation()`. ruff/pyright(0/0/0) green;
   432 instrument+connect tests pass (independently re-verified); full suite 2307 per agent.
   Uncommitted. Next: Phase 2b (server lease).
+- 2026-06-29: **Phase 2b DONE** (`server.py` + `pool.py`). Per-client refcounted lease
+  (`_leases[resource]=(refcount, conn_id)`) is the arbitration grain; `_RESERVE`/`_RELEASE`
+  verbs; per-RPC lock demoted to a wire guard that respects the lease (different holder →
+  refused; unleased → today's behavior, no regression); reserve-wait split from
+  `_DEAD_CLIENT_TIMEOUT`; force-acquire race fixed via `_meta_lock`; leases released on
+  disconnect (self-healing). Client side: pool remote branch + `RemoteInstrumentProxy` send
+  the verbs. ruff/format/pyright(0/0/0); 415 instrument + 89 slot/multi tests pass
+  (independently re-verified, incl. reading the lease logic; the agent's pyright-clean claim
+  confirmed — earlier IDE error diagnostics were stale mid-edit snapshots). Next: Phase 3
+  (reservation events).

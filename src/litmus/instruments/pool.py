@@ -58,6 +58,7 @@ class InstrumentPool:
         self._active: dict[str, Any] = {}
         self._records: dict[str, InstrumentRecord] = {}
         self._locks: dict[str, BaseFileLock] = {}
+        self._remote_proxies: dict[str, Any] = {}
 
     @property
     def active(self) -> dict[str, Any]:
@@ -133,6 +134,9 @@ class InstrumentPool:
         shared_roles = os.environ.get("_LITMUS_SHARED_ROLES", "")
         server_addr = os.environ.get("_LITMUS_INSTRUMENT_SERVER", "")
         if role in shared_roles.split(",") and server_addr:
+            raw = self._remote_proxies.get(role)
+            if raw is not None:
+                raw.reserve(timeout)
             return
 
         record = self._records.get(role)
@@ -155,6 +159,14 @@ class InstrumentPool:
         The underlying flock is freed only when all outstanding ``reserve``
         refcounts have been released. A no-op if no reservation is held.
         """
+        shared_roles = os.environ.get("_LITMUS_SHARED_ROLES", "")
+        server_addr = os.environ.get("_LITMUS_INSTRUMENT_SERVER", "")
+        if role in shared_roles.split(",") and server_addr:
+            raw = self._remote_proxies.get(role)
+            if raw is not None:
+                raw.release_reservation()
+            return
+
         lock = self._locks.get(role)
         if lock is None:
             return
@@ -200,8 +212,8 @@ class InstrumentPool:
 
         address = connect_to_server(server_addr)
         proxy = RemoteInstrumentProxy(address, role)
+        self._remote_proxies[role] = proxy
 
-        # Wrap in observer proxy if event log is active
         if self._event_log is not None:
             observer = self._build_observer(role, record, None, proxy)
             if observer is not None:
@@ -250,6 +262,7 @@ class InstrumentPool:
         """Emit InstrumentDisconnected → disconnect → drain all lock refcounts."""
         inst = self._active.pop(role, None)
         record = self._records.pop(role, None)
+        self._remote_proxies.pop(role, None)
 
         if inst is not None:
             if self._event_log and record:
