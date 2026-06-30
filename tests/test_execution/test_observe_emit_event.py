@@ -54,6 +54,7 @@ class FakeLogger:
     def __init__(self, event_log: FakeEventLog | None, run_id: UUID | None = None) -> None:
         self.event_log = event_log
         self.test_run = FakeTestRun(id=run_id) if run_id is not None else None
+        self._current_step_index: int = 0
 
 
 @pytest.fixture(autouse=True)
@@ -227,13 +228,13 @@ def test_observe_without_session_id_is_silent_for_scalar(
 def test_observe_picks_up_step_context_from_contextvar(
     context_with_logger: Context, event_log: FakeEventLog
 ) -> None:
-    """Active step's name/path/index are pulled into the event."""
+    """Active step's name/path are pulled from the step ContextVar; step_index
+    comes from run_scope._current_step_index (see test_vector_step_index_emit)."""
 
     @dataclass
     class FakeStep:
         name: str = "voltage_check"
         step_path: str = "power/output/voltage"
-        step_index: int = 2
 
     token = push_current_step(FakeStep())
     try:
@@ -244,7 +245,7 @@ def test_observe_picks_up_step_context_from_contextvar(
     ev = event_log.events[0]
     assert ev.step_name == "voltage_check"
     assert ev.step_path == "power/output/voltage"
-    assert ev.step_index == 2
+    assert ev.step_index == 0
 
 
 def test_observe_picks_up_vector_context_from_contextvar(

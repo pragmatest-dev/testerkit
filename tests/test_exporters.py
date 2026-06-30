@@ -460,26 +460,40 @@ class TestSaveRefToDir:
 
 class TestInstrumentStructKeys:
     def test_struct_fields_match_row_helpers(self):
-        """INSTRUMENT_STRUCT_FIELDS stays in sync with build_instrument_records output."""
-        from litmus.data.backends._row_helpers import INSTRUMENT_STRUCT_FIELDS
-        from litmus.execution.run_scope import RunScope
-        from litmus.models.instrument import CalibrationInfo, InstrumentInfo, InstrumentRecord
+        """INSTRUMENT_STRUCT_FIELDS stays in sync with accumulator instrument records output."""
+        from datetime import UTC, datetime
+        from uuid import uuid4
 
-        record = InstrumentRecord(
-            role="dmm",
-            instrument_id="inst_001",
-            driver="drivers.FakeDriver",
-            resource="GPIB::1::INSTR",
-            protocol="visa",
-            info=InstrumentInfo(manufacturer="Acme", model="M1", serial="SN1", firmware="v1"),
-            calibration=CalibrationInfo(),
+        from litmus.data.backends._event_accumulator import EventAccumulator
+        from litmus.data.backends._row_helpers import INSTRUMENT_STRUCT_FIELDS
+        from litmus.data.events import InstrumentConnected, RunStarted
+
+        run_id = uuid4()
+        session_id = uuid4()
+        acc = EventAccumulator()
+        acc.on_event(
+            RunStarted(
+                session_id=session_id,
+                run_id=run_id,
+                station_id="st1",
+                uut_serial_number="SN001",
+                occurred_at=datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC),
+            )
         )
-        logger = RunScope(
-            uut_serial="UUT001",
-            station_id="station_001",
-            instruments={"dmm": record},
+        acc.on_event(
+            InstrumentConnected(
+                session_id=session_id,
+                run_id=run_id,
+                role="dmm",
+                instrument_id="inst_001",
+                resource="GPIB::1::INSTR",
+                manufacturer="Acme",
+                model="M1",
+                serial="SN1",
+                driver="drivers.FakeDriver",
+            )
         )
-        records = logger.build_instrument_records()
+        records = acc._build_instrument_records()
         assert len(records) == 1
         assert set(records[0].keys()) == set(INSTRUMENT_STRUCT_FIELDS)
 

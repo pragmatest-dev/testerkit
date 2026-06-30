@@ -1266,8 +1266,6 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
         # is about to be appended (``len(steps)`` before append).  Children
         # appended afterwards are this iteration's children for rollup.
         first_step_index = len(logger_inst.test_run.steps)
-        fixture_names: list[str] = list(getattr(item, "fixturenames", []))
-        roles = sorted(set(fixture_names) & get_registered_instrument_roles())
         logger_inst.start_step(
             cls.__name__,
             class_name=cls.__name__,
@@ -1275,7 +1273,6 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
             inputs=dict(outer_values),
             vector_index=vi,
             step_retry=getattr(item, "execution_count", 1) - 1,
-            instrument_roles=roles,
         )
         setattr(
             logger_inst,
@@ -1411,7 +1408,6 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
             vector_index=vec_idx,
             step_retry=step_retry,
             inputs=inputs,
-            instrument_roles=roles,
         )
         try:
             outcome_obj = yield
