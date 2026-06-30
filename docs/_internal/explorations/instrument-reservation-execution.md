@@ -77,6 +77,29 @@ in 0.3.0). Built on the **existing two-path architecture** (file-lock + orchestr
     at **setup** (resource-unavailable), distinct from a DUT/execution failure. Ordering:
     [context + needed instruments] → InstrumentReserved(waited_ms) → StepStarted/clock → body
     → StepEnded → InstrumentReleased. Phase 4 reorders the current hook accordingly.
+11. **#26 used-set = the RESERVE signal (Option A, LOCKED 2026-06-30).** The at-rest
+    per-step "used" set is sourced from what was actually reserved, not from the
+    fixture-declared "available" set (the old stamp) and not from `connect`. `reserve` is the
+    universal anchor across every real use path: fixture auto-wrap (per-step reserve), ad-hoc
+    `context.instrument(role)` (reserve-by-default), and explicit `with reservation()`. `connect`
+    is rejected as the anchor — too broad (fires for #12 observe + session-scoped availability)
+    and too coarse (session grain, can't say *which step*). **The one seam, decided:** the
+    deliberate `reserve=False` opt-out (and #12 observe) emits Connected-not-Reserved and is
+    therefore **outside** the used-set — opting out of the lease opts out of the used-set, by the
+    same deliberate act. Honest consequence accepted: a `reserve=False` instrument can still
+    carry per-measurement instrument refs, so the reserved/used set ("exclusively taken") and the
+    measurement refs ("where data flowed") may disagree only for an explicitly-opted-out
+    instrument — two distinct lenses. Rejected: B (per-instrument `reserved` flag = C5 schema
+    add), C (used only in events). Wiring is Phase 4b.
+12. **Reservation timeout/grain config deferred to #29 (LOCKED 2026-06-30).** Auto-reserve means
+    the test author can't pass `timeout=` at the call, so the value must be configurable — but
+    NOT in this branch. Phase 4 auto-wrap ships with a hardcoded `timeout=0` (fail-fast,
+    consistent with the `instrument()`/`reserve()` default). The configurable surface is a typed
+    `reservation:` block carrying **both** grain (run vs step, #29) and timeout, resolved through
+    the existing inline<sidecar<profile cascade plus a per-instrument default in station YAML
+    (the resource's contention property — thermal chamber patient, dedicated DMM fail-fast).
+    Grain + timeout are one concept ("reservation policy") and land together in #29, not dribbled
+    in half-now/half-later. Phase 4 scope = the per-step *mechanism* only.
 
 ## North-star acceptance scenario (2026-06-29)
 
@@ -120,11 +143,28 @@ query; ties `project_followup_channel_isolation_per_slot`).
   lease on shared). "Server must emit the lease" = every server lease-grant produces a
   reserved event, emitted by the granted client/pool. One consistent model; captures
   interactive no-run reservations (`run_id=None`).
+- **`connect` and `reserve` emit INDEPENDENTLY — two events, never a fused one.** `connect`
+  emits `InstrumentConnected` (always, on connect); `reserve` emits `InstrumentReserved` (only
+  on reserve). Auto-reserve (`instrument(role, reserve=True)` / the `acquire` composite) emits
+  BOTH, ordered Connected→Reserved (`connect.py:296-299`); connect-only (`reserve=False`; the
+  pytest fixture's session connect) emits Connected ONLY. **`connect` must NEVER imply
+  reserved** — a fused event couldn't represent connect-without-reserve, so the two-event
+  separation is what makes reserve-optional representable. Verified: `pool.connect`→
+  `_emit_connected`→`InstrumentConnected`; `pool.reserve`→`InstrumentReserved`.
 - **#26 at-rest set is sourced from the in-process authority record, not event replay.**
   run_scope/pool records what it reserved during the step; the event is a *parallel* emission
   of the same action. The at-rest "used" set and the event are siblings off the lock layer —
   neither derived from the other. Phase 3 (events) and Phase 4 (#26) both hang off Phase 2's
   authority; neither consumes the bus.
+  - **4b constraint, verified 2026-06-30:** the used-set MUST be recorded at the reserve
+    *call* boundary, not from `InstrumentReserved` emission. `pool.reserve` early-returns for
+    mocked / resource-less / remote-no-server roles BEFORE the emit (`pool.py:162-164`), so a
+    mock run (the whole suite + most dev/CI/demo) produces zero reserve events — an
+    event-sourced used-set would be empty exactly on the common case. The reserve *call*
+    happens for every role regardless (the auto-wrap loop appends mock roles too,
+    `hooks.py:1388-1390`), so 4b records the used-set per step at the **pool** (covers both the
+    auto-wrap declared roles and ad-hoc in-body `context.instrument()` reserves), independent
+    of whether a lock/event fired.
 - **No unreserved operation.** Every operation runs under a lease — an explicit step/run
   lease the client holds, or an implicit per-RPC (command-grain) lease the server takes for
   one call. Operating without an explicit reserve succeeds **only when uncontended**; while a

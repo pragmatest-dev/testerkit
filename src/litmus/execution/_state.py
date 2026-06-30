@@ -79,6 +79,7 @@ _active_slot_runner_var: ContextVar[Any] = ContextVar("_active_slot_runner", def
 _registered_instrument_roles_var: ContextVar[frozenset[str]] = ContextVar(
     "_registered_instrument_roles", default=frozenset()
 )
+_instrument_pool_var: ContextVar[Any] = ContextVar("_instrument_pool", default=None)
 
 
 # --- Session-scoped getters (create-and-store on first access) ---
@@ -227,6 +228,16 @@ def set_current_run_scope(run_scope: RunScope | None) -> None:
 def set_active_instruments(value: dict[str, Any]) -> None:
     """Set value. Returns None."""
     _active_instruments_var.set(value)
+
+
+def get_instrument_pool() -> Any | None:
+    """Return None if not set."""
+    return _instrument_pool_var.get()
+
+
+def set_instrument_pool(value: Any) -> None:
+    """Set value. Returns None."""
+    _instrument_pool_var.set(value)
 
 
 def set_instrument_records(value: dict[str, InstrumentRecord]) -> None:

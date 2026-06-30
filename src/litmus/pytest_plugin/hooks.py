@@ -31,6 +31,7 @@ from litmus.execution._state import (
     get_active_slot_runner,
     get_channel_store,
     get_current_run_scope,
+    get_instrument_pool,
     get_registered_instrument_roles,
     set_active_instruments,
     set_active_profile,
@@ -1380,6 +1381,17 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
         _ensure_class_container(logger_inst, item)
         fixture_names: list[str] = list(getattr(item, "fixturenames", []))
         roles = sorted(set(fixture_names) & get_registered_instrument_roles())
+        pool = get_instrument_pool()
+        reserved: list[str] = []
+        if pool is not None:
+            try:
+                for role in roles:
+                    pool.reserve(role)
+                    reserved.append(role)
+            except BaseException:
+                for r in reserved:
+                    pool.release_reservation(r)
+                raise
         logger_inst.start_step(
             func_name,
             function=func_name,
@@ -1401,6 +1413,9 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
             logger_inst.end_step()
             logger_inst._step_seen_names.clear()
             logger_inst._step_seen_repeatable.clear()
+            if pool is not None:
+                for role in reserved:
+                    pool.release_reservation(role)
         return
 
     yield
