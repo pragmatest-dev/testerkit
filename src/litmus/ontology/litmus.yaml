@@ -1092,6 +1092,24 @@ concepts:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }
 
+  - id: instrument_reserved
+    category: event
+    event_type: instrument.reserved
+    summary: An exclusive instrument lease was acquired; carries waited_ms (contention wait).
+    model: litmus.data.events.InstrumentReserved
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  - id: instrument_released
+    category: event
+    event_type: instrument.released
+    summary: An instrument lease was released (refcount reached zero).
+    model: litmus.data.events.InstrumentReleased
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
   # ---- File events ----
 
   - id: file_started

@@ -8,7 +8,12 @@ from uuid import uuid4
 import pytest
 
 from litmus.data.event_log import EventLog
-from litmus.data.events import InstrumentConnected, InstrumentDisconnected
+from litmus.data.events import (
+    InstrumentConnected,
+    InstrumentDisconnected,
+    InstrumentReleased,
+    InstrumentReserved,
+)
 from litmus.instruments.locks import ResourceInUse
 from litmus.instruments.pool import InstrumentPool
 from litmus.models.instrument import InstrumentRecord
@@ -276,4 +281,84 @@ class TestAttachReserveSplit:
         pool.acquire("dmm", _make_record())
         pool.reserve("dmm")
         assert "dmm" not in pool._locks
+        pool.release("dmm")
+
+
+class TestReservationEvents:
+    """Phase 3: InstrumentReserved / InstrumentReleased emission."""
+
+    def test_reserve_emits_instrument_reserved(self):
+        """reserve() emits exactly one InstrumentReserved with waited_ms >= 0."""
+        log = CollectingLog()
+        pool = InstrumentPool(
+            session_id=uuid4(),
+            event_log=cast(EventLog, log),
+            channel_store=None,
+        )
+        pool._records["dmm"] = _make_real_record()
+        pool.reserve("dmm")
+
+        reserved = [e for e in log.events if isinstance(e, InstrumentReserved)]
+        assert len(reserved) == 1
+        ev = reserved[0]
+        assert ev.role == "dmm"
+        assert ev.resource == "GPIB::16::INSTR"
+        assert ev.waited_ms >= 0.0
+
+        pool.release_reservation("dmm")
+
+    def test_release_reservation_emits_instrument_released(self):
+        """release_reservation() emits exactly one InstrumentReleased."""
+        log = CollectingLog()
+        pool = InstrumentPool(
+            session_id=uuid4(),
+            event_log=cast(EventLog, log),
+            channel_store=None,
+        )
+        pool._records["dmm"] = _make_real_record()
+        pool.reserve("dmm")
+        pool.release_reservation("dmm")
+
+        released = [e for e in log.events if isinstance(e, InstrumentReleased)]
+        assert len(released) == 1
+        ev = released[0]
+        assert ev.role == "dmm"
+        assert ev.resource == "GPIB::16::INSTR"
+
+    def test_reserve_run_id_none_on_no_run_path(self):
+        """run_id is None on events when no run is active (interactive/bench path)."""
+        log = CollectingLog()
+        pool = InstrumentPool(
+            session_id=uuid4(),
+            event_log=cast(EventLog, log),
+            channel_store=None,
+            run_id=None,
+        )
+        pool._records["dmm"] = _make_real_record()
+        pool.reserve("dmm")
+        pool.release_reservation("dmm")
+
+        reserved = [e for e in log.events if isinstance(e, InstrumentReserved)]
+        released = [e for e in log.events if isinstance(e, InstrumentReleased)]
+        assert reserved[0].run_id is None
+        assert released[0].run_id is None
+
+    def test_reserve_emits_nothing_for_mocked_record(self):
+        """reserve() on a mocked/resource-less role emits no reservation events."""
+        log = CollectingLog()
+        pool = InstrumentPool(
+            session_id=uuid4(),
+            event_log=cast(EventLog, log),
+            channel_store=None,
+            mock_all=True,
+        )
+        pool.acquire("dmm", _make_record())
+        pool.reserve("dmm")
+        pool.release_reservation("dmm")
+
+        reserved = [e for e in log.events if isinstance(e, InstrumentReserved)]
+        released = [e for e in log.events if isinstance(e, InstrumentReleased)]
+        assert len(reserved) == 0
+        assert len(released) == 0
+
         pool.release("dmm")

@@ -111,6 +111,13 @@ query; ties `project_followup_channel_isolation_per_slot`).
   authority as a faithful projection for **discovery** (non-holders) and **timing/history**
   (utilization, #17). **No code path may read the event bus to arbitrate a lock** — no drift,
   the standing rule. The scenario refusal (below) comes from the lease table, not the bus.
+- **Reservation events are emitted by the POOL (client side), both paths (2026-06-29
+  clarification of §7 "server must emit").** The dedicated path has no server, and the
+  server process lacks the client's session/run/event-log context — so the pool emits
+  `instrument.reserved`/`released` after the authority grants (file lock on dedicated; server
+  lease on shared). "Server must emit the lease" = every server lease-grant produces a
+  reserved event, emitted by the granted client/pool. One consistent model; captures
+  interactive no-run reservations (`run_id=None`).
 - **#26 at-rest set is sourced from the in-process authority record, not event replay.**
   run_scope/pool records what it reserved during the step; the event is a *parallel* emission
   of the same action. The at-rest "used" set and the event are siblings off the lock layer —
@@ -256,3 +263,16 @@ no-run/bench usage captured) for a quieter log. Decide alongside #18's coverage 
   (independently re-verified, incl. reading the lease logic; the agent's pyright-clean claim
   confirmed — earlier IDE error diagnostics were stale mid-edit snapshots). Next: Phase 3
   (reservation events).
+- 2026-06-29: **Phase 3 DONE** (`events.py` + `event_log.py` + `pool.py`). New
+  `InstrumentReserved` (role, instrument_id, resource, `waited_ms`) + `InstrumentReleased`;
+  registered in `INSTRUMENT_EVENTS` + the `Event` union; `EVENT_LOG_SCHEMA_VERSION` 1.0→1.1.
+  Pool emits reserved (`waited_ms` timed via `time.monotonic`) / released on both paths;
+  `run_id=None` on interactive; no emit for mocked/resource-less/no-proxy. ruff/format/
+  pyright(0/0/0); 1021 instrument+data tests pass (independently re-verified; the "unused
+  import" diagnostic was a stale mid-edit snapshot). The pre-commit FULL suite caught two
+  registration gaps the subset run missed — new BaseModels must be in the ontology
+  (`ontology/litmus.yaml`) and assigned a `_EVENT_CATEGORIES` group (regenerate
+  `event-types.md`); both added. Lesson: new event/model types need ontology + reference-docs
+  registration, only the full gate catches it. `InstrumentConnected` already IS the "attach"
+  event (no separate Attached event needed; the split sharpened it to mean attached/available
+  vs Reserved=exclusively-held). Next: Phase 4 (pytest auto-wrap + #26).

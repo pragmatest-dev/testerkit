@@ -389,6 +389,29 @@ Emitted when a driver configure method is called via proxy.
 | `parameters` | `dict[str, Any]` | `{}` |
 | `resource` | `str` | `''` |
 
+## Instrument (reservation) events
+
+### `instrument.reserved` — `InstrumentReserved`
+
+Emitted by the pool when an exclusive instrument reservation is acquired.
+
+| Field | Type | Default |
+|---|---|---|
+| `role` | `str` | *required* |
+| `instrument_id` | `str` | *required* |
+| `resource` | `str` | *required* |
+| `waited_ms` | `float` | *required* |
+
+### `instrument.released` — `InstrumentReleased`
+
+Emitted by the pool when an instrument reservation is released.
+
+| Field | Type | Default |
+|---|---|---|
+| `role` | `str` | *required* |
+| `instrument_id` | `str` | *required* |
+| `resource` | `str` | *required* |
+
 ## Channel (lifecycle) events
 
 ### `channel.started` — `ChannelStarted`

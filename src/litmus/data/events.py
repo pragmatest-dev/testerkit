@@ -783,6 +783,35 @@ class InstrumentConfigure(EventBase):
 
 
 # ---------------------------------------------------------------------------
+# Reservation events
+# ---------------------------------------------------------------------------
+
+
+class InstrumentReserved(EventBase):
+    """Emitted by the pool when an exclusive instrument reservation is acquired.
+
+    ``waited_ms`` is the monotonic duration of the acquire call — 0.0 when
+    uncontended, positive when another holder was blocking.  Hold duration is
+    derivable as ``InstrumentReleased.occurred_at − InstrumentReserved.occurred_at``.
+    """
+
+    event_type: Literal["instrument.reserved"] = "instrument.reserved"
+    role: str
+    instrument_id: str
+    resource: str
+    waited_ms: float
+
+
+class InstrumentReleased(EventBase):
+    """Emitted by the pool when an instrument reservation is released."""
+
+    event_type: Literal["instrument.released"] = "instrument.released"
+    role: str
+    instrument_id: str
+    resource: str
+
+
+# ---------------------------------------------------------------------------
 # File events (Phase 2+)
 # ---------------------------------------------------------------------------
 
@@ -896,7 +925,7 @@ TEST_EVENTS = {
     StepsDiscovered,
 }
 ROUTE_EVENTS = {RouteClosed, RouteOpened}
-INSTRUMENT_EVENTS = {InstrumentSet, InstrumentConfigure}
+INSTRUMENT_EVENTS = {InstrumentSet, InstrumentConfigure, InstrumentReserved, InstrumentReleased}
 CHANNEL_EVENTS = {ChannelStarted, ChannelEnded, ChannelCheckpoint}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
 FILE_EVENTS = {FileStarted, FileEnded, FileCheckpoint}
@@ -942,6 +971,8 @@ Event = Annotated[
     | RouteOpened
     | InstrumentSet
     | InstrumentConfigure
+    | InstrumentReserved
+    | InstrumentReleased
     | ChannelStarted
     | ChannelEnded
     | ChannelCheckpoint

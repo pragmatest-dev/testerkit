@@ -8,6 +8,7 @@ This is NOT a user-facing API.
 from __future__ import annotations
 
 import os
+import time
 import warnings
 from datetime import UTC, datetime
 from typing import Any
@@ -16,7 +17,12 @@ from uuid import UUID
 from filelock._api import BaseFileLock
 
 from litmus.data.event_log import EventLog
-from litmus.data.events import InstrumentConnected, InstrumentDisconnected
+from litmus.data.events import (
+    InstrumentConnected,
+    InstrumentDisconnected,
+    InstrumentReleased,
+    InstrumentReserved,
+)
 from litmus.instruments.lifecycle import (
     disconnect,
     load_and_connect,
@@ -136,7 +142,21 @@ class InstrumentPool:
         if role in shared_roles.split(",") and server_addr:
             raw = self._remote_proxies.get(role)
             if raw is not None:
+                t0 = time.monotonic()
                 raw.reserve(timeout)
+                waited_ms = (time.monotonic() - t0) * 1000.0
+                record = self._records.get(role)
+                if self._event_log is not None and record is not None:
+                    self._event_log.emit(
+                        InstrumentReserved(
+                            session_id=self._session_id,
+                            run_id=self._run_id,
+                            role=role,
+                            instrument_id=record.instrument_id,
+                            resource=record.resource,
+                            waited_ms=waited_ms,
+                        )
+                    )
             return
 
         record = self._records.get(role)
@@ -150,8 +170,21 @@ class InstrumentPool:
             role=role,
             acquired_at=datetime.now(UTC),
         )
+        t0 = time.monotonic()
         lock = acquire_resource(record.resource, meta, timeout=timeout)
+        waited_ms = (time.monotonic() - t0) * 1000.0
         self._locks[role] = lock
+        if self._event_log is not None:
+            self._event_log.emit(
+                InstrumentReserved(
+                    session_id=self._session_id,
+                    run_id=self._run_id,
+                    role=role,
+                    instrument_id=record.instrument_id,
+                    resource=record.resource,
+                    waited_ms=waited_ms,
+                )
+            )
 
     def release_reservation(self, role: str) -> None:
         """Release one refcount of the file lock, leaving the driver attached.
@@ -165,6 +198,17 @@ class InstrumentPool:
             raw = self._remote_proxies.get(role)
             if raw is not None:
                 raw.release_reservation()
+                record = self._records.get(role)
+                if self._event_log is not None and record is not None:
+                    self._event_log.emit(
+                        InstrumentReleased(
+                            session_id=self._session_id,
+                            run_id=self._run_id,
+                            role=role,
+                            instrument_id=record.instrument_id,
+                            resource=record.resource,
+                        )
+                    )
             return
 
         lock = self._locks.get(role)
@@ -173,6 +217,16 @@ class InstrumentPool:
         record = self._records.get(role)
         if record and record.resource:
             release_resource(record.resource, lock)
+            if self._event_log is not None:
+                self._event_log.emit(
+                    InstrumentReleased(
+                        session_id=self._session_id,
+                        run_id=self._run_id,
+                        role=role,
+                        instrument_id=record.instrument_id,
+                        resource=record.resource,
+                    )
+                )
             if not lock.is_locked:
                 del self._locks[role]
 
