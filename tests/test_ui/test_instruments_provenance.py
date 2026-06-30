@@ -1,9 +1,8 @@
 """Behavior contract for ``instrument_assets_with_provenance``.
 
-The observed side of instruments comes from UNNESTing
-``step_instruments_id`` across run history (see
-``services._instrument_id_usage_stats``). These tests monkeypatch both
-inputs and assert the union + classification — same pattern as the
+The observed side of instruments comes from ``instruments_materialized``
+(see ``services._instrument_id_usage_stats``). These tests monkeypatch
+both inputs and assert the union + classification — same pattern as the
 other entity provenance tests, only the inventory tab is covered (the
 catalog tab is intentionally templates-only).
 """
@@ -64,7 +63,7 @@ def test_configured_with_runs_resolves_identity(monkeypatch):
 
 
 def test_observed_only(monkeypatch):
-    """Instrument id appears in step_instruments_id but has no asset YAML."""
+    """Instrument id appears in instruments_materialized but has no asset YAML."""
     monkeypatch.setattr(services, "discover_instrument_assets", lambda: [])
     monkeypatch.setattr(
         services,

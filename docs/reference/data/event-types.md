@@ -76,7 +76,7 @@ Emitted once per test run. Contains full run context.
 | `slot_index` | `int \| None` | `None` |
 | `pid` | `int \| None` | `None` |
 | `client` | `str` | *via* `_detect_client()` |
-| `uut_serial` | `str` | `''` |
+| `uut_serial_number` | `str` | `''` |
 | `uut_part_number` | `str \| None` | `None` |
 | `uut_revision` | `str \| None` | `None` |
 | `uut_lot_number` | `str \| None` | `None` |
@@ -122,7 +122,7 @@ Emitted when a UUT slot begins execution.
 | Field | Type | Default |
 |---|---|---|
 | `slot_id` | `str` | *required* |
-| `uut_serial` | `str` | *required* |
+| `uut_serial_number` | `str` | *required* |
 
 ### `slot.completed` — `SlotCompleted`
 
@@ -197,7 +197,7 @@ Emitted when an instrument is connected and identified.
 
 | Field | Type | Default |
 |---|---|---|
-| `uut_serial` | `str` | *required* |
+| `uut_serial_number` | `str` | *required* |
 | `scan_source` | `str \| None` | `None` |
 
 ### `fixture.instrument_disconnected` — `InstrumentDisconnected`
@@ -218,7 +218,6 @@ Emitted when an instrument is disconnected during teardown.
 | `step_name` | `str` | *required* |
 | `step_index` | `int` | *required* |
 | `step_path` | `str` | `''` |
-| `parent_path` | `str` | `''` |
 | `description` | `str \| None` | `None` |
 | `vector_index` | `int` | `0` |
 | `retry` | `int` | `0` |
@@ -229,6 +228,7 @@ Emitted when an instrument is disconnected during teardown.
 | `module` | `str \| None` | `None` |
 | `class_name` | `str \| None` | `None` |
 | `function` | `str \| None` | `None` |
+| `instrument_records` | `list[dict[str, Any]]` | `[]` |
 
 ### `test.step_ended` — `StepEnded`
 
@@ -237,7 +237,6 @@ Emitted when an instrument is disconnected during teardown.
 | `step_name` | `str` | *required* |
 | `step_index` | `int` | *required* |
 | `step_path` | `str` | `''` |
-| `parent_path` | `str` | `''` |
 | `outcome` | `str \| None` | `None` |
 | `vector_index` | `int` | `0` |
 | `retry` | `int` | `0` |
@@ -297,6 +296,7 @@ A single measurement. Normalized: carries only measurement-specific fields.
 | `step_index` | `int` | *required* |
 | `step_path` | `str` | `''` |
 | `vector_index` | `int` | `0` |
+| `step_retry` | `int` | `0` |
 | `retry` | `int` | `0` |
 | `measurement_name` | `str` | *required* |
 | `measurement_timestamp` | `datetime \| None` | `None` |

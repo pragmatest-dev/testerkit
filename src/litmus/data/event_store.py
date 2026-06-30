@@ -44,6 +44,7 @@ from litmus.data._sql_helpers import sql_escape as _sql_escape
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.event_log import EventLog
 from litmus.data.events import EventBase
+from litmus.data.models import ensure_utc
 
 logger = logging.getLogger(__name__)
 
@@ -70,12 +71,12 @@ def _parse_event_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _parse_timestamp(ts: object) -> datetime | None:
-    """Parse a timestamp value to datetime. Returns None if unparseable."""
+    """Parse a timestamp value to a UTC-aware datetime. Returns None if unparseable."""
     if isinstance(ts, datetime):
-        return ts
+        return ensure_utc(ts)
     if isinstance(ts, str):
         try:
-            return datetime.fromisoformat(ts)
+            return ensure_utc(datetime.fromisoformat(ts))
         except ValueError:
             return None
     return None

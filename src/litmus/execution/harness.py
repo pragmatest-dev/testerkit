@@ -205,6 +205,9 @@ class Context:
                 "at runtime. Pass session_id= explicitly to enable the blob path."
             )
         self._params: dict[str, Any] = {}
+        # Keys written via ``configure()`` (NOT parametrize ``set_params``) — the
+        # subset that may override a vector's seeded params at step end.
+        self._configured: set[str] = set()
         self._observations: dict[str, Any] = {}
         # Optional engineering unit per configured / observed name.
         self._param_units: dict[str, str] = {}
@@ -259,6 +262,7 @@ class Context:
                 Rides onto the vector's lane ``unit`` field → the EAV unit column.
         """
         self._params[key] = value
+        self._configured.add(key)
         if unit is not None:
             self._param_units[key] = unit
 
@@ -573,25 +577,41 @@ class Context:
         ContextVars, so step/vector context resolves to this iteration. No-op
         outside a run scope (bare Context unit tests). Resolution mirrors
         :meth:`_emit_observation` so in-body vectors land on the same timeline.
+
+        ``vector_retry`` is sourced here as the 0-based occurrence ordinal of
+        this ``(step_path, vector_index)`` across the whole run, via the
+        session-scoped :meth:`RunScope.next_vector_occurrence` counter. Because
+        the counter survives pytest reruns, it counts in-body ``litmus_retry``
+        re-executions AND outer item reruns alike. The ordinal is written back
+        onto the active :class:`TestVector` so the matching ``VectorEnded`` and
+        any nested ``MeasurementRecorded`` (which read ``vector.retry``) carry
+        the identical value — keeping the vector key consistent across events.
         """
         if self._session_id is None:
             return
         run_scope = get_current_run_scope()
-        event_log = getattr(run_scope, "event_log", None) if run_scope is not None else None
+        if run_scope is None:
+            return
+        event_log = run_scope.event_log
         if event_log is None:
             return
         step = get_current_step()
         vector = get_current_vector()
         run_id = getattr(getattr(run_scope, "test_run", None), "id", None)
+        step_path = getattr(step, "step_path", "") if step else ""
+        vector_index = getattr(vector, "index", 0) if vector else 0
+        occurrence = run_scope.next_vector_occurrence(step_path, vector_index)
+        if vector is not None:
+            vector.retry = occurrence
         event_log.emit(
             VectorStarted(
                 session_id=self._session_id,
                 run_id=run_id,
                 step_name=getattr(step, "name", "") if step else "",
                 step_index=getattr(step, "step_index", 0) if step else 0,
-                step_path=getattr(step, "step_path", "") if step else "",
-                vector_index=getattr(vector, "index", 0) if vector else 0,
-                retry=getattr(vector, "retry", 0) if vector else 0,
+                step_path=step_path,
+                vector_index=vector_index,
+                retry=occurrence,
                 inputs=dict(vector.params) if vector is not None else {},
                 input_units=dict(vector.param_units) if vector is not None else {},
                 node_id=getattr(step, "node_id", None) if step else None,
@@ -607,7 +627,9 @@ class Context:
         if self._session_id is None:
             return
         run_scope = get_current_run_scope()
-        event_log = getattr(run_scope, "event_log", None) if run_scope is not None else None
+        if run_scope is None:
+            return
+        event_log = run_scope.event_log
         if event_log is None:
             return
         step = get_current_step()
@@ -867,6 +889,15 @@ class Context:
         if self._parent is not None:
             result.update(self._parent.params)
         result.update(self._params)
+        return result
+
+    @property
+    def configured_params(self) -> dict[str, Any]:
+        """Only values set via ``configure()`` (excludes parametrize seeds), parent-merged."""
+        result: dict[str, Any] = {}
+        if self._parent is not None:
+            result.update(self._parent.configured_params)
+        result.update({k: self._params[k] for k in self._configured if k in self._params})
         return result
 
     @property
@@ -1619,7 +1650,6 @@ class TestHarness:
                     harness.measure("voltage", dmm.measure())
         """
         self._current_vector = vector
-        self._retry_index = 0
 
         # Configure mocks for this vector if using mocks
         if self._mock_instruments and self._instruments:
@@ -1714,7 +1744,9 @@ class TestHarness:
 
             try:
                 with self.run_vector(vector) as test_vector:
-                    test_vector.retry = retry
+                    # vector.retry is the run-wide occurrence ordinal, stamped
+                    # by _emit_vector_started (inside run_vector) — NOT the
+                    # in-body attempt index. Don't overwrite it here.
                     last_vector = test_vector
 
                     result = test_fn(vector)
@@ -1773,7 +1805,7 @@ class TestHarness:
         # Register with logger and emit event via public API
         if self._logger is not None:
             self._current_step_index = self._logger.register_step(step)
-            step.instrument_arrays = self._logger.step_instrument_arrays
+            step.instrument_records = self._logger.step_instrument_records
             self._logger.emit_step_started(step, self._current_step_index)
 
         # Set contextvar for concurrency-safe resolution

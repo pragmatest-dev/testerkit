@@ -7,7 +7,7 @@ These models capture instrument metadata for traceability:
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -106,13 +106,13 @@ class CalibrationInfo(BaseModel):
         """Check if calibration is expired."""
         if self.due_date is None:
             return False
-        return self.due_date < date.today()
+        return self.due_date < datetime.now(UTC).date()
 
     def days_until_due(self) -> int | None:
         """Return days until calibration is due, or None if no due date."""
         if self.due_date is None:
             return None
-        return (self.due_date - date.today()).days
+        return (self.due_date - datetime.now(UTC).date()).days
 
 
 class InstrumentRecord(BaseModel):

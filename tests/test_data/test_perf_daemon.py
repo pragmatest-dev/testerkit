@@ -425,7 +425,7 @@ def test_distinct_values_enumeration(benchmark, parametric_dataset):
 
     def _q():
         with MeasurementsQuery() as q:
-            return q.distinct_values("uut_serial", filters=filters)
+            return q.distinct_values("uut_serial_number", filters=filters)
 
     rows = benchmark(_q)
     assert rows
@@ -436,7 +436,7 @@ def test_distinct_values_cross_filter(benchmark, parametric_dataset):
     """Cross-filtered enumeration — valid values of one facet given another
     selection (Tableau-style ``exclude_self``)."""
     filters = FilterSet(
-        string_filters={"part_id": [parametric_dataset], "uut_serial": ["PERF-0001"]}
+        string_filters={"part_id": [parametric_dataset], "uut_serial_number": ["PERF-0001"]}
     )
 
     def _q():
@@ -520,7 +520,7 @@ def test_ingest_throughput():
         deadline = time.monotonic() + 300
         while time.monotonic() < deadline:
             with MeasurementsQuery() as q:
-                seen = len(q.distinct_values("uut_serial", filters=filters))
+                seen = len(q.distinct_values("uut_serial_number", filters=filters))
             if seen >= _INGEST_RUNS:
                 break
             time.sleep(0.05)

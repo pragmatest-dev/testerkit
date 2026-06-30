@@ -21,7 +21,7 @@ def realistic_test_run() -> TestRun:
       - All 10 comparator types spread across measurements
       - value=None measurement (error case)
       - Nested step_path ("power/output/voltage")
-      - UUT with all fields, custom_metadata, instrument_arrays
+      - UUT with all fields, custom_metadata, instrument_records
     """
     return TestRun(
         id=uuid4(),
@@ -57,11 +57,40 @@ def realistic_test_run() -> TestRun:
                 started_at=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
                 ended_at=datetime(2026, 3, 4, 10, 1, 0, tzinfo=UTC),
                 outcome=Outcome.PASSED,
-                instrument_arrays={
-                    "step_instruments_name": ["DMM_01", "PSU_01"],
-                    "step_instruments_resource": ["TCPIP::10.0.0.1", "TCPIP::10.0.0.2"],
-                    "step_instruments_driver": ["Keysight34465A", "KeysightE36312A"],
-                },
+                instrument_records=[
+                    {
+                        "name": "DMM_01",
+                        "id": "",
+                        "driver": "Keysight34465A",
+                        "resource": "TCPIP::10.0.0.1",
+                        "protocol": None,
+                        "manufacturer": None,
+                        "model": None,
+                        "serial_number": None,
+                        "firmware": None,
+                        "cal_due": None,
+                        "cal_last": None,
+                        "cal_certificate": None,
+                        "cal_lab": None,
+                        "mocked": False,
+                    },
+                    {
+                        "name": "PSU_01",
+                        "id": "",
+                        "driver": "KeysightE36312A",
+                        "resource": "TCPIP::10.0.0.2",
+                        "protocol": None,
+                        "manufacturer": None,
+                        "model": None,
+                        "serial_number": None,
+                        "firmware": None,
+                        "cal_due": None,
+                        "cal_last": None,
+                        "cal_certificate": None,
+                        "cal_lab": None,
+                        "mocked": False,
+                    },
+                ],
                 vectors=[
                     TestVector(
                         index=0,
@@ -259,7 +288,7 @@ def _replay_events(
             station_name=test_run.station_name,
             station_type=test_run.station_type,
             station_location=test_run.station_location,
-            uut_serial=test_run.uut.serial,
+            uut_serial_number=test_run.uut.serial,
             uut_part_number=test_run.uut.part_number,
             uut_revision=test_run.uut.revision,
             uut_lot_number=test_run.uut.lot_number,

@@ -66,7 +66,7 @@ class TestRunner:
             "-m",
             "pytest",
             *test_targets,
-            f"--uut-serial={req.uut_serial}",
+            f"--uut-serial={req.uut_serial_number}",
             f"--station={req.station_id}",
             f"--data-dir={self.data_dir}",
             "-v",
@@ -153,7 +153,7 @@ class TestRunner:
                 status=info.status,
                 progress_pct=info.progress_pct,
                 current_step=info.current_step,
-                uut_serial=info.request.uut_serial,
+                uut_serial_number=info.request.uut_serial_number,
                 station_id=info.request.station_id,
             )
             for run_id, info in self.runs.items()

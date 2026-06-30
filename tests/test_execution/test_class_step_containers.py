@@ -10,7 +10,7 @@ Design contract (see ``project_followup_parametrized_step_nesting``):
   event pair is emitted **per outer iteration** — distinct events sharing
   one ``step_path`` but with distinct ``vector_index`` values and the
   outer-dim parameter values populated in ``inputs``.
-* Methods get ``parent_path`` equal to the container's ``step_path``.
+* Methods' ``step_path`` is ``"{container}/{method}"`` — parent derivable via ``rsplit``.
 * Outcome rollup uses ``escalate_outcome`` — worst child outcome wins.
 * Iteration outcomes are isolated: iteration N's container only rolls up
   iteration N's children, not prior iterations sharing the same step_path.
@@ -141,7 +141,7 @@ def test_unswept_class_emits_single_container(tmp_path: Path) -> None:
     assert len(container_ends) == 1, container_ends
     assert container_starts[0].get("vector_index", 0) == 0
     assert container_starts[0].get("inputs") in (None, {}), container_starts[0].get("inputs")
-    assert container_starts[0].get("parent_path", "") == ""
+    assert "/" not in (container_starts[0].get("step_path") or "")
 
 
 # ---------------------------------------------------------------------------
@@ -303,16 +303,17 @@ def test_canonical_composed_sweep_order(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. Methods' parent_path matches the container's step_path.
+# 4. Method step_paths are "{container}/{method}" — parent derivable from step_path.
 # ---------------------------------------------------------------------------
 
 
-def test_method_parent_path_matches_container(tmp_path: Path) -> None:
-    """Every method ``StepStarted`` has parent_path equal to its enclosing
-    class container's step_path. Container's parent_path is the empty string.
+def test_method_step_path_contains_container(tmp_path: Path) -> None:
+    """Every method ``StepStarted`` has ``step_path = "{container}/{method}"``.
+    Container is a root step (no "/" in step_path). Parent is derived via
+    ``step_path.rsplit("/", 1)[0]``.
     """
     session_id = str(uuid4())
-    test_file = tmp_path / "test_parent_path.py"
+    test_file = tmp_path / "test_step_paths.py"
     _write_test(
         test_file,
         """\
@@ -332,10 +333,12 @@ def test_method_parent_path_matches_container(tmp_path: Path) -> None:
     container = next(e for e in started if e.get("step_name") == "TestSeq")
     methods = [e for e in started if e.get("step_name") in {"test_a", "test_b"}]
 
-    assert container.get("parent_path", "") == ""
     container_path = container.get("step_path") or "TestSeq"
+    assert "/" not in container_path, f"Container should be root: {container_path}"
     for m in methods:
-        assert m.get("parent_path") == container_path, m
+        sp = m.get("step_path") or ""
+        assert sp.startswith(container_path + "/"), f"Expected {container_path}/*, got {sp!r}"
+        assert sp.rsplit("/", 1)[0] == container_path, m
 
 
 # ---------------------------------------------------------------------------
@@ -652,3 +655,35 @@ def test_inputs_auto_projected_to_parquet(tmp_path: Path) -> None:
 
     by_vi = {r.vector_index: r.inputs for r in container_rows}
     assert by_vi == {0: {"voltage": 1}, 1: {"voltage": 2}, 2: {"voltage": 3}}, by_vi
+
+
+def test_configure_overrides_parametrize_in_stored_inputs(tmp_path: Path) -> None:
+    """``configure()`` overrides a parametrize key (and adds new ones) in the
+    stored step inputs, while keys it never touches keep their swept value."""
+    session_id = str(uuid4())
+    test_file = tmp_path / "test_configure_override.py"
+    _write_test(
+        test_file,
+        """\
+        import pytest
+
+        @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
+        class TestSeq:
+            def test_one(self, voltage, context):
+                context.configure("voltage", voltage + 100)
+                context.configure("trim", 7)
+        """,
+    )
+    result = _run_pytest(test_file, session_id=session_id)
+    assert result.returncode == 0, result.stderr
+
+    rows = _read_steps(session_id)
+    method_rows = [r for r in rows if r.step_name == "test_one"]
+    assert len(method_rows) == 3, [(r.step_path, r.vector_index) for r in method_rows]
+
+    by_vi = {r.vector_index: r.inputs for r in method_rows}
+    assert by_vi == {
+        0: {"voltage": 101, "trim": 7},
+        1: {"voltage": 102, "trim": 7},
+        2: {"voltage": 103, "trim": 7},
+    }, by_vi

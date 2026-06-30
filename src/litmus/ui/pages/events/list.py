@@ -257,7 +257,7 @@ def _summarize(event: dict[str, Any]) -> str:
     if et in ("session.started", "session.ended"):
         return event.get("station_id") or ""
     if et in ("run.started", "run.ended"):
-        return event.get("uut_serial") or event.get("station_id") or ""
+        return event.get("uut_serial_number") or event.get("station_id") or ""
     if et.startswith("test.step"):
         return event.get("step_name") or ""
     return ""

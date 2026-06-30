@@ -488,7 +488,9 @@ def create_mcp_server() -> FastMCP:
             session_id: Filter by session UUID.
             event_type: Filter by event type (e.g. "channel.started", "session.started").
             role: Filter by instrument role.
-            since: ISO timestamp — only events after this time.
+            since: ISO timestamp (UTC). Bare values without a timezone offset are
+                treated as UTC. Values with an explicit offset are converted to UTC.
+                Only events after this time are returned.
             limit: Max events to return (default 100).
             project: Project root path.
         """
@@ -591,8 +593,11 @@ def create_mcp_server() -> FastMCP:
             part: Filter by part/part number.
             station: Filter by station name.
             phase: Test phase (default: exclude development, 'all' = no filter).
-            since: Start date (ISO format, inclusive).
-            until: End date (ISO format, inclusive).
+            since: Start date (ISO 8601 date or UTC timestamp, inclusive). The server
+                is UTC-only; date-only values (e.g. ``"2024-01-01"``) are compared
+                against UTC dates. Timestamps with explicit offsets are converted to UTC.
+            until: End date (ISO 8601 date or UTC timestamp, inclusive). Same UTC rules
+                as ``since``.
             period: Time bucket — day, week, or month.
             top_n: Number of top failures for pareto.
             min_samples: Minimum sample count for ppk.

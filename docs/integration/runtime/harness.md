@@ -51,7 +51,7 @@ logger.event_log.emit(
         run_id=logger.test_run.id,
         station_id=logger.test_run.station_id,
         station_hostname=logger.test_run.station_hostname,
-        uut_serial=logger.test_run.uut.serial,
+        uut_serial_number=logger.test_run.uut.serial,
         test_phase=logger.test_run.test_phase,
     )
 )

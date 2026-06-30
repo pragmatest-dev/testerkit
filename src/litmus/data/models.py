@@ -18,6 +18,19 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def ensure_utc(dt: datetime) -> datetime:
+    """Normalize a datetime to UTC-aware.
+
+    Naive inputs are assumed UTC (the server's storage convention) and
+    stamped without shifting the wall-clock value; aware inputs are
+    converted to UTC. The server only ever reasons in UTC, so every
+    datetime crossing a receive/parse boundary passes through here.
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
 class StimulusRecord(BaseModel):
     """Record of a stimulus applied during test execution.
 
@@ -321,7 +334,6 @@ class TestStep(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     name: str
     step_path: str = ""
-    parent_path: str = ""
     description: str | None = None
 
     # Code identity (populated from pytest.Item when available)
@@ -334,9 +346,13 @@ class TestStep(BaseModel):
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
     outcome: Outcome | None = None
+    # 0-based outer (item) retry — 0 for the first attempt, N for the Nth
+    # pytest-rerunfailures rerun of this step. Distinct from a vector's own
+    # inner retry; the de-fuse keys each execution by both axes.
+    retry: int = 0
     vectors: list[TestVector] = Field(default_factory=list)
     error_message: str | None = None
-    instrument_arrays: dict[str, list] | None = None
+    instrument_records: list[dict[str, Any]] | None = None
 
     @property
     def total_vectors(self) -> int:
@@ -374,12 +390,9 @@ class CollectedItem(BaseModel):
     class_name: str | None = None
     function: str | None = None
     markers: str | None = None
-    # step_path / parent_path: computed at collection time so that
-    # unrun items (filtered out, errored before reach, or unrun
-    # vectors of a partial sweep) carry the same hierarchical
-    # identifier as executed step events would.
+    # step_path: computed at collection time so that unrun items
+    # carry the same hierarchical identifier as executed step events.
     step_path: str = ""
-    parent_path: str = ""
     step_index: int = 0
     vector_index: int = 0
     vector_count_planned: int = 1
@@ -402,7 +415,7 @@ class RunSummary(BaseModel):
     slot_id: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
-    uut_serial: str | None = None
+    uut_serial_number: str | None = None
     uut_part_number: str | None = None
     part_id: str | None = None
     station_id: str | None = None

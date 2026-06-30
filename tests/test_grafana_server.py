@@ -66,7 +66,7 @@ def _write_vector_row(runs_dir: Path, measurements: list[dict]) -> None:
             "vector_index": 0,
             "vector_started_at": _TS,
             "vector_ended_at": _TS,
-            "uut_serial": "SN001",
+            "uut_serial_number": "SN001",
             "uut_part_number": "PN-100",
             "part_id": "PN-100",
             "test_phase": "production",
@@ -131,7 +131,7 @@ def test_measurement_values_exposes_dashboard_columns(tmp_path: Path) -> None:
         "limit_low",
         "limit_high",
         "measurement_timestamp",
-        "uut_serial",
+        "uut_serial_number",
         "test_phase",
         "part_id",
     ):

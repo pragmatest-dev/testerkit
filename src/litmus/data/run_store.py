@@ -86,7 +86,7 @@ class RunStore:
     def list_runs(self, limit: int = 50) -> list[RunSummary]:
         """List recent test runs, most recent first."""
         rows = self._flight_query(f"""
-            SELECT file_path, run_id, session_id, uut_serial, station_id,
+            SELECT file_path, run_id, session_id, uut_serial_number, station_id,
                    outcome, started_at, num_measurements,
                    test_phase, part_id, operator_id,
                    project_name
@@ -100,7 +100,7 @@ class RunStore:
                 test_run_id=r["run_id"],
                 session_id=r.get("session_id"),
                 started_at=r.get("started_at"),
-                uut_serial=r.get("uut_serial"),
+                uut_serial_number=r.get("uut_serial_number"),
                 station_id=r.get("station_id"),
                 outcome=r.get("outcome"),
                 total_measurements=r.get("num_measurements", 0),
@@ -159,7 +159,7 @@ class RunStore:
             session_id=r.get("session_id"),
             started_at=r.get("started_at"),
             ended_at=r.get("ended_at"),
-            uut_serial=r.get("uut_serial"),
+            uut_serial_number=r.get("uut_serial_number"),
             uut_part_number=r.get("uut_part_number"),
             part_id=r.get("part_id"),
             station_id=r.get("station_id"),
@@ -227,10 +227,10 @@ class RunStore:
             SELECT step_index, step_name, step_path, outcome,
                    CAST(started_at AT TIME ZONE 'UTC' AS VARCHAR) AS started_at,
                    CAST(ended_at AT TIME ZONE 'UTC' AS VARCHAR) AS ended_at,
-                   duration_s, has_measurements, measurement_count, vector_count, markers
+                   duration_s, measurement_count, step_retry, markers
             FROM steps
             WHERE run_id LIKE '{_sql_escape(prefix)}%'
-            ORDER BY step_index
+            ORDER BY step_index, step_retry, vector_index
         """)
 
     def find_channel_refs(self, session_shorts: set[str]) -> list[dict[str, Any]]:

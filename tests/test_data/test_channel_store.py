@@ -9,7 +9,7 @@ import pyarrow as pa
 import pyarrow.ipc as ipc
 import pytest
 
-from litmus.data.channels.models import ChannelSample
+from litmus.data.channels.models import CHANNEL_SCHEMA_VERSION, ChannelSample
 from litmus.data.channels.store import ChannelStore
 
 
@@ -399,3 +399,80 @@ class TestNoneValues:
         uri = store.write("test.channel", 0.0)
         assert "channel://" in uri
         store.close()
+
+
+class TestUTCDateDir:
+    """Task #19 — UTC everywhere: date-partitioned directory name must be the UTC date."""
+
+    def test_channel_date_dir_is_utc(self, tmp_path: Path) -> None:
+        """Channel store uses the UTC date for its date-partitioned directory."""
+        from datetime import UTC, datetime
+
+        store = ChannelStore(tmp_path, uuid4())
+        store.write("dmm.dc_voltage", 3.3)
+        store.close()
+
+        expected_date = datetime.now(UTC).date().isoformat()
+        date_dirs = [p.name for p in (tmp_path / "channels").iterdir() if p.is_dir()]
+        assert date_dirs == [expected_date], (
+            f"Expected UTC date dir '{expected_date}', got {date_dirs}"
+        )
+
+
+class TestSchemaVersionStamp:
+    """C3: schema_version is stamped into every channel Arrow IPC file.
+
+    Pure file-level round-trip — no daemon, no serve=True, no tmp_path daemon.
+    Writes to tmp_path directly via the non-serving ChannelStore path and reads
+    back the .arrow file via pyarrow.ipc.open_stream.
+    """
+
+    def test_scalar_channel_ipc_carries_schema_version(self, tmp_path: Path) -> None:
+        """A scalar write closes an Arrow file whose schema metadata contains schema_version."""
+        store = ChannelStore(tmp_path, uuid4(), flush_threshold=1)
+        store.write("dmm.voltage", 3.3)
+        store.close()
+
+        arrow_files = list((tmp_path / "channels").glob("*/*.arrow"))
+        assert len(arrow_files) == 1, "Expected exactly one .arrow segment file"
+
+        reader = ipc.open_stream(pa.OSFile(str(arrow_files[0]), "rb"))
+        meta = reader.schema.metadata or {}
+        assert b"schema_version" in meta, "schema_version key missing from Arrow IPC metadata"
+        assert meta[b"schema_version"] == CHANNEL_SCHEMA_VERSION.encode(), (
+            f"Expected schema_version={CHANNEL_SCHEMA_VERSION!r}, got {meta[b'schema_version']!r}"
+        )
+
+    def test_array_channel_ipc_carries_schema_version(self, tmp_path: Path) -> None:
+        """An array-valued channel write also stamps schema_version on its IPC file."""
+        store = ChannelStore(tmp_path, uuid4(), flush_threshold=1)
+        store.write("scope.waveform", [0.1, 0.2, 0.3, 0.4], sample_interval=1e-6)
+        store.close()
+
+        arrow_files = list((tmp_path / "channels").glob("*/*.arrow"))
+        assert len(arrow_files) == 1
+
+        reader = ipc.open_stream(pa.OSFile(str(arrow_files[0]), "rb"))
+        meta = reader.schema.metadata or {}
+        assert meta.get(b"schema_version") == CHANNEL_SCHEMA_VERSION.encode()
+
+    def test_schema_version_does_not_break_read_back(self, tmp_path: Path) -> None:
+        """Round-trip: write, close, reopen — data rows are intact alongside the version stamp."""
+        store = ChannelStore(tmp_path, uuid4(), flush_threshold=1)
+        store.write("psu.current", 0.5)
+        store.write("psu.current", 0.6)
+        store.close()
+
+        arrow_files = sorted((tmp_path / "channels").glob("*/*.arrow"))
+        tables = [ipc.open_stream(pa.OSFile(str(f), "rb")).read_all() for f in arrow_files]
+        combined = pa.concat_tables(tables)
+
+        assert len(combined) == 2
+        values = combined.column("value").to_pylist()
+        assert 0.5 in values
+        assert 0.6 in values
+        # Version stamp present on every segment
+        for f in arrow_files:
+            reader = ipc.open_stream(pa.OSFile(str(f), "rb"))
+            meta = reader.schema.metadata or {}
+            assert meta.get(b"schema_version") == CHANNEL_SCHEMA_VERSION.encode()

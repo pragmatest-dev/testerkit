@@ -81,7 +81,7 @@ def create_connection(data_dir: Path) -> duckdb.DuckDBPyConnection:
         "SELECT run_id, first(session_id) AS session_id, "
         "min(run_started_at) AS started_at, "
         "max(run_ended_at) AS ended_at, "
-        "first(run_outcome) AS outcome, first(uut_serial) AS uut_serial, "
+        "first(run_outcome) AS outcome, first(uut_serial_number) AS uut_serial_number, "
         "first(uut_part_number) AS part_number, first(uut_lot_number) AS lot, "
         "first(station_id) AS station_id, first(station_name) AS station_name, "
         "first(part_id) AS part_id, first(part_name) AS part_name, "

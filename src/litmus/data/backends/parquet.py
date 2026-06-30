@@ -46,7 +46,6 @@ from litmus.data._atomic import atomic_write_table
 from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.backends._row_helpers import (
     HAS_NUMPY,
-    INSTRUMENT_ARRAY_KEYS,
     REF_PATH_PREFIX,
     build_run_metadata,
     build_run_row,
@@ -115,25 +114,10 @@ def _params_from_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in inputs.items() if not _is_stimulus_key(k)}
 
 
-def _ensure_instrument_arrays(d: dict[str, Any]) -> dict[str, Any]:
-    """Mutate ``d`` so every ``INSTRUMENT_ARRAY_KEYS`` key is present (default ``[]``).
-
-    Single source of truth for the schema-consistency invariant: any
-    write-side dict that flows into the parquet writer needs every
-    instrument-array column present, even when no instruments were
-    connected. Returns ``d`` for chaining.
-    """
-    for key in INSTRUMENT_ARRAY_KEYS:
-        d.setdefault(key, [])
-    return d
-
-
 def _build_parquet_metadata(
     *,
     environment_json: str | None = None,
     custom_metadata: dict[str, Any] | None = None,
-    step_results: list[dict[str, Any]] | None = None,
-    profile_facets: dict[str, str] | None = None,
 ) -> dict[bytes, bytes]:
     """Build Parquet file-level metadata.
 
@@ -146,27 +130,9 @@ def _build_parquet_metadata(
         metadata[b"environment_json"] = environment_json.encode("utf-8")
     if custom_metadata:
         metadata[b"custom_metadata"] = json.dumps(custom_metadata, default=str).encode("utf-8")
-    if step_results:
-        # step_results is a step-level summary; the per-vector nested
-        # measurements (which carry raw datetimes) live in the parquet rows,
-        # not this JSON metadata.
-        slim = [{k: v for k, v in e.items() if k != "measurements"} for e in step_results]
-        metadata[b"step_results"] = json.dumps(slim).encode("utf-8")
-    if profile_facets:
-        metadata[b"profile_facets_json"] = json.dumps(profile_facets).encode("utf-8")
 
-    from litmus import __version__
-
-    metadata[b"litmus_version"] = __version__.encode("utf-8")
     metadata[b"schema_version"] = SCHEMA_VERSION.encode()
     return metadata
-
-
-# Lazy version lookup: ``litmus/__init__.py`` re-exports ``LitmusClient``
-# (which depends on this module via ``ParquetBackend``), so a top-level
-# ``from litmus import __version__`` would cycle. Module load-time would
-# break; deferring to call time is fine because the function only runs
-# at parquet-write time, well after the full package is loaded.
 
 
 class ParquetMeasurementWriter:
@@ -216,7 +182,7 @@ class ParquetBackend:
     def save_test_run(
         self,
         test_run: TestRun,
-        instrument_arrays: dict[str, list] | None = None,
+        instrument_records: list[dict[str, Any]] | None = None,
     ) -> Path:
         """Save test run to Parquet with analysis-ready schema.
 
@@ -255,7 +221,7 @@ class ParquetBackend:
         # identity immediately. Always present, including for runs with
         # no steps or measurements (in which case the run row alone is
         # the entire parquet — naturally handles the placeholder case).
-        rows: list[dict[str, Any]] = [self._build_run_row(test_run, instrument_arrays)]
+        rows: list[dict[str, Any]] = [self._build_run_row(test_run, instrument_records)]
 
         # Append a ``record_type='step'`` row for every (step, vector)
         # — containers, action steps, swept variants, and
@@ -291,7 +257,6 @@ class ParquetBackend:
         run_context = build_run_metadata(test_run)
         run_outcome = test_run.outcome.value if test_run.outcome else None
         run_ended_at = test_run.ended_at
-        empty_instruments = _ensure_instrument_arrays({})
         ref_saver = self._filestore_ref_saver(test_run)
 
         # ``build_step_manifest`` produces one entry per (step, vector)
@@ -307,9 +272,9 @@ class ParquetBackend:
                 else None
             )
             instruments = (
-                _ensure_instrument_arrays(dict(step.instrument_arrays))
-                if step is not None and step.instrument_arrays
-                else empty_instruments
+                list(step.instrument_records)
+                if step is not None and step.instrument_records
+                else []
             )
             rows.append(
                 build_step_row(
@@ -358,9 +323,8 @@ class ParquetBackend:
         Item 1d: ref writes route through FileStore (one canonical home
         for all blobs) instead of the per-parquet sibling ``{stem}_ref/``.
         The vector_id-shortened prefix on the FileStore filename preserves
-        the audit trail. Shared by the measurement, step-row, and
-        step_results-metadata writers so a blob is claim-checked the same
-        way regardless of which lane carries it.
+        the audit trail. Shared by the measurement and step-row writers so
+        a blob is claim-checked the same way regardless of which lane carries it.
 
         Lazy import: ``data.files`` transitively pulls PIL / serializers
         that are only needed when this writer runs. Top-level would add
@@ -384,7 +348,7 @@ class ParquetBackend:
     def _build_run_row(
         self,
         test_run: TestRun,
-        instrument_arrays: dict[str, list] | None = None,
+        instrument_records: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Build the single ``record_type='run'`` row for the parquet.
 
@@ -392,12 +356,11 @@ class ParquetBackend:
         columns. Step and measurement columns are NULL. Always present (one per
         parquet); for empty runs it is the entire parquet.
         """
-        instruments = _ensure_instrument_arrays(dict(instrument_arrays or {}))
         return build_run_row(
             run_context=build_run_metadata(test_run),
             run_outcome=test_run.outcome.value if test_run.outcome else None,
             run_ended_at=test_run.ended_at,
-            instruments=instruments,
+            instruments=instrument_records or [],
         )
 
     def _build_file_metadata(self, test_run: TestRun) -> dict[bytes, bytes]:
@@ -405,10 +368,6 @@ class ParquetBackend:
         return _build_parquet_metadata(
             environment_json=test_run.environment_json,
             custom_metadata=dict(test_run.custom_metadata) or None,
-            step_results=build_step_manifest(
-                test_run, ref_saver=self._filestore_ref_saver(test_run)
-            ),
-            profile_facets=test_run.profile_facets or None,
         )
 
     def list_runs(self, limit: int = 50) -> list[RunSummary]:
@@ -462,7 +421,7 @@ class ParquetBackend:
                     "outcome": m.get("vector_outcome"),
                     "started_at": m.get("vector_started_at"),
                     "ended_at": m.get("vector_ended_at"),
-                    "uut_serial": m.get("uut_serial"),
+                    "uut_serial_number": m.get("uut_serial_number"),
                     "part_id": m.get("part_id"),
                     "station_id": m.get("station_id"),
                 }
@@ -470,14 +429,6 @@ class ParquetBackend:
                 vectors_seen[key] = vector_info
 
         return list(vectors_seen.values())
-
-    def get_steps(self, run_id: str) -> list[dict[str, Any]]:
-        """Get step results for a run from the unified parquet's file-level metadata."""
-        with self._run_store_ctx() as store:
-            pq_file = store.find_run_file(run_id)
-        if pq_file is None:
-            return []
-        return read_step_results(Path(pq_file))
 
     def get_run_metadata(self, run_id: str) -> dict[str, str] | None:
         """Get file-level metadata (config snapshots) for a run."""
@@ -543,10 +494,6 @@ class ParquetBackend:
         filename = _run_parquet_filename(timestamp, run_id, uut_serial)
 
         parquet_path = date_dir / filename
-
-        # Ensure instrument array columns exist for schema consistency
-        for row in rows:
-            _ensure_instrument_arrays(row)
 
         schema = _build_write_schema(rows)
         table = table_from_rows(rows, schema)
@@ -629,7 +576,7 @@ def _build_run_row_from_acc(
         run_context=run_context_from_run_started(s, s, include_env=True),
         run_outcome=run_outcome,
         run_ended_at=run_ended_at,
-        instruments=acc._build_instrument_arrays(),
+        instruments=acc._build_instrument_records(),
     )
 
 
@@ -648,7 +595,7 @@ def _build_step_row_from_acc(
         entry=entry,
         run_outcome=run_outcome,
         run_ended_at=run_ended_at,
-        instruments=acc._build_instrument_arrays(),
+        instruments=entry.get("instrument_records") or [],
     )
 
 
@@ -667,7 +614,7 @@ def _build_vector_row_from_acc(
         entry=entry,
         run_outcome=run_outcome,
         run_ended_at=run_ended_at,
-        instruments=acc._build_instrument_arrays(),
+        instruments=entry.get("instrument_records") or [],
     )
 
 
@@ -675,11 +622,9 @@ def _build_file_metadata_from_acc(acc: EventAccumulator) -> dict[bytes, bytes]:
     s = acc._run_started
     if not s:
         return _build_parquet_metadata()
-    results = acc._build_step_results_from_events() or None
     return _build_parquet_metadata(
         environment_json=s.environment_json,
         custom_metadata=dict(s.custom_metadata) or None,
-        step_results=results,
     )
 
 
@@ -718,7 +663,7 @@ def materialize_run_to_parquet(
     return backend.save_from_rows(
         rows,
         started_at=s.occurred_at,
-        uut_serial=s.uut_serial,
+        uut_serial=s.uut_serial_number,
         run_id=str(s.run_id) if s.run_id else "",
         file_metadata=_build_file_metadata_from_acc(acc),
     )
@@ -874,22 +819,6 @@ def _deserialize_ref(
     ) as exc:
         logger.warning("Failed to load reference %s: %s", ref, exc)
         return ref
-
-
-def read_step_results(parquet_path: Path) -> list[dict[str, Any]]:
-    """Read the step-results manifest from the parquet's file-level metadata.
-
-    Returns an empty list if no step results are stored.
-    """
-    try:
-        pf = pq.ParquetFile(parquet_path)
-        raw_metadata = pf.schema_arrow.metadata or {}
-        results_bytes = raw_metadata.get(b"step_results")
-        if results_bytes:
-            return json.loads(results_bytes)
-    except (OSError, pa.ArrowInvalid, json.JSONDecodeError):
-        pass
-    return []
 
 
 def load_ref(
@@ -1063,12 +992,9 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         vector_rows = step_vector_rows.get(sk, [])
         step_row = step_meta_rows.get(sk)
 
-        # Instrument arrays from the step row (fall back to a vector row).
+        # Instrument records from the step row (fall back to a vector row).
         instr_source = step_row or (vector_rows[0] if vector_rows else {})
-        step_instr: dict[str, list] = {}
-        for col, val in instr_source.items():
-            if col.startswith("step_instruments_") and val is not None:
-                step_instr[col] = val if isinstance(val, list) else [val]
+        step_instr: list[dict[str, Any]] = instr_source.get("instruments") or []
 
         vectors: list[TestVector] = []
         for vr in sorted(
@@ -1134,7 +1060,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                 ended_at=timing.get("ended_at"),
                 outcome=step_outcome,
                 vectors=vectors,
-                instrument_arrays=step_instr if step_instr else None,
+                instrument_records=step_instr if step_instr else None,
             )
         )
 
@@ -1146,7 +1072,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         started_at=run_started_at,
         ended_at=first.get("run_ended_at"),
         uut=UUT(
-            serial=first.get("uut_serial") or "",
+            serial=first.get("uut_serial_number") or "",
             part_number=first.get("uut_part_number"),
             revision=first.get("uut_revision"),
             lot_number=first.get("uut_lot_number"),

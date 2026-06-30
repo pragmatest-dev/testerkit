@@ -146,7 +146,7 @@ def _emit_run_started(
             station_id="bench-01",
             station_name="Bench 1",
             station_hostname="bench-01.local",
-            uut_serial="SN-LIVE-001",
+            uut_serial_number="SN-LIVE-001",
             uut_part_number="PN-100",
             test_phase="production",
             project_name="demo",
@@ -216,7 +216,7 @@ class TestLiveRunVisibility:
         assert row.run_id == str(run_id)
         assert row.ended_at is None
         assert row.outcome is None
-        assert row.uut_serial == "SN-LIVE-001"
+        assert row.uut_serial_number == "SN-LIVE-001"
         assert row.station_hostname == "bench-01.local"
 
     def test_run_ended_finalizes_row(self):

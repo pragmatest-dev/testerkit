@@ -214,7 +214,7 @@ erDiagram
     TestRun {
         id uuid PK
         started_at datetime
-        uut_serial string FK
+        uut_serial_number string FK
         station_id string FK
         outcome enum
     }

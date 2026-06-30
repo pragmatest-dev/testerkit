@@ -13,7 +13,7 @@ Rows are ordered by most-recent run first.
 
 | Column | What it shows |
 |---|---|
-| Serial | The `uut_serial` value recorded on the run |
+| Serial | The `uut_serial_number` value recorded on the run |
 | Part Number | The `uut_part_number` recorded on the most recent run for this serial |
 | Lot | The `uut_lot_number` recorded on the most recent run for this serial |
 | Runs | Total run count across all outcomes for this serial |
@@ -30,7 +30,7 @@ There is no detail page at `/uuts/{serial}`. The list is the only view.
 
 ### Empty state
 
-When no runs with a non-empty `uut_serial` are present, the table is
+When no runs with a non-empty `uut_serial_number` are present, the table is
 replaced with a card:
 
 > No UUTs observed yet.
@@ -50,7 +50,7 @@ Each column maps to a field on the run:
 
 | Column | Run field |
 |---|---|
-| Serial | `uut_serial` |
+| Serial | `uut_serial_number` |
 | Part Number | `uut_part_number` |
 | Lot | `uut_lot_number` |
 
@@ -59,7 +59,7 @@ For the full set of run fields, see
 
 ## See also
 
-- [Parquet schema](../data/parquet-schema.md) — the `uut_serial`,
+- [Parquet schema](../data/parquet-schema.md) — the `uut_serial_number`,
   `uut_part_number`, and `uut_lot_number` run columns
 - [Results](results/list.md) — per-run view; its Serial column shows
   which runs belong to a UUT

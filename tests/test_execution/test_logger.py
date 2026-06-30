@@ -350,7 +350,7 @@ class TestEventLogIntegration:
             if data["event_type"] == "test.measurement":
                 # These fields should NOT be on the normalized event
                 assert "station_id" not in data
-                assert "uut_serial" not in data
+                assert "uut_serial_number" not in data
                 assert "instruments" not in data
                 assert "vector_started_at" not in data
                 assert "step_started_at" not in data

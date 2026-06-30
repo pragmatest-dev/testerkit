@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
+
+from litmus.data.models import ensure_utc
 
 
 def parse_iso_timestamp(s: str) -> datetime:
-    """Parse ISO 8601 string to UTC datetime, handling 'Z' suffix."""
-    s = s.replace("Z", "+00:00")
-    return datetime.fromisoformat(s).astimezone(UTC)
+    """Parse ISO 8601 string to a UTC-aware datetime, handling 'Z' suffix.
+
+    Naive strings are assumed UTC (the server's storage convention) and
+    stamped without shifting; aware strings are converted to UTC.
+    """
+    return ensure_utc(datetime.fromisoformat(s.replace("Z", "+00:00")))
 
 
 def format_time_short(ts: str) -> str:

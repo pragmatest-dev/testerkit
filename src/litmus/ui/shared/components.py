@@ -8,8 +8,9 @@ from __future__ import annotations
 import inspect
 import re
 import time
+import uuid
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
@@ -41,7 +42,7 @@ def format_datetime(dt: datetime | str | None) -> str:
         if dt.tzinfo is None:
             iso = dt.isoformat() + "Z"
         else:
-            iso = dt.astimezone().isoformat()
+            iso = dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
     else:
         iso = str(dt)
     # Server-side fallback so text appears immediately even before
@@ -198,7 +199,7 @@ def lookup_session_label(session_id: str) -> tuple[str, bool]:
         for s in query_sessions().get("sessions") or []:
             if str(s.get("session_id")) == session_id:
                 base = format_session_label(s)
-                uut = s.get("uut_serial") or ""
+                uut = s.get("uut_serial_number") or ""
                 label = f"{uut} · {base}" if uut else base
                 return label, True
     except (OSError, RuntimeError):
@@ -210,7 +211,7 @@ def lookup_session_label(session_id: str) -> tuple[str, bool]:
 def lookup_run_label(run_id: str) -> tuple[str, bool]:
     """Look up an operator-readable label for ``run_id``.
 
-    Returns ``(label, found)``. The label combines ``uut_serial`` and
+    Returns ``(label, found)``. The label combines ``uut_serial_number`` and
     the run's start time so a pending-dialog list reads as e.g.
     ``"UUT001 · 2026-06-06 07:42:13"`` instead of an opaque UUID
     prefix. Same cache-invariant story as :func:`lookup_session_label`
@@ -228,7 +229,7 @@ def lookup_run_label(run_id: str) -> tuple[str, bool]:
         # are still in flight, which are by definition recent.
         for r in get_recent_runs(limit=200, include_incomplete=True):
             if (r.test_run_id or "") == run_id:
-                uut = r.uut_serial or ""
+                uut = r.uut_serial_number or ""
                 ts = format_session_label({"occurred_at": r.started_at, "client": ""}).rstrip(" •?")
                 label = f"{uut} · {ts}" if uut else ts
                 return label, True
@@ -278,6 +279,317 @@ def local_time_init_script() -> str:
       obs.observe(document.body, {childList: true, subtree: true});
     })();
     """
+
+
+def local_date_input_init_script() -> str:
+    """Return the JS that installs browser-local date/datetime conversion helpers
+    and initializes UTC→local display for :func:`utc_date_input` widgets.
+
+    Functions installed on ``window``:
+
+    Date-only:
+
+    * ``window.litmusLocalToUtcDate(dateStr)`` — converts a YYYY-MM-DD or
+      YYYY/MM/DD date string interpreted as **browser-local midnight** to the
+      corresponding UTC date as YYYY-MM-DD.  This is the *input edge*: the
+      operator picks or types a local date; the browser converts to the UTC
+      equivalent before the server uses it for queries.
+    * ``window.litmusUtcToLocalDate(dateStr)`` — inverse: a UTC YYYY-MM-DD
+      date string to the browser-local date as YYYY-MM-DD.  Exposed for
+      symmetry (e.g. initialising a picker from a UTC date stored in the URL).
+
+    Datetime (full timestamp):
+
+    * ``window.litmusLocalToUtcDateTime(dtStr)`` — converts a local datetime
+      string (e.g. ``"2026-01-15T08:30:00"``) to a UTC ISO-8601 string.
+    * ``window.litmusUtcToLocalDateTime(utcDtStr)`` — inverse: UTC ISO-8601
+      string to a local ``YYYY-MM-DDTHH:MM:SS`` string for display.
+
+    All four functions are safe to call with an empty string or ``null``/
+    ``undefined`` (return ``''``).  Malformed input falls back to returning
+    the original string unchanged.
+
+    Also installs a MutationObserver sweep that localizes the initial displayed
+    value of every ``<div class="litmus-date-utc" data-utc="YYYY-MM-DD">``
+    wrapper created by :func:`utc_date_input`.  Mirrors :func:`local_time_init_script`
+    which does the same for ``.litmus-time`` display spans — Python emits the
+    UTC value; conversion is entirely in this JS layer.
+
+    Called from :func:`~litmus.ui.shared.layout.create_layout` so all functions
+    and the observer are available on every page that hosts date inputs.
+    """
+    return r"""
+    window.litmusLocalToUtcDate = function(localDateStr) {
+      if (!localDateStr) return '';
+      try {
+        var parts = String(localDateStr).split(/[-\/]/);
+        if (parts.length < 3) return String(localDateStr);
+        var y = parseInt(parts[0], 10);
+        var m = parseInt(parts[1], 10) - 1;
+        var d = parseInt(parts[2], 10);
+        if (isNaN(y) || isNaN(m) || isNaN(d)) return String(localDateStr);
+        var midnight = new Date(y, m, d, 0, 0, 0);
+        var pad = function(n) { return String(n).padStart(2, '0'); };
+        return midnight.getUTCFullYear() + '-'
+          + pad(midnight.getUTCMonth() + 1) + '-'
+          + pad(midnight.getUTCDate());
+      } catch(e) { return String(localDateStr); }
+    };
+    window.litmusUtcToLocalDate = function(utcDateStr) {
+      if (!utcDateStr) return '';
+      try {
+        var parts = String(utcDateStr).split('-');
+        if (parts.length < 3) return String(utcDateStr);
+        var y = parseInt(parts[0], 10);
+        var m = parseInt(parts[1], 10) - 1;
+        var d = parseInt(parts[2], 10);
+        if (isNaN(y) || isNaN(m) || isNaN(d)) return String(utcDateStr);
+        var utcMidnight = new Date(Date.UTC(y, m, d, 0, 0, 0));
+        var pad = function(n) { return String(n).padStart(2, '0'); };
+        return utcMidnight.getFullYear() + '-'
+          + pad(utcMidnight.getMonth() + 1) + '-'
+          + pad(utcMidnight.getDate());
+      } catch(e) { return String(utcDateStr); }
+    };
+    window.litmusLocalToUtcDateTime = function(dtStr) {
+      if (!dtStr) return '';
+      try {
+        var d = new Date(dtStr);
+        if (isNaN(d.getTime())) return String(dtStr);
+        return d.toISOString();
+      } catch(e) { return String(dtStr); }
+    };
+    window.litmusUtcToLocalDateTime = function(utcDtStr) {
+      if (!utcDtStr) return '';
+      try {
+        var d = new Date(utcDtStr);
+        if (isNaN(d.getTime())) return String(utcDtStr);
+        var pad = function(n) { return String(n).padStart(2, '0'); };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+          + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+          + ':' + pad(d.getSeconds());
+      } catch(e) { return String(utcDtStr); }
+    };
+    (function() {
+      if (window.__litmus_date_input_init) return;
+      window.__litmus_date_input_init = true;
+      function convertDateInputs() {
+        document.querySelectorAll('.litmus-date-utc[data-utc]').forEach(function(el) {
+          if (el.dataset.localConverted) return;
+          var utcDate = el.dataset.utc;
+          if (!utcDate) { el.dataset.localConverted = '1'; return; }
+          var localDate = window.litmusUtcToLocalDate(utcDate);
+          if (!localDate || localDate === utcDate) { el.dataset.localConverted = '1'; return; }
+          var native = el.querySelector('.q-field__native') || el.querySelector('input');
+          if (!native) return;
+          native.value = localDate;
+          el.dataset.localConverted = '1';
+        });
+      }
+      setTimeout(convertDateInputs, 300);
+      var obs = new MutationObserver(function() { setTimeout(convertDateInputs, 100); });
+      function startObs() { obs.observe(document.body, {childList: true, subtree: true}); }
+      if (document.body) { startObs(); }
+      else { document.addEventListener('DOMContentLoaded', startObs); }
+    })();
+    """
+
+
+class UtcDateHandle:
+    """Handle returned by :func:`utc_date_input` / :func:`utc_datetime_input`.
+
+    ``.value`` is always the UTC ``YYYY-MM-DD`` (or ISO datetime) string, or
+    ``None`` when no date is set.  The browser SHOWS and EDITS local dates;
+    this handle exposes only the UTC value that the Python server uses.
+
+    Call :meth:`clear` to programmatically reset the widget and its value.
+    """
+
+    def __init__(self) -> None:
+        self.value: str | None = None
+        # Internal reference to the text-input widget so clear() can reset it.
+        # Not part of the public API.
+        self._input: Any = None
+
+    def clear(self) -> None:
+        """Reset ``.value`` to ``None`` and clear the displayed input."""
+        self.value = None
+        if self._input is not None:
+            self._input.set_value("")
+
+
+def _parse_emitted_utc(args: Any) -> str | None:
+    """Extract the single UTC string a date-input ``js_handler`` ``emit()``'d.
+
+    NiceGUI may deliver the emitted value as a bare value or a 1-element list.
+    Returns the UTC string, or ``None`` for empty/cleared input.
+    """
+    if isinstance(args, list):
+        args = args[0] if args else ""
+    return (str(args) if args else "") or None
+
+
+async def _invoke_change_callback(on_change: Callable[..., Any] | None, event: Any) -> None:
+    """Call ``on_change`` and AWAIT it if it returns a coroutine.
+
+    Awaiting here — rather than scheduling a bare task (``asyncio.ensure_future``)
+    — keeps the callback running WITHIN the NiceGUI client/slot context the
+    event handler was invoked in, so ``ui.run_javascript`` / ``push_url_state``
+    and tab refreshes work. Scheduling it loose silently breaks them.
+    """
+    if on_change is None:
+        return
+    result = on_change(event)
+    if inspect.isawaitable(result):
+        await result
+
+
+def utc_date_input(
+    label: str,
+    *,
+    value: str | None = None,
+    on_change: Callable[..., Any] | None = None,
+    classes: str = "w-40",
+) -> UtcDateHandle:
+    """Date input whose ``.value`` is always UTC ``YYYY-MM-DD`` (or ``None``).
+
+    The browser SHOWS and EDITS the **browser-local** date; all
+    local↔UTC conversion happens in JS via the functions installed by
+    :func:`local_date_input_init_script` (injected by
+    :func:`~litmus.ui.shared.layout.create_layout` — the same injection
+    :func:`format_datetime` relies on for display spans).  The Python server
+    sees and stores **only UTC**; it never performs timezone math.
+
+    Mirrors the display path: ``format_datetime`` emits a UTC ``data-utc``
+    span that JS localizes; ``utc_date_input`` emits a UTC ``data-utc``
+    input that JS localizes, and JS converts the operator's local pick to
+    UTC before the server receives it.
+
+    Args:
+        label: Input field label shown to the operator.
+        value: Initial UTC ``YYYY-MM-DD`` date string (e.g. from a URL
+            query param or server-computed default).  ``None`` leaves the
+            input blank.
+        on_change: Called after each accepted change.  ``handle.value``
+            already holds the new UTC string when ``on_change`` fires.
+            May be a plain callable or an ``async def``; coroutines are
+            scheduled automatically.
+        classes: Tailwind width class (default ``w-40``).
+
+    Returns:
+        A :class:`UtcDateHandle` whose ``.value`` is always UTC or ``None``.
+
+    Example::
+
+        since_handle = utc_date_input("Since", value=since, on_change=refresh)
+        # later:
+        query(since=since_handle.value)   # UTC, ready for the server
+    """
+    handle = UtcDateHandle()
+    handle.value = value or None
+
+    uid = "ldui-" + uuid.uuid4().hex[:8]  # unique CSS class for cross-widget JS ref
+
+    async def _py_handler(e: Any) -> None:
+        handle.value = _parse_emitted_utc(e.args)
+        await _invoke_change_callback(on_change, e)
+
+    # Text-input handler: operator typed a local date → convert → emit UTC.
+    _text_js = "(...args) => emit(args[0] ? window.litmusLocalToUtcDate(args[0]) : '')"
+
+    # Date-picker handler: operator picked a local date from the calendar →
+    # convert → emit UTC, then also update the text input's displayed value to
+    # the local date so the operator sees their pick.  We set native.value
+    # directly (without dispatching a synthetic 'input' event) so Vue's
+    # reactive system does not trigger the text-input's update:model-value
+    # handler — avoiding a double-emit.
+    _date_js = (
+        "(...args) => {"
+        "  var local = args[0] || '';"
+        "  var utc = local ? window.litmusLocalToUtcDate(local) : '';"
+        "  emit(utc);"
+        "  var native = document.querySelector('." + uid + " .q-field__native')"
+        "              || document.querySelector('." + uid + " input');"
+        "  if (native && local) { native.value = local; }"
+        "}"
+    )
+
+    # Wrap in a native <div> so that .props('data-utc=...') becomes a real
+    # HTML attribute in the DOM.  Quasar's q-input root element is a <label>;
+    # arbitrary data-* props passed to it via NiceGUI are NOT forwarded to
+    # the DOM — but a plain ui.element("div") IS a native element whose
+    # props become attributes.  The MutationObserver sweep installed by
+    # local_date_input_init_script() queries .litmus-date-utc[data-utc] and
+    # uses that attribute to look up the UTC value to convert for display.
+    with ui.element("div").classes(f"litmus-date-utc {uid}").props(f'data-utc="{value or ""}"'):
+        _inp = ui.input(label, value=value or "").classes(classes)
+        handle._input = _inp
+        with _inp:
+            with _inp.add_slot("append"):
+                ui.icon("event").on("click", lambda: _date_menu.open()).classes("cursor-pointer")
+            with ui.menu() as _date_menu:
+                _date_picker = ui.date(value=value or None).props("mask='YYYY-MM-DD'")
+                _date_picker.on("update:model-value", _py_handler, js_handler=_date_js)
+
+        _inp.on("update:model-value", _py_handler, js_handler=_text_js)
+
+    return handle
+
+
+def utc_datetime_input(
+    label: str,
+    *,
+    value: str | None = None,
+    on_change: Callable[..., Any] | None = None,
+    classes: str = "w-48",
+) -> UtcDateHandle:
+    """Datetime text input whose ``.value`` is always a UTC ISO datetime string (or ``None``).
+
+    Symmetric sibling of :func:`utc_date_input` for full timestamps.  Uses
+    ``window.litmusLocalToUtcDateTime`` / ``window.litmusUtcToLocalDateTime``
+    from the same JS layer injected by :func:`local_date_input_init_script`.
+
+    The operator types or edits a local ``YYYY-MM-DDTHH:MM:SS`` value;
+    the JS handler converts to UTC ISO-8601 before Python receives it.
+    No calendar popup — for date-only pickers use :func:`utc_date_input`.
+
+    Args:
+        label: Input field label.
+        value: Initial UTC ISO datetime string (e.g. ``"2026-01-15T00:00:00Z"``).
+        on_change: Called after each accepted change.  ``handle.value`` holds
+            the new UTC ISO string when called.  May be sync or async.
+        classes: Tailwind width class (default ``w-48``).
+
+    Returns:
+        A :class:`UtcDateHandle` whose ``.value`` is always UTC or ``None``.
+        (The handle type is shared with :func:`utc_date_input`.)
+
+    Note:
+        No page in the current Litmus operator UI uses ``utc_datetime_input``
+        end-to-end.  The conversion functions are verified in the JS layer via
+        ``window.litmusLocalToUtcDateTime`` / ``window.litmusUtcToLocalDateTime``.
+        Integrate it the same way as :func:`utc_date_input` when a full-timestamp
+        filter is needed.
+    """
+    handle = UtcDateHandle()
+    handle.value = value or None
+
+    async def _py_handler(e: Any) -> None:
+        handle.value = _parse_emitted_utc(e.args)
+        await _invoke_change_callback(on_change, e)
+
+    _inp = (
+        ui.input(label, value=value or "")
+        .classes(f"{classes} litmus-datetime-utc")
+        .props(f'data-utc="{value or ""}"')
+    )
+    handle._input = _inp
+    _inp.on(
+        "update:model-value",
+        _py_handler,
+        js_handler="(...args) => emit(args[0] ? window.litmusLocalToUtcDateTime(args[0]) : '')",
+    )
+    return handle
 
 
 def info_field(label: str, value: str) -> None:

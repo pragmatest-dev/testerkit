@@ -41,7 +41,7 @@ quick_start/
 │   └── example_part.yaml        # Part specification
 ├── stations/                    # WHERE you test
 │   └── starter_station.yaml     # Instruments + addresses
-├── fixtures/                    # HOW pins connect to instruments
+├── fixtures/                    # HOW parts are connected to instruments
 │   └── example_fixture.yaml     # Pin-to-channel mappings
 ├── instruments/                 # Instrument asset records (identity, calibration)
 │   ├── generic_psu_001.yaml

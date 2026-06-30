@@ -13,7 +13,6 @@ import pyarrow.parquet as pq
 from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.backends.parquet import (
     materialize_run_to_parquet,
-    read_step_results,
     reconstruct_test_run_from_file,
 )
 from litmus.data.events import (
@@ -36,7 +35,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                uut_serial="SN001",
+                uut_serial_number="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -73,7 +72,7 @@ class TestMaterializer:
         assert [m["name"] for m in vec_row["measurements"]] == ["vout"]
         assert vec_row["measurements"][0]["value"] == 3.3
         assert vec_row["station_id"] == "st1"
-        assert vec_row["uut_serial"] == "SN001"
+        assert vec_row["uut_serial_number"] == "SN001"
         assert vec_row["run_outcome"] == "passed"
 
     def test_instruments_cached(self, tmp_path):
@@ -86,7 +85,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                uut_serial="SN001",
+                uut_serial_number="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -120,8 +119,10 @@ class TestMaterializer:
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         table = pq.read_table(pq_files[0])
         row = table.to_pylist()[0]
-        assert row["step_instruments_name"] == ["dmm"]
-        assert row["step_instruments_manufacturer"] == ["Keithley"]
+        instruments = row["instruments"]
+        assert len(instruments) == 1
+        assert instruments[0]["name"] == "dmm"
+        assert instruments[0]["manufacturer"] == "Keithley"
 
     def test_materialize_without_outcome_falls_back_to_aborted(self, tmp_path):
         """``outcome=None`` falls back to ``"aborted"`` — the orphan-sweep semantic."""
@@ -131,7 +132,7 @@ class TestMaterializer:
             RunStarted(
                 run_id=run_id,
                 station_id="st1",
-                uut_serial="SN001",
+                uut_serial_number="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -168,7 +169,7 @@ class TestMaterializer:
             RunStarted(
                 run_id=uuid4(),
                 station_id="st1",
-                uut_serial="SN001",
+                uut_serial_number="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -183,7 +184,7 @@ class TestMaterializer:
         assert len(rows) == 1
         assert rows[0]["record_type"] == "run"
         assert rows[0]["station_id"] == "st1"
-        assert rows[0]["uut_serial"] == "SN001"
+        assert rows[0]["uut_serial_number"] == "SN001"
 
     def test_step_identity_columns(self, tmp_path):
         """Step code identity fields appear in Parquet rows."""
@@ -196,7 +197,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                uut_serial="SN001",
+                uut_serial_number="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -249,8 +250,8 @@ class TestMaterializer:
         assert row["step_class"] == "TestPower"
         assert row["step_function"] == "test_5v_rail"
 
-    def test_step_results_metadata(self, tmp_path):
-        """Step results are written to Parquet file-level metadata."""
+    def test_step_results_rows(self, tmp_path):
+        """Step results are readable from ``record_type='step'`` rows in parquet."""
         acc = EventAccumulator()
         run_id = uuid4()
         session_id = uuid4()
@@ -260,7 +261,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                uut_serial="SN001",
+                uut_serial_number="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -321,15 +322,24 @@ class TestMaterializer:
         materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
 
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
-        manifest = read_step_results(pq_files[0])
-        assert len(manifest) == 2
-        assert manifest[0]["name"] == "test_voltage"
-        assert manifest[0]["has_measurements"] is True
-        assert manifest[0]["measurement_count"] == 1
-        assert manifest[1]["name"] == "configure_uut"
-        assert manifest[1]["has_measurements"] is False
-        assert manifest[1]["measurement_count"] == 0
-        assert manifest[1]["node_id"] == "tests/test_hw.py::configure_uut"
+        rows = pq.read_table(pq_files[0]).to_pylist()
+        steps = sorted(
+            (r for r in rows if r["record_type"] == "step"),
+            key=lambda r: r["step_index"],
+        )
+        # Measurements are nested on the vector rows; count per step_index.
+        meas_by_step: dict[int, int] = {}
+        for r in rows:
+            if r["record_type"] == "vector":
+                meas_by_step[r["step_index"]] = meas_by_step.get(r["step_index"], 0) + len(
+                    r.get("measurements") or []
+                )
+        assert len(steps) == 2
+        assert steps[0]["step_name"] == "test_voltage"
+        assert meas_by_step.get(steps[0]["step_index"], 0) == 1
+        assert steps[1]["step_name"] == "configure_uut"
+        assert meas_by_step.get(steps[1]["step_index"], 0) == 0
+        assert steps[1]["step_function"] == "configure_uut"
 
     def test_measurement_before_run_started(self, tmp_path):
         """Graceful fallback when RunStarted never arrives.
@@ -366,7 +376,7 @@ class TestMaterializer:
             RunStarted(
                 session_id=session_id,
                 run_id=run_id,
-                uut_serial="SN-CUSTOM",
+                uut_serial_number="SN-CUSTOM",
                 occurred_at=datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC),
                 custom_metadata={"badge": "EMP-999", "batch": "Q2-2026"},
             )

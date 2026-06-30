@@ -186,7 +186,7 @@ def create_layout(title: str = "Litmus"):
     # development; production deploys hash-stable mtimes.
     from pathlib import Path
 
-    from litmus.ui.shared.components import local_time_init_script
+    from litmus.ui.shared.components import local_date_input_init_script, local_time_init_script
 
     css_path = Path(__file__).parent.parent / "static" / "global.css"
     try:
@@ -203,6 +203,14 @@ def create_layout(title: str = "Litmus"):
         f" {local_time_init_script()} "
         "});</script>"
     )
+    # Date/datetime conversion helpers for the INPUT edge.  All four
+    # functions (litmusLocalToUtcDate, litmusUtcToLocalDate,
+    # litmusLocalToUtcDateTime, litmusUtcToLocalDateTime) live entirely in
+    # the browser JS layer — called directly from the js_handler of
+    # utc_date_input widgets.  Python performs no timezone math.
+    # Also installs the MutationObserver that localizes the initial
+    # displayed value of .litmus-date-utc inputs on page load.
+    ui.add_head_html(f"<script>{local_date_input_init_script()}</script>")
     ui.query("body").classes("bg-slate-50")
 
     create_sidebar()
@@ -230,7 +238,7 @@ def _create_dialogs_bell() -> None:
 
     Clicking opens a NiceGUI ``ui.menu()`` listing each pending dialog
     with the dialog title, the operator-readable run identifier
-    (``<uut_serial> · <YYYY-MM-DD HH:MM:SS>`` via
+    (``<uut_serial_number> · <YYYY-MM-DD HH:MM:SS>`` via
     :func:`lookup_run_label`), and a ``Go →`` link straight to
     ``/live/{run_id}`` — bypasses the run detail page so the operator
     can answer in one click. Refreshed by a 1 s timer matching the

@@ -77,7 +77,7 @@ To get UUT serials, query `RunStarted` events for the session:
 ```python
 runs = store.events(session_id=session_id, event_type="run.started")
 for r in runs:
-    print(f"{r['uut_serial']} ({r.get('uut_part_number')})")
+    print(f"{r['uut_serial_number']} ({r.get('uut_part_number')})")
 ```
 
 ## Data Retention

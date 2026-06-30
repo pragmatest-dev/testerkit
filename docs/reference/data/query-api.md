@@ -18,7 +18,7 @@ from litmus.queries import RunsQuery
 with RunsQuery() as q:
     recent = q.list_recent(limit=20, outcome="failed")
     for r in recent:
-        print(r.run_id, r.uut_serial, r.outcome)
+        print(r.run_id, r.uut_serial_number, r.outcome)
 ```
 
 Row records returned by these methods live in [models.md](models.md) — see `RunRow`, `StepRow`, `StepNode`. Filter shapes (`FilterSet`, `FacetSpec`, `FacetOption`) also have field tables there.

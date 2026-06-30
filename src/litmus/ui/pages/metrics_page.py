@@ -2,7 +2,7 @@
 
 import logging
 import traceback
-from datetime import UTC, date, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict
 
 from fastapi import Request
@@ -13,6 +13,7 @@ from litmus.analysis.runs_query import RunsQuery
 from litmus.analysis.steps_query import StepsQuery
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.event_store import EventStore
+from litmus.data.models import ensure_utc
 from litmus.ui.shared.components import (
     data_table,
     format_number,
@@ -21,6 +22,7 @@ from litmus.ui.shared.components import (
     render_empty_card,
     render_skeleton,
     subscribe_with_refresh,
+    utc_date_input,
 )
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import get_runs_filter_options
@@ -76,7 +78,7 @@ async def metrics_page(
     if not phase:
         phase = ["production"]
     if not since:
-        since = (date.today() - timedelta(days=30)).isoformat()
+        since = (datetime.now(UTC) - timedelta(days=30)).date().isoformat()
 
     data_dir = str(resolve_data_dir())
 
@@ -161,8 +163,10 @@ async def metrics_page(
             list(phase_filter.value or []) or None,
             list(part_filter.value or []) or None,
             list(station_filter.value or []) or None,
-            since_filter.value or None,
-            until_filter.value or None,
+            # since_filter.value / until_filter.value are UTC strings from the
+            # UtcDateHandle — the JS layer converts before Python ever sees them.
+            since_filter.value,
+            until_filter.value,
         )
 
     # ---------------------------------------------------------------------------
@@ -403,27 +407,19 @@ async def metrics_page(
                 placeholder="Leave blank for all",
             ).classes("w-40")
 
-            with ui.input("Since (optional)", value=since).classes("w-40") as since_input:
-                with since_input.add_slot("append"):
-                    ui.icon("event").on("click", lambda: since_menu.open()).classes(
-                        "cursor-pointer"
-                    )
-                with ui.menu() as since_menu:
-                    since_filter = ui.date(
-                        value=since or None,
-                        on_change=_on_filter_change,
-                    ).bind_value(since_input)
+            since_filter = utc_date_input(
+                "Since (optional)",
+                value=since or None,
+                on_change=_on_filter_change,
+                classes="w-40",
+            )
 
-            with ui.input("Until (optional)", value=until).classes("w-40") as until_input:
-                with until_input.add_slot("append"):
-                    ui.icon("event").on("click", lambda: until_menu.open()).classes(
-                        "cursor-pointer"
-                    )
-                with ui.menu() as until_menu:
-                    until_filter = ui.date(
-                        value=until or None,
-                        on_change=_on_filter_change,
-                    ).bind_value(until_input)
+            until_filter = utc_date_input(
+                "Until (optional)",
+                value=until or None,
+                on_change=_on_filter_change,
+                classes="w-40",
+            )
 
             ui.button("Refresh", icon="refresh", on_click=_on_filter_change).props("outline")
 
@@ -700,7 +696,7 @@ def _compute_instrument_utilization(
         key = (sid, role)
         ts = ev.get("occurred_at")
         if isinstance(ts, str):
-            ts = _dt.fromisoformat(ts)
+            ts = ensure_utc(_dt.fromisoformat(ts))
         if isinstance(ts, _dt):
             disconnect_idx.setdefault(key, []).append(ts)
 
@@ -711,7 +707,7 @@ def _compute_instrument_utilization(
         sid = str(ev.get("session_id") or "")
         ts = ev.get("occurred_at")
         if isinstance(ts, str):
-            ts = _dt.fromisoformat(ts)
+            ts = ensure_utc(_dt.fromisoformat(ts))
         if not isinstance(ts, _dt):
             continue
         matches = disconnect_idx.get((sid, role)) or []

@@ -31,6 +31,7 @@ from litmus.execution._state import (
     get_active_slot_runner,
     get_channel_store,
     get_current_run_scope,
+    get_registered_instrument_roles,
     set_active_instruments,
     set_active_profile,
     set_collected_items,
@@ -39,6 +40,7 @@ from litmus.execution._state import (
     set_current_step_aliases,
     set_current_step_config,
     set_instrument_records,
+    set_registered_instrument_roles,
     set_test_node_aliases,
     set_test_node_configs,
 )
@@ -248,6 +250,7 @@ def pytest_configure(config):
         return
 
     instruments_map = station_model.instruments or {}
+    set_registered_instrument_roles(frozenset(instruments_map.keys()))
 
     # Sequences (deleted) used to inject per-test fixture aliases. The
     # alias machinery and per-test config map are gone with them; setters
@@ -737,10 +740,8 @@ def _build_collected_items(items: list[pytest.Item]) -> list[CollectedItem]:
         logical_name = func.__name__ if func is not None else func_name
         if cls is not None:
             step_path = f"{cls.__name__}/{logical_name}"
-            parent_path = cls.__name__
         else:
             step_path = logical_name
-            parent_path = ""
 
         collected.append(
             CollectedItem(
@@ -751,7 +752,6 @@ def _build_collected_items(items: list[pytest.Item]) -> list[CollectedItem]:
                 function=func_name,
                 markers=join_marker_names(item.iter_markers(), sort=True),
                 step_path=step_path,
-                parent_path=parent_path,
                 step_index=step_idx,
                 vector_index=vec_idx,
                 vector_count_planned=planned,
@@ -1265,12 +1265,16 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
         # is about to be appended (``len(steps)`` before append).  Children
         # appended afterwards are this iteration's children for rollup.
         first_step_index = len(logger_inst.test_run.steps)
+        fixture_names: list[str] = list(getattr(item, "fixturenames", []))
+        roles = sorted(set(fixture_names) & get_registered_instrument_roles())
         logger_inst.start_step(
             cls.__name__,
             class_name=cls.__name__,
             module=getattr(cls, "__module__", None),
             inputs=dict(outer_values),
             vector_index=vi,
+            step_retry=getattr(item, "execution_count", 1) - 1,
+            instrument_roles=roles,
         )
         setattr(
             logger_inst,
@@ -1296,6 +1300,11 @@ def _close_open_class_container(logger_inst: Any) -> None:
         setattr(logger_inst, _OPEN_CLASS_ATTR, None)
 
 
+def _parent_of(step_path: str) -> str:
+    """Derive the parent path from a step path (inverse of the path join)."""
+    return step_path.rsplit("/", 1)[0] if "/" in step_path else ""
+
+
 def _stamp_container_outcome(logger_inst: Any, open_state: dict[str, Any]) -> None:
     """Cascade THIS iteration's child step outcomes into the container's outcome.
 
@@ -1303,7 +1312,7 @@ def _stamp_container_outcome(logger_inst: Any, open_state: dict[str, Any]) -> No
     its outcome is the worst outcome among ITS OWN ITERATION's children.
     Walks ``test_run.steps`` from ``first_step_index + 1`` to the end of the
     list (i.e., everything appended since the container opened), filtering
-    by ``parent_path == container.step_path`` to skip nested-deeper
+    by deriving parent from ``step_path`` to skip nested-deeper
     descendants. Severity ladder via ``escalate_outcome``.
 
     Critical isolation property: when class TestSeq runs three iterations,
@@ -1329,7 +1338,7 @@ def _stamp_container_outcome(logger_inst: Any, open_state: dict[str, Any]) -> No
     # STDF MIR.RTST_COD, Jenkins flaky-test-handler all treat the
     # final attempt as the disposition; the prior attempts stay in
     # the step record as retest metadata.
-    eligible = [s for s in steps[first_idx + 1 :] if s.parent_path == container_path]
+    eligible = [s for s in steps[first_idx + 1 :] if _parent_of(s.step_path) == container_path]
     container.outcome = retry_aware_rollup(eligible)
 
 
@@ -1369,6 +1378,8 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
         step_idx, vec_idx, inputs = _step_vector_for_item(item)
         # Open the class container if we just transitioned to a new class.
         _ensure_class_container(logger_inst, item)
+        fixture_names: list[str] = list(getattr(item, "fixturenames", []))
+        roles = sorted(set(fixture_names) & get_registered_instrument_roles())
         logger_inst.start_step(
             func_name,
             function=func_name,
@@ -1377,7 +1388,9 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
             node_id=item.nodeid,
             step_index=step_idx,
             vector_index=vec_idx,
+            step_retry=getattr(item, "execution_count", 1) - 1,
             inputs=inputs,
+            instrument_roles=roles,
         )
         try:
             outcome_obj = yield

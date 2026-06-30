@@ -87,7 +87,7 @@ def _is_starter_parquet(parquet_path: Path) -> bool:
     """
     import pyarrow.parquet as pq
 
-    cols = ["part_id", "station_id", "uut_serial", "fixture_id"]
+    cols = ["part_id", "station_id", "uut_serial_number", "fixture_id"]
     try:
         t = pq.read_table(parquet_path, columns=cols)
     except (FileNotFoundError, OSError, KeyError):
@@ -99,7 +99,7 @@ def _is_starter_parquet(parquet_path: Path) -> bool:
         return True
     if row0.get("station_id") in _STARTER_STATION_IDS:
         return True
-    if row0.get("uut_serial") in _STARTER_UUT_SERIALS:
+    if row0.get("uut_serial_number") in _STARTER_UUT_SERIALS:
         return True
     if row0.get("fixture_id") in _STARTER_FIXTURE_IDS:
         return True

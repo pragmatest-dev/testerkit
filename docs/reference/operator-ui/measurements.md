@@ -55,7 +55,7 @@ The PLOT card sits above the chart and decides what gets drawn.
 | X axis | Which field to plot horizontally. Same choices as Y. Required for scatter, line, and bar; ignored for histogram. |
 | X type | Same as Y type, for the X field. Hidden when unneeded. |
 | Chart | One of `scatter` (default), `line`, `bar`, or `histogram`. |
-| Group by | Optional. Plots one series per distinct value of the chosen column — e.g. group by `uut_serial` to show one line per UUT. Accepts fixed columns and input/output fields. |
+| Group by | Optional. Plots one series per distinct value of the chosen column — e.g. group by `uut_serial_number` to show one line per UUT. Accepts fixed columns and input/output fields. |
 | Bins | Histogram bin count. Range 2–200, default 30. |
 | Limit | Maximum row count fetched. Range 10–100,000, default 5,000. |
 | Refresh | Force a re-fetch. Filter and control changes already trigger a re-fetch automatically; use this to pick up new runs that arrived while the page was open. |
@@ -68,7 +68,7 @@ area shows a placeholder until both are selected.
 The dropdown lists two kinds of entries:
 
 - **Fixed columns** — system columns with a single stable name, such as
-  `measurement_value`, `run_started_at`, `vector_index`, `uut_serial`.
+  `measurement_value`, `run_started_at`, `vector_index`, `uut_serial_number`.
   These appear by their plain column name. Internal identity and
   bookkeeping columns are excluded.
 
@@ -142,7 +142,7 @@ Defaults are stripped from the URL to keep it short.
   failures.
 - **One measurement across UUTs over time** — set the Measurement
   facet, Y to `measurement_value`, X to `run_started_at`, Group by
-  `uut_serial`. One line per unit.
+  `uut_serial_number`. One line per unit.
 - **Swept input vs measured output** — set Y to the output field
   (`v_rail (output)`), X to the input field (`vin (input)`). Chart
   shows the transfer curve across all runs.

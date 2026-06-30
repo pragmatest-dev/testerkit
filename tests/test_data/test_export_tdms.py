@@ -58,7 +58,7 @@ class TestTdmsSubscriber:
         tf = TdmsFile.read(result)
         props = dict(tf.properties)
         assert props["station_id"] == "station_alpha"
-        assert props["uut_serial"] == "UUT-001"
+        assert props["uut_serial_number"] == "UUT-001"
 
     def test_step_groups(
         self,

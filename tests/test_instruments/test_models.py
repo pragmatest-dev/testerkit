@@ -1,6 +1,6 @@
 """Tests for instrument models."""
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from litmus.models.instrument import (
     CalibrationInfo,
@@ -104,8 +104,8 @@ class TestCalibrationInfo:
 
     def test_partial_calibration_is_truthy(self):
         """CalibrationInfo with any field is truthy."""
-        assert CalibrationInfo(due_date=date.today())
-        assert CalibrationInfo(last_cal=date.today())
+        assert CalibrationInfo(due_date=datetime.now(UTC).date())
+        assert CalibrationInfo(last_cal=datetime.now(UTC).date())
         assert CalibrationInfo(certificate="CAL-001")
         assert CalibrationInfo(lab="Acme Cal")
 
@@ -116,17 +116,17 @@ class TestCalibrationInfo:
 
     def test_is_expired_future_date(self):
         """Future due date is not expired."""
-        cal = CalibrationInfo(due_date=date.today() + timedelta(days=30))
+        cal = CalibrationInfo(due_date=datetime.now(UTC).date() + timedelta(days=30))
         assert not cal.is_expired()
 
     def test_is_expired_past_date(self):
         """Past due date is expired."""
-        cal = CalibrationInfo(due_date=date.today() - timedelta(days=1))
+        cal = CalibrationInfo(due_date=datetime.now(UTC).date() - timedelta(days=1))
         assert cal.is_expired()
 
     def test_is_expired_today(self):
         """Due today is not expired (expires at end of day)."""
-        cal = CalibrationInfo(due_date=date.today())
+        cal = CalibrationInfo(due_date=datetime.now(UTC).date())
         assert not cal.is_expired()
 
     def test_days_until_due_no_date(self):
@@ -136,17 +136,17 @@ class TestCalibrationInfo:
 
     def test_days_until_due_future(self):
         """Future due date returns positive days."""
-        cal = CalibrationInfo(due_date=date.today() + timedelta(days=30))
+        cal = CalibrationInfo(due_date=datetime.now(UTC).date() + timedelta(days=30))
         assert cal.days_until_due() == 30
 
     def test_days_until_due_past(self):
         """Past due date returns negative days."""
-        cal = CalibrationInfo(due_date=date.today() - timedelta(days=10))
+        cal = CalibrationInfo(due_date=datetime.now(UTC).date() - timedelta(days=10))
         assert cal.days_until_due() == -10
 
     def test_days_until_due_today(self):
         """Due today returns 0."""
-        cal = CalibrationInfo(due_date=date.today())
+        cal = CalibrationInfo(due_date=datetime.now(UTC).date())
         assert cal.days_until_due() == 0
 
 

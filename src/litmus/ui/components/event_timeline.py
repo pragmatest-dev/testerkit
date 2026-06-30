@@ -58,7 +58,7 @@ def _detail_session_started(e: dict) -> str:
 
 
 def _detail_run_started(e: dict) -> str:
-    return f"station={e.get('station_id', '')} uut={e.get('uut_serial', '')}"
+    return f"station={e.get('station_id', '')} uut={e.get('uut_serial_number', '')}"
 
 
 def _detail_step_ended(e: dict) -> str:

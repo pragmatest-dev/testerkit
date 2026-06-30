@@ -29,7 +29,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.data.backends._row_helpers import MeasurementRow, encode_lane_structs
+from litmus.data.backends._row_helpers import RunParquetRow, encode_lane_structs
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.events import Observation
 from litmus.data.models import TestVector
@@ -184,11 +184,11 @@ def test_encode_lane_no_pins_uut_pin_null() -> None:
 
 
 def test_flat_dict_no_output_pins_key() -> None:
-    row = MeasurementRow(
+    row = RunParquetRow(
         record_type="vector",
         run_id=str(uuid4()),
         session_id=str(uuid4()),
-        uut_serial="SN-TEST",
+        uut_serial_number="SN-TEST",
         step_name="test_pin",
         step_index=0,
         vector_index=0,
@@ -224,7 +224,7 @@ def _make_vector_row(*, run_id: str, session_id: str, pins: dict[str, str]) -> d
             "run_started_at": datetime(2026, 6, 20, 10, 0, 0, tzinfo=UTC),
             "run_ended_at": datetime(2026, 6, 20, 10, 1, 0, tzinfo=UTC),
             "run_outcome": "passed",
-            "uut_serial": "SN-PIN-TEST",
+            "uut_serial_number": "SN-PIN-TEST",
             "station_id": "test-station",
             "step_name": "test_pin",
             "step_index": 0,

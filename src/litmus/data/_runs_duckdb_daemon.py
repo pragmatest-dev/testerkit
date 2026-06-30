@@ -189,7 +189,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             file_path VARCHAR,
             session_id VARCHAR,
             slot_id VARCHAR,
-            uut_serial VARCHAR,
+            uut_serial_number VARCHAR,
             uut_part_number VARCHAR,
             uut_lot_number VARCHAR,
             station_id VARCHAR,
@@ -218,26 +218,23 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         CREATE TABLE IF NOT EXISTS steps_materialized (
             run_id VARCHAR NOT NULL,
             step_path VARCHAR NOT NULL,
+            step_retry BIGINT NOT NULL DEFAULT 0,
             vector_index BIGINT NOT NULL DEFAULT 0,
             step_index INTEGER,
             file_path VARCHAR,
             session_id VARCHAR,
             slot_id VARCHAR,
             step_name VARCHAR,
-            parent_path VARCHAR,
             outcome outcome_kind,
             started_at TIMESTAMPTZ,
             ended_at TIMESTAMPTZ,
             duration_s DOUBLE,
-            has_measurements BOOLEAN,
             measurement_count INTEGER,
-            vector_count INTEGER,
-            retry_count INTEGER,
             markers VARCHAR,
-            uut_serial VARCHAR,
+            uut_serial_number VARCHAR,
             station_id VARCHAR,
             dynamic_attrs MAP(VARCHAR, VARCHAR),
-            PRIMARY KEY (run_id, step_path, vector_index)
+            PRIMARY KEY (run_id, step_path, step_retry, vector_index)
         )
     """)
     for col, sql_type in _STEPS_PERSISTED_COLUMNS:
@@ -330,7 +327,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             run_started_at        TIMESTAMPTZ,
             run_ended_at          TIMESTAMPTZ,
             run_outcome           VARCHAR,
-            uut_serial            VARCHAR,
+            uut_serial_number     VARCHAR,
             uut_part_number       VARCHAR,
             uut_revision          VARCHAR,
             uut_lot_number        VARCHAR,
@@ -415,6 +412,46 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
 
+    # ── instruments_materialized ──────────────────────────────────────
+    # Grain: one row per instrument per run. UNNESTed from the run row's
+    # ``instruments`` LIST<STRUCT> at ingest. Powers the /instruments page
+    # via the Query API instead of ad-hoc parquet array scans.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS instruments_materialized (
+            file_path         VARCHAR NOT NULL,
+            run_id            VARCHAR,
+            session_id        VARCHAR,
+            run_started_at    TIMESTAMPTZ,
+            run_ended_at      TIMESTAMPTZ,
+            run_outcome       VARCHAR,
+            uut_serial_number VARCHAR,
+            uut_part_number   VARCHAR,
+            part_id           VARCHAR,
+            station_id        VARCHAR,
+            station_hostname  VARCHAR,
+            project_name      VARCHAR,
+            operator_name     VARCHAR,
+            role              VARCHAR,
+            instrument_id     VARCHAR,
+            driver            VARCHAR,
+            resource          VARCHAR,
+            protocol          VARCHAR,
+            manufacturer      VARCHAR,
+            model             VARCHAR,
+            serial_number     VARCHAR,
+            firmware          VARCHAR,
+            cal_due           VARCHAR,
+            cal_last          VARCHAR,
+            cal_certificate   VARCHAR,
+            cal_lab           VARCHAR,
+            mocked            BOOLEAN
+        )
+    """)
+    for col, sql_type in _INSTRUMENTS_PERSISTED_COLUMNS:
+        conn.execute(
+            f"ALTER TABLE instruments_materialized ADD COLUMN IF NOT EXISTS {col} {sql_type}"
+        )
+
     # ── indexes ─────────────────────────────────────────────────────
     for index_sql in (
         "CREATE INDEX IF NOT EXISTS idx_runs_run_id ON runs_materialized(run_id)",
@@ -433,6 +470,9 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_mp_run  ON measurements_materialized(run_id)",
         "CREATE INDEX IF NOT EXISTS idx_mp_name ON measurements_materialized(measurement_name)",
         "CREATE INDEX IF NOT EXISTS idx_md_name ON measurements_dynamic(name)",
+        "CREATE INDEX IF NOT EXISTS idx_instr_run_id ON instruments_materialized(run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_instr_fp ON instruments_materialized(file_path)",
+        "CREATE INDEX IF NOT EXISTS idx_instr_id ON instruments_materialized(instrument_id)",
     ):
         conn.execute(index_sql)
 
@@ -447,7 +487,7 @@ _RUNS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("file_path", "VARCHAR"),
     ("session_id", "VARCHAR"),
     ("slot_id", "VARCHAR"),
-    ("uut_serial", "VARCHAR"),
+    ("uut_serial_number", "VARCHAR"),
     ("uut_part_number", "VARCHAR"),
     ("uut_lot_number", "VARCHAR"),
     ("station_id", "VARCHAR"),
@@ -472,24 +512,17 @@ _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("slot_id", "VARCHAR"),
     ("step_name", "VARCHAR"),
     ("step_path", "VARCHAR"),
-    ("parent_path", "VARCHAR"),
     ("outcome", "outcome_kind"),
     ("started_at", "TIMESTAMPTZ"),
     ("ended_at", "TIMESTAMPTZ"),
     ("duration_s", "DOUBLE"),
-    ("has_measurements", "BOOLEAN"),
+    # 0-based outer (item) retry — pytest-rerunfailures rerun count of this
+    # step. Part of the PK so a rerun is a distinct row (the de-fuse), never
+    # overwriting the prior attempt.
+    ("step_retry", "BIGINT"),
     ("measurement_count", "INTEGER"),
-    ("vector_count", "INTEGER"),
-    # 0-based retry rollup: max(vector_retry) over the step's measurement
-    # rows, with COALESCE(..., 0). Reads as the count of retries that
-    # actually happened: 0 when the step recorded a non-NULL outcome on
-    # its first attempt (or didn't go through the retry loop at all —
-    # container steps, action steps with no measurements); N when the
-    # step retried N times (i.e. produced measurements at vector_retry
-    # values 0..N).
-    ("retry_count", "INTEGER"),
     ("markers", "VARCHAR"),
-    ("uut_serial", "VARCHAR"),
+    ("uut_serial_number", "VARCHAR"),
     ("station_id", "VARCHAR"),
     ("dynamic_attrs", "MAP(VARCHAR, VARCHAR)"),
 )
@@ -502,7 +535,7 @@ _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("run_started_at", "TIMESTAMPTZ"),
     ("run_ended_at", "TIMESTAMPTZ"),
     ("run_outcome", "VARCHAR"),
-    ("uut_serial", "VARCHAR"),
+    ("uut_serial_number", "VARCHAR"),
     ("uut_part_number", "VARCHAR"),
     ("uut_revision", "VARCHAR"),
     ("uut_lot_number", "VARCHAR"),
@@ -551,6 +584,36 @@ _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("instrument_resource", "VARCHAR"),
     ("instrument_channel", "VARCHAR"),
     ("dynamic_attrs", "MAP(VARCHAR, VARCHAR)"),
+)
+
+_INSTRUMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("file_path", "VARCHAR"),
+    ("run_id", "VARCHAR"),
+    ("session_id", "VARCHAR"),
+    ("run_started_at", "TIMESTAMPTZ"),
+    ("run_ended_at", "TIMESTAMPTZ"),
+    ("run_outcome", "VARCHAR"),
+    ("uut_serial_number", "VARCHAR"),
+    ("uut_part_number", "VARCHAR"),
+    ("part_id", "VARCHAR"),
+    ("station_id", "VARCHAR"),
+    ("station_hostname", "VARCHAR"),
+    ("project_name", "VARCHAR"),
+    ("operator_name", "VARCHAR"),
+    ("role", "VARCHAR"),
+    ("instrument_id", "VARCHAR"),
+    ("driver", "VARCHAR"),
+    ("resource", "VARCHAR"),
+    ("protocol", "VARCHAR"),
+    ("manufacturer", "VARCHAR"),
+    ("model", "VARCHAR"),
+    ("serial_number", "VARCHAR"),
+    ("firmware", "VARCHAR"),
+    ("cal_due", "VARCHAR"),
+    ("cal_last", "VARCHAR"),
+    ("cal_certificate", "VARCHAR"),
+    ("cal_lab", "VARCHAR"),
+    ("mocked", "BOOLEAN"),
 )
 
 
@@ -722,6 +785,7 @@ _INDEX_TABLES_BY_FILE_PATH = (
     "measurement_refs",
     "measurements_materialized",
     "measurements_dynamic",
+    "instruments_materialized",
 )
 
 
@@ -837,7 +901,7 @@ _MEAS_FIXED_COLS: frozenset[str] = frozenset(
         "run_started_at",
         "run_ended_at",
         "run_outcome",
-        "uut_serial",
+        "uut_serial_number",
         "uut_part_number",
         "uut_revision",
         "uut_lot_number",
@@ -1043,6 +1107,62 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
     """)
 
 
+def _instrument_unnest_insert(src: str, *, file_path_expr: str) -> str:
+    """INSERT that UNNESTs nested instruments from the run row into the fact.
+
+    Instruments are stored on the run row (``WHERE record_type='run'``) as a
+    ``LIST<STRUCT>``; the grain is one row per instrument per run. Struct field
+    ``name`` maps to column ``role`` and ``id`` maps to ``instrument_id`` to
+    avoid shadowing run-level names; the rest are direct. ``INSERT BY NAME``
+    aligns the SELECT output names with ``instruments_materialized``.
+    """
+    return f"""
+        INSERT INTO instruments_materialized BY NAME
+        SELECT
+            {file_path_expr} AS file_path,
+            r.run_id,
+            r.session_id,
+            r.run_started_at,
+            r.run_ended_at,
+            r.run_outcome,
+            r.uut_serial_number,
+            r.uut_part_number,
+            r.part_id,
+            r.station_id,
+            r.station_hostname,
+            r.project_name,
+            r.operator_name,
+            i.name AS role,
+            i.id AS instrument_id,
+            i.driver,
+            i.resource,
+            i.protocol,
+            i.manufacturer,
+            i.model,
+            i.serial_number,
+            i.firmware,
+            i.cal_due,
+            i.cal_last,
+            i.cal_certificate,
+            i.cal_lab,
+            i.mocked
+        FROM {src} AS r, UNNEST(r.instruments) AS t(i)
+        WHERE r.record_type = 'run'
+    """
+
+
+def _bulk_insert_instrument_rows(conn: duckdb.DuckDBPyConnection, fkey: str) -> None:
+    """Insert instrument rows from one parquet into ``instruments_materialized``.
+
+    Grain: one row per instrument per run. Idempotent: DELETE by file_path first
+    so re-ingest is safe.
+    """
+    escaped = _sql_escape(fkey)
+    src = f"read_parquet('{escaped}', union_by_name=true)"
+    conn.execute("DELETE FROM instruments_materialized WHERE file_path = ?", [fkey])
+    conn.execute(_instrument_unnest_insert(src, file_path_expr=f"'{escaped}'"))
+
+
 def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]) -> None:
     """Populate ``runs_materialized`` from the unified per-run parquet files.
 
@@ -1060,7 +1180,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             filename AS file_path,
             session_id,
             slot_id,
-            uut_serial, uut_part_number, uut_lot_number,
+            uut_serial_number, uut_part_number, uut_lot_number,
             station_id, station_name, station_hostname,
             fixture_id,
             run_outcome AS outcome,
@@ -1077,7 +1197,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
         WHERE run_id IS NOT NULL
         GROUP BY
             filename, run_id, session_id, slot_id,
-            uut_serial, uut_part_number, uut_lot_number,
+            uut_serial_number, uut_part_number, uut_lot_number,
             station_id, station_name, station_hostname,
             fixture_id,
             run_outcome, run_started_at, run_ended_at,
@@ -1086,7 +1206,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             file_path = excluded.file_path,
             session_id = excluded.session_id,
             slot_id = excluded.slot_id,
-            uut_serial = excluded.uut_serial,
+            uut_serial_number = excluded.uut_serial_number,
             uut_part_number = excluded.uut_part_number,
             uut_lot_number = excluded.uut_lot_number,
             station_id = excluded.station_id,
@@ -1108,32 +1228,33 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
 def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]) -> None:
     """Populate ``steps_materialized`` from the unified per-run parquets.
 
-    GROUP BY ``(run_id, step_path, vector_index)`` plus all the
+    GROUP BY ``(run_id, step_path, step_retry, vector_index)`` plus all the
     step-level columns that are denormalized onto every row of a
     given step (step_name, step_outcome, step_started_at, step_ended_at,
-    parent_path, step_vector_count, step_markers, …). Aggregates are
-    only the actual rollups (``measurement_count``, ``has_measurements``,
-    ``duration_s``).
+    step_markers, …). Aggregates are only the actual rollups
+    (``measurement_count``, ``duration_s``).
     """
     flist = _file_list_sql(parquet_paths)
     # ``dynamic_attrs`` is rebuilt per step row from the vector record's nested
     # lanes (v2: the step record sheds inputs/outputs onto its scope vector).
-    # The step grain is (step_path, vector_index); within a group the vector at
-    # that vector_index is the scope vector (non-looping step) or the iteration
-    # vector (Mode-2 loop), so ANY_VALUE of the per-'vector'-row MAP is exact.
+    # The step grain is (step_path, step_retry, vector_index); within a group
+    # the vector at that vector_index is the scope vector (non-looping step) or
+    # the iteration vector (Mode-2 loop), so ANY_VALUE of the per-'vector'-row
+    # MAP is exact. ``step_retry`` is part of the grain so a rerun is a distinct
+    # row, never fused onto the prior attempt (the de-fuse).
     map_expr = _dynamic_attrs_map_expr()
     conn.execute(f"""
         INSERT INTO steps_materialized BY NAME
         SELECT
             run_id,
             step_path,
+            COALESCE(step_retry, 0) AS step_retry,
             vector_index,
             step_index,
             filename AS file_path,
             session_id,
             slot_id,
             step_name,
-            parent_path,
             -- v2: step-level rollups live only on the 'step' record (the scope
             -- 'vector' record sheds them), so aggregate via ANY_VALUE FILTER
             -- rather than GROUP BY — otherwise the step row and its scope
@@ -1152,24 +1273,8 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 SUM(len(measurements)) FILTER (WHERE record_type = 'vector'), 0
             ) AS INTEGER)
                 AS measurement_count,
-            (COALESCE(
-                SUM(len(measurements)) FILTER (WHERE record_type = 'vector'), 0
-            ) > 0)
-                AS has_measurements,
-            CAST(
-                ANY_VALUE(step_vector_count) FILTER (WHERE record_type = 'step') AS INTEGER
-            ) AS vector_count,
-            -- retry_count = COUNT of re-executions (max retry seen on the
-            -- vector boundary rows), NOT a MAX over measurement vector_retry.
-            -- A measurement-less retry is a real 'vector' row, so it counts;
-            -- a measurement at vector_retry=N without a re-execution boundary
-            -- does not inflate the count (Mode-1 fuses, no extra vector row).
-            CAST(
-                COALESCE(MAX(vector_retry) FILTER (WHERE record_type = 'vector'), 0)
-                AS INTEGER
-            ) AS retry_count,
             ANY_VALUE(step_markers) FILTER (WHERE record_type = 'step') AS markers,
-            uut_serial,
+            uut_serial_number,
             station_id,
             ANY_VALUE({map_expr}) FILTER (WHERE record_type = 'vector') AS dynamic_attrs
         FROM read_parquet({flist}, filename=true, union_by_name=true)
@@ -1179,26 +1284,22 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
         WHERE run_id IS NOT NULL AND record_type <> 'run'
         GROUP BY
             filename, run_id,
-            step_path, vector_index, step_index,
-            session_id, slot_id, step_name, parent_path,
-            uut_serial, station_id
-        ON CONFLICT (run_id, step_path, vector_index) DO UPDATE SET
+            step_path, COALESCE(step_retry, 0), vector_index, step_index,
+            session_id, slot_id, step_name,
+            uut_serial_number, station_id
+        ON CONFLICT (run_id, step_path, step_retry, vector_index) DO UPDATE SET
             step_index = excluded.step_index,
             file_path = excluded.file_path,
             session_id = excluded.session_id,
             slot_id = excluded.slot_id,
             step_name = excluded.step_name,
-            parent_path = excluded.parent_path,
             outcome = excluded.outcome,
             started_at = excluded.started_at,
             ended_at = excluded.ended_at,
             duration_s = excluded.duration_s,
-            has_measurements = excluded.has_measurements,
             measurement_count = excluded.measurement_count,
-            vector_count = excluded.vector_count,
-            retry_count = excluded.retry_count,
             markers = excluded.markers,
-            uut_serial = excluded.uut_serial,
+            uut_serial_number = excluded.uut_serial_number,
             station_id = excluded.station_id,
             dynamic_attrs = excluded.dynamic_attrs
     """)
@@ -1358,6 +1459,7 @@ def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | 
         _bulk_insert_runs(conn, [fkey])
         _bulk_insert_steps(conn, [fkey])
         _bulk_insert_measurements(conn, [fkey])
+        _bulk_insert_instrument_rows(conn, fkey)
         io_error = _index_io_and_refs(conn, fkey)
         if io_error:
             warnings.warn(f"io/refs indexing partial for {fkey}: {io_error}", stacklevel=2)
@@ -1393,6 +1495,7 @@ def _ingest_file_batch(
         _bulk_insert_steps(conn, paths)
         _bulk_insert_measurements(conn, paths)
         _batch_insert_measurement_rows(conn, paths)
+        _batch_insert_instrument_rows(conn, paths)
         _batch_index_io_and_refs(conn, paths)
         for path_str, _mtime, _size, stat in batch:
             _mark_ingested(conn, path_str, stat, "ok", None)
@@ -1409,6 +1512,7 @@ def _ingest_file_batch(
             _ingest_one_file(conn, Path(path_str), stat)
             try:
                 _bulk_insert_measurement_rows(conn, path_str)
+                _bulk_insert_instrument_rows(conn, path_str)
             except Exception as exc2:  # noqa: BLE001
                 logger.debug("per-file raw-measurement insert failed for %s: %s", path_str, exc2)
 
@@ -1494,7 +1598,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             record_type,
             run_id, session_id, slot_id,
             run_started_at, run_ended_at, run_outcome,
-            uut_serial, uut_part_number, uut_revision, uut_lot_number,
+            uut_serial_number, uut_part_number, uut_revision, uut_lot_number,
             part_id, part_name, part_revision,
             station_id, station_name, station_hostname, station_type, station_location,
             fixture_id, test_phase, project_name, operator_id, operator_name,
@@ -1529,7 +1633,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
         UNION ALL BY NAME
         SELECT
             run_id, file_path, session_id, slot_id,
-            uut_serial, uut_part_number, uut_lot_number, station_id, station_name,
+            uut_serial_number, uut_part_number, uut_lot_number, station_id, station_name,
             station_hostname, fixture_id,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
@@ -1545,17 +1649,26 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
         SELECT
             run_id,
             COALESCE(step_path, '') AS step_path,
+            step_retry,
             vector_index,
             step_index, file_path, session_id, slot_id,
             step_name,
-            parent_path,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
-            duration_s, has_measurements, measurement_count, vector_count, retry_count,
-            markers, uut_serial, station_id,
+            duration_s, measurement_count,
+            markers, uut_serial_number, station_id,
             dynamic_attrs
         FROM overlay.inflight_steps
         WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
+    """)
+
+    # ``instruments``: one row per instrument per run, materialized from the
+    # run row's nested ``instruments`` LIST<STRUCT> at ingest. No inflight
+    # side — the inventory is a finalized-run projection (utilization, which
+    # would need the live event stream, is explicitly out of C5 scope).
+    conn.execute("""
+        CREATE OR REPLACE VIEW instruments AS
+        SELECT * FROM instruments_materialized
     """)
 
 
@@ -1612,6 +1725,25 @@ def _batch_insert_measurement_rows(
             value_timestamp, value_json, unit, uut_pin
         FROM ({union_sql})
     """)
+
+
+def _batch_insert_instrument_rows(
+    conn: duckdb.DuckDBPyConnection,
+    paths: list[str],
+) -> None:
+    """Insert instrument rows for all *paths* in a single SQL statement.
+
+    Idempotent: DELETEs existing rows for each file before inserting. Mirrors
+    the ``_batch_insert_measurement_rows`` pattern.
+    """
+    flist = "[" + ", ".join(f"'{_sql_escape(p)}'" for p in paths) + "]"
+    placeholders = ", ".join("?" for _ in paths)
+    conn.execute(
+        f"DELETE FROM instruments_materialized WHERE file_path IN ({placeholders})",
+        paths,
+    )
+    src = f"read_parquet({flist}, union_by_name=true, filename=true)"
+    conn.execute(_instrument_unnest_insert(src, file_path_expr="r.filename"))
 
 
 def daemon_run(runs_dir: Path) -> None:
@@ -1820,6 +1952,7 @@ def daemon_run(runs_dir: Path) -> None:
                 conn.execute("BEGIN")
                 _ingest_one_file(conn, parquet_path, stat)
                 _bulk_insert_measurement_rows(conn, str(parquet_path))
+                _bulk_insert_instrument_rows(conn, str(parquet_path))
                 conn.execute("COMMIT")
             except Exception as exc:  # noqa: BLE001
                 try:
@@ -2069,6 +2202,7 @@ def daemon_run(runs_dir: Path) -> None:
                 _ingest_one_file(conn, Path(fpath), stat)
                 try:
                     _bulk_insert_measurement_rows(conn, fpath)
+                    _bulk_insert_instrument_rows(conn, fpath)
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("measurement row insert failed for %s: %s", fpath, exc)
 

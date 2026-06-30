@@ -171,7 +171,7 @@ def _row_for_run(r: Any, dialog_count_by_run: dict[str, int]) -> dict[str, Any]:
         "full_run_id": run_id,
         "outcome": status,
         "outcome_class": status_chip_classes(status),
-        "serial": r.uut_serial or "",
+        "serial": r.uut_serial_number or "",
         "part_number": r.uut_part_number or "",
         "hostname": r.station_hostname or "",
         "project": r.project_name or "",

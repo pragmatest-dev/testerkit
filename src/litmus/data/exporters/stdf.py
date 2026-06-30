@@ -233,7 +233,7 @@ class StdfSubscriber(EventSubscriber):
         prr.set_value("NUM_TEST", len(self._measurements))
         prr.set_value("HARD_BIN", 1 if not any_fail else 0)
         prr.set_value("SOFT_BIN", 1 if not any_fail else 0)
-        prr.set_value("PART_ID", s.uut_serial)
+        prr.set_value("PART_ID", s.uut_serial_number)
         records.append(_pack_record(prr))
 
         # MRR

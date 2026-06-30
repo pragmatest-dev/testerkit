@@ -50,7 +50,7 @@ def _detect_client() -> str:
 # * **Pairing IDs** — an open-event ``file_id`` / ``dialog_id`` /
 #   ``channel_id`` / ``slot_id`` has a matching close-event with the
 #   same value. The pushdown answers "did this open ever close?"
-# * **Operator-facing identifiers** — ``uut_serial`` /
+# * **Operator-facing identifiers** — ``uut_serial_number`` /
 #   ``station_hostname`` are how operators name what they're querying
 #   ("everything that happened to SN001 on bench-3").
 # * **Names + roles + enums** — recognition fields and the small set
@@ -67,7 +67,7 @@ TYPED_PAYLOAD_COLUMNS: tuple[str, ...] = (
     "channel_id",
     "slot_id",
     # Operator-facing identifiers
-    "uut_serial",
+    "uut_serial_number",
     "station_hostname",
     # Other IDs
     "instrument_id",
@@ -282,7 +282,7 @@ class RunStarted(EventBase):
     client: str = Field(default_factory=_detect_client)
 
     # UUT
-    uut_serial: str = ""
+    uut_serial_number: str = ""
     uut_part_number: str | None = None
     uut_revision: str | None = None
     uut_lot_number: str | None = None
@@ -360,7 +360,7 @@ class SlotStarted(EventBase):
 
     event_type: Literal["slot.started"] = "slot.started"
     slot_id: str
-    uut_serial: str
+    uut_serial_number: str
 
 
 class SlotCompleted(EventBase):
@@ -432,7 +432,7 @@ class CalibrationWarning(EventBase):
 
 class UutScanned(EventBase):
     event_type: Literal["fixture.uut_scanned"] = "fixture.uut_scanned"
-    uut_serial: str
+    uut_serial_number: str
     scan_source: str | None = None
 
 
@@ -454,7 +454,6 @@ class StepStarted(EventBase):
     step_name: str
     step_index: int
     step_path: str = ""
-    parent_path: str = ""
     description: str | None = None
 
     # Vector context — which sweep condition this execution is.
@@ -480,6 +479,8 @@ class StepStarted(EventBase):
     class_name: str | None = None
     function: str | None = None
 
+    instrument_records: list[dict[str, Any]] = Field(default_factory=list)
+
 
 class MeasurementRecorded(EventBase):
     """A single measurement. Normalized: carries only measurement-specific fields.
@@ -496,7 +497,8 @@ class MeasurementRecorded(EventBase):
     step_index: int
     step_path: str = ""
     vector_index: int = 0
-    retry: int = 0  # 0 for first execution, N for Nth retry
+    step_retry: int = 0  # outer item-attempt axis (de-fuse identity)
+    retry: int = 0  # inner vector retry — 0 for first execution, N for Nth
 
     # Measurement fields
     measurement_name: str
@@ -557,10 +559,6 @@ class StepEnded(EventBase):
     step_name: str
     step_index: int
     step_path: str = ""
-    # parent_path mirrors the StepStarted field so subscribers reconstructing
-    # the run hierarchy can walk parent → children without joining against
-    # other event types.
-    parent_path: str = ""
     # ``None`` is a valid value: a step that opened but never recorded
     # a measurement (and never had an outcome cascaded into it) ends
     # with no outcome stamped. The unified parquet preserves that signal —
@@ -603,7 +601,7 @@ class VectorStarted(EventBase):
     the fused step-execution≡vector boundary; this event is the in-body analog,
     nested inside the enclosing leaf step. The measurement's full condition is
     the merge of this vector's ``inputs`` with the enclosing steps' inputs along
-    ``parent_path``.
+    the step hierarchy.
     """
 
     event_type: Literal["test.vector_started"] = "test.vector_started"

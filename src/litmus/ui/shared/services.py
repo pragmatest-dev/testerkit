@@ -541,7 +541,7 @@ class UUTRow(BaseModel):
 def uuts_from_runs() -> list[UUTRow]:
     """Distinct UUTs observed in run history, with per-UUT run counts.
 
-    Groups by ``uut_serial``; the part number and lot number are
+    Groups by ``uut_serial_number``; the part number and lot number are
     aggregated via ``MAX`` (expected constant per serial — taking ``MAX``
     is just a SQL-idiomatic way to surface one value when the GROUP BY
     key uniquely determines the row).
@@ -550,7 +550,7 @@ def uuts_from_runs() -> list[UUTRow]:
 
     sql = """
         SELECT
-            uut_serial AS serial,
+            uut_serial_number AS serial,
             MAX(uut_part_number) AS part_number,
             MAX(uut_lot_number) AS lot_number,
             COUNT(*) AS runs,
@@ -558,8 +558,8 @@ def uuts_from_runs() -> list[UUTRow]:
             COUNT(*) FILTER (WHERE outcome = 'failed') AS failed,
             MAX(started_at) AS last_run
         FROM runs
-        WHERE uut_serial IS NOT NULL AND uut_serial <> ''
-        GROUP BY uut_serial
+        WHERE uut_serial_number IS NOT NULL AND uut_serial_number <> ''
+        GROUP BY uut_serial_number
         ORDER BY last_run DESC NULLS LAST
     """
     try:
@@ -584,31 +584,23 @@ def uuts_from_runs() -> list[UUTRow]:
 
 
 def _instrument_id_usage_stats() -> dict[str, dict[str, Any]]:
-    """Run-count stats keyed by instrument id observed in ``step_instruments_id``.
+    """Run-count stats keyed by instrument id from ``instruments_materialized``.
 
-    The runs parquet stores per-step instrument arrays — one DuckDB row
-    per run carries ``step_instruments_id`` as a list. UNNESTing gives
-    one row per (run, instrument) pair; DISTINCT inside an outer count
-    would over-credit if the same instrument is used in multiple steps,
-    so the outer aggregation is grouped after UNNEST and counts distinct
-    ``run_id`` per instrument.
+    One row per (run, instrument) in the materialized table — no UNNEST needed.
+    Groups by ``instrument_id`` and counts distinct ``run_id`` per instrument.
     """
     from litmus.analysis.runs_query import RunsQuery
 
     sql = """
         SELECT
-            inst_id AS value,
+            instrument_id AS value,
             COUNT(DISTINCT run_id) AS runs,
-            COUNT(DISTINCT run_id) FILTER (WHERE outcome = 'passed') AS pass_count,
-            COUNT(DISTINCT run_id) FILTER (WHERE outcome = 'failed') AS fail_count,
-            MAX(started_at) AS last_run
-        FROM (
-            SELECT UNNEST(step_instruments_id) AS inst_id, run_id, outcome, started_at
-            FROM runs
-            WHERE step_instruments_id IS NOT NULL
-        )
-        WHERE inst_id IS NOT NULL AND inst_id <> ''
-        GROUP BY inst_id
+            COUNT(DISTINCT run_id) FILTER (WHERE run_outcome = 'passed') AS pass_count,
+            COUNT(DISTINCT run_id) FILTER (WHERE run_outcome = 'failed') AS fail_count,
+            MAX(run_started_at) AS last_run
+        FROM instruments_materialized
+        WHERE instrument_id IS NOT NULL AND instrument_id <> ''
+        GROUP BY instrument_id
         ORDER BY runs DESC
     """
     try:
@@ -656,9 +648,8 @@ def instrument_assets_with_provenance() -> list[InstrumentAssetRow]:
     """Union of YAML-configured instrument assets and assets observed in runs.
 
     Observed side comes from :func:`_instrument_id_usage_stats` which
-    UNNESTs the per-run ``step_instruments_id`` array — an instrument
-    id that appears in any run but has no asset YAML is rendered as
-    ``observed_only``.
+    queries ``instruments_materialized`` — an instrument id that appears
+    in any run but has no asset YAML is rendered as ``observed_only``.
     """
     from datetime import date as _date
 
@@ -1348,7 +1339,7 @@ def _run_row_to_summary(row: Any) -> RunSummary:
         slot_id=row.slot_id,
         started_at=row.started_at,
         ended_at=row.ended_at,
-        uut_serial=row.uut_serial,
+        uut_serial_number=row.uut_serial_number,
         uut_part_number=row.uut_part_number,
         part_id=row.part_id,
         station_id=row.station_id,

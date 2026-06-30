@@ -277,7 +277,7 @@ def _seeded_accumulator() -> tuple[EventAccumulator, dict]:
             session_id=ctx["session_id"],
             run_id=ctx["run_id"],
             station_id="st1",
-            uut_serial="SN001",
+            uut_serial_number="SN001",
             occurred_at=datetime(2026, 5, 31, 12, 0, 0, tzinfo=UTC),
         )
     )

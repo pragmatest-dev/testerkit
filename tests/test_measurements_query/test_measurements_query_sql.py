@@ -27,7 +27,7 @@ from litmus.analysis.measurement_facets import (
 )
 from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.analysis.metrics import calculate_fpy, calculate_ppk
-from litmus.data.backends._row_helpers import MeasurementRow
+from litmus.data.backends._row_helpers import RunParquetRow
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.run_store import RunStore
 from litmus.data.schemas import _build_write_schema, table_from_rows
@@ -84,15 +84,15 @@ def _row(
     station_name: str = "STA-MQS",
     test_phase: str = "production",
     step_index: int = 0,
-) -> MeasurementRow:
-    """Build a vector MeasurementRow carrying one nested measurement."""
-    return MeasurementRow(
+) -> RunParquetRow:
+    """Build a vector RunParquetRow carrying one nested measurement."""
+    return RunParquetRow(
         record_type="vector",
         session_id="sess-1",
         run_id=run_id,
         run_started_at=datetime.fromisoformat(run_started_at).replace(tzinfo=UTC),
         run_ended_at=datetime.fromisoformat(run_ended_at).replace(tzinfo=UTC),
-        uut_serial=uut_serial,
+        uut_serial_number=uut_serial,
         uut_part_number=uut_part_number,
         part_id=uut_part_number,
         station_id=station_name,
@@ -118,12 +118,12 @@ def _row(
 
 def _write_measurements(
     runs_dir: Path,
-    rows: list[MeasurementRow],
+    rows: list[RunParquetRow],
     *,
     filename: str = "20260101T100000Z_SN001.parquet",
     notify: bool = True,
 ) -> Path:
-    """Write vector MeasurementRows to a parquet file and (optionally) notify the daemon."""
+    """Write vector RunParquetRows to a parquet file and (optionally) notify the daemon."""
     runs_dir.mkdir(parents=True, exist_ok=True)
     flat_rows = [r.to_flat_dict(at_rest=True) for r in rows]
     schema = _build_write_schema(flat_rows)
@@ -216,10 +216,10 @@ class TestYieldSummary:
 
         # fmt: off
         python_runs = [
-            {"uut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T10:00:00"},  # noqa: E501
-            {"uut_serial": "SN002", "run_outcome": "failed", "run_started_at": "2026-01-01T11:00:00"},  # noqa: E501
-            {"uut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T12:00:00"},  # noqa: E501
-            {"uut_serial": "SN002", "run_outcome": "passed", "run_started_at": "2026-01-01T13:00:00"},  # noqa: E501
+            {"uut_serial_number": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T10:00:00"},  # noqa: E501
+            {"uut_serial_number": "SN002", "run_outcome": "failed", "run_started_at": "2026-01-01T11:00:00"},  # noqa: E501
+            {"uut_serial_number": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T12:00:00"},  # noqa: E501
+            {"uut_serial_number": "SN002", "run_outcome": "passed", "run_started_at": "2026-01-01T13:00:00"},  # noqa: E501
         ]
         # fmt: on
         python_fpy = calculate_fpy(python_runs)
@@ -468,7 +468,7 @@ class TestParametric:
     def test_scatter_returns_typed_rows(self, fixture_data):
         store = MeasurementsQuery()
         filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
-        rows = store.parametric(y="measurement_value", x="uut_serial", filters=filters)
+        rows = store.parametric(y="measurement_value", x="uut_serial_number", filters=filters)
         assert len(rows) == 4
         assert all(isinstance(r, ParametricRow) for r in rows)
         assert all(r.group == "" for r in rows)
@@ -477,7 +477,7 @@ class TestParametric:
         store = MeasurementsQuery()
         filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
         rows = store.parametric(
-            y="measurement_value", x="uut_serial", group_by="run_outcome", filters=filters
+            y="measurement_value", x="uut_serial_number", group_by="run_outcome", filters=filters
         )
         groups = {r.group for r in rows}
         assert groups == {"passed", "failed"}
@@ -486,7 +486,7 @@ class TestParametric:
         store = MeasurementsQuery()
         rows = store.parametric(
             y="measurement_value",
-            x="uut_serial",
+            x="uut_serial_number",
             filters=FilterSet(
                 string_filters={"uut_part_number": [fixture_data["part"]]},
                 enum_filters={"run_outcome": ["passed"]},
@@ -498,7 +498,7 @@ class TestParametric:
         store = MeasurementsQuery()
         rows = store.parametric(
             y="measurement_value",
-            x="uut_serial",
+            x="uut_serial_number",
             filters=FilterSet(
                 string_filters={"uut_part_number": [fixture_data["part"]]},
                 enum_filters={"run_outcome": ["passed", "failed"]},
@@ -537,14 +537,14 @@ def dynamic_axis_data() -> dict[str, str]:
     canonical_runs = resolve_data_dir() / "runs" / "dyn" / "2026-03-01"
     run = f"dyn-{uuid4()}"
     rows = [
-        MeasurementRow(
+        RunParquetRow(
             record_type="vector",
             session_id="sess-dyn",
             run_id=run,
             run_started_at=datetime.fromisoformat("2026-03-01T10:00:00").replace(tzinfo=UTC),
             run_ended_at=datetime.fromisoformat("2026-03-01T10:05:00").replace(tzinfo=UTC),
             run_outcome="passed",
-            uut_serial="SN-DYN",
+            uut_serial_number="SN-DYN",
             uut_part_number=part,
             part_id=part,
             test_phase="production",
@@ -581,7 +581,7 @@ class TestDynamicAxisEAV:
         store = MeasurementsQuery()
         rows = store.parametric(
             y=FieldRef.input("freq"),
-            x="uut_serial",
+            x="uut_serial_number",
             filters=self._scope(dynamic_axis_data["part"]),
         )
         assert {r.y for r in rows} == {1000.0, 2000.0}
@@ -696,14 +696,14 @@ def parametric_scope_data() -> dict[str, str]:
     canonical_runs = resolve_data_dir() / "runs" / "pscope" / "2026-03-01"
     run_id = f"pscope-{uuid4()}"
     rows = [
-        MeasurementRow(
+        RunParquetRow(
             record_type="vector",
             session_id="sess-pscope",
             run_id=run_id,
             run_started_at=datetime.fromisoformat("2026-03-01T10:00:00").replace(tzinfo=UTC),
             run_ended_at=datetime.fromisoformat("2026-03-01T10:05:00").replace(tzinfo=UTC),
             run_outcome="passed",
-            uut_serial=f"SN-{i}",
+            uut_serial_number=f"SN-{i}",
             uut_part_number=part,
             part_id=part,
             test_phase="production",
@@ -769,14 +769,14 @@ class TestDistinctValues:
         store = MeasurementsQuery()
         # Scope by part so the canonical store's other rows don't pollute.
         filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
-        opts = store.distinct_values("uut_serial", filters=filters)
+        opts = store.distinct_values("uut_serial_number", filters=filters)
         values = {o.value for o in opts}
         assert values == {"SN001", "SN002"}
 
     def test_options_carry_counts(self, fixture_data):
         store = MeasurementsQuery()
         filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
-        opts = store.distinct_values("uut_serial", filters=filters)
+        opts = store.distinct_values("uut_serial_number", filters=filters)
         # 2 measurements per serial in the fixture
         assert all(o.count == 2 for o in opts)
 
@@ -795,7 +795,7 @@ class TestDistinctValues:
             string_filters={"uut_part_number": [fixture_data["part"]]},
             enum_filters={"run_outcome": ["failed"]},
         )
-        opts = store.distinct_values("uut_serial", filters=filters)
+        opts = store.distinct_values("uut_serial_number", filters=filters)
         # Only SN002 has a failed run for our part
         assert {o.value for o in opts} == {"SN002"}
 
@@ -863,14 +863,14 @@ def distinct_role_data() -> dict[str, str]:
         canonical_runs = resolve_data_dir() / "runs" / "dv-role" / "2026-04-01"
         run = f"dvr-{uuid4()}"
         rows = [
-            MeasurementRow(
+            RunParquetRow(
                 record_type="vector",
                 session_id="sess-dvr",
                 run_id=run,
                 run_started_at=datetime.fromisoformat("2026-04-01T10:00:00").replace(tzinfo=UTC),
                 run_ended_at=datetime.fromisoformat("2026-04-01T10:05:00").replace(tzinfo=UTC),
                 run_outcome="passed",
-                uut_serial=f"SN-{i}",
+                uut_serial_number=f"SN-{i}",
                 uut_part_number=part,
                 part_id=part,
                 test_phase="production",
@@ -942,14 +942,14 @@ def mixed_type_field_data() -> dict[str, str]:
         canonical_runs = resolve_data_dir() / "runs" / "mixed-type" / "2026-05-01"
         run = f"mt-{uuid4()}"
         rows = [
-            MeasurementRow(
+            RunParquetRow(
                 record_type="vector",
                 session_id="sess-mt",
                 run_id=run,
                 run_started_at=datetime.fromisoformat("2026-05-01T10:00:00").replace(tzinfo=UTC),
                 run_ended_at=datetime.fromisoformat("2026-05-01T10:05:00").replace(tzinfo=UTC),
                 run_outcome="passed",
-                uut_serial="SN-MT",
+                uut_serial_number="SN-MT",
                 uut_part_number=part,
                 part_id=part,
                 test_phase="production",
@@ -1016,15 +1016,15 @@ def _step_row(
     step_outcome: str = "passed",
     station_name: str = "STA-RTY",
     test_phase: str = "production",
-) -> MeasurementRow:
-    """Build a step MeasurementRow (record_type='step')."""
-    return MeasurementRow(
+) -> RunParquetRow:
+    """Build a step RunParquetRow (record_type='step')."""
+    return RunParquetRow(
         record_type="step",
         session_id="sess-rty",
         run_id=run_id,
         run_started_at=datetime.fromisoformat(run_started_at).replace(tzinfo=UTC),
         run_ended_at=datetime.fromisoformat(run_ended_at).replace(tzinfo=UTC),
-        uut_serial=uut_serial,
+        uut_serial_number=uut_serial,
         uut_part_number=uut_part_number,
         part_id=uut_part_number,
         station_id=station_name,

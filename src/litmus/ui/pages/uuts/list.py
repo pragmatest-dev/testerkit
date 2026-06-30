@@ -21,7 +21,7 @@ from litmus.ui.shared.services import uuts_from_runs
 
 @ui.page("/uuts")
 def uuts_page():
-    """UUTs list — one row per distinct ``uut_serial`` in run history."""
+    """UUTs list — one row per distinct ``uut_serial_number`` in run history."""
     create_layout("UUTs")
 
     rows_data = uuts_from_runs()

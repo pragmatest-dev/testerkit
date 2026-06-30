@@ -499,11 +499,15 @@ at the test level. (In-body Mode-2 vector retries are *not* fused — those rows
   it (same collected item).
 - `vector_index` = the point within the step (parametrize variant *or* in-body sweep
   point; timestamps tell those two apart — parametrize coincident, in-body nested).
-- **`step_retry` / `vector_retry` = the attempt coordinates the producer OBSERVED** —
-  pytest-rerunfailures witnessed the step rerun, `litmus_retry` witnessed the vector rerun.
-  Two distinct axes (today's single `vector_retry` wrongly conflates them). **Stored, not
-  derived**: an observed source fact like `outcome` or a timestamp — and nearly free (mostly
-  0, RLE → ~nothing).
+- **`step_retry` / `vector_retry` = the attempt coordinates the producer OBSERVED** — two
+  distinct axes (the *outer* item attempt, the *inner* in-body vector attempt). **Stored, not
+  derived**: an observed source fact like `outcome` or a timestamp — nearly free (mostly 0,
+  RLE → ~nothing). *Sourcing status (verified 2026-06-27):* `vector_retry` IS sourced — the
+  harness `run_with_retry` loop sets `vector.retry` → `VectorStarted.retry` (`harness.py:1693`/
+  `:587`). **`step_retry` is NOT** — `StepStarted.retry` is never passed at emit
+  (`run_scope.py:816`), so it's always 0. So this isn't un-conflating one field; it's *adding
+  the missing outer axis* and sourcing it (from the pytest item-rerun count — confirm the exact
+  pytest-rerunfailures attribute, likely `item.execution_count`, when implementing).
 - **Full execution identity = `(step_index, step_retry, vector_index, vector_retry)`.** Every
   execution is a distinct row at that key. A rerun is a *different key* (incremented retry),
   so it can't overwrite the prior attempt — which **is** the anti-fusing mechanism.
@@ -517,19 +521,53 @@ at the test level. (In-body Mode-2 vector retries are *not* fused — those rows
 
   *Store what was observed; derive what's aggregated.*
 
-**Two independent retry axes** — why one field was always wrong:
-- **step retry** = pytest-rerunfailures reruns the whole test *item* → step + all inner
-  vectors re-execute → `step_retry++`.
-- **vector retry** = `litmus_retry` re-runs one inner vector *in place*, before `StepEnded`
-  → `vector_retry++`.
+**Two retry axes — outer (item) and inner (vector):**
+- **step retry** (outer) = a failed test *item* re-runs via pytest-rerunfailures → the whole
+  step + its inner loop re-execute → `step_retry++`.
+- **vector retry** (inner) = the harness `run_with_retry` loop re-runs one vector *in place*,
+  before `StepEnded` → `vector_retry++`.
 
-They compose (attempt-1 inner retries, item still fails, pytest reruns → attempt 2 with its
-own inner retries). Because each row carries **both** coordinates, a vector knows its step
-attempt directly (`step_retry`) and its own attempt (`vector_retry`) — **no reconstruction.**
-(Contrast: with retry *unstored* you'd attribute vectors to step attempts by
-`[started_at, ended_at]` window containment + `ROW_NUMBER` — correct but fragile to timestamp
-coincidence/ordering. Storing the observed coordinate removes that fragility; timestamps stay
-purely informational.)
+**Retry definitions — count the right grain.**
+- `step_retry` = how many times the **step (the pytest item) executed** (− 1). One count per
+  step *execution*, **not** per vector. *Do not* count `step_index` occurrences across vector
+  rows — a vectorized step has N vectors sharing one `step_index`, so that would count its
+  vectors as step retries. Source: `item.execution_count − 1`, stamped on `StepStarted` at emit.
+- `vector_retry` = how many times this **`(step_index, vector_index)` executed** (− 1).
+
+The two relate by grain, not by a floor:
+- **Scope vector (1 per step execution): `vector_retry = step_retry`.** The single vector runs
+  exactly once per step execution, so its occurrence count *is* the step's — you know it from
+  the step, no separate counting (S1, S3 → equal).
+- **Iteration vectors (inner loop):** count occurrences of `(step_index, vector_index)`. Tracks
+  `step_retry` as a baseline but **diverges** — *above* on an in-body `litmus_retry` (S4:
+  `(0,1)` runs 3×), *below* on a conditional skip (a vector that doesn't run every attempt). So
+  neither bounds the other; they're independent counts that coincide only when a vector runs
+  once per step attempt.
+
+A step rerun and an in-body retry both make the vector's `(step_index, vector_index)` appear
+again and both count toward `vector_retry`; cause is irrelevant to the count.
+
+**Where it's computed.** `step_retry` is event-stamped (`execution_count`). `vector_retry` can
+*also* be event-time: a `{(step_path, vector_index): count}` cache on the **session-scoped
+`RunScope`** (which survives reruns — they run in-process) increments per vector execution; the
+scope vector just takes `step_retry`. (Equivalently, derive at ingest via
+`ROW_NUMBER() OVER (PARTITION BY step_path, vector_index ORDER BY time)`.)
+
+Worked rows (S1: 1:1 step rerun; S4: loop + in-body retry of vec 1):
+
+```
+S1   step_retry vector_index vector_retry
+       0          0            0
+       1          0            1     ← (0,0) ran twice; scope vector ⇒ vector_retry = step_retry
+S4     0          0..2         0       (attempt 0, three points)
+       1          0            1       (attempt 1: each ran once per attempt ⇒ tracks step_retry)
+       1          1            1
+       1          1            2     ← (0,1) ran an extra in-body time ⇒ above step_retry
+       1          2            1
+``` (Contrast: unstored,
+you'd attribute vectors to step attempts by `[started_at, ended_at]` containment + `ROW_NUMBER`
+— correct but fragile to timestamp coincidence; the stored coordinate removes that, timestamps
+stay informational.)
 
 **Derived at ingest — only the aggregates:**
 - step attempts = `COUNT(DISTINCT step_retry)` per `step_index`
@@ -560,14 +598,92 @@ deleted. The line is observation-vs-aggregate, not store-nothing.
   vector_retry)` identity instead of `(step_path, vector_index)` — so a rerun is a distinct
   key (no overwrite, no fusing); emit one row per execution, each with its own
   boundaries/outcome.
-- **Un-conflate `vector_retry`**: split today's single field into `step_retry` (pytest item
-  rerun) + `vector_retry` (in-body vector rerun) in `RUN_ROW_SCHEMA`; both stored as observed
-  coordinates. *Verify first:* `StepStarted.retry` carries the pytest item-rerun count
-  distinctly from the in-body `VectorStarted.retry` — i.e. the two axes are separable at the
-  producer, not already merged upstream.
+- **Source `step_retry` (NEW — verified missing 2026-06-27).** `vector_retry` is already
+  sourced (harness `run_with_retry` → `VectorStarted.retry`); `step_retry` is **not** —
+  `StepStarted.retry` is never passed at emit (`run_scope.py:816`), always 0. So the producer
+  must stamp it: read the pytest item-rerun count (likely `item.execution_count` from
+  pytest-rerunfailures) in the runtest hook → `StepStarted.retry`. Then add `step_retry` to
+  `RUN_ROW_SCHEMA` alongside the already-present `vector_retry`. **This is a producer change,
+  not just an at-rest schema edit** — the de-fuse touches producer + accumulator + schema.
 - Drop the dead **rollups** `retry_count` / `has_measurements` / `vector_count` (the metadata
   blob via `step_entry_dict`, the daemon projection, the inflight overlay, `StepRow`) — no
   consumer left.
 - Remove **`retry_aware_rollup`**; the outcome rollup becomes a query-layer aggregation.
 - Flip `test_scenario_4` from asserting one fused row to asserting two execution rows — the
   test that locked in the bug becomes the test that proves the fix.
+
+## Inputs are vector-scoped and stable — honor `configure()` at the vector grain (decided 2026-06-29)
+
+**Decision.** The vector *is* the input set: it binds inputs, outputs, and measurements for one
+execution. Inputs are **vector-scoped and stable** — every measurement in a vector shares one
+input set. We do **not** support a per-measurement input axis (e.g. `configure()` between two
+measurements of the same vector yielding different inputs per measurement). One input set per
+vector, full stop.
+
+**What this settles.**
+- **Storage:** one input set per vector row; measurements carry no inputs at rest
+  (`_measurement_event_struct` correctly omits them). "Input search misses measurements with
+  extra inputs" is a non-issue *by decision* — there is no per-measurement input to miss.
+- **Event:** `MeasurementRecorded.inputs` stays on the wire for live subscribers (computed at
+  measure time, `run_scope.py`), understood to be vector-stable — never persisted per
+  measurement. Keep it; don't store it.
+- **`vector_index` is positional and ALWAYS unstable — never an analysis key.** It reorders
+  when vectors vary (validation vs production run different vectors), so the identity of a
+  vector is its **input values**, not its index. Any analysis keyed on `vector_index` alone is
+  wrong by construction. Corollary: the at-rest layer must not *merge* two executions just
+  because they share a positional `(step_path, vector_index, retry)` — distinct input sets are
+  distinct vectors.
+
+**The defect this exposes — inputs lane is snapshotted too early.** The stored inputs lane is
+sourced from the **start** event (`StepStarted`/`VectorStarted`) in the accumulator, while
+outputs come from the **end** event. `configure()` runs in the test body, *after* the start
+event, so configure-added inputs never reach the stored lane — though they appear on the live
+event and in the CSV/DataFrame export (`iter_rows`→`build_row`, which reads in-memory
+`vector.params` at end). So the canonical stored surface is the lossy one and disagrees with
+the other two.
+
+**Seed on Started, latch on Ended — per row grain.** Each Step/Vector parquet row is seeded by
+its `Started` event and latched (overwritten) by its `Ended` event at write time. `configure()`
+mutates the in-memory params, so the `Ended` snapshot captures the change: the **step row
+latches `StepEnded`**, each **vector row latches its `VectorEnded`**. While in-flight (no End
+yet) the overlay reads the Started snapshot; at finalize End wins. This is `_end_overrides_start`
+applied uniformly per grain — no special "step stays at Start" rule. `configure()` overriding a
+parametrize key is visible because per-grain / per-vector End snapshots differ.
+
+**The one real wrinkle — the Mode-1 bridge.** For `configure()` to reach `StepEnded`, the
+configured values must be in `vec.params` by step end:
+- **Mode-2 (in-body loop):** already handled — the harness re-reads the live context into each
+  `vector.params` at vector end (`harness.py:1699`), so `VectorEnded` carries it.
+- **Mode-1 (scope):** NOT automatic — `configure()` writes `Context._params`, but the scope
+  vector's params come from the `active_vector_params` ContextVar seeded once at
+  `autouse.py:156` (before the body). So `_emit_step_event` (step end) merges the live context
+  into `vec.params` — but **only the keys `configure()` actually set** (`Context.configured_params`,
+  tracked separately from parametrize `set_params` seeds), so a configured key overrides while
+  untouched parametrize values are preserved. Gated to Mode-1 via `_step_ran_inbody_loop` (the
+  in-body occurrence tracker) so it never folds context onto a multi-vector step's `vectors[0]`.
+
+No-drift: overlay and parquet differ *only while a block is in-flight*; once `End` arrives both
+converge.
+
+## Deferred to before 0.3.0 — de-fuse / configure robustness follow-ons
+
+These were surfaced during the de-fuse review and consciously deferred (out of the de-fuse
+commit's scope); the common-path behaviour is correct, these harden edges. **Must land before
+tagging 0.3.0.** Tracked as a task; recorded here so it survives memory.
+
+1. **Rerun iteration-vector step timing** — an in-body vector in a rerun step reads the
+   *lowest-retry* StepStarted/StepEnded timing (`_min_retry_match`), not its own attempt's. Needs
+   `step_retry` on `VectorStarted`/`VectorEnded` so the accumulator can resolve per-attempt.
+2. **Scope-vs-iteration aliasing (Scenario A)** — a step-scope measurement recorded *before* an
+   in-body loop in the same step emits `(step_path, vector_index=0, retry=0)`, identical to
+   in-body iteration 0, so the two merge. Needs a producer-side scope coordinate.
+3. **Data-dependent Mode classification** — `_step_ran_inbody_loop` keys on `step_path` alone;
+   if one parametrize variant (or rerun attempt) loops and another doesn't, the non-looping one
+   is misclassified Mode-2 and its `configure()` inputs are skipped. Needs a per-execution loop
+   signal (ties to #1's `step_retry`-on-vector-events).
+4. **Ambient-context coupling** — the step-end merge reads `get_current_context()`, which at a
+   container/auto-close `StepEnded` may not be the step's owning context. Thread the owning
+   `Context` into `_emit_step_event` instead.
+5. **`configured_params` vs `set_params`-after-`configure`** (minor) — a parametrize `set_params`
+   landing after `configure()` for the same key is still reported as configured. Contrived;
+   tighten the contract if it ever bites.

@@ -20,6 +20,15 @@ The cardinal value: never assert what you haven't checked.
   style nit. Verify a scope-bearing word or identifier against the code before
   using it; reproduce the user's exact naming instructions literally. Wrong words
   hallucinate couplings and cost a correction cycle each. **[hard rule]**
+- **A behavioral summary is a claim.** Describing what code *does* in loose terms
+  — "run-level," "inherits," "passes the same X," "it's just the step's" — is an
+  accuracy failure unless every phrase traces to specific functions and lines you
+  have read. Characterize behavior by citing the producing code (which function,
+  which argument, which grain), never by summary adjective. The codebase is too
+  large to navigate on assumptions: a single loose characterization sends a whole
+  line of reasoning off a cliff and costs a correction cycle. If the shape is not
+  yet verified, say "unverified" and go read it — do not approximate.
+  **Accuracy above all.** **[hard rule]**
 - **Verify EVERY load-bearing claim in a plan before finalizing it.** Search
   library/tool/best-practice claims; read source for internal claims. A plan
   inherits the confidence of its weakest unverified claim. Enumerate the
@@ -124,9 +133,12 @@ Once a plan is approved, it is the contract. Execution is faithful execution.
 - **Top-level imports only. No lazy imports — period.** Circular deps are fixed
   by extracting shared components, not by in-function imports or `# noqa`. The
   only exception is genuinely heavy optional deps behind extras (numpy, h5py).
-- **Terse comments.** Code is the source of truth. No multi-line explanatory
-  blocks, no narrating what the code already says. Verbose comments bloat diffs
-  and drift.
+- **Self-describing code, not comments.** The default is zero comments — a clear
+  name says what a comment would. Don't explain *what* the code does or narrate a
+  decision in a block above a line; rename, restructure, or extract until the code
+  reads on its own. Rationale belongs in the commit message or a repo doc, never a
+  comment. Reach for a comment only for a genuine non-obvious *why* the code can't
+  carry (a subtle invariant, a workaround) — and then one terse line. **[hard rule]**
 - **No tombstones.** When you remove code or a feature, delete it cleanly. Never
   leave a comment or doc section narrating the removal ("X removed", "if revived
   …"). Git history and the commit message are the record. **[hard rule]**

@@ -15,7 +15,7 @@ import pytest
 from click.testing import CliRunner
 
 from litmus.cli import main
-from litmus.data.backends._row_helpers import MeasurementRow
+from litmus.data.backends._row_helpers import RunParquetRow
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.run_store import RunStore
 from litmus.data.schemas import _build_write_schema, table_from_rows
@@ -37,14 +37,14 @@ def _row(
     limit_high: float = 3.5,
     station_name: str = "bench_1",
     test_phase: str = "production",
-) -> MeasurementRow:
-    return MeasurementRow(
+) -> RunParquetRow:
+    return RunParquetRow(
         record_type="vector",
         session_id="sess-1",
         run_id=run_id,
         run_started_at=run_started_at,
         run_ended_at=run_ended_at,
-        uut_serial=uut_serial,
+        uut_serial_number=uut_serial,
         uut_part_number=uut_part_number,
         part_id=uut_part_number,
         station_id=station_name,
@@ -79,7 +79,7 @@ def _row(
     )
 
 
-def _write(runs_dir: Path, rows: list[MeasurementRow], filename: str) -> Path:
+def _write(runs_dir: Path, rows: list[RunParquetRow], filename: str) -> Path:
     flat = [r.to_flat_dict(at_rest=True) for r in rows]
     schema = _build_write_schema(flat)
     table = table_from_rows(flat, schema)

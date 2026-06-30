@@ -34,7 +34,7 @@ Values from `configure()` land in the `inputs` lane and `observe()` in the `outp
 
 ### Run context
 
-Every measurement row also carries the run's context fields — `uut_serial`, `uut_part_number`, `station_hostname`, `operator_id`, `test_phase`, `git_commit`, and others. These come from the run record, not from individual test functions.
+Every measurement row also carries the run's context fields — `uut_serial_number`, `uut_part_number`, `station_hostname`, `operator_id`, `test_phase`, `git_commit`, and others. These come from the run record, not from individual test functions.
 
 ## Setting traceability in tests
 
@@ -158,7 +158,7 @@ dmm_rows = df[df["instrument_name"] == "dmm_main"]
 failures = df[(df["outcome"] == "failed") & (df["input_vin"] == 12.0)]
 ```
 
-Key CSV columns: `measurement_name`, `value`, `unit`, `outcome`, `uut_pin`, `instrument_name`, `spec_ref`, `characteristic_id`, `limit_low`, `limit_high`, `limit_comparator`, `uut_serial`, `step_name`. Dynamic inputs appear as `input_{name}` and dynamic outputs as `output_{name}`.
+Key CSV columns: `measurement_name`, `value`, `unit`, `outcome`, `uut_pin`, `instrument_name`, `spec_ref`, `characteristic_id`, `limit_low`, `limit_high`, `limit_comparator`, `uut_serial_number`, `step_name`. Dynamic inputs appear as `input_{name}` and dynamic outputs as `output_{name}`.
 
 The CSV export drops the `measurement_` prefix relative to the DuckDB column names: `measurement_outcome` in DuckDB becomes `outcome` in CSV, and `measurement_value` becomes `value`.
 
@@ -193,7 +193,7 @@ For ad-hoc queries, the `measurements` view in the DuckDB index carries the full
 ```sql
 -- All failed measurements with their UUT pin and instrument
 SELECT
-    uut_serial,
+    uut_serial_number,
     measurement_name,
     measurement_value,
     instrument_name,
@@ -204,7 +204,7 @@ WHERE measurement_outcome = 'failed';
 
 -- Measurements joined with a specific input condition (vin)
 SELECT
-    m.uut_serial,
+    m.uut_serial_number,
     m.measurement_name,
     m.measurement_value,
     d.value_double AS vin

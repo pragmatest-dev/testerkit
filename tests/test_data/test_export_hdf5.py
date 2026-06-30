@@ -70,7 +70,7 @@ class TestHdf5Subscriber:
         )
         with h5py.File(result, "r") as f:
             assert f.attrs["station_id"] == "station_alpha"
-            assert f.attrs["uut_serial"] == "UUT-001"
+            assert f.attrs["uut_serial_number"] == "UUT-001"
             assert f.attrs["uut_part_number"] == "PN-200"
             assert f.attrs["test_phase"] == "qualification"
             assert f.attrs["operator_id"] == "OP-42"

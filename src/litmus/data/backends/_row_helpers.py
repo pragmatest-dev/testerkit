@@ -8,7 +8,7 @@ added in one place.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -26,24 +26,25 @@ try:
 except (ImportError, ValueError):
     HAS_NUMPY = False
 
-# Canonical list of instrument identity array column names.
-# Lives here (data layer) so the daemon and parquet backend can import it
-# without pulling in the execution framework.
-INSTRUMENT_ARRAY_KEYS: tuple[str, ...] = (
-    "step_instruments_name",
-    "step_instruments_id",
-    "step_instruments_driver",
-    "step_instruments_resource",
-    "step_instruments_protocol",
-    "step_instruments_manufacturer",
-    "step_instruments_model",
-    "step_instruments_serial",
-    "step_instruments_firmware",
-    "step_instruments_cal_due",
-    "step_instruments_cal_last",
-    "step_instruments_cal_certificate",
-    "step_instruments_cal_lab",
-    "step_instruments_mocked",
+# Canonical list of instrument struct field names for the at-rest
+# ``instruments`` LIST<STRUCT> column. Lives here (data layer) so the
+# daemon and parquet backend can import it without pulling in the
+# execution framework.
+INSTRUMENT_STRUCT_FIELDS: tuple[str, ...] = (
+    "name",
+    "id",
+    "driver",
+    "resource",
+    "protocol",
+    "manufacturer",
+    "model",
+    "serial_number",
+    "firmware",
+    "cal_due",
+    "cal_last",
+    "cal_certificate",
+    "cal_lab",
+    "mocked",
 )
 
 # Prefix for path references in output columns (legacy, use file:// URIs)
@@ -252,7 +253,7 @@ def _to_datetime(value: Any) -> datetime | None:
     return None
 
 
-class MeasurementRow(BaseModel):
+class RunParquetRow(BaseModel):
     """A single denormalized row for streaming and storage.
 
     Three row kinds, distinguished by the explicit ``record_type``
@@ -290,7 +291,7 @@ class MeasurementRow(BaseModel):
     operator_name: str | None = None
 
     # UUT
-    uut_serial: str
+    uut_serial_number: str
     uut_part_number: str | None = None
     uut_revision: str | None = None
     uut_lot_number: str | None = None
@@ -326,7 +327,6 @@ class MeasurementRow(BaseModel):
     step_name: str
     step_index: int
     step_path: str = ""
-    parent_path: str = ""
     step_started_at: datetime | None = None
     step_ended_at: datetime | None = None
     step_node_id: str | None = None
@@ -335,7 +335,10 @@ class MeasurementRow(BaseModel):
     step_class: str | None = None
     step_function: str | None = None
     step_markers: str | None = None
-    step_vector_count: int | None = None
+    # 0-based outer (item) retry — pytest-rerunfailures rerun count of this
+    # step. On step + scope-vector rows; NULL on run/measurement rows. The
+    # inner per-vector retry is ``vector_retry``.
+    step_retry: int | None = None
     vector_index: int = 0
     # 0-based retry counter — 0 for the first execution, N for the Nth retry.
     # Per-measurement (NULL on step / run rows). Companion to ``RetryConfig.max_retries``
@@ -370,7 +373,7 @@ class MeasurementRow(BaseModel):
     # Dynamic namespaced columns
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
-    instruments: dict[str, list[str | bool | None]] = Field(default_factory=dict)
+    instruments: list[dict[str, Any]] = Field(default_factory=list)
     # Optional per-slot engineering unit for inputs / outputs (name → unit),
     # flowed into the lane's ``unit`` field at encode time.
     input_units: dict[str, str] = Field(default_factory=dict)
@@ -385,8 +388,8 @@ class MeasurementRow(BaseModel):
         ``inputs`` / ``outputs`` are encoded as nested EAV lane structs
         (``LIST<STRUCT>``; see :func:`encode_lane_structs`) under the
         ``inputs`` / ``outputs`` keys. ``input_units`` / ``output_units``
-        ride into each lane's ``unit`` field. ``instruments`` keys pass
-        through (already ``step_instruments_``-prefixed).
+        ride into each lane's ``unit`` field. ``instruments`` passes
+        through as a ``list[dict]`` (nested LIST<STRUCT> at rest).
 
         ``at_rest=True`` drops the flat measurement scalar columns: at rest a
         measurement lives in the vector row's nested ``measurements`` list, not
@@ -398,7 +401,6 @@ class MeasurementRow(BaseModel):
         exclude = {
             "inputs",
             "outputs",
-            "instruments",
             "input_units",
             "output_units",
             "output_pins",
@@ -408,7 +410,6 @@ class MeasurementRow(BaseModel):
         row = self.model_dump(exclude=exclude)
         row["inputs"] = encode_lane_structs(self.inputs, self.input_units)
         row["outputs"] = encode_lane_structs(self.outputs, self.output_units, self.output_pins)
-        row.update(self.instruments)
         return row
 
 
@@ -431,7 +432,7 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
         "operator_id": test_run.operator_id,
         "operator_name": test_run.operator_name,
         # UUT
-        "uut_serial": test_run.uut.serial,
+        "uut_serial_number": test_run.uut.serial,
         "uut_part_number": test_run.uut.part_number,
         "uut_revision": test_run.uut.revision,
         "uut_lot_number": test_run.uut.lot_number,
@@ -500,7 +501,7 @@ def run_context_from_run_started(
             "run_ended_at": None,
             "operator_id": None,
             "operator_name": None,
-            "uut_serial": "unknown",
+            "uut_serial_number": "unknown",
             "uut_part_number": None,
             "uut_revision": None,
             "uut_lot_number": None,
@@ -528,7 +529,7 @@ def run_context_from_run_started(
             "run_ended_at": None,
             "operator_id": run_started.operator_id,
             "operator_name": run_started.operator_name,
-            "uut_serial": run_started.uut_serial,
+            "uut_serial_number": run_started.uut_serial_number,
             "uut_part_number": run_started.uut_part_number,
             "uut_revision": run_started.uut_revision,
             "uut_lot_number": run_started.uut_lot_number,
@@ -748,122 +749,12 @@ def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
     return f"file://{REF_PATH_PREFIX}{filename}"
 
 
-def build_row(
-    test_run: TestRun,
-    measurement: Measurement,
-    step_name: str,
-    step_index: int,
-    vector: TestVector,
-    instrument_arrays: dict[str, list[str | bool | None]],
-    ref_saver: Callable[[str, str, Any], str] | None = None,
-    *,
-    denormalize_conditions: bool = True,
-    step_path: str = "",
-    step_started_at: datetime | None = None,
-    step_ended_at: datetime | None = None,
-    step_node_id: str | None = None,
-    step_module: str | None = None,
-    step_file: str | None = None,
-    step_class: str | None = None,
-    step_function: str | None = None,
-    step_markers: str | None = None,
-    step_outcome: str | None = None,
-    meta: dict[str, Any] | None = None,
-) -> MeasurementRow:
-    """Build a complete MeasurementRow from test execution context.
-
-    Args:
-        meta: Pre-computed run metadata from ``build_run_metadata()``.
-            If ``None``, computed from ``test_run`` (backwards-compatible).
-    """
-    if meta is None:
-        meta = build_run_metadata(test_run)
-    meas = build_measurement_fields(measurement)
-
-    return MeasurementRow(
-        record_type="vector",
-        **meta,
-        **meas,
-        # Step/vector context
-        step_name=step_name,
-        step_index=step_index,
-        step_path=step_path,
-        step_started_at=step_started_at,
-        step_ended_at=step_ended_at,
-        step_node_id=step_node_id,
-        step_module=step_module,
-        step_file=step_file,
-        step_class=step_class,
-        step_function=step_function,
-        step_markers=step_markers,
-        vector_index=vector.index,
-        vector_retry=vector.retry,
-        vector_started_at=vector.started_at,
-        vector_ended_at=vector.ended_at,
-        # Outcomes (cascade: vector → step → run; all non-Optional with default PASSED)
-        step_outcome=step_outcome,
-        vector_outcome=vector.outcome.value if vector.outcome else None,
-        run_outcome=test_run.outcome.value if test_run.outcome else None,
-        # v2: at rest a measurement references (does not copy) its vector —
-        # the in/out conditions live on the vector record and the EAV join
-        # resolves them by the shared vector key (the at-rest path passes
-        # denormalize_conditions=False). Standalone/export callers
-        # (iter_rows → CSV/DataFrame) denormalize the vector's conditions
-        # back onto the flat row. custom_metadata is a run-level fact.
-        inputs=build_input_columns(vector) if denormalize_conditions else {},
-        outputs=(
-            build_output_columns(vector, ref_saver=ref_saver) if denormalize_conditions else {}
-        ),
-        instruments=instrument_arrays,
-    )
-
-
-def iter_rows(test_run: TestRun) -> Iterator[dict[str, Any]]:
-    """Yield one denormalized flat row dict per measurement in ``test_run``.
-
-    Joins run-level context (UUT, station, operator, etc.) onto each
-    measurement and denormalizes the enclosing vector's conditions back
-    onto the flat row — the analysis/export view (CSV, DataFrames).
-    No ``ref_saver`` is used, so non-serializable observation values
-    (Waveform, ndarray, bytes, etc.) fall back to ``repr()`` strings in
-    the output columns. The flat row is stamped ``record_type='measurement'``.
-    """
-    for step_index, step in enumerate(test_run.steps):
-        for vector in step.vectors:
-            for measurement in vector.measurements:
-                row = build_row(
-                    test_run,
-                    measurement,
-                    step.name,
-                    step_index,
-                    vector,
-                    step.instrument_arrays or {},
-                    # step_path falls back to step.name so the daemon's
-                    # GROUP BY (step_path, vector_index) gives each
-                    # logical step its own row even when the producer
-                    # didn't set an explicit path.
-                    step_path=step.step_path or step.name,
-                    step_started_at=step.started_at,
-                    step_ended_at=step.ended_at,
-                    step_node_id=step.node_id,
-                    step_module=step.module,
-                    step_file=step.file,
-                    step_class=step.class_name,
-                    step_function=step.function,
-                    step_markers=step.markers,
-                    step_outcome=step.outcome.value if step.outcome else None,
-                ).to_flat_dict()
-                row["record_type"] = "measurement"
-                row.pop("measurements", None)
-                yield row
-
-
 def build_run_row(
     *,
     run_context: dict[str, Any],
     run_outcome: str | None,
     run_ended_at: datetime | None,
-    instruments: dict[str, list],
+    instruments: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Build the single ``record_type = 'run'`` row for a parquet.
 
@@ -879,7 +770,7 @@ def build_run_row(
     """
     ctx = dict(run_context)
     ctx["run_ended_at"] = run_ended_at
-    row = MeasurementRow(
+    row = RunParquetRow(
         record_type="run",
         **ctx,
         # Step / vector context: NULL on run rows. ``step_name`` and
@@ -888,7 +779,6 @@ def build_run_row(
         step_name="",
         step_index=0,
         step_path="",
-        parent_path="",
         step_started_at=None,
         step_ended_at=None,
         step_node_id=None,
@@ -898,7 +788,6 @@ def build_run_row(
         step_function=None,
         step_markers=None,
         step_outcome=None,
-        step_vector_count=None,
         vector_index=0,
         vector_retry=None,
         # Measurement payload: NULL on run rows.
@@ -917,7 +806,7 @@ def build_step_row(
     entry: dict[str, Any],
     run_outcome: str | None,
     run_ended_at: datetime | None,
-    instruments: dict[str, list],
+    instruments: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Build one ``record_type = 'step'`` row from a step manifest entry.
 
@@ -947,15 +836,13 @@ def build_step_row(
     ctx = dict(run_context)
     ctx["run_ended_at"] = run_ended_at
     raw_vi = entry.get("vector_index")
-    raw_vc = entry.get("vector_count")
     raw_idx = entry.get("index")
-    row = MeasurementRow(
+    row = RunParquetRow(
         record_type="step",
         **ctx,
         step_name=entry.get("name") or "",
         step_index=int(raw_idx) if raw_idx is not None else 0,
         step_path=entry.get("step_path") or "",
-        parent_path=entry.get("parent_path") or "",
         step_started_at=_to_datetime(entry.get("started_at")),
         step_ended_at=_to_datetime(entry.get("ended_at")),
         step_node_id=entry.get("node_id"),
@@ -965,7 +852,7 @@ def build_step_row(
         step_function=entry.get("function"),
         step_markers=entry.get("markers"),
         step_outcome=entry.get("outcome"),
-        step_vector_count=raw_vc if raw_vc is not None else 1,
+        step_retry=entry.get("step_retry") or 0,
         vector_index=raw_vi if raw_vi is not None else 0,
         vector_retry=None,
         measurement_name=None,
@@ -984,7 +871,7 @@ def build_scope_vector_row(
     entry: dict[str, Any],
     run_outcome: str | None,
     run_ended_at: datetime | None,
-    instruments: dict[str, list],
+    instruments: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Synthesize one scope ``vector`` row from a step manifest entry (v2).
 
@@ -1005,13 +892,12 @@ def build_scope_vector_row(
     ctx["run_ended_at"] = run_ended_at
     raw_vi = entry.get("vector_index")
     raw_idx = entry.get("index")
-    row = MeasurementRow(
+    row = RunParquetRow(
         record_type="vector",
         **ctx,
         step_name=entry.get("name") or "",
         step_index=int(raw_idx) if raw_idx is not None else 0,
         step_path=entry.get("step_path") or "",
-        parent_path=entry.get("parent_path") or "",
         step_started_at=_to_datetime(entry.get("started_at")),
         step_ended_at=_to_datetime(entry.get("ended_at")),
         step_node_id=entry.get("node_id"),
@@ -1021,9 +907,11 @@ def build_scope_vector_row(
         step_function=entry.get("function"),
         step_markers=entry.get("markers"),
         step_outcome=None,
-        step_vector_count=None,
+        step_retry=entry.get("step_retry") or 0,
         vector_index=raw_vi if raw_vi is not None else 0,
-        vector_retry=0,
+        # Scope vector runs once per step execution → its (step_path,
+        # vector_index) occurrence ordinal equals the step's attempt count.
+        vector_retry=entry.get("step_retry") or 0,
         vector_started_at=_to_datetime(entry.get("started_at")),
         vector_ended_at=_to_datetime(entry.get("ended_at")),
         vector_outcome=entry.get("outcome"),
@@ -1046,14 +934,14 @@ def build_vector_row(
     entry: dict[str, Any],
     run_outcome: str | None,
     run_ended_at: datetime | None,
-    instruments: dict[str, list],
+    instruments: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Build one ``record_type = 'vector'`` row from a vector manifest entry.
 
     A vector row appears ONLY for Mode-2 in-body iterations (the ``vectors``
     fixture / ``run_vector`` loop) — Mode 1 and class containers fuse into
     the ``step`` record. It carries the in-body iteration's own
-    ``(step_path, parent_path, vector_index, retry)`` identity, its
+    ``(step_path, vector_index, retry)`` identity, its
     ``inputs`` (this iteration's conditions), ``outputs``, and
     ``vector_outcome``. ``measurement_*`` columns are NULL.
 
@@ -1066,13 +954,12 @@ def build_vector_row(
     raw_vi = entry.get("vector_index")
     raw_retry = entry.get("retry")
     raw_idx = entry.get("index")
-    row = MeasurementRow(
+    row = RunParquetRow(
         record_type="vector",
         **ctx,
         step_name=entry.get("name") or "",
         step_index=int(raw_idx) if raw_idx is not None else 0,
         step_path=entry.get("step_path") or "",
-        parent_path=entry.get("parent_path") or "",
         step_started_at=_to_datetime(entry.get("step_started_at")),
         step_ended_at=_to_datetime(entry.get("step_ended_at")),
         step_node_id=entry.get("node_id"),
@@ -1082,7 +969,7 @@ def build_vector_row(
         step_function=entry.get("function"),
         step_markers=entry.get("markers"),
         step_outcome=None,
-        step_vector_count=None,
+        step_retry=entry.get("step_retry") or 0,
         vector_index=raw_vi if raw_vi is not None else 0,
         vector_retry=raw_retry if raw_retry is not None else 0,
         vector_started_at=_to_datetime(entry.get("started_at")),
@@ -1111,12 +998,12 @@ def vector_entry_dict(
     class_name: str | None,
     module: str | None,
     step_path: str,
-    parent_path: str = "",
     markers: str | None,
     step_started_at: datetime | None,
     step_ended_at: datetime | None,
     vector_index: int,
     retry: int,
+    step_retry: int = 0,
     outcome: str | None,
     started_at: datetime | None,
     ended_at: datetime | None,
@@ -1126,12 +1013,14 @@ def vector_entry_dict(
     output_units: dict[str, str] | None = None,
     output_pins: dict[str, str] | None = None,
     measurements: list[dict[str, Any]] | None = None,
+    instrument_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Single source of truth for one in-body vector manifest entry's shape.
 
     Distinct from :func:`step_entry_dict` — a vector entry keys on
     ``(step_path, vector_index, retry)`` and carries vector-grain timing
-    and outcome. Timestamps are serialised here.
+    and outcome. ``step_retry`` is the enclosing step's outer (item) attempt.
+    Timestamps are serialised here.
     """
     return {
         "index": index,
@@ -1142,12 +1031,12 @@ def vector_entry_dict(
         "class_name": class_name,
         "module": module,
         "step_path": step_path,
-        "parent_path": parent_path,
         "markers": markers,
         "step_started_at": step_started_at.isoformat() if step_started_at else None,
         "step_ended_at": step_ended_at.isoformat() if step_ended_at else None,
         "vector_index": vector_index,
         "retry": retry,
+        "step_retry": step_retry,
         "outcome": outcome,
         "started_at": started_at.isoformat() if started_at else None,
         "ended_at": ended_at.isoformat() if ended_at else None,
@@ -1157,6 +1046,7 @@ def vector_entry_dict(
         "output_units": output_units or {},
         "output_pins": output_pins or {},
         "measurements": measurements or [],
+        "instrument_records": instrument_records or [],
     }
 
 
@@ -1174,8 +1064,8 @@ def build_step_manifest(
 
     ``ref_saver`` claim-checks blob observations through the same saver
     the measurement path uses (``build_output_columns``) so a raw blob
-    never reaches the step-record lane structs or the ``step_results``
-    JSON metadata. Without it, blobs fall back to ``repr()``.
+    never reaches the step-record lane structs. Without it, blobs fall back
+    to ``repr()``.
     """
     manifest: list[dict[str, Any]] = []
     executed_node_ids: set[str] = set()
@@ -1207,7 +1097,7 @@ def build_step_manifest(
             # StepEnded.outputs / observations into its step entry. Routed
             # through ``build_output_columns`` (same as the measurement
             # path) so blobs are claim-checked via ``ref_saver`` rather
-            # than reaching the lane structs / step_results JSON raw.
+            # than reaching the lane structs raw.
             outputs = (
                 build_output_columns(vector, ref_saver=ref_saver) if vector is not None else {}
             )
@@ -1227,7 +1117,6 @@ def build_step_manifest(
                     class_name=step.class_name,
                     module=step.module,
                     step_path=step.step_path or step.name,
-                    parent_path=step.parent_path or "",
                     description=step.description,
                     markers=step.markers,
                     outcome=step.outcome.value if step.outcome else None,
@@ -1243,9 +1132,9 @@ def build_step_manifest(
                         build_measurement_struct(m)
                         for m in (vector.measurements if vector is not None else [])
                     ],
-                    has_measurements=measurement_count > 0,
                     measurement_count=measurement_count,
-                    vector_count=len(step.vectors) if step.vectors else 1,
+                    step_retry=step.retry,
+                    instrument_records=list(step.instrument_records or []),
                 )
             )
 
@@ -1271,7 +1160,6 @@ def step_entry_dict(
     class_name: str | None,
     module: str | None,
     step_path: str,
-    parent_path: str = "",
     description: str | None,
     markers: str | None,
     outcome: str | None,
@@ -1284,10 +1172,9 @@ def step_entry_dict(
     output_units: dict[str, str] | None = None,
     output_pins: dict[str, str] | None = None,
     measurements: list[dict[str, Any]] | None = None,
-    has_measurements: bool,
     measurement_count: int,
-    vector_count: int,
-    retry_count: int = 0,
+    step_retry: int = 0,
+    instrument_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Single source of truth for one step manifest entry's shape.
 
@@ -1296,9 +1183,7 @@ def step_entry_dict(
     pre-compute their values and pass them as kwargs. Timestamps are
     serialised here, ``duration_s`` derived from start/end.
 
-    ``parent_path`` mirrors the same field on ``StepStarted`` /
-    ``StepEnded`` so step-summary rows in the unified parquet preserve
-    the hierarchy. ``vector_index`` / ``inputs`` / ``outputs`` carry the
+    ``vector_index`` / ``inputs`` / ``outputs`` carry the
     per-vector identity so each (step_path, vector_index) is its own
     entry — a sweep of N variants produces N entries with the same
     step_path and vector_index 0..N-1.
@@ -1315,7 +1200,6 @@ def step_entry_dict(
         "class_name": class_name,
         "module": module,
         "step_path": step_path,
-        "parent_path": parent_path,
         "description": description,
         "markers": markers,
         "outcome": outcome,
@@ -1329,10 +1213,9 @@ def step_entry_dict(
         "output_units": output_units or {},
         "output_pins": output_pins or {},
         "measurements": measurements or [],
-        "has_measurements": has_measurements,
         "measurement_count": measurement_count,
-        "vector_count": vector_count,
-        "retry_count": retry_count,
+        "step_retry": step_retry,
+        "instrument_records": instrument_records or [],
     }
 
 
@@ -1379,7 +1262,6 @@ def _append_not_started(
                 "class_name": ci.get("class_name"),
                 "module": ci.get("module"),
                 "step_path": step_path,
-                "parent_path": ci.get("parent_path") or "",
                 "description": None,
                 # No outcome stamped — the absence IS the receipt
                 # that this step never ran (the row was collected
@@ -1391,9 +1273,8 @@ def _append_not_started(
                 "vector_index": vi,
                 "inputs": {},
                 "outputs": {},
-                "has_measurements": False,
                 "measurement_count": 0,
-                "vector_count": 0,
+                "step_retry": 0,
             }
         )
         next_index += 1

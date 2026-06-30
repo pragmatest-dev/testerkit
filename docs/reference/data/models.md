@@ -1023,7 +1023,6 @@ A test step containing test vectors.
 | `id` | `UUID` | *via* `uuid4()` |
 | `name` | `str` | *required* |
 | `step_path` | `str` | `''` |
-| `parent_path` | `str` | `''` |
 | `description` | `str \| None` | `None` |
 | `node_id` | `str \| None` | `None` |
 | `file` | `str \| None` | `None` |
@@ -1034,9 +1033,10 @@ A test step containing test vectors.
 | `started_at` | `datetime` | *via* `_utcnow()` |
 | `ended_at` | `datetime \| None` | `None` |
 | `outcome` | `Outcome \| None` | `None` |
+| `retry` | `int` | `0` |
 | `vectors` | `list[TestVector]` | `[]` |
 | `error_message` | `str \| None` | `None` |
-| `instrument_arrays` | `dict[str, list] \| None` | `None` |
+| `instrument_records` | `list[dict[str, Any]] \| None` | `None` |
 
 #### `CollectedItem` {#model-collecteditem}
 
@@ -1051,7 +1051,6 @@ A pytest item collected for execution (before any run).
 | `function` | `str \| None` | `None` |
 | `markers` | `str \| None` | `None` |
 | `step_path` | `str` | `''` |
-| `parent_path` | `str` | `''` |
 | `step_index` | `int` | `0` |
 | `vector_index` | `int` | `0` |
 | `vector_count_planned` | `int` | `1` |
@@ -1078,7 +1077,7 @@ Lightweight run header read from parquet index (no steps/measurements).
 | `slot_id` | `str \| None` | `None` |
 | `started_at` | `datetime \| None` | `None` |
 | `ended_at` | `datetime \| None` | `None` |
-| `uut_serial` | `str \| None` | `None` |
+| `uut_serial_number` | `str \| None` | `None` |
 | `uut_part_number` | `str \| None` | `None` |
 | `part_id` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |
@@ -1220,7 +1219,7 @@ Request to launch a test run.
 | Field | Type | Default |
 |---|---|---|
 | `part_id` | `str \| None` | `None` |
-| `uut_serial` | `str` | *required* |
+| `uut_serial_number` | `str` | *required* |
 | `station_id` | `str` | *required* |
 | `test_path` | `str` | `'tests'` |
 | `test_profile` | `str \| None` | `None` |
@@ -1248,7 +1247,7 @@ Public summary of one currently-tracked run.
 | `status` | `Literal['pending', 'running', 'completed', 'failed']` | *required* |
 | `progress_pct` | `int` | `0` |
 | `current_step` | `str \| None` | `None` |
-| `uut_serial` | `str` | *required* |
+| `uut_serial_number` | `str` | *required* |
 | `station_id` | `str` | *required* |
 
 #### `DialogCreate` {#model-dialogcreate}
@@ -1464,7 +1463,7 @@ One row from the ``runs`` table — denormalized run-level summary.
 | `run_id` | `str \| None` | `None` |
 | `session_id` | `str \| None` | `None` |
 | `slot_id` | `str \| None` | `None` |
-| `uut_serial` | `str \| None` | `None` |
+| `uut_serial_number` | `str \| None` | `None` |
 | `uut_part_number` | `str \| None` | `None` |
 | `uut_lot_number` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |
@@ -1502,12 +1501,10 @@ One row from the ``steps`` table — full denormalized run + step context.
 | `started_at` | `datetime \| None` | `None` |
 | `ended_at` | `datetime \| None` | `None` |
 | `duration_s` | `float \| None` | `None` |
-| `has_measurements` | `bool \| None` | `None` |
 | `measurement_count` | `int \| None` | `None` |
-| `vector_count` | `int \| None` | `None` |
-| `retry_count` | `int \| None` | `None` |
+| `step_retry` | `int \| None` | `None` |
 | `markers` | `str \| None` | `None` |
-| `uut_serial` | `str \| None` | `None` |
+| `uut_serial_number` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `outputs` | `dict[str, Any]` | `{}` |
@@ -2069,7 +2066,6 @@ erDiagram
         id uuid PK
         name string
         step_path string
-        parent_path string
         outcome Outcome
         vectors list
     }

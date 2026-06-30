@@ -11,7 +11,7 @@ import csv
 import io
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +30,7 @@ class ReportData:
     outcome: str = ""
 
     # UUT
-    uut_serial: str = ""
+    uut_serial_number: str = ""
     uut_part_number: str = ""
     uut_revision: str = ""
     uut_lot_number: str = ""
@@ -133,7 +133,7 @@ def load_run_data(run_id: str, data_dir: str | None = None) -> ReportData:
         started_at=_fmt_dt_raw(run_view.started_at),
         ended_at=_fmt_dt_raw(run_view.ended_at),
         outcome=run_view.outcome or "",
-        uut_serial=run_view.uut_serial or "",
+        uut_serial_number=run_view.uut_serial_number or "",
         uut_part_number=run_view.uut_part_number or "",
         uut_revision=extras.get("uut_revision", ""),
         uut_lot_number=extras.get("uut_lot_number", ""),
@@ -204,12 +204,62 @@ def _load_extras_from_parquet(run_id: str, data_dir: str) -> dict[str, str]:
 
 
 def _fmt_dt_raw(val: Any) -> str:
-    """Format a datetime value from Parquet to ISO string."""
+    """Format a datetime value from Parquet to ISO string.
+
+    Kept as the canonical UTC ISO form on :class:`ReportData` so other
+    consumers (e.g. the terminal ``litmus show`` summary) can re-render it.
+    The report *writers* localize via :func:`_to_report_ts` at write time.
+    """
     if val is None:
         return ""
     if isinstance(val, datetime):
         return val.isoformat()
     return str(val)
+
+
+# -- Report timezone rendering ------------------------------------------------
+#
+# A report is a single self-contained document rendered in ONE timezone, stated
+# once (banner / metadata / header). Default is the local timezone; ``--utc``
+# switches the whole report to UTC. Every timestamp is plain
+# ``YYYY-MM-DD HH:MM:SS`` (no per-value offset) because the zone is declared
+# once for the document — the standard "all times are in <zone>" convention.
+# Stored values are UTC instants; conversion happens only here, at the edge.
+
+
+def _report_zone_label(*, utc: bool) -> str:
+    """Human label for the report's timezone, e.g. ``"MDT (UTC-06:00)"`` or ``"UTC"``."""
+    if utc:
+        return "UTC"
+    now_local = datetime.now().astimezone()
+    offset = now_local.utcoffset() or timedelta(0)
+    total_min = int(offset.total_seconds() // 60)
+    sign = "+" if total_min >= 0 else "-"
+    hours, minutes = divmod(abs(total_min), 60)
+    name = now_local.tzname() or "local time"
+    return f"{name} (UTC{sign}{hours:02d}:{minutes:02d})"
+
+
+def _to_report_ts(val: Any, *, utc: bool) -> str:
+    """Render a stored UTC timestamp in the report's zone as ``YYYY-MM-DD HH:MM:SS``.
+
+    Accepts a ``datetime`` or an ISO string (the form stored on
+    :class:`ReportData`). Naive values are treated as UTC (the storage
+    convention). Returns ``""`` for empty input.
+    """
+    if not val:
+        return ""
+    if isinstance(val, datetime):
+        dt = val
+    else:
+        try:
+            dt = datetime.fromisoformat(str(val).replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            return str(val)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    dt = dt.astimezone(UTC) if utc else dt.astimezone()
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def generate_report(
@@ -218,6 +268,8 @@ def generate_report(
     fmt: str = "html",
     template: str = "default",
     template_dir: str | None = None,
+    *,
+    utc: bool = False,
 ) -> Path:
     """Generate a report file from ReportData.
 
@@ -227,6 +279,10 @@ def generate_report(
         fmt: Format — html, pdf, json, csv.
         template: Template name (without .html extension).
         template_dir: Optional project template directory override.
+        utc: Render the whole report in UTC. Default (``False``) renders in
+            the local timezone. Either way the report states its timezone
+            once (banner / metadata) and every timestamp is plain
+            ``YYYY-MM-DD HH:MM:SS``.
 
     Returns:
         Path to the generated file.
@@ -244,28 +300,40 @@ def generate_report(
         output.parent.mkdir(parents=True, exist_ok=True)
 
     if fmt == "json":
-        _write_json(data, output)
+        _write_json(data, output, utc=utc)
     elif fmt == "csv":
         _write_csv(data, output)
     elif fmt == "html":
-        _write_html(data, output, template, template_dir)
+        _write_html(data, output, template, template_dir, utc=utc)
     elif fmt == "pdf":
-        _write_pdf(data, output, template, template_dir)
+        _write_pdf(data, output, template, template_dir, utc=utc)
     else:
         raise ValueError(f"Unknown format: {fmt}")
 
     return output
 
 
-def _write_json(data: ReportData, output: Path) -> None:
-    """Write JSON report."""
+def _write_json(data: ReportData, output: Path, *, utc: bool = False) -> None:
+    """Write JSON report. Timestamps render in the report's timezone (stated once
+    via the top-level ``timezone`` field) as ``YYYY-MM-DD HH:MM:SS``."""
+    # Localize each measurement's timestamp to the report's zone (the only
+    # datetime carried in measurement records); copy so ReportData is untouched.
+    measurements = [
+        (
+            {**m, "measurement_timestamp": _to_report_ts(m["measurement_timestamp"], utc=utc)}
+            if m.get("measurement_timestamp")
+            else m
+        )
+        for m in data.measurements
+    ]
     obj = {
         "run_id": data.run_id,
-        "started_at": data.started_at,
-        "ended_at": data.ended_at,
+        "timezone": _report_zone_label(utc=utc),
+        "started_at": _to_report_ts(data.started_at, utc=utc),
+        "ended_at": _to_report_ts(data.ended_at, utc=utc),
         "outcome": data.outcome,
         "uut": {
-            "serial": data.uut_serial,
+            "serial": data.uut_serial_number,
             "part_number": data.uut_part_number,
             "revision": data.uut_revision,
             "lot_number": data.uut_lot_number,
@@ -295,9 +363,9 @@ def _write_json(data: ReportData, output: Path) -> None:
             "error": data.error_measurements,
             "pass_rate": data.pass_rate,
         },
-        # Measurements are already JSON-safe: model_dump(mode="json") serializes
-        # datetimes to ISO strings and nested inputs/outputs/custom dicts.
-        "measurements": data.measurements,
+        # Measurements are JSON-safe (model_dump(mode="json")); measurement_timestamp
+        # localized above to the report's zone.
+        "measurements": measurements,
         "instruments": data.instruments,
     }
     output.write_text(json.dumps(obj, indent=2, default=str) + "\n")
@@ -360,48 +428,47 @@ def _resolve_template(template: str, template_dir: str | None) -> str:
     )
 
 
-def _render_html(data: ReportData, template: str, template_dir: str | None) -> str:
-    """Render HTML from template and data."""
+def _render_html(
+    data: ReportData, template: str, template_dir: str | None, *, utc: bool = False
+) -> str:
+    """Render HTML from template and data.
+
+    Timestamps render in the report's timezone via the ``fmt_dt`` filter; the
+    zone is exposed to the template once as ``report_tz`` for the banner.
+    """
     from jinja2 import Environment
 
     template_str = _resolve_template(template, template_dir)
     env = Environment(autoescape=True)
-    env.filters["fmt_dt"] = _filter_fmt_dt
+    env.filters["fmt_dt"] = lambda v: _to_report_ts(v, utc=utc)
     env.filters["fmt_value"] = _filter_fmt_value
 
     tmpl = env.from_string(template_str)
-    return tmpl.render(data=data)
+    return tmpl.render(data=data, report_tz=_report_zone_label(utc=utc))
 
 
-def _write_html(data: ReportData, output: Path, template: str, template_dir: str | None) -> None:
+def _write_html(
+    data: ReportData, output: Path, template: str, template_dir: str | None, *, utc: bool = False
+) -> None:
     """Write HTML report."""
-    html = _render_html(data, template, template_dir)
+    html = _render_html(data, template, template_dir, utc=utc)
     output.write_text(html)
 
 
-def _write_pdf(data: ReportData, output: Path, template: str, template_dir: str | None) -> None:
+def _write_pdf(
+    data: ReportData, output: Path, template: str, template_dir: str | None, *, utc: bool = False
+) -> None:
     """Write PDF report via WeasyPrint."""
     try:
         from weasyprint import HTML
     except ImportError:
         raise ImportError("PDF reports require weasyprint. Install with: pip install 'litmus[pdf]'")
 
-    html = _render_html(data, template, template_dir)
+    html = _render_html(data, template, template_dir, utc=utc)
     HTML(string=html).write_pdf(str(output))
 
 
 # -- Jinja2 filters --
-
-
-def _filter_fmt_dt(val: str) -> str:
-    """Format ISO datetime for display."""
-    if not val:
-        return ""
-    try:
-        dt = datetime.fromisoformat(val)
-        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
-    except (ValueError, TypeError):
-        return str(val)
 
 
 def _filter_fmt_value(val: Any) -> str:

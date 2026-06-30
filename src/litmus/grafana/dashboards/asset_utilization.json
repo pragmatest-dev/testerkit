@@ -29,7 +29,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "WITH per_run AS (SELECT run_id, unnest(step_instruments_name) AS role, unnest(step_instruments_id) AS instrument_id, unnest(step_instruments_driver) AS driver, unnest(step_instruments_resource) AS resource, unnest(step_instruments_manufacturer) AS manufacturer, unnest(step_instruments_model) AS model, unnest(step_instruments_serial) AS serial, unnest(step_instruments_firmware) AS firmware, unnest(step_instruments_cal_due) AS cal_due, unnest(step_instruments_cal_last) AS cal_last, unnest(step_instruments_cal_lab) AS cal_lab, unnest(step_instruments_mocked) AS mocked FROM measurements) SELECT p.role, p.instrument_id, p.driver, p.resource, p.manufacturer, p.model, p.serial, p.firmware, p.cal_due, p.cal_last, p.cal_lab, p.mocked, count(DISTINCT p.run_id) AS runs, round(sum(epoch(r.ended_at - r.started_at)), 1) AS total_seconds FROM per_run p JOIN runs r ON p.run_id = r.run_id GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12 ORDER BY p.role",
+          "rawSql": "SELECT role, instrument_id, driver, resource, manufacturer, model, serial_number AS serial, firmware, cal_due, cal_last, cal_lab, mocked, count(DISTINCT run_id) AS runs, round(sum(epoch(run_ended_at - run_started_at)), 1) AS total_seconds FROM instruments GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12 ORDER BY role",
           "format": "table"
         }
       ]

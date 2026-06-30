@@ -16,7 +16,7 @@ from litmus.analysis._common import parse_datetime
 def _yield_by_position(runs: list[dict], position: int) -> float:
     """Calculate yield at a run position per serial (0=first, -1=last).
 
-    Groups runs by uut_serial, sorts each group by run_started_at,
+    Groups runs by uut_serial_number, sorts each group by run_started_at,
     then checks the run at the given position.
 
     Returns:
@@ -27,7 +27,7 @@ def _yield_by_position(runs: list[dict], position: int) -> float:
 
     by_serial: dict[str, list[dict]] = defaultdict(list)
     for r in runs:
-        serial = r.get("uut_serial")
+        serial = r.get("uut_serial_number")
         if serial:
             by_serial[serial].append(r)
 
@@ -47,7 +47,7 @@ def calculate_fpy(runs: list[dict]) -> float:
     """First-pass yield: % of serials whose *first* run passed.
 
     Args:
-        runs: List of run dicts with keys: uut_serial, run_outcome, run_started_at.
+        runs: List of run dicts with keys: uut_serial_number, run_outcome, run_started_at.
               Must be deduplicated to one row per run_id.
 
     Returns:

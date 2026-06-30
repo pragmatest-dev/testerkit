@@ -56,7 +56,6 @@ To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type
 | `step_name` | string | Test function or class name |
 | `step_index` | int64 | 0-based step order within the run |
 | `step_path` | string | Hierarchical path, e.g. `TestPower/test_efficiency` |
-| `parent_path` | string | Container path; empty for root steps. Enables tree reconstruction without joins. |
 | `step_started_at` | timestamp[us, UTC] | Step start (NULL for unrun planned steps) |
 | `step_ended_at` | timestamp[us, UTC] | Step end |
 | `step_node_id` | string | pytest node id (`tests/test_power.py::TestPower::test_efficiency`) |
@@ -82,7 +81,7 @@ To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `uut_serial` | string | From `--uut-serial` |
+| `uut_serial_number` | string | From `--uut-serial` |
 | `uut_part_number` | string | Operator-facing part identifier (NOT `part_id`) |
 | `uut_revision` | string | Hardware revision |
 | `uut_lot_number` | string | Manufacturing lot |
@@ -111,38 +110,50 @@ To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type
 |--------|------|-------------|
 | `fixture_id` | string | Fixture YAML id |
 
-## Where — instruments (dynamic `step_instruments_*`)
+## Where — instruments (`instruments` lane — at-rest format)
 
-Per-step instrument identity, captured from the pytest fixtures the test actually used. All columns are `list[string]` (one entry per instrument) and arrays stay in parallel order.
+Instrument identity and calibration traceability for the run, captured from the pytest fixtures the test used. Stored at rest in the `instruments` column as a typed nested list — `LIST<STRUCT>` — one struct per instrument. Every row carries the column; the run row holds the full inventory.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `step_instruments_name` | list[string] | Role names (e.g. `["dmm", "psu"]`) |
-| `step_instruments_id` | list[string] | Instrument file IDs |
-| `step_instruments_driver` | list[string] | Driver class paths |
-| `step_instruments_resource` | list[string] | VISA addresses |
-| `step_instruments_protocol` | list[string] | Protocols (`"visa"`, `"daqmx"`, …) |
-| `step_instruments_manufacturer` | list[string] | From `*IDN?` or YAML config |
-| `step_instruments_model` | list[string] | Model number |
-| `step_instruments_serial` | list[string] | Serial number |
-| `step_instruments_firmware` | list[string] | Firmware version |
-| `step_instruments_cal_due` | list[string] | Calibration due date (ISO 8601) |
-| `step_instruments_cal_last` | list[string] | Last cal date (ISO 8601) |
-| `step_instruments_cal_certificate` | list[string] | Cal certificate number |
-| `step_instruments_cal_lab` | list[string] | Cal lab name |
-| `step_instruments_mocked` | list[bool] | True if the instrument ran in mock mode |
+**Entry structure** (one item in the `instruments` list):
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Role name (e.g. `dmm`, `psu`) |
+| `id` | string | Instrument file ID |
+| `driver` | string | Driver class path |
+| `resource` | string | VISA address |
+| `protocol` | string | Protocol (`"visa"`, `"daqmx"`, …) |
+| `manufacturer` | string | From `*IDN?` or YAML config |
+| `model` | string | Model number |
+| `serial_number` | string | Serial number |
+| `firmware` | string | Firmware version |
+| `cal_due` | string | Calibration due date (ISO 8601) |
+| `cal_last` | string | Last cal date (ISO 8601) |
+| `cal_certificate` | string | Cal certificate number |
+| `cal_lab` | string | Cal lab name |
+| `mocked` | bool | True if the instrument ran in mock mode |
 
 For real hardware, identity comes from `*IDN?` at session start. For mock instruments, identity comes from the instrument YAML configs.
 
+The Query API materializes these structs into the `instruments` table (one row per instrument per run) at ingest, so per-instrument queries select named columns instead of unnesting the nested list:
+
 ```sql
--- DuckDB: unnest parallel arrays for per-instrument queries
+-- DuckDB: one row per instrument per run, via the materialized table
+SELECT name, serial_number, cal_due, count(DISTINCT run_id) AS runs
+FROM instruments
+GROUP BY name, serial_number, cal_due;
+```
+
+To read the nested list directly off the parquet (e.g. an external lakehouse ingest):
+
+```sql
+-- DuckDB: unnest the instruments struct off the run row
 SELECT
-    step_name,
-    unnest(step_instruments_name) AS instrument,
-    unnest(step_instruments_serial) AS serial,
-    unnest(step_instruments_cal_due) AS cal_due
-FROM read_parquet('data/runs/**/*.parquet')
-WHERE record_type = 'step';
+    i.name AS instrument,
+    i.serial_number AS serial,
+    i.cal_due AS cal_due
+FROM read_parquet('data/runs/**/*.parquet'), UNNEST(instruments) AS t(i)
+WHERE record_type = 'run';
 ```
 
 ## Test context
@@ -377,7 +388,6 @@ Beyond columns, each Parquet file carries metadata:
 |-----|-------------|
 | `environment_json` | Full environment snapshot (Python version, OS, Litmus version, top-level deps, lockfile hash) |
 | `custom_metadata` | Run-level custom metadata set via `run_context.set()`, serialized as a JSON object |
-| `litmus_version` | Litmus version that produced this file |
 | `schema_version` | Schema version (`"2.0"`) |
 
 ```python
@@ -415,7 +425,7 @@ import pandas as pd
 con = duckdb.connect()
 df = con.execute("""
     SELECT
-        v.run_id, v.uut_serial, v.station_hostname,
+        v.run_id, v.uut_serial_number, v.station_hostname,
         v.step_name, v.step_path, v.vector_index, v.vector_retry,
         v.step_outcome, v.vector_outcome, v.run_outcome,
         m.name  AS measurement_name,

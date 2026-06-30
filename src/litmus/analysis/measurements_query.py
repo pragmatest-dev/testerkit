@@ -82,7 +82,7 @@ _FIXED_COLUMNS: frozenset[str] = frozenset(
         "run_outcome",
         "step_outcome",
         "vector_outcome",
-        "uut_serial",
+        "uut_serial_number",
         "uut_part_number",
         "uut_revision",
         "uut_lot_number",
@@ -116,7 +116,7 @@ _PLOTTABLE_FIXED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("limit_high", "DOUBLE"),
     ("limit_nominal", "DOUBLE"),
     ("limit_comparator", "VARCHAR"),
-    ("uut_serial", "VARCHAR"),
+    ("uut_serial_number", "VARCHAR"),
     ("uut_part_number", "VARCHAR"),
     ("uut_pin", "VARCHAR"),
     ("test_phase", "VARCHAR"),
@@ -410,7 +410,7 @@ WITH runs AS (
         COALESCE(uut_part_number, 'unknown') AS part,
         COALESCE(station_hostname, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
-        uut_serial,
+        uut_serial_number,
         run_outcome,
         run_started_at,
         run_ended_at,
@@ -424,7 +424,7 @@ runs_filtered AS (
 first_runs AS (
     SELECT *,
         ROW_NUMBER() OVER (
-            PARTITION BY uut_serial, part, station, phase
+            PARTITION BY uut_serial_number, part, station, phase
             ORDER BY run_started_at
         ) AS rn
     FROM runs_filtered
@@ -432,7 +432,7 @@ first_runs AS (
 last_runs AS (
     SELECT *,
         ROW_NUMBER() OVER (
-            PARTITION BY uut_serial, part, station, phase
+            PARTITION BY uut_serial_number, part, station, phase
             ORDER BY run_started_at DESC
         ) AS rn
     FROM runs_filtered
@@ -513,14 +513,14 @@ SELECT
     COUNT(*) FILTER (WHERE r.run_outcome = 'passed') AS passed,
     COUNT(*) FILTER (WHERE r.run_outcome = 'failed') AS failed,
     COUNT(*) FILTER (WHERE r.run_outcome = 'errored') AS errored,
-    COUNT(DISTINCT r.uut_serial) AS unique_serials,
-    COUNT(DISTINCT r.uut_serial) FILTER (
+    COUNT(DISTINCT r.uut_serial_number) AS unique_serials,
+    COUNT(DISTINCT r.uut_serial_number) FILTER (
         WHERE r.run_id IN (SELECT run_id FROM first_runs WHERE rn = 1)
     ) AS first_pass_total,
-    COUNT(DISTINCT r.uut_serial) FILTER (
+    COUNT(DISTINCT r.uut_serial_number) FILTER (
         WHERE r.run_id IN (SELECT run_id FROM first_runs WHERE rn = 1 AND run_outcome = 'passed')
     ) AS first_pass_passed,
-    COUNT(DISTINCT r.uut_serial) FILTER (
+    COUNT(DISTINCT r.uut_serial_number) FILTER (
         WHERE r.run_id IN (SELECT run_id FROM last_runs WHERE rn = 1 AND run_outcome = 'passed')
     ) AS final_passed,
     ROUND(AVG(EPOCH(r.run_ended_at::TIMESTAMP - r.run_started_at::TIMESTAMP)), 2) AS avg_duration_s,
@@ -552,7 +552,7 @@ WITH runs AS (
         COALESCE(uut_part_number, 'unknown') AS part,
         COALESCE(station_hostname, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
-        uut_serial,
+        uut_serial_number,
         run_outcome,
         run_started_at,
         run_ended_at,
@@ -566,7 +566,7 @@ runs_filtered AS (
 first_runs AS (
     SELECT *,
         ROW_NUMBER() OVER (
-            PARTITION BY uut_serial
+            PARTITION BY uut_serial_number
             ORDER BY run_started_at
         ) AS rn
     FROM runs_filtered
@@ -574,7 +574,7 @@ first_runs AS (
 last_runs AS (
     SELECT *,
         ROW_NUMBER() OVER (
-            PARTITION BY uut_serial
+            PARTITION BY uut_serial_number
             ORDER BY run_started_at DESC
         ) AS rn
     FROM runs_filtered
@@ -627,14 +627,14 @@ SELECT
     COUNT(*) FILTER (WHERE r.run_outcome = 'passed') AS passed,
     COUNT(*) FILTER (WHERE r.run_outcome = 'failed') AS failed,
     COUNT(*) FILTER (WHERE r.run_outcome = 'errored') AS errored,
-    COUNT(DISTINCT r.uut_serial) AS unique_serials,
-    COUNT(DISTINCT r.uut_serial) FILTER (
+    COUNT(DISTINCT r.uut_serial_number) AS unique_serials,
+    COUNT(DISTINCT r.uut_serial_number) FILTER (
         WHERE r.run_id IN (SELECT run_id FROM first_runs WHERE rn = 1)
     ) AS first_pass_total,
-    COUNT(DISTINCT r.uut_serial) FILTER (
+    COUNT(DISTINCT r.uut_serial_number) FILTER (
         WHERE r.run_id IN (SELECT run_id FROM first_runs WHERE rn = 1 AND run_outcome = 'passed')
     ) AS first_pass_passed,
-    COUNT(DISTINCT r.uut_serial) FILTER (
+    COUNT(DISTINCT r.uut_serial_number) FILTER (
         WHERE r.run_id IN (SELECT run_id FROM last_runs WHERE rn = 1 AND run_outcome = 'passed')
     ) AS final_passed,
     ROUND(AVG(EPOCH(r.run_ended_at::TIMESTAMP - r.run_started_at::TIMESTAMP)), 2) AS avg_duration_s,
@@ -739,17 +739,17 @@ WITH runs AS (
         COALESCE(uut_part_number, 'unknown') AS part,
         COALESCE(station_hostname, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
-        uut_serial,
+        uut_serial_number,
         {period_expr} AS period_day
     FROM measurements
     ORDER BY run_id
 ),
 serial_counts AS (
     SELECT part, station, phase, period_day,
-           uut_serial, COUNT(*) AS executions
+           uut_serial_number, COUNT(*) AS executions
     FROM runs
-    WHERE uut_serial IS NOT NULL
-    GROUP BY part, station, phase, period_day, uut_serial
+    WHERE uut_serial_number IS NOT NULL
+    GROUP BY part, station, phase, period_day, uut_serial_number
 )
 SELECT
     part,
@@ -892,7 +892,7 @@ class MeasurementsQuery:
         Use this for headline cards (FPY, Final Yield, RTY, DPMO, DPPM) where
         per-group aggregation would produce incorrect values:
 
-        - ``unique_serials`` is ``COUNT(DISTINCT uut_serial)`` over all rows — no
+        - ``unique_serials`` is ``COUNT(DISTINCT uut_serial_number)`` over all rows — no
           double-counting of serials tested on multiple stations.
         - ``rty`` is ``EXP(SUM(LN(per-step FPY)))`` pooled over all filtered runs.
         - ``dpmo`` is pooled over all filtered measurement records; ``dppm`` is pooled over runs.

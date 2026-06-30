@@ -116,7 +116,7 @@ class Hdf5Subscriber(EventSubscriber):
             f.attrs["station_id"] = s.station_id
             f.attrs["project_name"] = s.project_name or ""
             f.attrs["test_phase"] = s.test_phase or ""
-            f.attrs["uut_serial"] = s.uut_serial
+            f.attrs["uut_serial_number"] = s.uut_serial_number
             if s.uut_part_number:
                 f.attrs["uut_part_number"] = s.uut_part_number
             if s.uut_revision:

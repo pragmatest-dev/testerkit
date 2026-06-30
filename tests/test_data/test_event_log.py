@@ -6,7 +6,7 @@ from uuid import uuid4
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
-from litmus.data.event_log import EventLog, EventSubscriber
+from litmus.data.event_log import EVENT_LOG_SCHEMA_VERSION, EventLog, EventSubscriber
 from litmus.data.events import MeasurementRecorded, RunEnded, RunStarted, SessionStarted
 
 
@@ -18,7 +18,7 @@ class TestEventLog:
         event = RunStarted(
             run_id=run_id,
             station_id="st1",
-            uut_serial="SN001",
+            uut_serial_number="SN001",
         )
         log.emit(event)
         log.close()
@@ -124,7 +124,7 @@ class TestEventLog:
         run_id = uuid4()
         log = EventLog(tmp_path / "events", run_id)
 
-        log.emit(RunStarted(run_id=run_id, station_id="st1", uut_serial="SN001"))
+        log.emit(RunStarted(run_id=run_id, station_id="st1", uut_serial_number="SN001"))
         log.emit(
             MeasurementRecorded(
                 run_id=run_id,
@@ -141,3 +141,36 @@ class TestEventLog:
         table = reader.read_all()
         types = table.column("event_type").to_pylist()
         assert types == ["run.started", "test.measurement", "run.ended"]
+
+    def test_ipc_file_carries_schema_version(self, tmp_path):
+        """Round-trip: written IPC file's Arrow schema metadata carries schema_version."""
+        run_id = uuid4()
+        log = EventLog(tmp_path / "events", run_id)
+        log.emit(RunStarted(run_id=run_id, station_id="st1", uut_serial_number="SN001"))
+        log.emit(RunEnded(run_id=run_id, outcome="passed"))
+        log.close()
+
+        reader = ipc.open_stream(pa.OSFile(str(log.path), "rb"))
+        schema = reader.schema
+        assert schema.metadata is not None, "Arrow schema metadata must not be None"
+        assert b"schema_version" in schema.metadata, (
+            "Arrow schema metadata must contain 'schema_version'"
+        )
+        assert schema.metadata[b"schema_version"] == EVENT_LOG_SCHEMA_VERSION.encode(), (
+            f"Expected schema_version={EVENT_LOG_SCHEMA_VERSION!r}, "
+            f"got {schema.metadata[b'schema_version']!r}"
+        )
+
+    def test_date_dir_is_utc(self, tmp_path):
+        """Date-partitioned directory name equals the UTC date (task #19 — UTC everywhere)."""
+        from datetime import UTC, datetime
+
+        log = EventLog(tmp_path / "events", uuid4())
+        log.emit(RunStarted(station_id="st1", uut_serial_number="SN001"))
+        log.close()
+
+        expected_date = datetime.now(UTC).date().isoformat()
+        date_dirs = [p.name for p in (tmp_path / "events").iterdir() if p.is_dir()]
+        assert date_dirs == [expected_date], (
+            f"Expected UTC date dir '{expected_date}', got {date_dirs}"
+        )

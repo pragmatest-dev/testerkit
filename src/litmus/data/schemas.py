@@ -12,7 +12,7 @@ from typing import Any
 import pyarrow as pa
 
 from litmus.data.backends._row_helpers import (
-    INSTRUMENT_ARRAY_KEYS,
+    INSTRUMENT_STRUCT_FIELDS,
     LANE_FIELDS,
     MEASUREMENT_STRUCT_FIELDS,
 )
@@ -20,7 +20,9 @@ from litmus.data.backends._row_helpers import (
 __all__ = [
     "RUN_ROW_SCHEMA",
     "SCHEMA_VERSION",
-    "_INSTR_ARRAY_TYPES",
+    "INSTRUMENT_STRUCT_FIELDS",
+    "_INSTRUMENT_LIST",
+    "_INSTRUMENT_STRUCT",
     "_LANE_LIST",
     "_MEASUREMENT_LIST",
     "_MEASUREMENT_STRUCT",
@@ -29,10 +31,7 @@ __all__ = [
     "table_from_rows",
 ]
 
-# Bumped to 2.0 for the v2 at-rest reshape (nested measurements under
-# vector rows; run/step/vector record types) — a breaking change from the
-# 1.0 flat measurement-row schema. Stamped into parquet metadata.
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "1.0"
 
 # EAV lane struct — the nested at-rest representation of one input / output
 # entry. ``value_type`` selects which ``value_*`` lane holds the value. Field
@@ -85,13 +84,41 @@ assert [f.name for f in _MEASUREMENT_STRUCT] == list(MEASUREMENT_STRUCT_FIELDS),
 )
 _MEASUREMENT_LIST = pa.list_(_MEASUREMENT_STRUCT)
 
+# Instrument inventory struct — the at-rest representation of one instrument
+# connected during a run. Carried as a ``LIST<STRUCT>`` on every row
+# (dense, self-describing). The daemon UNNESTs these into the flat
+# ``instruments_materialized`` table for queries. Field names must match
+# ``_row_helpers.INSTRUMENT_STRUCT_FIELDS`` (guarded below).
+_INSTRUMENT_STRUCT = pa.struct(
+    [
+        ("name", pa.string()),
+        ("id", pa.string()),
+        ("driver", pa.string()),
+        ("resource", pa.string()),
+        ("protocol", pa.string()),
+        ("manufacturer", pa.string()),
+        ("model", pa.string()),
+        ("serial_number", pa.string()),
+        ("firmware", pa.string()),
+        ("cal_due", pa.string()),
+        ("cal_last", pa.string()),
+        ("cal_certificate", pa.string()),
+        ("cal_lab", pa.string()),
+        ("mocked", pa.bool_()),
+    ]
+)
+assert [f.name for f in _INSTRUMENT_STRUCT] == list(INSTRUMENT_STRUCT_FIELDS), (
+    "schemas._INSTRUMENT_STRUCT drifted from _row_helpers.INSTRUMENT_STRUCT_FIELDS"
+)
+_INSTRUMENT_LIST = pa.list_(_INSTRUMENT_STRUCT)
+
 # Canonical row schema for the unified per-run parquet — a chronological
 # telling of the run. Every row carries an explicit ``record_type``
 # discriminator with one of three values:
 #   * ``record_type = 'run'`` — one row per run; run / UUT / station /
 #     environment context. Step / vector columns are NULL.
 #   * ``record_type = 'step'`` — one step-execution, keyed ``(step_path,
-#     vector_index, retry)`` and nestable via ``parent_path``; carries code
+#     vector_index, retry)``; carries code
 #     identity + timing + rolled-up outcome.
 #   * ``record_type = 'vector'`` — one execution carrier (a synthesized scope
 #     vector for non-looping steps, or an in-body iteration vector for a
@@ -116,10 +143,6 @@ RUN_ROW_SCHEMA = pa.schema(
         ("step_name", pa.string()),
         ("step_index", pa.int64()),
         ("step_path", pa.string()),
-        # parent_path: container's path (empty string for root steps).
-        # Enables hierarchical reconstruction (e.g. TestPowerSequence →
-        # test_efficiency) without joining other event types.
-        ("parent_path", pa.string()),
         ("step_started_at", pa.timestamp("us", tz="UTC")),
         ("step_ended_at", pa.timestamp("us", tz="UTC")),
         ("step_node_id", pa.string()),
@@ -128,10 +151,10 @@ RUN_ROW_SCHEMA = pa.schema(
         ("step_class", pa.string()),
         ("step_function", pa.string()),
         ("step_markers", pa.string()),
-        # step_vector_count: total planned vectors for this step (1 for
-        # non-swept; N for sweep with N variants). Stored as a hint so
-        # consumers can detect partial-runs without joining the manifest.
-        ("step_vector_count", pa.int32()),
+        # step_retry: 0-based outer (item) retry — pytest-rerunfailures rerun
+        # count of this step. Distinct from vector_retry (the inner per-vector
+        # retry). Both stamp every execution so a rerun is a distinct row.
+        ("step_retry", pa.int64()),
         ("vector_index", pa.int64()),
         ("vector_retry", pa.int64()),
         ("vector_started_at", pa.timestamp("us", tz="UTC")),
@@ -140,7 +163,7 @@ RUN_ROW_SCHEMA = pa.schema(
         ("operator_id", pa.string()),
         ("operator_name", pa.string()),
         # UUT
-        ("uut_serial", pa.string()),
+        ("uut_serial_number", pa.string()),
         ("uut_part_number", pa.string()),
         ("uut_revision", pa.string()),
         ("uut_lot_number", pa.string()),
@@ -177,16 +200,13 @@ RUN_ROW_SCHEMA = pa.schema(
         # Nested measurements on the vector row; the daemon UNNESTs these into
         # the flat measurement fact at ingest.
         ("measurements", _MEASUREMENT_LIST),
+        # Instrument inventory on every row (dense, self-describing); the daemon
+        # UNNESTs these into the flat ``instruments_materialized`` table.
+        ("instruments", _INSTRUMENT_LIST),
     ]
 )
 
 _SCHEMA_DICT = {f.name: f.type for f in RUN_ROW_SCHEMA}
-
-# Instrument array columns have known list types
-_INSTR_ARRAY_TYPES: dict[str, pa.DataType] = {
-    k: pa.list_(pa.bool_()) if k == "step_instruments_mocked" else pa.list_(pa.string())
-    for k in INSTRUMENT_ARRAY_KEYS
-}
 
 
 def _infer_type_from_value(value: Any) -> pa.DataType:
@@ -205,10 +225,10 @@ def _infer_type_from_value(value: Any) -> pa.DataType:
 
 
 def _build_write_schema(rows: list[dict[str, Any]]) -> pa.Schema:
-    """Build complete Arrow schema: fixed canonical + instrument arrays.
+    """Build complete Arrow schema: fixed canonical + dynamic columns.
 
-    Fixed columns (including the nested ``inputs``/``outputs`` lanes) use
-    RUN_ROW_SCHEMA types. Instrument arrays use known list types. Any other
+    Fixed columns (including the nested ``inputs``/``outputs`` lanes and
+    the ``instruments`` struct list) use ``RUN_ROW_SCHEMA`` types. Any other
     stray column is inferred from its first non-None value. Passed to
     ``pa.Table.from_pylist()`` so Arrow validates at construction time.
 
@@ -231,12 +251,9 @@ def _build_write_schema(rows: list[dict[str, Any]]) -> pa.Schema:
             fields.append(field)
             used.add(field.name)
 
-    # Remaining columns sorted: instrument arrays, then dynamic
+    # Remaining dynamic columns inferred from values
     for key in sorted(all_keys - used):
-        if key in _INSTR_ARRAY_TYPES:
-            fields.append(pa.field(key, _INSTR_ARRAY_TYPES[key]))
-        else:
-            fields.append(pa.field(key, _infer_type_from_value(first_values.get(key))))
+        fields.append(pa.field(key, _infer_type_from_value(first_values.get(key))))
 
     return pa.schema(fields)
 

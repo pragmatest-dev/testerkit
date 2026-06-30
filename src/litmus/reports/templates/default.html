@@ -52,7 +52,7 @@
   <div class="meta-card">
     <h3>UUT</h3>
     <dl>
-      <dt>Serial</dt><dd>{{ data.uut_serial or '—' }}</dd>
+      <dt>Serial</dt><dd>{{ data.uut_serial_number or '—' }}</dd>
       {% if data.uut_part_number %}<dt>Part Number</dt><dd>{{ data.uut_part_number }}</dd>{% endif %}
       {% if data.uut_revision %}<dt>Revision</dt><dd>{{ data.uut_revision }}</dd>{% endif %}
       {% if data.uut_lot_number %}<dt>Lot</dt><dd>{{ data.uut_lot_number }}</dd>{% endif %}
@@ -61,6 +61,7 @@
   <div class="meta-card">
     <h3>Execution</h3>
     <dl>
+      <dt>Timezone</dt><dd>{{ report_tz }}</dd>
       <dt>Started</dt><dd>{{ data.started_at | fmt_dt }}</dd>
       <dt>Ended</dt><dd>{{ data.ended_at | fmt_dt }}</dd>
       {% if data.operator_id %}<dt>Operator</dt><dd>{{ data.operator_id }}</dd>{% endif %}

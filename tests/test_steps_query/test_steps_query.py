@@ -44,11 +44,9 @@ def _step(
             "step_index": step_index,
             "step_name": step_name,
             "step_path": step_path or step_name,
-            "parent_path": "",
             "step_started_at": started,
             "step_ended_at": ended,
             "step_outcome": outcome,
-            "step_vector_count": 1,
             "vector_index": 0,
             # measurement_name None → step-summary row (no measurement);
             # measurement_count is computed from row count downstream.
@@ -59,7 +57,7 @@ def _step(
             "run_started_at": started,
             "run_ended_at": ended,
             "run_outcome": outcome,
-            "uut_serial": uut_serial,
+            "uut_serial_number": uut_serial,
             "station_id": station_id,
         }
     )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import shutil
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 _DURATION_RE = re.compile(r"^(\d+)d$")
@@ -284,7 +284,8 @@ def prune_all(
             "Only project-owned directories can be pruned (data_dir in litmus.yaml "
             "or under the project repo folder)."
         )
-    cutoff = date.today() - parse_duration(older_than)
+    # Cutoff in UTC to match the UTC-partitioned date dirs the stores write.
+    cutoff = datetime.now(UTC).date() - parse_duration(older_than)
     result: dict[str, list[Path]] = {}
     for subdir in data_types:
         if subdir == "channels":
