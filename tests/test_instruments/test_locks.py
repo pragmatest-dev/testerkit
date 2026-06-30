@@ -1,5 +1,7 @@
 """Tests for per-resource file locking."""
 
+import threading
+import time
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -86,4 +88,82 @@ class TestLockHolder:
         assert holder is not None
         assert holder.session_id == sid
 
+        release_resource(resource, lock)
+
+
+class TestReentrant:
+    def test_same_holder_does_not_deadlock(self):
+        """Same (pid, session_id, role) re-acquiring returns immediately — no deadlock."""
+        resource = "GPIB::10::INSTR"
+        meta = _meta()
+        lock1 = acquire_resource(resource, meta)
+        lock2 = acquire_resource(resource, meta)
+        assert lock1 is lock2
+        release_resource(resource, lock1)
+        release_resource(resource, lock2)
+
+    def test_refcount_n_acquires_need_n_releases(self):
+        """Underlying flock is freed only after the Nth release for N acquires."""
+        resource = "GPIB::20::INSTR"
+        meta = _meta()
+        n = 3
+        locks = [acquire_resource(resource, meta) for _ in range(n)]
+
+        assert all(lk is locks[0] for lk in locks), "All re-entrant acquires return the same lock"
+
+        other_meta = _meta(session_id=uuid4(), role="psu")
+        for i in range(n - 1):
+            release_resource(resource, locks[i])
+            with pytest.raises(ResourceInUse):
+                acquire_resource(resource, other_meta, timeout=0)
+
+        release_resource(resource, locks[-1])
+        lock_other = acquire_resource(resource, other_meta, timeout=0)
+        release_resource(resource, lock_other)
+
+    def test_different_holder_contention_preserved(self):
+        """A different holder still gets ResourceInUse on timeout=0."""
+        resource = "GPIB::21::INSTR"
+        meta_a = _meta(session_id=uuid4(), role="dmm")
+        meta_b = _meta(session_id=uuid4(), role="psu")
+
+        lock_a = acquire_resource(resource, meta_a)
+        with pytest.raises(ResourceInUse):
+            acquire_resource(resource, meta_b, timeout=0)
+        release_resource(resource, lock_a)
+
+    def test_timeout_minus_one_blocks_then_succeeds(self):
+        """timeout=-1 blocks until a live holder releases, then acquires."""
+        resource = "GPIB::22::INSTR"
+        meta_a = _meta(session_id=uuid4(), role="dmm")
+        meta_b = _meta(session_id=uuid4(), role="psu")
+
+        lock_a = acquire_resource(resource, meta_a)
+        acquired = threading.Event()
+
+        def acquire_blocking() -> None:
+            lock = acquire_resource(resource, meta_b, timeout=-1)
+            acquired.set()
+            release_resource(resource, lock)
+
+        t = threading.Thread(target=acquire_blocking, daemon=True)
+        t.start()
+
+        time.sleep(0.1)
+        assert not acquired.is_set(), "Thread should still be blocked"
+
+        release_resource(resource, lock_a)
+        acquired.wait(timeout=5.0)
+        assert acquired.is_set(), "Thread should have acquired after holder released"
+        t.join(timeout=5.0)
+
+    def test_timeout_zero_fail_fast_preserved(self):
+        """timeout=0 raises ResourceInUse immediately (unchanged behaviour)."""
+        resource = "GPIB::23::INSTR"
+        meta_a = _meta(session_id=uuid4(), role="dmm")
+        meta_b = _meta(session_id=uuid4(), role="psu")
+
+        lock = acquire_resource(resource, meta_a)
+        with pytest.raises(ResourceInUse):
+            acquire_resource(resource, meta_b, timeout=0)
         release_resource(resource, lock)
