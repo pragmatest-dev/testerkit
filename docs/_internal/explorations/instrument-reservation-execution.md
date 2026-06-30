@@ -185,6 +185,31 @@ query; ties `project_followup_channel_isolation_per_slot`).
     the pool stays a pure stamp+emit layer (no `instruments → execution` import).
   - **Released is symmetric** — same execution key, so a step's holds bracket cleanly as
     `Reserved(key)` … `Released(key)`.
+  - **Two ingestion paths, one column — acceptable seam (4b-2, verified 2026-06-30).** The
+    `instruments` column on step/vector rows is filled differently by ingestion path, and that
+    is NOT the projection-drift bug class (which is the *same* data computed two ways): the
+    inputs genuinely differ. (a) The **streaming/event path** (pytest → events → accumulator)
+    derives the set from the reservation events (`_event_accumulator.py` unions by
+    `(step_index, step_retry)`). (b) The **batch path** (`LitmusClient.RunBuilder.finish` →
+    `save_test_run` → `build_step_manifest`, `parquet.py:267-278`) has **no reservation concept
+    at all** (`client.py` contains zero `reserve`/pool usage) — it uses the caller-provided
+    `TestStep.instrument_records`, the only authoritative input it has. Same semantic
+    ("instruments this step used"), each path filling it from its only source.
+  - **Interactive reserves have NO step and NO run — 4b tolerates it by design.** An operator
+    UI / bench reserve happens outside any test step or run. `_current_execution_key()` returns
+    `(None, None)` with no current step/scope (`connect.py:53-54`); the event fields are
+    `int | None` and `run_id` is `UUID | None`; the accumulator only attributes when
+    `step_index is not None` (`:397`), and a `run_id=None` reserve is never in a run's event
+    stream anyway. So a bench hold never pollutes a run's step instruments. Emitting these
+    step-less/run-less reservation events is what #12 (observe: who-holds-now) and #17
+    (utilization incl. non-run bench time) consume — but the wiring that makes interactive
+    sessions actually emit `run_id=None` and routes those events is **#12 scope, not 4b**.
+    (Current `StationConnection` still builds a `RunScope` with a real `run_id`.)
+  - **4b-3 cleanup (gated, refined):** the dead thing is the `StepStarted.instrument_records`
+    *event* field — the streaming accumulator no longer reads it. Removable, along with its
+    producer (`run_scope.py:860`). The `TestStep.instrument_records` *model* field is NOT dead —
+    the batch path still reads it (`parquet.py:274-278`) — so it STAYS. Distinguish the dead
+    event field from the live model field before removing anything.
 - **No unreserved operation.** Every operation runs under a lease — an explicit step/run
   lease the client holds, or an implicit per-RPC (command-grain) lease the server takes for
   one call. Operating without an explicit reserve succeeds **only when uncontended**; while a

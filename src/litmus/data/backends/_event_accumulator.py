@@ -24,6 +24,7 @@ from litmus.data.backends._row_helpers import (
 )
 from litmus.data.events import (
     InstrumentConnected,
+    InstrumentReserved,
     MeasurementRecorded,
     Observation,
     RunEnded,
@@ -153,6 +154,7 @@ class EventAccumulator:
     def __init__(self) -> None:
         self._run_started: Any = None  # RunStarted event (run context)
         self._instruments: list[Any] = []  # InstrumentConnected events
+        self._reservations: list[Any] = []  # InstrumentReserved events
         self._measurement_events: list[Any] = []  # MeasurementRecorded events
         # ``observe()`` events accumulate here so a vector's observations
         # can ride on its step/vector record's outputs lanes.
@@ -185,6 +187,8 @@ class EventAccumulator:
             self._run_started = event
         elif isinstance(event, InstrumentConnected):
             self._instruments.append(event)
+        elif isinstance(event, InstrumentReserved):
+            self._reservations.append(event)
         elif isinstance(event, StepsDiscovered):
             self._collected_items = event.items
             markers: dict[str, str | None] = {}
@@ -384,6 +388,40 @@ class EventAccumulator:
             for inst in self._instruments
         ]
 
+    def _reserved_instrument_lookups(
+        self,
+    ) -> tuple[dict[tuple[int, int], set[str]], dict[str, dict[str, Any]]]:
+        reserved_by_step: dict[tuple[int, int], set[str]] = {}
+        structs_by_role: dict[str, dict[str, Any]] = {}
+        for ev in self._reservations:
+            if ev.step_index is not None:
+                reserved_by_step.setdefault(
+                    (ev.step_index, ev.step_retry if ev.step_retry is not None else 0),
+                    set(),
+                ).add(ev.role)
+            structs_by_role.setdefault(
+                ev.role,
+                {
+                    "name": ev.role,
+                    "id": ev.instrument_id,
+                    "driver": None,
+                    "resource": ev.resource,
+                    "protocol": None,
+                    "manufacturer": None,
+                    "model": None,
+                    "serial_number": None,
+                    "firmware": None,
+                    "cal_due": None,
+                    "cal_last": None,
+                    "cal_certificate": None,
+                    "cal_lab": None,
+                    "mocked": False,
+                },
+            )
+        for rec in self._build_instrument_records():
+            structs_by_role[rec["name"]] = rec
+        return reserved_by_step, structs_by_role
+
     @staticmethod
     def _min_retry_match(
         cache: dict[tuple[str, int, int], Any], step_path: str, vector_index: int
@@ -457,6 +495,7 @@ class EventAccumulator:
         timing) is sourced from its StepStarted when present.
         """
         by_iteration, _ = self._partition_measurements()
+        reserved_by_step, structs_by_role = self._reserved_instrument_lookups()
         entries: list[dict[str, Any]] = []
         keys = sorted(
             set(self._vector_starts) | set(self._vector_ends),
@@ -483,9 +522,13 @@ class EventAccumulator:
                 dict(end.output_units) if end and getattr(end, "output_units", None) else {}
             )
             output_pins = dict(end.output_pins) if end and getattr(end, "output_pins", None) else {}
+            step_idx_v = ref.step_index if ref else 0
+            step_retry_v = getattr(step_start, "retry", 0) or 0 if step_start else 0
+            v_roles = reserved_by_step.get((step_idx_v, step_retry_v), set())
+            v_instruments = [structs_by_role[r] for r in v_roles if r in structs_by_role]
             entries.append(
                 vector_entry_dict(
-                    index=ref.step_index if ref else 0,
+                    index=step_idx_v,
                     name=ref.step_name if ref else "",
                     node_id=node_id,
                     file=step_start.file if step_start else None,
@@ -498,7 +541,7 @@ class EventAccumulator:
                     step_ended_at=self._step_end_occurred(path, vec),
                     vector_index=vec,
                     retry=retry,
-                    step_retry=getattr(step_start, "retry", 0) or 0 if step_start else 0,
+                    step_retry=step_retry_v,
                     outcome=end.outcome if end else None,
                     started_at=start.occurred_at if start else None,
                     ended_at=end.occurred_at if end else None,
@@ -508,7 +551,7 @@ class EventAccumulator:
                     output_units=output_units,
                     output_pins=output_pins,
                     measurements=by_iteration.get(key, []),
-                    instrument_records=list(getattr(step_start, "instrument_records", None) or []),
+                    instrument_records=v_instruments,
                 )
             )
         return entries
@@ -721,6 +764,7 @@ class EventAccumulator:
             # k = (path, step_retry, vector_index)
             return (step_index, k[2], k[1], k[0])
 
+        reserved_by_step, structs_by_role = self._reserved_instrument_lookups()
         all_keys = sorted(set(self._step_starts) | set(self._step_ends), key=_sort_key)
         for key in all_keys:
             path, step_retry, vec = key
@@ -735,17 +779,22 @@ class EventAccumulator:
             # have distinct node_ids, so keying by node_id misses cross-CI
             # matches.
             executed_vectors.add((path, vec))
-            manifest.append(
-                self._build_step_entry(
-                    key,
-                    start,
-                    end,
-                    meas_counts.get((path, step_retry, vec), 0),
-                    obs_by_key.get((path, vec), {}),
-                    obs_units_by_key.get((path, vec), {}),
-                    obs_pins_by_key.get((path, vec), {}),
-                )
+            entry = self._build_step_entry(
+                key,
+                start,
+                end,
+                meas_counts.get((path, step_retry, vec), 0),
+                obs_by_key.get((path, vec), {}),
+                obs_units_by_key.get((path, vec), {}),
+                obs_pins_by_key.get((path, vec), {}),
             )
+            s_idx = entry.get("index", 0)
+            s_retry = entry.get("step_retry", 0) or 0
+            s_roles = reserved_by_step.get((s_idx, s_retry), set())
+            entry["instrument_records"] = [
+                structs_by_role[r] for r in s_roles if r in structs_by_role
+            ]
+            manifest.append(entry)
 
         _append_not_started(
             manifest,
