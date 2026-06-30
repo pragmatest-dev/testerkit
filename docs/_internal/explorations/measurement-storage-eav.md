@@ -103,7 +103,7 @@ land inline (`_row_helpers.py:540`, the `value_json` residual case).
 → `MeasurementRecorded` event carries `inputs`/`outputs`/`custom` dicts
 (`events.py:477-517`, **no change**)
 → `_event_accumulator._build_row` (`426-476`, passes dicts, **no change**)
-→ `MeasurementRow.to_flat_dict` (`_row_helpers.py:211-233`, **prefix-flatten →
+→ `RunParquetRow.to_flat_dict` (`_row_helpers.py:385`, **prefix-flatten →
    replace with nested-struct encode**)
 → `schemas._build_write_schema` (`159-193`, **per-key columns → one nested col
    per side**); `table_from_rows` mixed-type detection (`196-224`) drops away
