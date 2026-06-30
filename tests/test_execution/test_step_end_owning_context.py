@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from litmus.data.events import StepEnded
 from litmus.execution._state import push_current_context, reset_current_context
 from litmus.execution.harness import Context, TestHarness
 from litmus.execution.run_scope import RunScope
@@ -22,7 +23,8 @@ class _FakeLog:
 
 def test_step_end_merge_uses_owning_context_not_ambient():
     run_scope = RunScope(uut_serial="SN1", station_id="st1")
-    run_scope.event_log = _FakeLog()  # type: ignore[assignment]
+    log = _FakeLog()
+    run_scope.event_log = log  # type: ignore[assignment]
 
     owning = Context(harness=TestHarness(session_id=uuid4()))
     ambient = Context(harness=TestHarness(session_id=uuid4()))
@@ -41,6 +43,7 @@ def test_step_end_merge_uses_owning_context_not_ambient():
     finally:
         reset_current_context(tok_a)
 
-    step = run_scope.test_run.steps[0]
-    # The owning context's configured value lands, not the ambient 999.0.
-    assert step.vectors[0].params.get("vin") == 7.0
+    # The non-swept step carries its own data: StepEnded.inputs reflects the
+    # owning context's configured value, not the ambient 999.0.
+    ended = next(e for e in log.events if isinstance(e, StepEnded))
+    assert ended.inputs.get("vin") == 7.0

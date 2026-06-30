@@ -339,7 +339,8 @@ class RunParquetRow(BaseModel):
     # step. On step + scope-vector rows; NULL on run/measurement rows. The
     # inner per-vector retry is ``vector_retry``.
     step_retry: int | None = None
-    vector_index: int = 0
+    # NULL keeps the step row out of the per-vector GROUP BY in _bulk_insert_steps.
+    vector_index: int | None = None
     # 0-based retry counter — 0 for the first execution, N for the Nth retry.
     # Per-measurement (NULL on step / run rows). Companion to ``RetryConfig.max_retries``
     # which bounds the count (max_retries=0 → no retries; max_retries=N → up to N retries).
@@ -822,11 +823,6 @@ def build_step_row(
     ``COUNT(*) FILTER (WHERE record_type = 'step')`` instead of
     deduping over measurement rows.
 
-    The step record carries ONLY code identity + timing + rolled-up
-    outcome (v2). Conditions/observations live on the synthesized scope
-    ``vector`` row (:func:`build_scope_vector_row`), so the step row's
-    ``inputs`` / ``outputs`` lanes are empty.
-
     ``run_context`` is the dict returned by ``build_run_metadata`` or
     ``run_context_from_run_started`` (with ``run_ended_at`` overridden
     by the caller for the streaming case). ``entry`` is one step
@@ -853,68 +849,8 @@ def build_step_row(
         step_markers=entry.get("markers"),
         step_outcome=entry.get("outcome"),
         step_retry=entry.get("step_retry") or 0,
-        vector_index=raw_vi if raw_vi is not None else 0,
+        vector_index=raw_vi,
         vector_retry=None,
-        measurement_name=None,
-        run_outcome=run_outcome,
-        # v2: the step sheds inputs/outputs onto its scope vector.
-        inputs={},
-        outputs={},
-        instruments=instruments,
-    )
-    return row.to_flat_dict(at_rest=True)
-
-
-def build_scope_vector_row(
-    *,
-    run_context: dict[str, Any],
-    entry: dict[str, Any],
-    run_outcome: str | None,
-    run_ended_at: datetime | None,
-    instruments: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Synthesize one scope ``vector`` row from a step manifest entry (v2).
-
-    Every step execution that has NO in-body iteration vectors (Mode 1,
-    parametrize item, class container, single, measurement-less) gets one
-    uniform scope vector — derived here by the materializer — so the
-    at-rest parquet is uniform: a ``vector`` row per execution. It carries
-    the step's conditions (``inputs``) and observations (``outputs``) that
-    the step record sheds, keyed ``(step_path, vector_index, retry=0)`` to
-    match the step and its measurements, so the EAV vector-key join is
-    unchanged.
-
-    Mode-2 in-body loops emit their own ``vector`` rows
-    (:func:`build_vector_row`) at the iteration grain; for those steps no
-    scope vector is synthesized (the iteration vectors are the carriers).
-    """
-    ctx = dict(run_context)
-    ctx["run_ended_at"] = run_ended_at
-    raw_vi = entry.get("vector_index")
-    raw_idx = entry.get("index")
-    row = RunParquetRow(
-        record_type="vector",
-        **ctx,
-        step_name=entry.get("name") or "",
-        step_index=int(raw_idx) if raw_idx is not None else 0,
-        step_path=entry.get("step_path") or "",
-        step_started_at=_to_datetime(entry.get("started_at")),
-        step_ended_at=_to_datetime(entry.get("ended_at")),
-        step_node_id=entry.get("node_id"),
-        step_module=entry.get("module"),
-        step_file=entry.get("file"),
-        step_class=entry.get("class_name"),
-        step_function=entry.get("function"),
-        step_markers=entry.get("markers"),
-        step_outcome=None,
-        step_retry=entry.get("step_retry") or 0,
-        vector_index=raw_vi if raw_vi is not None else 0,
-        # Scope vector runs once per step execution → its (step_path,
-        # vector_index) occurrence ordinal equals the step's attempt count.
-        vector_retry=entry.get("step_retry") or 0,
-        vector_started_at=_to_datetime(entry.get("started_at")),
-        vector_ended_at=_to_datetime(entry.get("ended_at")),
-        vector_outcome=entry.get("outcome"),
         measurement_name=None,
         run_outcome=run_outcome,
         inputs=dict(entry.get("inputs") or {}),
@@ -938,12 +874,13 @@ def build_vector_row(
 ) -> dict[str, Any]:
     """Build one ``record_type = 'vector'`` row from a vector manifest entry.
 
-    A vector row appears ONLY for Mode-2 in-body iterations (the ``vectors``
-    fixture / ``run_vector`` loop) — Mode 1 and class containers fuse into
-    the ``step`` record. It carries the in-body iteration's own
-    ``(step_path, vector_index, retry)`` identity, its
-    ``inputs`` (this iteration's conditions), ``outputs``, and
-    ``vector_outcome``. ``measurement_*`` columns are NULL.
+    Vector rows are the leaf carriers for ALL emitted VectorStarted/VectorEnded
+    events — Mode-1 (parametrize outer), class-outer sweeps, and Mode-2
+    in-body iterations (the ``vectors`` fixture / ``run_vector`` loop). Each
+    carries the iteration's own ``(step_path, vector_index, retry)`` identity,
+    ``inputs`` (this iteration's conditions), ``outputs``, nested
+    ``measurements``, and ``vector_outcome``. ``measurement_*`` scalar
+    columns are NULL (measurements live in the nested list).
 
     ``entry`` is one vector manifest entry as produced by
     ``vector_entry_dict``. Mirrors :func:`build_step_row` so both record
@@ -1165,7 +1102,7 @@ def step_entry_dict(
     outcome: str | None,
     started_at: datetime | None,
     ended_at: datetime | None,
-    vector_index: int = 0,
+    vector_index: int | None = None,
     inputs: dict[str, Any] | None = None,
     outputs: dict[str, Any] | None = None,
     input_units: dict[str, str] | None = None,
@@ -1183,10 +1120,9 @@ def step_entry_dict(
     pre-compute their values and pass them as kwargs. Timestamps are
     serialised here, ``duration_s`` derived from start/end.
 
-    ``vector_index`` / ``inputs`` / ``outputs`` carry the
-    per-vector identity so each (step_path, vector_index) is its own
-    entry — a sweep of N variants produces N entries with the same
-    step_path and vector_index 0..N-1.
+    ``vector_index`` is NULL for top-level / non-swept steps (so their
+    step row stays out of the per-vector GROUP BY) and an integer for steps
+    nested under a swept parent (enclosing iteration index).
     """
     duration_s: float | None = None
     if started_at and ended_at:

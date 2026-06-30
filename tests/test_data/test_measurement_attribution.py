@@ -3,7 +3,7 @@
 Encodes ``runs-execution-model.md`` ("Inputs are vector-scoped and stable"):
 
 * A Mode-1 rerun records measurements under a distinct ``step_retry``; each
-  attempt's scope vector carries ONLY its own measurements (no retry collapse),
+  attempt's step row carries ONLY its own measurements (no retry collapse),
   and ``measurement_count`` is per-attempt — not summed across attempts.
 * The inputs lane uses Start while in-flight and lets End override at finalize,
   so a ``configure()`` value added in the test body is honored at rest.
@@ -104,10 +104,13 @@ def test_mode1_rerun_measurements_attributed_per_attempt(tmp_path):
     _step_end(acc, sid, rid, 1, "passed")
 
     rows = _materialize(acc, tmp_path)
-    vecs = [r for r in rows if r["record_type"] == "vector"]
-    assert len(vecs) == 2
-    # Each attempt's scope vector carries ONLY its own measurement (not both).
-    per_attempt = {v["step_retry"]: [m["value"] for m in (v["measurements"] or [])] for v in vecs}
+    # No vector loop ran → the measurements are step-scope; each attempt is its
+    # own step row (de-fused by step_retry), no vector rows.
+    assert not [r for r in rows if r["record_type"] == "vector"]
+    steps = [r for r in rows if r["record_type"] == "step"]
+    assert len(steps) == 2
+    # Each attempt's step row carries ONLY its own measurement (not both).
+    per_attempt = {s["step_retry"]: [m["value"] for m in (s["measurements"] or [])] for s in steps}
     assert per_attempt == {0: [1.0], 1: [2.0]}
 
 
@@ -152,14 +155,16 @@ def test_overlay_matches_materialized_for_rerun(tmp_path):
     _measure(acc, sid, rid, sr=1, value=2.0, outcome="passed")
     _step_end(acc, sid, rid, 1, "passed")
 
+    # Step-scope measurements: attribution is by step_retry (vector_retry is 0
+    # for both since no vector loop ran). Overlay and at-rest must agree.
     overlay = acc.snapshot_measurement_rows()
-    overlay_facts = sorted((r["measurement_value"], r["vector_retry"]) for r in overlay)
+    overlay_facts = sorted((r["measurement_value"], r["step_retry"]) for r in overlay)
     rows = _materialize(acc, tmp_path)
     at_rest = sorted(
-        (m["value"], v["vector_retry"])
-        for v in rows
-        if v["record_type"] == "vector"
-        for m in (v["measurements"] or [])
+        (m["value"], s["step_retry"])
+        for s in rows
+        if s["record_type"] == "step"
+        for m in (s["measurements"] or [])
     )
     assert overlay_facts == at_rest == [(1.0, 0), (2.0, 1)]
 

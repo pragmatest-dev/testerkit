@@ -351,6 +351,10 @@ class TestStep(BaseModel):
     # inner retry; the de-fuse keys each execution by both axes.
     retry: int = 0
     vectors: list[TestVector] = Field(default_factory=list)
+    # Step-scope data: measurements/inputs/outputs latched when no vector is active.
+    measurements: list[Measurement] = Field(default_factory=list)
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    outputs: dict[str, Any] = Field(default_factory=dict)
     error_message: str | None = None
     instrument_records: list[dict[str, Any]] | None = None
 

@@ -47,14 +47,16 @@ from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.backends._row_helpers import (
     HAS_NUMPY,
     REF_PATH_PREFIX,
+    build_measurement_struct,
+    build_output_columns,
     build_run_metadata,
     build_run_row,
-    build_scope_vector_row,
-    build_step_manifest,
     build_step_row,
     build_vector_row,
     decode_lane_structs,
     run_context_from_run_started,
+    step_entry_dict,
+    vector_entry_dict,
 )
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import (
@@ -243,13 +245,16 @@ class ParquetBackend:
         return parquet_path
 
     def _append_step_rows(self, test_run: TestRun, rows: list[dict[str, Any]]) -> None:
-        """Append a ``record_type='step'`` row plus its scope ``vector`` row.
+        """Append step and vector rows for the offline batch path.
 
-        Used by the batch writer (``save_test_run``). Emits a step row and a
-        scope vector row for each manifest entry; the vector carries the
-        conditions/observations and nested measurements. Delegates to the
-        shared ``build_step_row`` / ``build_scope_vector_row`` helpers so the
-        streaming and batch paths produce identical rows for the same step.
+        Used by the batch writer (``save_test_run``). For each step in the
+        TestRun:
+        - ONE step row (vi=NULL for top-level; enclosing vi for nested)
+        - ONE vector row per vector in ``step.vectors`` (from own VectorStarted
+          events — Mode-1 outer, class-outer, or Mode-2 in-body)
+
+        Step-scope measurements (in ``step.measurements``) ride the step row;
+        vector measurements ride their vector row.
         """
         if not test_run.steps:
             return
@@ -259,45 +264,115 @@ class ParquetBackend:
         run_ended_at = test_run.ended_at
         ref_saver = self._filestore_ref_saver(test_run)
 
-        # ``build_step_manifest`` produces one entry per (step, vector)
-        # pair — same shape ``ParquetSubscriber._build_step_row``
-        # consumes from ``StepManifest`` events. Routing both writers
-        # through the shared ``build_step_row`` helper keeps them in
-        # lock-step.
-        for entry in build_step_manifest(test_run, ref_saver=ref_saver):
-            idx = entry.get("index")
-            step = (
-                test_run.steps[idx]
-                if isinstance(idx, int) and 0 <= idx < len(test_run.steps)
-                else None
-            )
-            instruments = (
-                list(step.instrument_records)
-                if step is not None and step.instrument_records
-                else []
+        parent_has_vectors: set[str] = set()
+        for step in test_run.steps:
+            if step.vectors:
+                parent_has_vectors.add(step.step_path or step.name)
+
+        for index, step in enumerate(test_run.steps):
+            step_path = step.step_path or step.name
+            step_started = step.started_at or test_run.started_at
+            step_ended = step.ended_at or test_run.ended_at or test_run.started_at
+            instruments = list(step.instrument_records or [])
+
+            parent_path = step_path.rsplit("/", 1)[0] if "/" in step_path else None
+            if parent_path is not None and parent_path in parent_has_vectors:
+                # Offline batch path cannot recover the exact enclosing vi; 0 is safe fallback.
+                at_rest_vi: int | None = 0
+            else:
+                at_rest_vi = None
+
+            step_meas = [
+                {
+                    "name": m.name,
+                    "value": m.value,
+                    "unit": m.unit,
+                    "outcome": m.outcome.value if m.outcome else None,
+                    "timestamp": m.timestamp.isoformat() if m.timestamp else None,
+                    "limit_low": m.limit_low,
+                    "limit_high": m.limit_high,
+                    "limit_nominal": m.limit_nominal,
+                    "limit_comparator": m.limit_comparator,
+                    "characteristic_id": m.characteristic_id,
+                    "spec_ref": m.spec_ref,
+                    "uut_pin": m.uut_pin,
+                    "fixture_connection": m.fixture_connection,
+                    "instrument_name": m.instrument_name,
+                    "instrument_resource": m.instrument_resource,
+                    "instrument_channel": m.instrument_channel,
+                }
+                for m in (step.measurements or [])
+            ]
+
+            step_entry = step_entry_dict(
+                index=index,
+                name=step.name,
+                node_id=step.node_id,
+                file=step.file,
+                function=step.function,
+                class_name=step.class_name,
+                module=step.module,
+                step_path=step_path,
+                description=step.description,
+                markers=step.markers,
+                outcome=step.outcome.value if step.outcome else None,
+                started_at=step_started,
+                ended_at=step_ended,
+                vector_index=at_rest_vi,
+                inputs=dict(step.inputs),
+                outputs=dict(step.outputs),
+                measurements=step_meas,
+                measurement_count=len(step_meas),
+                step_retry=step.retry,
+                instrument_records=instruments,
             )
             rows.append(
                 build_step_row(
                     run_context=run_context,
-                    entry=entry,
+                    entry=step_entry,
                     run_outcome=run_outcome,
                     run_ended_at=run_ended_at,
                     instruments=instruments,
                 )
             )
-            # v2: synthesize the scope vector carrying the conditions/
-            # observations the step record sheds (offline path has no
-            # in-body VectorStarted/Ended, so every manifest entry is a
-            # non-looping execution → one scope vector each).
-            rows.append(
-                build_scope_vector_row(
-                    run_context=run_context,
-                    entry=entry,
-                    run_outcome=run_outcome,
-                    run_ended_at=run_ended_at,
-                    instruments=instruments,
+
+            for vec_offset, vector in enumerate(step.vectors):
+                vec_idx = vector.index if vector.index is not None else vec_offset
+                vec_entry = vector_entry_dict(
+                    index=index,
+                    name=step.name,
+                    node_id=step.node_id,
+                    file=step.file,
+                    function=step.function,
+                    class_name=step.class_name,
+                    module=step.module,
+                    step_path=step_path,
+                    markers=step.markers,
+                    step_started_at=step_started,
+                    step_ended_at=step_ended,
+                    vector_index=vec_idx,
+                    retry=vector.retry,
+                    step_retry=step.retry,
+                    outcome=vector.outcome.value if vector.outcome else None,
+                    started_at=vector.started_at or step_started,
+                    ended_at=vector.ended_at or step_ended,
+                    inputs=dict(vector.params),
+                    outputs=build_output_columns(vector, ref_saver=ref_saver),
+                    input_units=dict(vector.param_units),
+                    output_units=dict(vector.observation_units),
+                    output_pins=dict(vector.observation_pins),
+                    measurements=[build_measurement_struct(m) for m in vector.measurements],
+                    instrument_records=instruments,
                 )
-            )
+                rows.append(
+                    build_vector_row(
+                        run_context=run_context,
+                        entry=vec_entry,
+                        run_outcome=run_outcome,
+                        run_ended_at=run_ended_at,
+                        instruments=instruments,
+                    )
+                )
 
     @contextmanager
     def _run_store_ctx(self) -> Generator[RunStore, None, None]:
@@ -542,15 +617,6 @@ def _build_unified_rows_from_acc(
     run_row = _build_run_row_from_acc(acc, run_ended_at=run_ended_at, run_outcome=run_outcome)
     if run_row is not None:
         rows.append(run_row)
-    # v2: synthesized scope vectors (one per non-looping step execution) carry
-    # the conditions/observations the step record sheds; in-body iteration
-    # vectors (Mode 2) carry theirs at the iteration grain.
-    for entry in acc._build_scope_vector_results_from_events():
-        vector_row = _build_vector_row_from_acc(
-            acc, entry, run_ended_at=run_ended_at, run_outcome=run_outcome
-        )
-        if vector_row is not None:
-            rows.append(vector_row)
     for entry in acc._build_vector_results_from_events():
         vector_row = _build_vector_row_from_acc(
             acc, entry, run_ended_at=run_ended_at, run_outcome=run_outcome

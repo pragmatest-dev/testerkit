@@ -18,6 +18,8 @@ from litmus.data.events import (
     RunEnded,
     StepEnded,
     StepStarted,
+    VectorEnded,
+    VectorStarted,
 )
 from litmus.data.models import (
     UUT,
@@ -35,7 +37,6 @@ from litmus.execution._state import (
     get_active_instruments,
     get_active_limits,
     get_active_part_context,
-    get_active_vector_params,
     get_current_context,
     get_current_step,
     get_current_vector,
@@ -195,17 +196,6 @@ def _auto_traceability(name: str) -> dict[str, Any]:
                 result["instrument_resource"] = str(resource)
 
     return result
-
-
-def _snapshot_active_vector_params() -> dict[str, Any]:
-    """Return a copy of the active vector params ContextVar.
-
-    Used by ``start_step`` / ``log_measurement`` to stamp ``TestVector.params``
-    so parquet rows carry parametrize values. Returns an empty dict when no
-    pytest plugin is active (direct / legacy callers). Values are JSON-coerced
-    so events serialize cleanly even for class-type / bytes parametrize values.
-    """
-    return coerce_dict(get_active_vector_params())
 
 
 def _resolve_measurement_limit(
@@ -492,7 +482,9 @@ class RunScope:
         # contextvar pointing at the wrong step), so we keep a full stack.
         self._step_tokens: list[Token[TestStep | None]] = []
         self._vector_tokens: list[Token[TestVector | None]] = []
+        self._outer_vector_tokens: list[Token[TestVector | None]] = []
         self._owning_contexts: list[Any] = []
+        self._step_enclosing: list[TestVector | None] = []
         # Clear contextvars — each logger owns its execution context
         push_current_step(None)
         push_current_vector(None)
@@ -614,9 +606,7 @@ class RunScope:
         description: str | None = None,
         *,
         step_index: int | None = None,
-        vector_index: int | None = None,
         step_retry: int = 0,
-        inputs: dict[str, Any] | None = None,
         node_id: str | None = None,
         file: str | None = None,
         module: str | None = None,
@@ -626,18 +616,14 @@ class RunScope:
     ):
         """Begin a new test step. Supports nesting via step_path.
 
-        ``step_index`` / ``vector_index`` / ``inputs`` are pre-assigned by the
-        pytest plugin during collection so that:
+        ``step_index`` is pre-assigned by the pytest plugin during collection so
+        sweep variants of the same logical step share one (sequence-relative)
+        position. The step's own sweep condition is carried by a vector
+        (``begin_outer_vector``), not the step record; the step's ``vector_index``
+        is the enclosing iteration, resolved from the active vector at entry.
 
-        * sweep variants of the same logical step share one ``step_index``
-          (sequence-relative position) and differ only by ``vector_index``;
-        * the commanded sweep parameters reach the StepStarted event via the inputs lane
-          and the step row directly, without subscribers having to wait for a
-          measurement to arrive.
-
-        When the kwargs are omitted (manual nested ``with harness.step(...)``
-        usage, legacy paths), ``step_index`` falls back to the auto-incrementing
-        counter and ``vector_index`` defaults to 0.
+        When ``step_index`` is omitted (manual nested ``with harness.step(...)``
+        usage, legacy paths), it falls back to the auto-incrementing counter.
         """
         # Auto-close any prior step that wasn't explicitly ended.
         # Exception: when the new step is a class method nesting under its
@@ -677,21 +663,14 @@ class RunScope:
         )
         self._next_step_index(step_index)
         self.test_run.steps.append(step)
-        # Create a default vector for this step. Plugin-supplied inputs are the
-        # commanded sweep params; fall back to the active-vector snapshot for
-        # manual/in-test vector iteration paths.  Coerce to JSON-safe values so
-        # StepStarted/StepEnded serialize cleanly when parametrize values are
-        # bytes or class types.
-        vec_params = coerce_dict(inputs) if inputs is not None else _snapshot_active_vector_params()
-        vector = TestVector(index=vector_index or 0, params=vec_params)
-        step.vectors.append(vector)
-        # Push onto token stacks so end_step() can pop the parent back into
-        # current_step / current_vector instead of collapsing to None.
+        enclosing = get_current_vector()
+        self._step_enclosing.append(enclosing)
+        if enclosing is not None:
+            step.inputs = dict(coerce_dict(enclosing.params))
         self._step_tokens.append(push_current_step(step))
-        self._vector_tokens.append(push_current_vector(vector))
         self._owning_contexts.append(get_current_context())
 
-        self._emit_step_event(step, is_start=True)
+        self._emit_step_event(step, is_start=True, enclosing=enclosing)
 
     def register_step(self, step: TestStep, step_index: int | None = None) -> int:
         """Register an externally-created step. Returns step index.
@@ -745,20 +724,24 @@ class RunScope:
         self._emit_step_event(step, is_start=False)
 
     def _emit_step_event(
-        self, step: TestStep, *, is_start: bool, owning_context: Any = None
+        self,
+        step: TestStep,
+        *,
+        is_start: bool,
+        owning_context: Any = None,
+        enclosing: TestVector | None = None,
     ) -> None:
         """Emit a StepStarted or StepEnded event for ``step``.
 
         Single helper used by :meth:`start_step` and :meth:`end_step` so the
         payload shape stays in sync.
 
-        The step's identity (``vector_index``, ``inputs``) comes from the
-        FIRST vector appended at ``start_step`` — the outer/sweep position
-        that pytest's parametrize fanned out into this step. Subsequent
-        vectors (from a self-loop ``vectors`` fixture iteration) contribute
-        measurements but don't change the step's identity, so
-        ``StepStarted`` and ``StepEnded`` carry matching ``(step_path,
-        vector_index)``.
+        ``enclosing`` is the parent loop's active vector this step ran under
+        (``None`` when not nested in a loop). Its ``index`` is the step's
+        ``vector_index`` — the enclosing iteration, NOT this step's own sweep
+        variant — and its params are the inherited condition pre-merged onto
+        the step's own inputs (so a step-scope measurement carries the
+        enclosing sweep without a chain-walk).
 
         ``vector_outcome`` on ``StepEnded`` aggregates across all vectors
         via :func:`escalate_outcome` so self-loop iterations roll into a
@@ -766,16 +749,9 @@ class RunScope:
         """
         if self._event_log is None:
             return
-        vec = step.vectors[0] if step.vectors else None
-        if not is_start and vec is not None and not self._step_ran_inbody_loop(step.step_path):
-            ctx = owning_context if owning_context is not None else get_current_context()
-            if ctx is not None:
-                vec.params = {**vec.params, **coerce_dict(ctx.configured_params)}
-        vec_index = vec.index if vec is not None else 0
-        inputs = coerce_dict(vec.params) if vec is not None else {}
-        input_units = dict(vec.param_units) if vec is not None else {}
-        output_units = dict(vec.observation_units) if vec is not None else {}
-        output_pins = dict(vec.observation_pins) if vec is not None else {}
+        enc_vi = enclosing.index if enclosing is not None else 0
+        enc_inputs = coerce_dict(enclosing.params) if enclosing is not None else {}
+        enc_units = dict(enclosing.param_units) if enclosing is not None else {}
         if is_start:
             event: StepStarted | StepEnded = StepStarted(
                 session_id=self._session_id,
@@ -784,10 +760,10 @@ class RunScope:
                 step_index=self._current_step_index,
                 step_path=step.step_path,
                 description=step.description,
-                vector_index=vec_index,
+                vector_index=enc_vi,
                 retry=step.retry,
-                inputs=inputs,
-                input_units=input_units,
+                inputs=enc_inputs,
+                input_units=enc_units,
                 node_id=step.node_id,
                 file=step.file,
                 module=step.module,
@@ -795,14 +771,13 @@ class RunScope:
                 function=step.function,
             )
         else:
-            # Aggregate per-vector outcomes via the severity ladder so a
-            # self-loop step with multiple inner vectors rolls up to one
-            # verdict instead of reflecting only the last iteration.
+            ctx = owning_context if owning_context is not None else get_current_context()
             agg: Outcome | None = None
             for v in step.vectors:
                 if v.outcome is not None:
                     agg = escalate_outcome(agg, v.outcome)
             vec_outcome = agg.value if agg is not None else None
+            own_inputs = coerce_dict(ctx.configured_params) if ctx is not None else {}
             event = StepEnded(
                 session_id=self._session_id,
                 run_id=self.test_run.id,
@@ -810,14 +785,14 @@ class RunScope:
                 step_index=self._current_step_index,
                 step_path=step.step_path,
                 outcome=step.outcome.value if step.outcome else None,
-                vector_index=vec_index,
+                vector_index=enc_vi,
                 retry=step.retry,
                 vector_outcome=vec_outcome,
-                inputs=inputs,
-                outputs=coerce_dict(vec.observations) if vec is not None else {},
-                input_units=input_units,
-                output_units=output_units,
-                output_pins=output_pins,
+                inputs={**enc_inputs, **own_inputs},
+                outputs=coerce_dict(ctx.observations) if ctx is not None else {},
+                input_units=enc_units,
+                output_units={},
+                output_pins={},
                 node_id=step.node_id,
                 file=step.file,
                 module=step.module,
@@ -839,21 +814,22 @@ class RunScope:
             step = get_current_step()
         assert step is not None
 
-        # Resolve vector: contextvar only → auto-create
-        vector = get_current_vector()
-        if vector is None:
-            vector = TestVector(params=_snapshot_active_vector_params())
-            step.vectors.append(vector)
-            self._vector_tokens.append(push_current_vector(vector))
+        # Enclosing class-outer vectors live in the parent step's vectors list, not this step's.
+        active_vector = get_current_vector()
+        is_own_vector = active_vector is not None and active_vector in step.vectors
 
-        # Stamp step_path from the resolved step so downstream consumers
-        # (traceability audit, parquet projection) don't see empty strings.
         if not measurement.step_path:
             measurement.step_path = step.step_path
 
-        # Guard against double-append (harness.measure() appends before calling us)
-        if measurement not in vector.measurements:
-            vector.measurements.append(measurement)
+        if is_own_vector:
+            assert active_vector is not None
+            vector = active_vector
+            if measurement not in vector.measurements:
+                vector.measurements.append(measurement)
+        else:
+            vector = None
+            if measurement not in step.measurements:
+                step.measurements.append(measurement)
 
         # Outcome is set by every caller before reaching here:
         # ``logger.measure`` stamps via the ``outcome=`` kwarg (default
@@ -868,14 +844,9 @@ class RunScope:
                 "Stamp via logger.measure(outcome=...), check_limit(), or "
                 "set measurement.outcome explicitly before calling."
             )
-        # Cascade outcome up the vector → step hierarchy via the
-        # severity ladder (ABORTED > TERMINATED > ERRORED > FAILED >
-        # PASSED > DONE > SKIPPED). ``None`` ranks below everything.
-        # Run outcome is NOT stamped incrementally — ``finalize()``
-        # computes it from steps via :func:`retry_aware_rollup` so a
-        # retry that passes correctly stamps the run as PASSED
-        # instead of the worst earlier attempt's outcome.
-        vector.outcome = escalate_outcome(vector.outcome, measurement.outcome)
+        # Run outcome is NOT stamped here — finalize() computes it via retry_aware_rollup.
+        if vector is not None:
+            vector.outcome = escalate_outcome(vector.outcome, measurement.outcome)
         step.outcome = escalate_outcome(step.outcome, measurement.outcome)
 
         # A measurement carrying limits is structurally equivalent
@@ -893,15 +864,14 @@ class RunScope:
 
         # Emit event if event log is wired
         if self._event_log is not None:
-            # Merge outer (step-level) params into the measurement's
-            # ``inputs`` so each row carries the full effective sweep
-            # context — outer voltage at the step level plus inner
-            # current from the active vector. Inner wins on key conflict
-            # (matches how the user would think about overrides).
-            outer_params: dict[str, Any] = {}
-            if step.vectors:
-                outer_params = dict(step.vectors[0].params)
-            inputs = {**outer_params, **build_input_columns(vector)}
+            if vector is not None:
+                inputs = {**step.inputs, **build_input_columns(vector)}
+            else:
+                inputs = dict(step.inputs)
+            # enc_vi routes step-scope events so the accumulator can match them to the step row.
+            enc_vi = active_vector.index if active_vector is not None else 0
+            event_vi = vector.index if vector is not None else enc_vi
+            event_retry = vector.retry if vector is not None else 0
             event = MeasurementRecorded(
                 session_id=self._session_id,
                 run_id=self.test_run.id,
@@ -909,9 +879,9 @@ class RunScope:
                 step_name=step.name,
                 step_index=self._current_step_index,
                 step_path=step.step_path,
-                vector_index=vector.index,
+                vector_index=event_vi,
                 step_retry=step.retry,
-                retry=vector.retry,
+                retry=event_retry,
                 # Measurement fields
                 measurement_name=measurement.name,
                 measurement_timestamp=measurement.timestamp,
@@ -929,12 +899,13 @@ class RunScope:
                 instrument_name=measurement.instrument_name,
                 instrument_resource=measurement.instrument_resource,
                 instrument_channel=measurement.instrument_channel,
-                # Dynamic columns (outer step params + per-iteration vector params)
                 inputs=inputs,
                 outputs=build_output_columns(
                     vector,
                     ref_saver=self._make_ref_saver(),
-                ),
+                )
+                if vector is not None
+                else {},
             )
             self._event_log.emit(event)
 
@@ -948,8 +919,15 @@ class RunScope:
             vector.ended_at = _utcnow()
 
         owning = self._owning_contexts[-1] if self._owning_contexts else None
+        enc = self._step_enclosing[-1] if self._step_enclosing else None
         if step is not None:
-            self._emit_step_event(step, is_start=False, owning_context=owning)
+            ctx = owning if owning is not None else get_current_context()
+            if ctx is not None:
+                own_inputs = coerce_dict(ctx.configured_params)
+                step.inputs = {**step.inputs, **own_inputs}
+                step.outputs = coerce_dict(ctx.observations)
+        if step is not None:
+            self._emit_step_event(step, is_start=False, owning_context=owning, enclosing=enc)
 
         # Pop step from hierarchy stack
         if self._step_stack:
@@ -965,6 +943,68 @@ class RunScope:
             reset_current_vector(self._vector_tokens.pop())
         if self._owning_contexts:
             self._owning_contexts.pop()
+        if self._step_enclosing:
+            self._step_enclosing.pop()
+
+    def begin_outer_vector(self, vector: TestVector) -> None:
+        """Push a sweep-source vector (Mode-1 parametrize or class-outer) and emit VectorStarted.
+
+        Uses a separate token stack so end_step() for a nested method step does not
+        accidentally pop a class-outer vector that must span multiple method runs.
+        """
+        step = get_current_step()
+        if step is not None and vector not in step.vectors:
+            step.vectors.append(vector)
+        self._outer_vector_tokens.append(push_current_vector(vector))
+        if self._event_log is None:
+            return
+        step_path = getattr(step, "step_path", "") if step else ""
+        occurrence = self.next_vector_occurrence(step_path, vector.index)
+        vector.retry = occurrence
+        self._event_log.emit(
+            VectorStarted(
+                session_id=self._session_id,
+                run_id=self.test_run.id,
+                step_name=getattr(step, "name", "") if step else "",
+                step_index=self._current_step_index,
+                step_path=step_path,
+                vector_index=vector.index,
+                retry=occurrence,
+                step_retry=getattr(step, "retry", 0) if step else 0,
+                inputs=coerce_dict(vector.params),
+                input_units=dict(vector.param_units),
+                node_id=getattr(step, "node_id", None) if step else None,
+            )
+        )
+
+    def end_outer_vector(self, vector: TestVector) -> None:
+        """Emit VectorEnded for ``vector`` and pop its token from the active context."""
+        step = get_current_step()
+        # Sync only when None: Mode-1 vectors already have outcome from log_measurement.
+        if step is not None and vector in step.vectors and vector.outcome is None:
+            vector.outcome = step.outcome
+        if self._event_log is not None:
+            self._event_log.emit(
+                VectorEnded(
+                    session_id=self._session_id,
+                    run_id=self.test_run.id,
+                    step_name=getattr(step, "name", "") if step else "",
+                    step_index=self._current_step_index,
+                    step_path=getattr(step, "step_path", "") if step else "",
+                    vector_index=vector.index,
+                    retry=vector.retry,
+                    step_retry=getattr(step, "retry", 0) if step else 0,
+                    outcome=vector.outcome.value if vector.outcome is not None else None,
+                    inputs=coerce_dict(vector.params),
+                    outputs=coerce_dict(vector.observations),
+                    input_units=dict(vector.param_units),
+                    output_units=dict(vector.observation_units),
+                    output_pins=dict(vector.observation_pins),
+                    node_id=getattr(step, "node_id", None) if step else None,
+                )
+            )
+        if self._outer_vector_tokens:
+            reset_current_vector(self._outer_vector_tokens.pop())
 
     def measure(
         self,

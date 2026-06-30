@@ -62,18 +62,19 @@ class TestMaterializer:
         assert len(pq_files) == 1
 
         table = pq.read_table(pq_files[0])
-        # Run row + vector row (carrying the nested measurement) + step row.
-        # No StepStarted/StepEnded events were emitted, so only one
-        # (step, vector_index=0) pair exists.
+        # Run row + step row carrying the nested measurement. No vector loop
+        # ran (no VectorStarted/Ended), so the measurement is step-scope and
+        # rides on the step record — there is NO vector row.
         rows_by_kind = {r["record_type"]: r for r in table.to_pylist()}
         assert "run" in rows_by_kind
-        assert "vector" in rows_by_kind
-        vec_row = rows_by_kind["vector"]
-        assert [m["name"] for m in vec_row["measurements"]] == ["vout"]
-        assert vec_row["measurements"][0]["value"] == 3.3
-        assert vec_row["station_id"] == "st1"
-        assert vec_row["uut_serial_number"] == "SN001"
-        assert vec_row["run_outcome"] == "passed"
+        assert "vector" not in rows_by_kind
+        assert "step" in rows_by_kind
+        step_row = rows_by_kind["step"]
+        assert [m["name"] for m in step_row["measurements"]] == ["vout"]
+        assert step_row["measurements"][0]["value"] == 3.3
+        assert step_row["station_id"] == "st1"
+        assert step_row["uut_serial_number"] == "SN001"
+        assert step_row["run_outcome"] == "passed"
 
     def test_instruments_cached(self, tmp_path):
         acc = EventAccumulator()
@@ -239,9 +240,9 @@ class TestMaterializer:
 
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         table = pq.read_table(pq_files[0])
-        # Pick the vector row — step identity columns ride on it (it carries
-        # the nested measurement). The run row carries no step identity.
-        rows = [r for r in table.to_pylist() if r["record_type"] == "vector"]
+        # No vector loop ran, so the measurement is step-scope: step identity
+        # columns ride on the step row (which carries the nested measurement).
+        rows = [r for r in table.to_pylist() if r["record_type"] == "step"]
         assert len(rows) == 1
         row = rows[0]
         assert row["step_node_id"] == "tests/test_power.py::TestPower::test_5v_rail"
@@ -327,10 +328,11 @@ class TestMaterializer:
             (r for r in rows if r["record_type"] == "step"),
             key=lambda r: r["step_index"],
         )
-        # Measurements are nested on the vector rows; count per step_index.
+        # No vector loops ran; step-scope measurements are nested on the
+        # step rows. Count per step_index.
         meas_by_step: dict[int, int] = {}
         for r in rows:
-            if r["record_type"] == "vector":
+            if r["record_type"] == "step":
                 meas_by_step[r["step_index"]] = meas_by_step.get(r["step_index"], 0) + len(
                     r.get("measurements") or []
                 )

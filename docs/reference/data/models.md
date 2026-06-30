@@ -1035,6 +1035,9 @@ A test step containing test vectors.
 | `outcome` | `Outcome \| None` | `None` |
 | `retry` | `int` | `0` |
 | `vectors` | `list[TestVector]` | `[]` |
+| `measurements` | `list[Measurement]` | `[]` |
+| `inputs` | `dict[str, Any]` | `{}` |
+| `outputs` | `dict[str, Any]` | `{}` |
 | `error_message` | `str \| None` | `None` |
 | `instrument_records` | `list[dict[str, Any]] \| None` | `None` |
 

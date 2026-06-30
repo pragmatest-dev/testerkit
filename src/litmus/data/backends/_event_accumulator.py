@@ -58,8 +58,10 @@ def _step_key(event: Any) -> tuple[str, int, int]:
     (and tests) that emit events without populating step_path
     still get distinct keys per step. ``step_retry`` (the outer item
     attempt) makes each rerun its own execution row instead of
-    overwriting the prior attempt (the de-fuse). Vector index
-    distinguishes sweep variants and class-container iterations.
+    overwriting the prior attempt (the de-fuse). ``vector_index`` is
+    the ENCLOSING iteration this step ran under — null/0 at top level
+    (all variants collapse to one logical step entry), 0..N for methods
+    nested under a swept class (each enclosing iteration = distinct row).
     """
     path = event.step_path or event.step_name or ""
     return (path, getattr(event, "retry", 0) or 0, event.vector_index)
@@ -297,34 +299,60 @@ class EventAccumulator:
                     ),
                 }
             )
+        for entry in self._build_vector_results_from_events():
+            rows.append(
+                {
+                    "run_id": _safe_str(s.run_id),
+                    "step_index": entry.get("index"),
+                    "session_id": _safe_str(s.session_id),
+                    "slot_id": s.slot_id,
+                    "step_name": entry.get("name"),
+                    "step_path": entry.get("step_path"),
+                    "vector_index": entry.get("vector_index"),
+                    # Daemon aggregation FILTERs step-level columns to the step record.
+                    "outcome": None,
+                    "started_at": None,
+                    "ended_at": None,
+                    "duration_s": None,
+                    "step_retry": entry.get("step_retry", 0),
+                    "measurement_count": len(entry.get("measurements") or []),
+                    "markers": None,
+                    "uut_serial_number": s.uut_serial_number,
+                    "station_id": s.station_id,
+                    "file_path": None,
+                    "run_outcome": outcome,
+                    "run_ended_at": ended_at,
+                    "dynamic_attrs": _pack_dynamic_attrs(
+                        entry.get("inputs") or {},
+                        entry.get("outputs") or {},
+                    ),
+                }
+            )
         return rows
 
     def snapshot_measurement_rows(self) -> list[dict[str, Any]]:
-        """Return flat measurement-fact rows matching the daemon's UNNEST.
-
-        Each measurement is nested under its vector at-rest; the daemon
-        builds the flat fact by UNNESTing those structs and sourcing
-        ``dynamic_attrs`` from the enclosing vector's in/out lanes. The
-        overlay mirrors that: ``dynamic_attrs`` comes from the measurement's
-        enclosing (scope or iteration) vector — identical to how
-        ``snapshot_step_rows`` packs a step's lanes, so overlay and
-        materialized stay byte-identical.
-        """
+        """Return flat measurement-fact rows matching the daemon's UNNEST."""
         if not self._run_started:
             return []
         ended_at = self._run_ended.occurred_at if self._run_ended else None
         outcome = self._run_ended.outcome if self._run_ended else None
         vectors_by_key: dict[tuple[str, int, int], dict[str, Any]] = {}
-        for entry in (
-            *self._build_scope_vector_results_from_events(),
-            *self._build_vector_results_from_events(),
-        ):
+        for entry in self._build_vector_results_from_events():
             key = (
                 entry.get("step_path") or "",
                 entry.get("vector_index", 0),
                 entry.get("retry", 0),
             )
             vectors_by_key[key] = entry
+        # AT-REST vector_index (may be None) must match the step entry's key.
+        steps_by_key: dict[tuple[str, int, int | None], dict[str, Any]] = {}
+        for entry in self._build_step_results_from_events():
+            key = (
+                entry.get("step_path") or "",
+                entry.get("step_retry", 0) or 0,
+                entry.get("vector_index"),
+            )
+            steps_by_key[key] = entry
         looped = self._looped_keys()
         rows: list[dict[str, Any]] = []
         for event in self._measurement_events:
@@ -332,33 +360,35 @@ class EventAccumulator:
             row["run_ended_at"] = ended_at
             row["run_outcome"] = outcome
             path = event.step_path or event.step_name or ""
-            # A looped step's measurement lands on its iteration vector (keyed by
-            # vector_retry = the occurrence ordinal on event.retry); a non-looped
-            # step's lands on its scope vector (keyed by step_retry). Mirrors the
-            # at-rest scope/iteration split so overlay and parquet agree.
-            enclosing_retry = (
-                event.retry or 0
-                if (path, event.vector_index) in looped
-                else getattr(event, "step_retry", 0) or 0
-            )
-            entry = vectors_by_key.get(
-                (path, event.vector_index, enclosing_retry)
-            ) or vectors_by_key.get((path, event.vector_index, 0))
-            in_lanes = (entry.get("inputs") if entry else None) or {}
-            out_lanes = (entry.get("outputs") if entry else None) or {}
-            row["dynamic_attrs"] = _pack_dynamic_attrs(in_lanes, out_lanes)
-            # Mirror the daemon UNNEST: the fact's vector/step rollup context
-            # comes from the ENCLOSING vector row, not the measurement event.
-            # Vector rows shed the step rollup (step_outcome lives on the 'step'
-            # record). vector_retry is the enclosing vector's occurrence ordinal
-            # (scope vector = step_retry; iteration vector = its (step_path,
-            # vector_index) ordinal) — identical to the materialized v.vector_retry.
-            row["vector_retry"] = entry.get("retry", 0) if entry else 0
-            row["vector_outcome"] = entry.get("outcome") if entry else None
-            row["step_outcome"] = None
-            if entry is not None:
-                row["step_started_at"] = _to_datetime(entry.get("step_started_at"))
-                row["step_ended_at"] = _to_datetime(entry.get("step_ended_at"))
+            if (path, event.vector_index) in looped:
+                entry = vectors_by_key.get(
+                    (path, event.vector_index, event.retry or 0)
+                ) or vectors_by_key.get((path, event.vector_index, 0))
+                in_lanes = (entry.get("inputs") if entry else None) or {}
+                out_lanes = (entry.get("outputs") if entry else None) or {}
+                row["dynamic_attrs"] = _pack_dynamic_attrs(in_lanes, out_lanes)
+                row["vector_retry"] = entry.get("retry", 0) if entry else 0
+                row["vector_outcome"] = entry.get("outcome") if entry else None
+                row["step_outcome"] = None
+                if entry is not None:
+                    row["step_started_at"] = _to_datetime(entry.get("step_started_at"))
+                    row["step_ended_at"] = _to_datetime(entry.get("step_ended_at"))
+            else:
+                # lookup_vi reconstructs the step entry's AT-REST key (None for top-level steps).
+                lookup_vi = event.vector_index if self._parent_emitted_vectors(path) else None
+                step_entry = steps_by_key.get(
+                    (path, getattr(event, "step_retry", 0) or 0, lookup_vi)
+                )
+                in_lanes = (step_entry.get("inputs") if step_entry else None) or {}
+                out_lanes = (step_entry.get("outputs") if step_entry else None) or {}
+                row["dynamic_attrs"] = _pack_dynamic_attrs(in_lanes, out_lanes)
+                row["vector_index"] = None
+                row["vector_retry"] = None
+                row["vector_outcome"] = None
+                row["step_outcome"] = step_entry.get("outcome") if step_entry else None
+                if step_entry is not None:
+                    row["step_started_at"] = _to_datetime(step_entry.get("started_at"))
+                    row["step_ended_at"] = _to_datetime(step_entry.get("ended_at"))
             rows.append(row)
         return rows
 
@@ -482,32 +512,25 @@ class EventAccumulator:
 
     def _partition_measurements(
         self,
-    ) -> tuple[
-        dict[tuple[str, int, int], list[dict[str, Any]]],
-        dict[tuple[str, int, int], list[dict[str, Any]]],
-    ]:
+    ) -> dict[tuple[str, int, int], list[dict[str, Any]]]:
         """Group measurement structs by enclosing vector, full-identity keyed.
 
-        Returns ``(by_iteration, by_scope)``:
-
-        * ``by_iteration`` keyed ``(step_path, vector_index, vector_retry)`` for
-          Mode-2 in-body vectors — ``vector_retry`` is the occurrence ordinal on
-          ``MeasurementRecorded.retry``, which already spans step reruns.
-        * ``by_scope`` keyed ``(step_path, step_retry, vector_index)`` for the
-          synthesized scope vector — a Mode-1 rerun records measurements under a
-          distinct ``step_retry``, so each attempt's scope vector reads only its
-          own measurements (no retry collapse).
+        Returns ``by_vector`` keyed ``(step_path, vector_index, vector_retry)``
+        for measurements that landed inside an active vector (Mode-2 in-body
+        or Mode-1/class-outer outer vector). Measurements recorded with no own
+        active vector (step-scope) carry the enclosing iteration index on the
+        event but are NOT in ``_vector_starts`` for their step_path — the
+        accumulator assigns them to the step row instead (see
+        ``_build_step_results_from_events``).
         """
-        by_iteration: dict[tuple[str, int, int], list[dict[str, Any]]] = {}
-        by_scope: dict[tuple[str, int, int], list[dict[str, Any]]] = {}
+        by_vector: dict[tuple[str, int, int], list[dict[str, Any]]] = {}
+        looped = self._looped_keys()
         for e in self._measurement_events:
             path = e.step_path or e.step_name or ""
             struct = _measurement_event_struct(e)
-            by_iteration.setdefault((path, e.vector_index, e.retry or 0), []).append(struct)
-            by_scope.setdefault(
-                (path, getattr(e, "step_retry", 0) or 0, e.vector_index), []
-            ).append(struct)
-        return by_iteration, by_scope
+            if (path, e.vector_index) in looped:
+                by_vector.setdefault((path, e.vector_index, e.retry or 0), []).append(struct)
+        return by_vector
 
     def _build_vector_results_from_events(self) -> list[dict[str, Any]]:
         """Build in-body vector manifest entries from VectorStarted/VectorEnded.
@@ -521,7 +544,7 @@ class EventAccumulator:
         enclosing leaf step's identity (node_id / file / class / function /
         timing) is sourced from its StepStarted when present.
         """
-        by_iteration, _ = self._partition_measurements()
+        by_iteration = self._partition_measurements()
         reserved_by_step, structs_by_role = self._reserved_instrument_lookups()
         entries: list[dict[str, Any]] = []
         keys = sorted(
@@ -584,107 +607,6 @@ class EventAccumulator:
             )
         return entries
 
-    def _build_scope_vector_results_from_events(self) -> list[dict[str, Any]]:
-        """Synthesize one scope ``vector`` entry per step-execution (v2).
-
-        Decision A: the scope vector is DERIVED here so the at-rest parquet is
-        uniform — every step that does NOT run an in-body loop (Mode 1,
-        parametrize item, class container, single, measurement-less) gets one
-        vector row carrying the conditions/observations the step record sheds,
-        keyed ``(step_path, vector_index, retry=0)`` to match the step and its
-        measurements (so the EAV vector-key join is unchanged).
-
-        A step that DID run an in-body loop already has its data on the
-        iteration ``vector`` rows (``_build_vector_results_from_events``), so no
-        scope vector is synthesized for it (avoids colliding with iteration 0).
-        """
-        # step keys with in-body iterations (any retry) — keyed (path, vec_idx).
-        looped = self._looped_keys()
-        _, by_scope = self._partition_measurements()
-        entries: list[dict[str, Any]] = []
-        emitted: set[tuple[str, int, int]] = set()
-        for step_entry in self._build_step_results_from_events():
-            path = step_entry.get("step_path") or ""
-            vec_idx = step_entry.get("vector_index", 0)
-            step_retry = step_entry.get("step_retry", 0) or 0
-            if (path, vec_idx) in looped:
-                continue
-            emitted.add((path, step_retry, vec_idx))
-            entries.append(
-                vector_entry_dict(
-                    index=step_entry.get("index", 0),
-                    name=step_entry.get("name", ""),
-                    node_id=step_entry.get("node_id"),
-                    file=step_entry.get("file"),
-                    function=step_entry.get("function"),
-                    class_name=step_entry.get("class_name"),
-                    module=step_entry.get("module"),
-                    step_path=path,
-                    markers=step_entry.get("markers"),
-                    step_started_at=_to_datetime(step_entry.get("started_at")),
-                    step_ended_at=_to_datetime(step_entry.get("ended_at")),
-                    vector_index=vec_idx,
-                    # The scope vector runs exactly once per step execution, so
-                    # its (step_path, vector_index) occurrence ordinal IS the
-                    # step's attempt count — vector_retry = step_retry.
-                    retry=step_retry,
-                    step_retry=step_retry,
-                    outcome=step_entry.get("outcome"),
-                    started_at=_to_datetime(step_entry.get("started_at")),
-                    ended_at=_to_datetime(step_entry.get("ended_at")),
-                    inputs=step_entry.get("inputs") or {},
-                    outputs=step_entry.get("outputs") or {},
-                    input_units=step_entry.get("input_units") or {},
-                    output_units=step_entry.get("output_units") or {},
-                    output_pins=step_entry.get("output_pins") or {},
-                    measurements=by_scope.get((path, step_retry, vec_idx), []),
-                    instrument_records=step_entry.get("instrument_records") or [],
-                )
-            )
-        # Orphan measurements — a MeasurementRecorded whose (step_path,
-        # step_retry, vector_index) saw no StepStarted/VectorStarted still needs
-        # a carrier vector so it is never dropped (events are truth; no data loss).
-        for (path, step_retry, vec_idx), structs in by_scope.items():
-            if (path, vec_idx) in looped or (path, step_retry, vec_idx) in emitted:
-                continue
-            m_event = next(
-                (
-                    e
-                    for e in self._measurement_events
-                    if (e.step_path or e.step_name or "") == path
-                    and e.vector_index == vec_idx
-                    and (getattr(e, "step_retry", 0) or 0) == step_retry
-                ),
-                None,
-            )
-            entries.append(
-                vector_entry_dict(
-                    index=m_event.step_index if m_event else 0,
-                    name=(m_event.step_name if m_event else "") or "",
-                    node_id=None,
-                    file=None,
-                    function=None,
-                    class_name=None,
-                    module=None,
-                    step_path=path,
-                    markers=None,
-                    step_started_at=None,
-                    step_ended_at=None,
-                    vector_index=vec_idx,
-                    retry=step_retry,
-                    step_retry=step_retry,
-                    outcome=None,
-                    started_at=None,
-                    ended_at=None,
-                    inputs={},
-                    outputs={},
-                    input_units={},
-                    output_units={},
-                    measurements=structs,
-                )
-            )
-        return entries
-
     def _build_row(self, event: Any) -> dict[str, Any]:
         """Denormalize a MeasurementRecorded event into a flat row dict."""
         idx = event.step_index
@@ -710,6 +632,7 @@ class EventAccumulator:
             step_outcome=end.outcome if end else None,
             vector_index=vec,
             vector_retry=event.retry,
+            step_retry=getattr(event, "step_retry", 0) or 0,
             measurement_name=event.measurement_name,
             measurement_timestamp=event.measurement_timestamp,
             measurement_value=event.value,
@@ -757,11 +680,14 @@ class EventAccumulator:
         executed_node_ids: set[str] = set()
         executed_vectors: set[tuple[str, int]] = set()
 
-        meas_counts: dict[tuple[str, int, int], int] = {}
+        looped = self._looped_keys()
+        # Step-scope measurements only; swept steps' vector measurements count on vector rows.
+        step_scope_meas: dict[tuple[str, int, int], list[dict[str, Any]]] = {}
         for e in self._measurement_events:
             path = e.step_path or e.step_name or ""
             key = (path, getattr(e, "step_retry", 0) or 0, e.vector_index)
-            meas_counts[key] = meas_counts.get(key, 0) + 1
+            if (path, e.vector_index) not in looped:
+                step_scope_meas.setdefault(key, []).append(_measurement_event_struct(e))
 
         # Observations per vector key — merged into the step entry's outputs
         # so the step record carries the vector's observations on its lanes.
@@ -790,6 +716,7 @@ class EventAccumulator:
 
         reserved_by_step, structs_by_role = self._reserved_instrument_lookups()
         all_keys = sorted(set(self._step_starts) | set(self._step_ends), key=_sort_key)
+        emitted_step_keys: set[tuple[str, int, int]] = set()
         for key in all_keys:
             path, step_retry, vec = key
             start = self._step_starts.get(key)
@@ -803,14 +730,17 @@ class EventAccumulator:
             # have distinct node_ids, so keying by node_id misses cross-CI
             # matches.
             executed_vectors.add((path, vec))
+            emitted_step_keys.add(key)
+            step_meas = step_scope_meas.get((path, step_retry, vec), [])
             entry = self._build_step_entry(
                 key,
                 start,
                 end,
-                meas_counts.get((path, step_retry, vec), 0),
+                len(step_meas),
                 obs_by_key.get((path, vec), {}),
                 obs_units_by_key.get((path, vec), {}),
                 obs_pins_by_key.get((path, vec), {}),
+                step_measurements=step_meas,
             )
             s_idx = entry.get("index", 0)
             s_retry = entry.get("step_retry", 0) or 0
@@ -820,6 +750,44 @@ class EventAccumulator:
             ]
             manifest.append(entry)
 
+        # Orphan: no StepStarted/StepEnded; synthesize minimal so measurements are never dropped.
+        for mkey, structs in step_scope_meas.items():
+            if mkey in emitted_step_keys:
+                continue
+            path, step_retry, vec = mkey
+            m_event = next(
+                (
+                    e
+                    for e in self._measurement_events
+                    if (e.step_path or e.step_name or "") == path
+                    and e.vector_index == vec
+                    and (getattr(e, "step_retry", 0) or 0) == step_retry
+                ),
+                None,
+            )
+            executed_vectors.add((path, vec))
+            manifest.append(
+                step_entry_dict(
+                    index=m_event.step_index if m_event else 0,
+                    name=(m_event.step_name if m_event else "") or "",
+                    node_id=None,
+                    file=None,
+                    function=None,
+                    class_name=None,
+                    module=None,
+                    step_path=path,
+                    description=None,
+                    markers=None,
+                    outcome=None,
+                    started_at=None,
+                    ended_at=None,
+                    vector_index=vec if self._parent_emitted_vectors(path) else None,
+                    measurements=structs,
+                    measurement_count=len(structs),
+                    step_retry=step_retry,
+                )
+            )
+
         _append_not_started(
             manifest,
             self._collected_items,
@@ -827,6 +795,19 @@ class EventAccumulator:
             executed_vectors=executed_vectors,
         )
         return manifest
+
+    def _parent_emitted_vectors(self, step_path: str) -> bool:
+        """True when the parent step emitted at least one VectorStarted event.
+
+        Used for null-vs-0 reconstruction: step rows whose parent DID loop
+        keep their enclosing vector_index at rest; top-level or non-swept
+        children get NULL so a plain GROUP BY (step_path, vector_index) never
+        conflates the step row with its own vector rows.
+        """
+        if "/" not in step_path:
+            return False
+        parent_path = step_path.rsplit("/", 1)[0]
+        return any(k[0] == parent_path for k in self._vector_starts)
 
     def _build_step_entry(
         self,
@@ -837,9 +818,10 @@ class EventAccumulator:
         observations: dict[str, Any],
         observation_units: dict[str, str] | None = None,
         observation_pins: dict[str, str] | None = None,
+        step_measurements: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Build one step manifest entry from cached StepStarted/StepEnded."""
-        _, step_retry, vec = key
+        path, step_retry, vec = key
         # ``step_index`` for the manifest entry comes from the StepStarted
         # event itself — ``step_path`` is the dict key (unique per logical
         # step) and ``step_index`` is the per-bucket index the producer
@@ -862,6 +844,8 @@ class EventAccumulator:
             output_units.setdefault(obs_name, obs_unit)
         for obs_name, obs_pin in (observation_pins or {}).items():
             output_pins.setdefault(obs_name, obs_pin)
+        # NULL keeps the step row out of (step_path, vector_index) GROUP BY in _bulk_insert_steps.
+        at_rest_vi: int | None = vec if self._parent_emitted_vectors(path) else None
         return step_entry_dict(
             index=idx,
             name=start.step_name if start else (end.step_name if end else ""),
@@ -879,12 +863,13 @@ class EventAccumulator:
             outcome=end.outcome if end else None,
             started_at=start.occurred_at if start else None,
             ended_at=end.occurred_at if end else None,
-            vector_index=vec,
+            vector_index=at_rest_vi,
             inputs=inputs,
             outputs=outputs,
             input_units=input_units,
             output_units=output_units,
             output_pins=output_pins,
+            measurements=step_measurements or [],
             measurement_count=meas_count,
             step_retry=step_retry,
             instrument_records=[],

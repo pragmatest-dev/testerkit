@@ -63,9 +63,12 @@ next until the current one's own targeted tests pass (full-suite green is a Phas
   `StepEnded`), not a vector's.
 - **Vector emission for Mode-1 + class-outer:** bracket the swept item/container body with
   `VectorStarted`/`VectorEnded` carrying the variant's own `vector_index` + params. Mode-1 leaf
-  variants: emit in the item lifecycle (autouse `_litmus_push_params` already brackets the item and
-  holds the params, autouse.py:150-183). Class-outer: emit at the container open/close
-  (hooks.py:1253-1276) per outer point.
+  variants: emit in **`pytest_runtest_call`** around the `yield`, after `start_step` — NOT in
+  `_litmus_push_params` (fixtures run in the *setup* phase, before `start_step` fires in the *call*
+  hookwrapper, so emitting there would put `VectorStarted` *before* `StepStarted` — wrong nesting).
+  Class-outer: emit at the container open/close (hooks.py:1253-1276) per outer point, via a **separate
+  `_outer_vector_tokens` stack** (a class-outer vector must survive multiple nested method `end_step`s;
+  pushing it onto `_vector_tokens` would let the first method's `end_step` pop it).
 - Mode-2 (`_VectorIterator`, __init__.py:1111-1186) already emits vector events — leave its emission;
   context hygiene is Phase 4.
 - **Targeted check:** event-stream assertions — a parametrize step yields N `VectorStarted` (one per
@@ -82,6 +85,19 @@ next until the current one's own targeted tests pass (full-suite green is a Phas
 - `_partition_measurements` (accumulator:483-510): drop the `by_scope` lane. A measurement attaches
   to its owning **vector** when one is active, else to the **step row** (step-scope data). Key step
   rows `(step_path, step_retry, enclosing_vector_index)` — mostly `(path, retry, null)`.
+- **Step-scope `observe()` / measurements (resolution, 2026-06-30 autonomous run):** the old
+  observe→active-vector *mirror* assumed a vector always exists; a non-swept step now has none.
+  Resolution (contract-consistent with steps-carry-own-data): **a measurement/observation mirrors to
+  the active vector when one is active, and to the step's own outputs/measurements when not.** The
+  producer already lands step-scope observations on `StepEnded.outputs` (Phase 1); Phase 2's
+  accumulator must consume `StepEnded.outputs`/`inputs` and the no-active-vector measurements onto the
+  **step row**, and the `_active_*`/observe-mirror unit tests update to the "no vector → step" path.
+- **`null`-vs-`0` reconstruction (handed up from Phase 1):** the producer can only stamp an `int` on
+  `StepStarted/Ended.vector_index`, so it emits **`0`** for a step not nested under a loop (same wire
+  value as a genuine enclosing iteration `0`). Phase 2 maps the step row's `vector_index` to **`NULL`
+  unless the step's parent in `step_path` actually emitted vectors** (top-level, or a non-swept parent
+  → `NULL`; parent that looped → keep the index). All events are in hand at build time, so "did the
+  parent loop" is decidable. This is what makes the `vector_index IS NULL` step-scope predicate honest.
 - `_step_key` (accumulator:53-65): `vector_index` stops meaning "this step's own sweep variant"; it is
   now the enclosing iteration. Update the docstring.
 - Step rows latch own `inputs`/`outputs`/`measurements`; a non-looping step → **zero** vector rows.
@@ -193,4 +209,57 @@ is BANNED. NO code comments beyond a genuine one-line non-obvious *why*.
 ## Progress log
 
 - **2026-06-30** — Branch cut from `main` (`a823c1fb`). Blast radius re-verified against source.
-  Decisions locked (above). Diary written. **Next: Phase 1.** Nothing implemented yet.
+  Decisions locked (above). Diary written.
+- **2026-06-30** — **Phase 1 implemented (Sonnet) + gate-reviewed (Opus).** Producer rework:
+  identity-vector removed; `step.vector_index` = enclosing (via a `_step_enclosing` vector stack);
+  sweep points emit `VectorStarted/Ended` (Mode-1 in `pytest_runtest_call`, class-outer at container
+  open/close on a separate `_outer_vector_tokens` stack, Mode-2 unchanged). Gate-review fixes:
+  **(1) pre-merge gap on step rows** — `StepEnded.inputs=configured_params` dropped the inherited
+  enclosing condition (`configured_params` excludes parametrize seeds, harness.py:897); fixed by
+  merging the enclosing vector's params (captured at `start_step`) onto both `StepStarted` and
+  `StepEnded` inputs — correctly `None` for a top-level Mode-1 item so it doesn't re-stamp the step's
+  own `v`. (2) Removed the now-dead `start_step(vector_index=, inputs=)` params. 5 event-level tests
+  green (`test_phase1_grain_reshape.py`); ruff + pyright clean. **17 suite tests red — expected**
+  (accumulator still on the old event shape; Phase 2 repairs). Not committed (red suite can't pass the
+  full-pytest gate without the banned `--no-verify`; commit at the next green checkpoint).
+- **2026-06-30** — **Phase 1 test alignment (Opus).** 11 of the 17 reds are pure Phase-1 behavior and
+  were updated + greened: `test_observe_mirrors_to_vector` + `test_top_level_verbs` (9 — the observe→
+  vector mirror now needs an explicit vector scope since a non-swept test no longer auto-creates one;
+  added a `_vector_scope` fixture), `test_logger::test_start_step_sets_contextvars` (no auto-vector),
+  `test_step_end_owning_context` (owning-context merge now lands on `StepEnded.inputs`, asserted via
+  the captured event). The other **6 are Phase-2 behavior** (steps-carry-own-measurements + the
+  swept-class reshape): `test_logger::test_log_measurement_no_double_append` + 5 in
+  `test_class_step_containers`. The gate runs the FULL suite (only benchmark/`test_e2e` excluded — the
+  17/17 match with the excluded count was coincidence), so the commit lands as **Phase 1+2 green
+  together**. **Next: Phase 2 (in progress) — accumulator + log_measurement→step + the 6 tests.**
+- **2026-06-30** — **Phase 2 implemented (Sonnet) + gate-reviewed (Opus).** Scope-vector machinery
+  deleted; `TestStep` gained in-memory `measurements`/`inputs`/`outputs`; `log_measurement` attaches to
+  the step when the active vector isn't its own (`is_own_vector = active_vector in step.vectors`);
+  accumulator builds step rows carrying own data + null-vs-0 reconstruction (`_parent_emitted_vectors`
+  via `step_path.rsplit`). **Cross-phase blocker hit + resolved (option 1, contract-consistent — NULL
+  is the chosen design; sentinel rejected):** the daemon's `steps_materialized.vector_index BIGINT NOT
+  NULL` (in the PK) quarantined NULL step rows — every non-swept run. Pulled the *minimal* daemon
+  constraint fix into Phase 2: `vector_index` nullable + `vector_index_key = COALESCE(vector_index,-1)`
+  carries the PK/ON-CONFLICT role (NULL→-1 keeps a step-own row distinct from a `vector_index=0` vector
+  row, dedups repeated NULLs); `steps` view `EXCLUDE`s it; `_STEPS_PERSISTED_COLUMNS` gains
+  `vector_index`. Also: step-input projection — the daemon aggregated `dynamic_attrs`/`measurement_count`
+  with `FILTER (record_type='vector')`, which missed a non-swept step's own inputs (on the 'step'
+  record); changed to `FILTER (record_type <> 'measurement')` (each `(step_path, vector_index)` group is
+  step- OR vector-origin, never both). The full Phase 3 daemon projection (source-agnostic measurement
+  UNNEST, vector-row outcome/timing, null-safe EAV join) stays deferred. The reshape broke ~25 tests
+  across `test_data` (materializer/vector-grained/retry-model S1–S6/instruments/measurement-attribution)
+  + `verify_cascade`; **S1–S6 pulled forward from Phase 5** since they block the green commit. Observe
+  regression fixed (in-body vector push — a setup-phase fixture vector is clobbered by the plugin's
+  call-phase `start_step` auto-close).
+- **2026-06-30** — **Phase 2 greening complete (2329 passed) + Phase 3 pulled forward.** One test
+  remained — `test_inflight_overlay_matches_materialized_for_same_events` — and it caught a **real data
+  loss**, not a stale expectation: after deleting scope vectors, a plain `def test(): measure(...)`
+  step-scope measurement reaches the in-flight overlay but **vanishes at finalize**, because the daemon
+  `_measurement_unnest_insert` still sources `record_type='vector'` only. P2 is therefore NOT commitable
+  alone (scope-vector deletion and the step-row measurement UNNEST are atomic). **Revised commit plan:
+  the at-rest reshape lands as one green checkpoint = P1 + P2 + the P3 measurement projection** (the
+  diary's phase split under-anticipated this coupling). Phase 3 (in progress): two-branch UNNEST
+  (vector→own index, step→NULL), `num_measurements` count fix, overlay step-scope NULL parity, null-safe
+  EAV join (`measurements_query._VECTOR_KEY` `=`→`IS NOT DISTINCT FROM`), exclude internal
+  `vector_index_key` from drift parity, rewrite the drift test's event stream to the new shape. **Next:
+  review Phase 3 → full suite → comment-scrub → commit the reshape.**

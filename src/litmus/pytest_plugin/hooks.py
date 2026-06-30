@@ -22,7 +22,13 @@ import yaml
 from pydantic import ValidationError
 
 from litmus.data._collection_indices import StepKey, assign_indices
-from litmus.data.models import CollectedItem, Outcome, escalate_outcome, retry_aware_rollup
+from litmus.data.models import (
+    CollectedItem,
+    Outcome,
+    TestVector,
+    escalate_outcome,
+    retry_aware_rollup,
+)
 from litmus.execution._state import (
     get_active_instruments,
     get_active_part_context,
@@ -1251,6 +1257,7 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
         # Cascade child step outcomes into the container before we close it
         # so the container row reflects "did anything in this iteration fail".
         _stamp_container_outcome(logger_inst, open_state)
+        logger_inst.end_outer_vector(open_state["vector"])
         logger_inst.end_step()
         setattr(logger_inst, _OPEN_CLASS_ATTR, None)
 
@@ -1270,10 +1277,10 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
             cls.__name__,
             class_name=cls.__name__,
             module=getattr(cls, "__module__", None),
-            inputs=dict(outer_values),
-            vector_index=vi,
             step_retry=getattr(item, "execution_count", 1) - 1,
         )
+        c_vec = TestVector(index=vi, params=dict(outer_values))
+        logger_inst.begin_outer_vector(c_vec)
         setattr(
             logger_inst,
             _OPEN_CLASS_ATTR,
@@ -1282,6 +1289,7 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
                 "outer_values": outer_values,
                 "vector_index": vi,
                 "first_step_index": first_step_index,
+                "vector": c_vec,
             },
         )
 
@@ -1293,6 +1301,9 @@ def _close_open_class_container(logger_inst: Any) -> None:
         return
     try:
         _stamp_container_outcome(logger_inst, open_state)
+        vec = open_state.get("vector")
+        if vec is not None:
+            logger_inst.end_outer_vector(vec)
         logger_inst.end_step()
     finally:
         setattr(logger_inst, _OPEN_CLASS_ATTR, None)
@@ -1405,16 +1416,22 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
             class_name=cls.__name__ if cls is not None else None,
             node_id=item.nodeid,
             step_index=step_idx,
-            vector_index=vec_idx,
             step_retry=step_retry,
-            inputs=inputs,
         )
+        outer_keys = frozenset(k for k, _ in _outer_values_for(item))
+        inner_inputs = {k: v for k, v in inputs.items() if k not in outer_keys}
+        outer_vec: TestVector | None = None
+        if inner_inputs:
+            outer_vec = TestVector(index=vec_idx if vec_idx is not None else 0, params=dict(inputs))
+            logger_inst.begin_outer_vector(outer_vec)
         try:
             outcome_obj = yield
             _stamp_step_from_call_outcome(logger_inst, outcome_obj)
             if outcome_obj.excinfo is None:
                 _audit_traceability(logger_inst, strict=strict)
         finally:
+            if outer_vec is not None:
+                logger_inst.end_outer_vector(outer_vec)
             logger_inst.end_step()
             logger_inst._step_seen_names.clear()
             logger_inst._step_seen_repeatable.clear()

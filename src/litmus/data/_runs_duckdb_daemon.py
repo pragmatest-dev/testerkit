@@ -211,15 +211,14 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         conn.execute(f"ALTER TABLE runs_materialized ADD COLUMN IF NOT EXISTS {col} {sql_type}")
 
     # ── steps_materialized ─────────────────────────────────────────────
-    # PK is (run_id, step_path, vector_index) so each (step, vector)
-    # execution is its own row. step_index is kept as a sort hint but
-    # is no longer part of PK — sweep variants share step_index.
+    # vector_index_key = COALESCE(vector_index, -1): PK cannot be NULL, -1 is step-own sentinel.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS steps_materialized (
             run_id VARCHAR NOT NULL,
             step_path VARCHAR NOT NULL,
             step_retry BIGINT NOT NULL DEFAULT 0,
-            vector_index BIGINT NOT NULL DEFAULT 0,
+            vector_index BIGINT,
+            vector_index_key BIGINT NOT NULL DEFAULT -1,
             step_index INTEGER,
             file_path VARCHAR,
             session_id VARCHAR,
@@ -234,7 +233,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             uut_serial_number VARCHAR,
             station_id VARCHAR,
             dynamic_attrs MAP(VARCHAR, VARCHAR),
-            PRIMARY KEY (run_id, step_path, step_retry, vector_index)
+            PRIMARY KEY (run_id, step_path, step_retry, vector_index_key)
         )
     """)
     for col, sql_type in _STEPS_PERSISTED_COLUMNS:
@@ -520,6 +519,7 @@ _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     # step. Part of the PK so a rerun is a distinct row (the de-fuse), never
     # overwriting the prior attempt.
     ("step_retry", "BIGINT"),
+    ("vector_index", "BIGINT"),
     ("measurement_count", "INTEGER"),
     ("markers", "VARCHAR"),
     ("uut_serial_number", "VARCHAR"),
@@ -997,37 +997,45 @@ _MEAS_STRUCT_TO_FACT: tuple[tuple[str, str], ...] = (
 
 
 def _measurement_unnest_insert(src: str, *, file_path_expr: str) -> str:
-    """INSERT that UNNESTs nested measurements from vector rows into the fact.
+    """INSERT that UNNESTs nested measurements from step AND vector rows.
 
-    Context columns come from the vector row ``v``; measurement columns from
-    the nested struct ``m``; ``dynamic_attrs`` from ``v``'s in/out lanes
-    (the enclosing vector IS the measurement's condition context — this is the
-    co-located resolution of the old empty-lane measurement rows). ``INSERT BY
-    NAME`` aligns the SELECT output names with ``measurements_materialized``.
+    Context columns come from the carrier row ``v`` (a vector row for a
+    vector-scope measurement, a step row for a step-scope one); measurement
+    columns from the nested struct ``m``; ``dynamic_attrs`` from the carrier's
+    own already-merged in/out lanes (each row's inputs already contain every
+    enclosing condition — no chain-walk). ``INSERT BY NAME`` aligns the SELECT
+    output names with ``measurements_materialized``.
+
+    ``vector_index`` carries two roles, kept apart here: a vector row stamps its
+    OWN leaf index; a step row stamps NULL (literal — never the step's enclosing
+    index, which is a chain-walk selector, not the fact's own coordinate). NULL
+    is the load-bearing "belongs to the step itself" marker the NULL-safe EAV
+    join keys on.
     """
-    ctx_cols = sorted(_MEAS_FIXED_COLS - _MEAS_MEASUREMENT_COLS - {"record_type"})
+    ctx_cols = sorted(_MEAS_FIXED_COLS - _MEAS_MEASUREMENT_COLS - {"record_type", "vector_index"})
     ctx = ", ".join(f"v.{c}" for c in ctx_cols)
     meas = ", ".join(f"m.{s} AS {f}" for s, f in _MEAS_STRUCT_TO_FACT)
     map_expr = _dynamic_attrs_map_expr()
-    # The dynamic_attrs MAP is vector-grained — every measurement in a vector
-    # shares that vector's in/out lanes — so build it ONCE per vector in
-    # a materialized CTE and inherit it through the UNNEST, instead of the
+    # The dynamic_attrs MAP is carrier-grained — every measurement on a carrier
+    # shares that carrier's in/out lanes — so build it ONCE per carrier in a
+    # materialized CTE and inherit it through the UNNEST, instead of the
     # correlated map_expr re-running per measurement row (the per-measurement
     # rebuild was ~25ms of a 5000-measurement ingest). Identical bytes.
     return f"""
         INSERT INTO measurements_materialized BY NAME
-        WITH vec AS MATERIALIZED (
+        WITH carrier AS MATERIALIZED (
             SELECT *, {map_expr} AS dynamic_attrs
             FROM {src}
-            WHERE record_type = 'vector'
+            WHERE record_type IN ('step', 'vector')
         )
         SELECT
             {file_path_expr} AS file_path,
             'measurement' AS record_type,
             {ctx},
+            CASE WHEN v.record_type = 'vector' THEN v.vector_index END AS vector_index,
             {meas},
             v.dynamic_attrs AS dynamic_attrs
-        FROM vec AS v, UNNEST(v.measurements) AS t(m)
+        FROM carrier AS v, UNNEST(v.measurements) AS t(m)
     """
 
 
@@ -1187,7 +1195,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             run_started_at AS started_at,
             run_ended_at AS ended_at,
             CAST(COALESCE(
-                SUM(len(measurements)) FILTER (WHERE record_type = 'vector'), 0
+                SUM(len(measurements)) FILTER (WHERE record_type <> 'measurement'), 0
             ) AS INTEGER)
                 AS num_measurements,
             CAST(COUNT(*) FILTER (WHERE record_type = 'step') AS INTEGER)
@@ -1250,6 +1258,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             step_path,
             COALESCE(step_retry, 0) AS step_retry,
             vector_index,
+            COALESCE(vector_index, -1) AS vector_index_key,
             step_index,
             filename AS file_path,
             session_id,
@@ -1270,13 +1279,13 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 ELSE NULL
             END AS duration_s,
             CAST(COALESCE(
-                SUM(len(measurements)) FILTER (WHERE record_type = 'vector'), 0
+                SUM(len(measurements)) FILTER (WHERE record_type <> 'measurement'), 0
             ) AS INTEGER)
                 AS measurement_count,
             ANY_VALUE(step_markers) FILTER (WHERE record_type = 'step') AS markers,
             uut_serial_number,
             station_id,
-            ANY_VALUE({map_expr}) FILTER (WHERE record_type = 'vector') AS dynamic_attrs
+            ANY_VALUE({map_expr}) FILTER (WHERE record_type <> 'measurement') AS dynamic_attrs
         FROM read_parquet({flist}, filename=true, union_by_name=true)
         -- Exclude the run record (record_type='run', step_path=''): steps
         -- are aggregated from 'step' + 'vector' + 'measurement' rows only.
@@ -1287,7 +1296,8 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             step_path, COALESCE(step_retry, 0), vector_index, step_index,
             session_id, slot_id, step_name,
             uut_serial_number, station_id
-        ON CONFLICT (run_id, step_path, step_retry, vector_index) DO UPDATE SET
+        ON CONFLICT (run_id, step_path, step_retry, vector_index_key) DO UPDATE SET
+            vector_index = excluded.vector_index,
             step_index = excluded.step_index,
             file_path = excluded.file_path,
             session_id = excluded.session_id,
@@ -1644,7 +1654,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     """)
     conn.execute("""
         CREATE OR REPLACE VIEW steps AS
-        SELECT * FROM steps_materialized
+        SELECT * EXCLUDE (vector_index_key) FROM steps_materialized
         UNION ALL BY NAME
         SELECT
             run_id,

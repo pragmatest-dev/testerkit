@@ -58,6 +58,8 @@ from litmus.data.events import (
     StepEnded,
     StepsDiscovered,
     StepStarted,
+    VectorEnded,
+    VectorStarted,
 )
 
 # Fixed identifiers + timestamps — never datetime.now().
@@ -146,71 +148,79 @@ def _build_accumulator() -> EventAccumulator:
         )
     )
 
-    # ── Step 0: swept, 2 vectors. Vector 1 retries (retry=2). ──────────
-    for vec, vin in ((0, 2.0), (1, 3.0)):
-        acc.on_event(
-            StepStarted(
-                session_id=_SESSION_ID,
-                run_id=_RUN_ID,
-                step_name="test_sweep",
-                step_index=0,
-                step_path="test_sweep",
-                vector_index=vec,
-                node_id="tests/test_hw.py::test_sweep",
-                file="tests/test_hw.py",
-                module="tests.test_hw",
-                function="test_sweep",
-                inputs={"vin": vin},
-                occurred_at=_ts(1, vec),
-            )
-        )
+    # ── Step 0: swept, 2 vectors (one logical step; a VectorStarted/Ended
+    #    per sweep point). Vector 1's occurrence ordinal is 2 (retry=2). ──
     acc.on_event(
-        MeasurementRecorded(
+        StepStarted(
             session_id=_SESSION_ID,
             run_id=_RUN_ID,
             step_name="test_sweep",
             step_index=0,
             step_path="test_sweep",
             vector_index=0,
-            retry=0,
-            measurement_name="vout",
-            value=2.01,
-            unit="V",
-            outcome="passed",
-            limit_low=1.9,
-            limit_high=2.1,
+            node_id="tests/test_hw.py::test_sweep",
+            file="tests/test_hw.py",
+            module="tests.test_hw",
+            function="test_sweep",
+            occurred_at=_ts(1, 0),
         )
     )
-    acc.on_event(
-        MeasurementRecorded(
-            session_id=_SESSION_ID,
-            run_id=_RUN_ID,
-            step_name="test_sweep",
-            step_index=0,
-            step_path="test_sweep",
-            vector_index=1,
-            retry=2,
-            measurement_name="vout",
-            value=3.02,
-            unit="V",
-            outcome="passed",
-            limit_low=2.9,
-            limit_high=3.1,
-        )
-    )
-    for vec in (0, 1):
+    for vec, vin, vretry in ((0, 2.0, 0), (1, 3.0, 2)):
         acc.on_event(
-            StepEnded(
+            VectorStarted(
                 session_id=_SESSION_ID,
                 run_id=_RUN_ID,
                 step_name="test_sweep",
                 step_index=0,
                 step_path="test_sweep",
                 vector_index=vec,
-                outcome="passed",
-                occurred_at=_ts(2, vec),
+                retry=vretry,
+                inputs={"vin": vin},
+                occurred_at=_ts(1, vec),
             )
         )
+        acc.on_event(
+            MeasurementRecorded(
+                session_id=_SESSION_ID,
+                run_id=_RUN_ID,
+                step_name="test_sweep",
+                step_index=0,
+                step_path="test_sweep",
+                vector_index=vec,
+                retry=vretry,
+                measurement_name="vout",
+                value=2.01 if vec == 0 else 3.02,
+                unit="V",
+                outcome="passed",
+                limit_low=1.9 if vec == 0 else 2.9,
+                limit_high=2.1 if vec == 0 else 3.1,
+            )
+        )
+        acc.on_event(
+            VectorEnded(
+                session_id=_SESSION_ID,
+                run_id=_RUN_ID,
+                step_name="test_sweep",
+                step_index=0,
+                step_path="test_sweep",
+                vector_index=vec,
+                retry=vretry,
+                outcome="passed",
+                inputs={"vin": vin},
+            )
+        )
+    acc.on_event(
+        StepEnded(
+            session_id=_SESSION_ID,
+            run_id=_RUN_ID,
+            step_name="test_sweep",
+            step_index=0,
+            step_path="test_sweep",
+            vector_index=0,
+            outcome="passed",
+            occurred_at=_ts(2, 1),
+        )
+    )
 
     # ── Step 1: verify-less vector with an Observation (promoted DONE). ─
     acc.on_event(
@@ -349,8 +359,11 @@ def _table_rows(conn: duckdb.DuckDBPyConnection, table: str) -> list[dict[str, A
     return out
 
 
-# Columns that only exist once a run is materialized to a file.
-_MATERIALIZATION_ONLY = {"file_path"}
+# Columns that exist only on the materialized side, not the overlay:
+# ``file_path`` (no parquet file in-flight) and ``vector_index_key`` (an
+# internal COALESCE(vector_index,-1) dedup key for the PK, not data — the
+# ``steps`` view EXCLUDEs it; the overlay never carries it).
+_MATERIALIZATION_ONLY = {"file_path", "vector_index_key"}
 
 # Sentinel: a materialized column with no corresponding inflight key.
 _MISSING = object()
@@ -526,6 +539,84 @@ def test_inflight_overlay_matches_materialized_for_same_events() -> None:
         "A documented divergence no longer reproduces — the in-flight plumbing "
         f"caught up. Remove it from _KNOWN_DIVERGENCES:\n  fixed: {sorted(fixed)}"
     )
+
+
+def test_step_scope_measurement_reaches_materialized_with_null_vector_index() -> None:
+    """A plain ``def test(): measure(...)`` step-scope measurement MUST reach
+    ``measurements_materialized`` with ``vector_index IS NULL``.
+
+    Regression: before the step-row UNNEST landed, the measurement projection
+    sourced ``record_type = 'vector'`` only, so a step-scope measurement showed
+    in the in-flight overlay then VANISHED at finalize (real data loss). It must
+    now materialize, carrying NULL as its leaf coordinate (it belongs to the
+    step itself, not a vector).
+    """
+    acc = EventAccumulator()
+    acc.on_event(
+        RunStarted(
+            session_id=_SESSION_ID,
+            run_id=_RUN_ID,
+            station_id="st1",
+            uut_serial_number="SN001",
+            occurred_at=_T0,
+        )
+    )
+    acc.on_event(
+        StepStarted(
+            session_id=_SESSION_ID,
+            run_id=_RUN_ID,
+            step_name="test_plain",
+            step_index=0,
+            step_path="test_plain",
+            vector_index=0,
+            occurred_at=_ts(1),
+        )
+    )
+    acc.on_event(
+        MeasurementRecorded(
+            session_id=_SESSION_ID,
+            run_id=_RUN_ID,
+            step_name="test_plain",
+            step_index=0,
+            step_path="test_plain",
+            vector_index=0,
+            measurement_name="vout",
+            value=3.3,
+            outcome="passed",
+        )
+    )
+    acc.on_event(
+        StepEnded(
+            session_id=_SESSION_ID,
+            run_id=_RUN_ID,
+            step_name="test_plain",
+            step_index=0,
+            step_path="test_plain",
+            vector_index=0,
+            outcome="passed",
+            occurred_at=_ts(2),
+        )
+    )
+    acc.on_event(
+        RunEnded(session_id=_SESSION_ID, run_id=_RUN_ID, outcome="passed", occurred_at=_ts(3))
+    )
+
+    with tempfile.TemporaryDirectory() as td:
+        parquet_path = materialize_run_to_parquet(
+            acc, Path(td) / "results", outcome="passed", run_ended_at=_ts(3)
+        )
+        assert parquet_path is not None
+        conn = duckdb.connect()
+        try:
+            _ensure_schema(conn)
+            _bulk_insert_measurement_rows(conn, str(parquet_path))
+            rows = conn.execute(
+                "SELECT measurement_name, vector_index FROM measurements_materialized"
+            ).fetchall()
+        finally:
+            conn.close()
+
+    assert rows == [("vout", None)]
 
 
 def _signature(col: str) -> str:
