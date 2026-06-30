@@ -13,6 +13,7 @@ from litmus.analysis.runs_query import RunsQuery
 from litmus.analysis.steps_query import StepsQuery
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.event_store import EventStore
+from litmus.data.models import ensure_utc
 from litmus.ui.shared.components import (
     data_table,
     format_number,
@@ -695,7 +696,7 @@ def _compute_instrument_utilization(
         key = (sid, role)
         ts = ev.get("occurred_at")
         if isinstance(ts, str):
-            ts = _dt.fromisoformat(ts)
+            ts = ensure_utc(_dt.fromisoformat(ts))
         if isinstance(ts, _dt):
             disconnect_idx.setdefault(key, []).append(ts)
 
@@ -706,7 +707,7 @@ def _compute_instrument_utilization(
         sid = str(ev.get("session_id") or "")
         ts = ev.get("occurred_at")
         if isinstance(ts, str):
-            ts = _dt.fromisoformat(ts)
+            ts = ensure_utc(_dt.fromisoformat(ts))
         if not isinstance(ts, _dt):
             continue
         matches = disconnect_idx.get((sid, role)) or []

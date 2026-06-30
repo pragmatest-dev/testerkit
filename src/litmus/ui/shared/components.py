@@ -42,7 +42,7 @@ def format_datetime(dt: datetime | str | None) -> str:
         if dt.tzinfo is None:
             iso = dt.isoformat() + "Z"
         else:
-            iso = dt.astimezone(UTC).isoformat()
+            iso = dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
     else:
         iso = str(dt)
     # Server-side fallback so text appears immediately even before
