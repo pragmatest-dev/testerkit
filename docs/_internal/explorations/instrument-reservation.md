@@ -345,3 +345,15 @@ read-only `connect()`/observe entry that routes to channel subscription instead 
    a global station registry + addressing — which collides with data-dir resolution, config
    precedence, and multi-project-on-one-machine semantics. Big blast radius; do not design
    under #11. This is the substrate the "connecting = joining" keystone assumes.
+8. **[open]** **Libraries — don't reinvent the proxy/coordinator (2026-06-29).** The
+   hand-rolled `RemoteInstrumentProxy` + server reimplement transparent remote objects;
+   the coordinator would reimplement discovery. Evaluate before building #18: **RPyC**
+   (netref proxies — forward calls AND live remote objects, removing the pickle/flat-API
+   limits of our `__getattr__` proxy), **Pyro5** (remote-object proxies + a **name server**
+   = the §4.3 discovery piece), stdlib **`multiprocessing.managers`** (`BaseManager`/
+   `AutoProxy`; we already use `multiprocessing.connection`). Heavyweight full-vision prior
+   art: **Tango Controls** / **EPICS** (discoverable device servers + access control; likely
+   too heavy for "starts simple"). Cautionary: **QCoDeS reportedly built then removed** a
+   multiprocessing remote-instrument server — VERIFY why before doubling down on the
+   hand-rolled path. Relevant to #18 + a possible future `RemoteInstrumentProxy` swap
+   (additive-later per req-6), NOT the #11 branch. Real eval happens at #18.

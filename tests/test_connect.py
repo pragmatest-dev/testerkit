@@ -93,7 +93,7 @@ class TestStationConnection:
         assert dmm is not None
         assert "dmm" in conn.instruments
 
-        conn.release("dmm")
+        conn.disconnect("dmm")
         assert "dmm" not in conn.instruments
         conn.stop()
 
@@ -111,7 +111,7 @@ class TestStationConnection:
         station = _make_station(dmm="GPIB::16::INSTR")
         with StationConnection(station, data_dir=_CANONICAL_DATA, mock=True) as conn:
             conn.instrument("dmm")
-            conn.release("dmm")
+            conn.disconnect("dmm")
             assert conn.event_log is not None
             log_path = conn.event_log.path
 
@@ -330,15 +330,15 @@ class TestReservationAPI:
             assert "dmm" in conn.instruments
 
     def test_release_frees_reservation_and_disconnects(self):
-        """release() disconnects the driver (reservation is freed as part of this)."""
+        """disconnect() disconnects the driver (reservation is freed as part of this)."""
         station = _make_station(dmm="GPIB::16::INSTR")
         with StationConnection(station, data_dir=_CANONICAL_DATA, mock=True) as conn:
             conn.instrument("dmm")
-            conn.release("dmm")
+            conn.disconnect("dmm")
             assert "dmm" not in conn.instruments
 
     def test_release_all_via_stop(self):
-        """stop() calls release_all() which frees all instruments and reservations."""
+        """stop() calls disconnect_all() which frees all instruments and reservations."""
         station = _make_station(dmm="GPIB::16::INSTR", psu="GPIB::17::INSTR")
         conn = StationConnection(station, data_dir=_CANONICAL_DATA, mock=True)
         conn.start()

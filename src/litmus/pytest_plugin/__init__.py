@@ -706,7 +706,7 @@ def instruments(
     set_active_instruments(pool.active)
     yield pool.active
 
-    pool.release_all()
+    pool.disconnect_all()
 
 
 @pytest.fixture

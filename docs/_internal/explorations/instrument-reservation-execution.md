@@ -49,16 +49,18 @@ in 0.3.0). Built on the **existing two-path architecture** (file-lock + orchestr
    per-store versioning seam shipped in 0.3.0).
 8. **#26 used-half sources the at-rest set.** *Which* instruments a step reserved refines the
    step/vector `instruments` set (the fixture-param "available" set is the current source).
-9. **API shape = VISA/IVI-aligned (prior-art-backed, 2026-06-29 survey).** `attach` (open
+9. **API shape = VISA/IVI-aligned (prior-art-backed, 2026-06-29 survey).** `connect` (open
    driver, session-scoped, lockless) is separate from `reserve` (acquire exclusive,
    step-scoped, optional). Decisions:
    - **A — defaults differ by entry point (LOCKED 2026-06-29).** pytest fixture =
-     **attach-only** + per-step auto-wrap reserve (author manages nothing; pure VISA
+     **connect-only** + per-step auto-wrap reserve (author manages nothing; pure VISA
      open-defaults-unlocked, safe because the plugin reserves each step). Interactive
      `instrument(role)` = **reserve-by-default** (protective — a human will footgun and #18's
-     mandatory fencing isn't here yet); `reserve=False` for attach-only with self-managed
+     mandatory fencing isn't here yet); `reserve=False` for connect-only with self-managed
      reservations. Both expose the full `reserve`/`release_reservation`/`with reservation()`
      grain API. (`instrument(role, reserve=...)` mirrors PyVISA `open(access_mode=...)`.)
+     Verb is `connect`/`disconnect` (not open/close — that's the underlying driver's verb;
+     connect/disconnect is the Litmus session layer, also consistent with `litmus.connect(station)`).
    - **B — reserve is refcounted re-entrant** (= VISA `viLock` lock-count; the lone direct
      precedent — DAQmx `-50103`/Ophyd `RedundantStaging` error instead, TestStand deadlocks).
      Non-negotiable: recursion is the only model that doesn't deadlock on nested steps.
@@ -151,7 +153,7 @@ isolation we don't enforce yet). → **#31** (control model + good-citizen guida
 `connect(station)` is where you get configured drivers, channels, events, sync, and
 traceability — so the participating path is also the easiest/richest path; the incentive
 gradient points toward going through it, not bypassing. Connecting gets you *available*
-(attach); good-citizen guidance turns that into *reserved* when driving shared hardware.
+(connect); good-citizen guidance turns that into *reserved* when driving shared hardware.
 Residual the carrot misses (→ #18): raw non-Litmus scripts that never connect, and the §4.3
 served-path hole. Bonus: because everyone already wants the front door, #18's "connecting =
 joining the coordinator" is a free, invisible upgrade.
@@ -160,7 +162,7 @@ joining the coordinator" is a free, invisible upgrade.
 
 A forgotten release must NEVER permanently wedge an instrument; the LabVIEW governing lesson
 is **a reservation must not outlive the process that owns it**. Layered defense:
-- **Common path manages no locks.** attach-only default + per-step auto-wrap (`try/finally`,
+- **Common path manages no locks.** connect-only default + per-step auto-wrap (`try/finally`,
   releases on exception/abort) means a normal pytest author never calls reserve/release.
   Manual reserve is opt-in (interactive/UI). Context manager balances the rest.
 - **Scope-end sweep** (spec into Phase 4): step-end releases the step's reservations;
@@ -276,3 +278,13 @@ no-run/bench usage captured) for a quieter log. Decide alongside #18's coverage 
   registration, only the full gate catches it. `InstrumentConnected` already IS the "attach"
   event (no separate Attached event needed; the split sharpened it to mean attached/available
   vs Reserved=exclusively-held). Next: Phase 4 (pytest auto-wrap + #26).
+- 2026-06-29: **Verb rename DONE** — `attach`→`connect`, `release`→`disconnect`/
+  `disconnect_all` across `pool.py`/`connect.py`/plugin/UI/tests + docs (`reserve`/
+  `release_reservation` and the events untouched). connect/disconnect is the Litmus session
+  layer, distinct from the driver's open/close: a survey (PyMeasure/QCoDeS/Lantz/InstrumentKit/
+  PyVISA/OpenTAP/OpenHTF) found open/close dominant AT THE DRIVER LAYER — which is exactly why
+  Litmus uses `connect` (avoids collision; matches `litmus.connect(station)`). The proxy is a
+  `connect` that does NOT open a driver (borrows the one server-held session). ruff/format/
+  pyright(0/0/0); 445 tests pass; stray-name grep clean. Library prior-art for #18
+  (RPyC/Pyro5/`multiprocessing.managers`/Tango; verify QCoDeS-removed-remote) parked in
+  instrument-reservation.md §9.8. Next: Phase 4.

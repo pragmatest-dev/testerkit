@@ -16,7 +16,7 @@ Usage::
     station = litmus.connect("cell-7")
     station.start()
     dmm = station.instrument("dmm")
-    station.release("dmm")
+    station.disconnect("dmm")
     station.stop()
 """
 
@@ -223,7 +223,7 @@ class StationConnection:
 
         # Release all instruments
         if self._pool:
-            self._pool.release_all()
+            self._pool.disconnect_all()
 
         # End the session via the primitive: emit SessionEnded (best-effort fast-path
         # — connect is the sole producer of its session), then close stores. The
@@ -249,13 +249,13 @@ class StationConnection:
         self._started = False
 
     def instrument(self, role: str, *, reserve: bool = True, timeout: float = 0) -> Any:
-        """Attach an instrument by role and optionally reserve it.
+        """Connect an instrument by role and optionally reserve it.
 
         Args:
             role: Instrument role name from station config.
             reserve: If ``True`` (default), acquire the exclusive file lock
                 after connecting. The protective default suits interactive
-                use — pass ``reserve=False`` for attach-only with
+                use — pass ``reserve=False`` for connect-only with
                 self-managed reservations.
             timeout: Seconds to wait for the lock. ``0`` = fail immediately;
                 ``-1`` = wait indefinitely for a live holder. Ignored when
@@ -294,24 +294,24 @@ class StationConnection:
             mocked=self._mock or inst_config.mock,
         )
 
-        inst = self._pool.attach(role, record, inst_config)
+        inst = self._pool.connect(role, record, inst_config)
         if reserve:
             self._pool.reserve(role, timeout=timeout)
         return inst
 
     def reserve(self, role: str, *, timeout: float = 0) -> None:
-        """Acquire the exclusive file lock for an attached instrument.
+        """Acquire the exclusive file lock for a connected instrument.
 
         The common interactive path gets the lock implicitly via
         ``instrument(role)`` (default ``reserve=True``). Call this only for
         explicit grain management: e.g., a UI "take control" action, or when
-        attaching once and reserving per command.
+        connecting once and reserving per command.
 
         Re-entrant for the same holder (``viLock``-style refcount). Each
         ``reserve`` call must be paired with a ``release_reservation``.
 
         Args:
-            role: Instrument role already attached via ``instrument(role, ...)``.
+            role: Instrument role already connected via ``instrument(role, ...)``.
             timeout: Seconds to wait. ``0`` = fail immediately; ``-1`` = wait
                 forever for a live holder.
 
@@ -322,10 +322,10 @@ class StationConnection:
             self._pool.reserve(role, timeout=timeout)
 
     def release_reservation(self, role: str) -> None:
-        """Release one refcount of the file lock, leaving the driver attached.
+        """Release one refcount of the file lock, leaving the driver connected.
 
         Pair with ``reserve``. The driver remains in ``instruments`` after
-        this call; only the exclusive lock is freed. Use ``release(role)`` to
+        this call; only the exclusive lock is freed. Use ``disconnect(role)`` to
         both free all lock refcounts and disconnect the driver.
         """
         if self._pool:
@@ -338,11 +338,11 @@ class StationConnection:
         Matches PyVISA's ``lock_context()``. Use for RAII-style grain control
         when the session manages explicit reservation boundaries.
 
-        The instrument must already be attached before entering the block.
+        The instrument must already be connected before entering the block.
         The reservation is released even if an exception is raised.
 
         Args:
-            role: Instrument role already attached via
+            role: Instrument role already connected via
                 ``instrument(role, reserve=False)`` or the pytest fixture.
             timeout: Seconds to wait on entry.
 
@@ -355,13 +355,13 @@ class StationConnection:
         finally:
             self.release_reservation(role)
 
-    def release(self, role: str) -> None:
+    def disconnect(self, role: str) -> None:
         """Disconnect and unlock a single instrument.
 
         Emits InstrumentDisconnected, disconnects driver, releases lock.
         """
         if self._pool:
-            self._pool.release(role)
+            self._pool.disconnect(role)
 
     def configure(self, role: str, method: str, **parameters: Any) -> None:
         """Emit an InstrumentConfigure event for a UI-initiated operation.

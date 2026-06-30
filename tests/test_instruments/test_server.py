@@ -362,7 +362,7 @@ class TestPoolIntegration:
             v = inst.measure_voltage()
             assert v == pytest.approx(3.3)
 
-            pool.release_all()
+            pool.disconnect_all()
         finally:
             os.environ.pop("_LITMUS_INSTRUMENT_SERVER", None)
             os.environ.pop("_LITMUS_SHARED_ROLES", None)
@@ -399,7 +399,7 @@ class TestPoolIntegration:
         # Should NOT be a RemoteInstrumentProxy
         assert not isinstance(inst, RemoteInstrumentProxy)
 
-        pool.release_all()
+        pool.disconnect_all()
 
 
 class TestSubprocessSerialization:

@@ -80,7 +80,7 @@ class TestAcquireRelease:
             mock_all=True,
         )
         pool.acquire("dmm", _make_record())
-        pool.release("dmm")
+        pool.disconnect("dmm")
 
         assert "dmm" not in pool.active
         disconnected = [e for e in log.events if isinstance(e, InstrumentDisconnected)]
@@ -97,12 +97,12 @@ class TestAcquireRelease:
         )
         pool.acquire("dmm", _make_record("dmm"))
         pool.acquire("psu", _make_record("psu"))
-        pool.release_all()
+        pool.disconnect_all()
 
         assert len(pool.active) == 0
         disconnected = [e for e in log.events if isinstance(e, InstrumentDisconnected)]
         assert len(disconnected) == 2
-        # Released in reverse: psu first, then dmm
+        # Disconnected in reverse: psu first, then dmm
         assert disconnected[0].role == "psu"
         assert disconnected[1].role == "dmm"
 
@@ -112,7 +112,7 @@ class TestAcquireRelease:
             event_log=None,
             channel_store=None,
         )
-        pool.release("nonexistent")  # should not raise
+        pool.disconnect("nonexistent")  # should not raise
 
 
 class TestMockAll:
@@ -139,14 +139,14 @@ class TestNoEventLog:
         )
         inst = pool.acquire("dmm", _make_record())
         assert inst is not None
-        pool.release_all()
+        pool.disconnect_all()
 
 
-class TestAttachReserveSplit:
-    """Phase 2a: attach (connect, no lock) is separate from reserve (lock)."""
+class TestConnectReserveSplit:
+    """Phase 2a: connect (no lock) is separate from reserve (lock)."""
 
-    def test_attach_takes_no_lock(self, monkeypatch):
-        """attach stores the driver in _records but holds no file lock."""
+    def test_connect_takes_no_lock(self, monkeypatch):
+        """connect stores the driver in _records but holds no file lock."""
         monkeypatch.setattr("litmus.instruments.pool.load_and_connect", lambda *a, **kw: object())
         monkeypatch.setattr(
             "litmus.instruments.pool.verify_and_wrap", lambda driver, *a, **kw: driver
@@ -154,7 +154,7 @@ class TestAttachReserveSplit:
 
         pool = InstrumentPool(session_id=uuid4(), event_log=None, channel_store=None)
         record = _make_real_record()
-        pool.attach("dmm", record)
+        pool.connect("dmm", record)
 
         assert "dmm" in pool._records
         assert "dmm" not in pool._locks
@@ -164,8 +164,8 @@ class TestAttachReserveSplit:
         pool2.reserve("dmm")
         pool2.release_reservation("dmm")
 
-    def test_attach_is_idempotent(self, monkeypatch):
-        """A second attach call for the same role returns the cached driver."""
+    def test_connect_is_idempotent(self, monkeypatch):
+        """A second connect call for the same role returns the cached driver."""
         call_count = 0
 
         def fake_connect(*a, **kw):
@@ -180,8 +180,8 @@ class TestAttachReserveSplit:
 
         pool = InstrumentPool(session_id=uuid4(), event_log=None, channel_store=None)
         record = _make_real_record()
-        first = pool.attach("dmm", record)
-        second = pool.attach("dmm", _make_real_record())
+        first = pool.connect("dmm", record)
+        second = pool.connect("dmm", _make_real_record())
 
         assert first is second
         assert call_count == 1
@@ -232,7 +232,7 @@ class TestAttachReserveSplit:
         with pytest.raises(ResourceInUse):
             pool2.reserve("dmm", timeout=0)
 
-        pool1.release("dmm")
+        pool1.disconnect("dmm")
 
     def test_reentrant_reserve_refcounted(self):
         """Same holder re-acquiring is refcounted; lock held until all releases."""
@@ -264,11 +264,11 @@ class TestAttachReserveSplit:
 
         sid = uuid4()
         pool = InstrumentPool(session_id=sid, event_log=None, channel_store=None)
-        pool.attach("dmm", _make_real_record())
+        pool.connect("dmm", _make_real_record())
         pool.reserve("dmm")
         pool.reserve("dmm")
 
-        pool.release("dmm")
+        pool.disconnect("dmm")
 
         pool2 = InstrumentPool(session_id=uuid4(), event_log=None, channel_store=None)
         pool2._records["dmm"] = _make_real_record()
@@ -281,7 +281,7 @@ class TestAttachReserveSplit:
         pool.acquire("dmm", _make_record())
         pool.reserve("dmm")
         assert "dmm" not in pool._locks
-        pool.release("dmm")
+        pool.disconnect("dmm")
 
 
 class TestReservationEvents:
@@ -361,4 +361,4 @@ class TestReservationEvents:
         assert len(reserved) == 0
         assert len(released) == 0
 
-        pool.release("dmm")
+        pool.disconnect("dmm")

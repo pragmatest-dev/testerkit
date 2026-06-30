@@ -74,7 +74,7 @@ class InstrumentPool:
     def records(self) -> dict[str, InstrumentRecord]:
         return self._records
 
-    def attach(
+    def connect(
         self,
         role: str,
         record: InstrumentRecord,
@@ -237,17 +237,17 @@ class InstrumentPool:
         inst_config: StationInstrumentConfig | None = None,
         timeout: float = 0,
     ) -> Any:
-        """Back-compat composite: attach + reserve.
+        """Back-compat composite: connect + reserve.
 
         Existing callers (pytest fixture, route_manager) continue working
-        unchanged. If ``reserve`` fails, cleans up the attach so no resources
+        unchanged. If ``reserve`` fails, cleans up the connection so no resources
         remain held.
         """
-        inst = self.attach(role, record, inst_config)
+        inst = self.connect(role, record, inst_config)
         try:
             self.reserve(role, timeout=timeout)
         except BaseException:
-            self.release(role)
+            self.disconnect(role)
             raise
         return inst
 
@@ -312,7 +312,7 @@ class InstrumentPool:
             driver_instance=driver,
         )
 
-    def release(self, role: str) -> None:
+    def disconnect(self, role: str) -> None:
         """Emit InstrumentDisconnected → disconnect → drain all lock refcounts."""
         inst = self._active.pop(role, None)
         record = self._records.pop(role, None)
@@ -335,10 +335,10 @@ class InstrumentPool:
             while lock.is_locked:
                 release_resource(record.resource, lock)
 
-    def release_all(self) -> None:
-        """Release all instruments in reverse acquisition order."""
+    def disconnect_all(self) -> None:
+        """Disconnect all instruments in reverse acquisition order."""
         for role in reversed(list(self._active)):
-            self.release(role)
+            self.disconnect(role)
 
     def _emit_connected(self, role: str, record: InstrumentRecord) -> None:
         if not self._event_log:
