@@ -228,7 +228,6 @@ Emitted when an instrument is disconnected during teardown.
 | `module` | `str \| None` | `None` |
 | `class_name` | `str \| None` | `None` |
 | `function` | `str \| None` | `None` |
-| `instrument_records` | `list[dict[str, Any]]` | `[]` |
 
 ### `test.step_ended` — `StepEnded`
 

@@ -103,7 +103,6 @@ class TestInstrumentsPerStep:
                 step_path="test_voltage",
                 vector_index=0,
                 occurred_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC),
-                instrument_records=[_DMM_RECORD],
             )
         )
         acc.on_event(
@@ -161,7 +160,6 @@ class TestInstrumentsPerStep:
                 step_path="test_self_check",
                 vector_index=0,
                 occurred_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC),
-                instrument_records=[],
             )
         )
         acc.on_event(
@@ -228,7 +226,6 @@ class TestInstrumentsPerStep:
                 step_path="test_sweep",
                 vector_index=0,
                 occurred_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC),
-                instrument_records=[_DMM_RECORD],
             )
         )
         acc.on_event(

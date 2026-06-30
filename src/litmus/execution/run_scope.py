@@ -857,7 +857,6 @@ class RunScope:
                 module=step.module,
                 class_name=step.class_name,
                 function=step.function,
-                instrument_records=list(step.instrument_records or []),
             )
         else:
             # Aggregate per-vector outcomes via the severity ladder so a

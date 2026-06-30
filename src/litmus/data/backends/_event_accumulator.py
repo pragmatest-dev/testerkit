@@ -863,5 +863,5 @@ class EventAccumulator:
             output_pins=output_pins,
             measurement_count=meas_count,
             step_retry=step_retry,
-            instrument_records=list(getattr(start, "instrument_records", None) or []),
+            instrument_records=[],
         )

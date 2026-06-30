@@ -479,8 +479,6 @@ class StepStarted(EventBase):
     class_name: str | None = None
     function: str | None = None
 
-    instrument_records: list[dict[str, Any]] = Field(default_factory=list)
-
 
 class MeasurementRecorded(EventBase):
     """A single measurement. Normalized: carries only measurement-specific fields.

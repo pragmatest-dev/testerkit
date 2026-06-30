@@ -171,7 +171,9 @@ query; ties `project_followup_channel_isolation_per_slot`).
     set. This is **timing-independent**: a reserve that fires *before* `StepStarted`
     (auto-wrap) and one *during the body* (ad-hoc `context.instrument()`) both self-stamp the
     same step key, so the accumulator attaches both to the right step regardless of order —
-    the goal: correct instruments on the correct step from reservations before OR after it.
+    the goal: correct instruments on the correct step from reservations that arrive before
+    `StepStarted` (auto-wrap) OR during the body (ad-hoc) — never after; after the body comes
+    only the release.
   - **`reserve` MUST emit for mocks (required by (I), not optional).** Today `reserve`
     early-returns for mocked / resource-less roles BEFORE the emit (`pool.py:162-164`), so a
     mock run (the whole suite + most dev/CI/demo) would emit zero reservation events and the
