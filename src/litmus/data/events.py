@@ -800,6 +800,8 @@ class InstrumentReserved(EventBase):
     instrument_id: str
     resource: str
     waited_ms: float
+    step_index: int | None = None
+    step_retry: int | None = None
 
 
 class InstrumentReleased(EventBase):
@@ -809,6 +811,8 @@ class InstrumentReleased(EventBase):
     role: str
     instrument_id: str
     resource: str
+    step_index: int | None = None
+    step_retry: int | None = None
 
 
 # ---------------------------------------------------------------------------

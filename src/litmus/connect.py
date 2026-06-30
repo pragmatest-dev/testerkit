@@ -33,6 +33,7 @@ from litmus.data.channels.store import ChannelStore
 from litmus.data.event_log import EventLog
 from litmus.data.event_store import EventStore
 from litmus.data.events import InstrumentConfigure
+from litmus.execution._state import get_current_run_scope, get_current_step
 from litmus.execution.session_scope import SessionScope, build_session_started, open_session
 from litmus.instruments.pool import InstrumentPool
 from litmus.models.data_options import SessionOptions, StreamTuning
@@ -44,6 +45,14 @@ from litmus.signals import deregister_cleanup, register_cleanup
 # declares a patient lease floor — never shorter than this, though a project
 # that configured an even longer ``session.idle_lease_seconds`` keeps it.
 _INTERACTIVE_IDLE_LEASE_SECONDS = 3600.0
+
+
+def _current_execution_key() -> tuple[int | None, int | None]:
+    step = get_current_step()
+    run_scope = get_current_run_scope()
+    if step is None or run_scope is None:
+        return None, None
+    return run_scope._current_step_index, step.retry
 
 
 class StationConnection:
@@ -296,7 +305,13 @@ class StationConnection:
 
         inst = self._pool.connect(role, record, inst_config)
         if reserve:
-            self._pool.reserve(role, timeout=timeout)
+            step_index, step_retry = _current_execution_key()
+            self._pool.reserve(
+                role,
+                timeout=timeout,
+                step_index=step_index,
+                step_retry=step_retry,
+            )
         return inst
 
     def reserve(self, role: str, *, timeout: float = 0) -> None:
@@ -319,7 +334,13 @@ class StationConnection:
             ResourceInUse: If the resource is held by another process.
         """
         if self._pool:
-            self._pool.reserve(role, timeout=timeout)
+            step_index, step_retry = _current_execution_key()
+            self._pool.reserve(
+                role,
+                timeout=timeout,
+                step_index=step_index,
+                step_retry=step_retry,
+            )
 
     def release_reservation(self, role: str) -> None:
         """Release one refcount of the file lock, leaving the driver connected.
@@ -329,7 +350,12 @@ class StationConnection:
         both free all lock refcounts and disconnect the driver.
         """
         if self._pool:
-            self._pool.release_reservation(role)
+            step_index, step_retry = _current_execution_key()
+            self._pool.release_reservation(
+                role,
+                step_index=step_index,
+                step_retry=step_retry,
+            )
 
     @contextmanager
     def reservation(self, role: str, *, timeout: float = 0) -> Iterator[None]:

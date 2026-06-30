@@ -343,8 +343,8 @@ class TestReservationEvents:
         assert reserved[0].run_id is None
         assert released[0].run_id is None
 
-    def test_reserve_emits_nothing_for_mocked_record(self):
-        """reserve() on a mocked/resource-less role emits no reservation events."""
+    def test_reserve_emits_events_for_mocked_record(self):
+        """reserve() on a mocked/resource-less role emits reservation events with waited_ms=0."""
         log = CollectingLog()
         pool = InstrumentPool(
             session_id=uuid4(),
@@ -352,13 +352,15 @@ class TestReservationEvents:
             channel_store=None,
             mock_all=True,
         )
-        pool.acquire("dmm", _make_record())
+        pool._records["dmm"] = _make_record()
         pool.reserve("dmm")
         pool.release_reservation("dmm")
 
         reserved = [e for e in log.events if isinstance(e, InstrumentReserved)]
         released = [e for e in log.events if isinstance(e, InstrumentReleased)]
-        assert len(reserved) == 0
-        assert len(released) == 0
+        assert len(reserved) == 1
+        assert reserved[0].waited_ms == 0.0
+        assert len(released) == 1
+        assert "dmm" not in pool._locks
 
         pool.disconnect("dmm")

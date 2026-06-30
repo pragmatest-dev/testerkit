@@ -1382,15 +1382,24 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
         fixture_names: list[str] = list(getattr(item, "fixturenames", []))
         roles = sorted(set(fixture_names) & get_registered_instrument_roles())
         pool = get_instrument_pool()
+        step_retry = getattr(item, "execution_count", 1) - 1
         reserved: list[str] = []
         if pool is not None:
             try:
                 for role in roles:
-                    pool.reserve(role)
+                    pool.reserve(
+                        role,
+                        step_index=step_idx,
+                        step_retry=step_retry,
+                    )
                     reserved.append(role)
             except BaseException:
                 for r in reserved:
-                    pool.release_reservation(r)
+                    pool.release_reservation(
+                        r,
+                        step_index=step_idx,
+                        step_retry=step_retry,
+                    )
                 raise
         logger_inst.start_step(
             func_name,
@@ -1400,7 +1409,7 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
             node_id=item.nodeid,
             step_index=step_idx,
             vector_index=vec_idx,
-            step_retry=getattr(item, "execution_count", 1) - 1,
+            step_retry=step_retry,
             inputs=inputs,
             instrument_roles=roles,
         )
@@ -1415,7 +1424,11 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
             logger_inst._step_seen_repeatable.clear()
             if pool is not None:
                 for role in reserved:
-                    pool.release_reservation(role)
+                    pool.release_reservation(
+                        role,
+                        step_index=step_idx,
+                        step_retry=step_retry,
+                    )
         return
 
     yield

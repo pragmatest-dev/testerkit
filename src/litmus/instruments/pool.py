@@ -121,7 +121,14 @@ class InstrumentPool:
         self._emit_connected(role, record)
         return inst
 
-    def reserve(self, role: str, timeout: float = 0) -> None:
+    def reserve(
+        self,
+        role: str,
+        timeout: float = 0,
+        *,
+        step_index: int | None = None,
+        step_retry: int | None = None,
+    ) -> None:
         """Acquire the exclusive file lock for an already-attached role.
 
         Re-entrant for the same ``(pid, session_id, role)`` holder: increments
@@ -130,7 +137,7 @@ class InstrumentPool:
 
         For remote/shared roles the server owns arbitration; this is a no-op
         at the client (server leases are Phase 2b). For mocked or resource-less
-        roles, no lock is taken.
+        roles, no lock is taken but an event is still emitted.
 
         Raises:
             ResourceInUse: If the resource is held by a different process and
@@ -155,12 +162,30 @@ class InstrumentPool:
                             instrument_id=record.instrument_id,
                             resource=record.resource,
                             waited_ms=waited_ms,
+                            step_index=step_index,
+                            step_retry=step_retry,
                         )
                     )
             return
 
         record = self._records.get(role)
-        if record is None or not record.resource or record.mocked:
+        if record is None:
+            return
+
+        if record.mocked or not record.resource:
+            if self._event_log is not None:
+                self._event_log.emit(
+                    InstrumentReserved(
+                        session_id=self._session_id,
+                        run_id=self._run_id,
+                        role=role,
+                        instrument_id=record.instrument_id,
+                        resource=record.resource,
+                        waited_ms=0.0,
+                        step_index=step_index,
+                        step_retry=step_retry,
+                    )
+                )
             return
 
         meta = ResourceMeta(
@@ -183,10 +208,18 @@ class InstrumentPool:
                     instrument_id=record.instrument_id,
                     resource=record.resource,
                     waited_ms=waited_ms,
+                    step_index=step_index,
+                    step_retry=step_retry,
                 )
             )
 
-    def release_reservation(self, role: str) -> None:
+    def release_reservation(
+        self,
+        role: str,
+        *,
+        step_index: int | None = None,
+        step_retry: int | None = None,
+    ) -> None:
         """Release one refcount of the file lock, leaving the driver attached.
 
         The underlying flock is freed only when all outstanding ``reserve``
@@ -207,16 +240,17 @@ class InstrumentPool:
                             role=role,
                             instrument_id=record.instrument_id,
                             resource=record.resource,
+                            step_index=step_index,
+                            step_retry=step_retry,
                         )
                     )
             return
 
-        lock = self._locks.get(role)
-        if lock is None:
-            return
         record = self._records.get(role)
-        if record and record.resource:
-            release_resource(record.resource, lock)
+        if record is None:
+            return
+
+        if record.mocked or not record.resource:
             if self._event_log is not None:
                 self._event_log.emit(
                     InstrumentReleased(
@@ -225,10 +259,30 @@ class InstrumentPool:
                         role=role,
                         instrument_id=record.instrument_id,
                         resource=record.resource,
+                        step_index=step_index,
+                        step_retry=step_retry,
                     )
                 )
-            if not lock.is_locked:
-                del self._locks[role]
+            return
+
+        lock = self._locks.get(role)
+        if lock is None:
+            return
+        release_resource(record.resource, lock)
+        if self._event_log is not None:
+            self._event_log.emit(
+                InstrumentReleased(
+                    session_id=self._session_id,
+                    run_id=self._run_id,
+                    role=role,
+                    instrument_id=record.instrument_id,
+                    resource=record.resource,
+                    step_index=step_index,
+                    step_retry=step_retry,
+                )
+            )
+        if not lock.is_locked:
+            del self._locks[role]
 
     def acquire(
         self,

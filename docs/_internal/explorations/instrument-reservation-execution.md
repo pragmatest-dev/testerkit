@@ -151,20 +151,40 @@ query; ties `project_followup_channel_isolation_per_slot`).
   reserved** — a fused event couldn't represent connect-without-reserve, so the two-event
   separation is what makes reserve-optional representable. Verified: `pool.connect`→
   `_emit_connected`→`InstrumentConnected`; `pool.reserve`→`InstrumentReserved`.
-- **#26 at-rest set is sourced from the in-process authority record, not event replay.**
-  run_scope/pool records what it reserved during the step; the event is a *parallel* emission
-  of the same action. The at-rest "used" set and the event are siblings off the lock layer —
-  neither derived from the other. Phase 3 (events) and Phase 4 (#26) both hang off Phase 2's
-  authority; neither consumes the bus.
-  - **4b constraint, verified 2026-06-30:** the used-set MUST be recorded at the reserve
-    *call* boundary, not from `InstrumentReserved` emission. `pool.reserve` early-returns for
-    mocked / resource-less / remote-no-server roles BEFORE the emit (`pool.py:162-164`), so a
-    mock run (the whole suite + most dev/CI/demo) produces zero reserve events — an
-    event-sourced used-set would be empty exactly on the common case. The reserve *call*
-    happens for every role regardless (the auto-wrap loop appends mock roles too,
-    `hooks.py:1388-1390`), so 4b records the used-set per step at the **pool** (covers both the
-    auto-wrap declared roles and ad-hoc in-body `context.instrument()` reserves), independent
-    of whether a lock/event fired.
+- **#26 at-rest used-set is EVENT-SOURCED — the reservation events are the source, the
+  accumulator derives (decided 2026-06-30, supersedes the earlier "in-process, not event
+  replay" wording, which was wrong for the at-rest path).** The parquet is built from the
+  event stream: the accumulator reads `instrument_records` off the step/vector start events
+  (`_event_accumulator.py:511,817`) and the run-grain inventory off `InstrumentConnected`
+  (`:155,:365,:668`). There is **no in-process side-channel to the parquet** — everything
+  reaches a row through an event. So the reserved instruments MUST ride the event stream,
+  keyed to the execution, or the accumulator cannot place them. (The "don't replay the bus to
+  *arbitrate a lock*" rule still holds — that's about authority, not about deriving at-rest
+  rows. Authority = flock + lease table; at-rest derivation = events. Both true, different
+  concerns.)
+  - **The design (I), LOCKED — STEP-grained.** `InstrumentReserved` / `InstrumentReleased`
+    carry the step-execution key — `run_id` (already stamped) + `step_index` + `step_retry`.
+    **NO `vector_index`**: a reservation is per step (decision 10 — one lease per step,
+    vectors run under it), and **vectors inherit the step's instrument set** — they are not
+    reserved per-vector. The accumulator groups reservation events by `(run_id, step_index,
+    step_retry)`, unions the instruments onto the step, and the step's vectors inherit that
+    set. This is **timing-independent**: a reserve that fires *before* `StepStarted`
+    (auto-wrap) and one *during the body* (ad-hoc `context.instrument()`) both self-stamp the
+    same step key, so the accumulator attaches both to the right step regardless of order —
+    the goal: correct instruments on the correct step from reservations before OR after it.
+  - **`reserve` MUST emit for mocks (required by (I), not optional).** Today `reserve`
+    early-returns for mocked / resource-less roles BEFORE the emit (`pool.py:162-164`), so a
+    mock run (the whole suite + most dev/CI/demo) would emit zero reservation events and the
+    used-set would be empty exactly on the common case. Since the event is the source, a mock
+    reserve must emit `InstrumentReserved` (`waited_ms=0`) — truthful (the mock *was*
+    reserved) and necessary. The lock is still skipped for mocks; only the emit moves.
+  - **Step identity at emit time:** in-body reserves read the open step from
+    `get_current_step()`; the pre-step auto-wrap reserve takes the upcoming
+    `step_index`/`step_retry` the wrapper already has before `start_step`
+    (`hooks.py:1379,1400-1403`) and passes them into `reserve()`. Caller supplies the key →
+    the pool stays a pure stamp+emit layer (no `instruments → execution` import).
+  - **Released is symmetric** — same execution key, so a step's holds bracket cleanly as
+    `Reserved(key)` … `Released(key)`.
 - **No unreserved operation.** Every operation runs under a lease — an explicit step/run
   lease the client holds, or an implicit per-RPC (command-grain) lease the server takes for
   one call. Operating without an explicit reserve succeeds **only when uncontended**; while a

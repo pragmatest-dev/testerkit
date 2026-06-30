@@ -401,6 +401,8 @@ Emitted by the pool when an exclusive instrument reservation is acquired.
 | `instrument_id` | `str` | *required* |
 | `resource` | `str` | *required* |
 | `waited_ms` | `float` | *required* |
+| `step_index` | `int \| None` | `None` |
+| `step_retry` | `int \| None` | `None` |
 
 ### `instrument.released` — `InstrumentReleased`
 
@@ -411,6 +413,8 @@ Emitted by the pool when an instrument reservation is released.
 | `role` | `str` | *required* |
 | `instrument_id` | `str` | *required* |
 | `resource` | `str` | *required* |
+| `step_index` | `int \| None` | `None` |
+| `step_retry` | `int \| None` | `None` |
 
 ## Channel (lifecycle) events
 
