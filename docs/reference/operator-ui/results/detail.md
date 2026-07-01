@@ -5,7 +5,7 @@
 The detail view is what you land on after clicking a row in the
 [Results list](list.md). It shows everything Litmus recorded for one
 run: a sticky summary header, an Overview with stats, and tabs for
-Steps, Measurements, the Execution Timeline (multi-slot runs only),
+Steps, Measurements, the Execution Timeline (multi-site runs only),
 and UUT History.
 
 You can also leave it open during a run to watch progress live — the
@@ -46,7 +46,7 @@ with at least one measurement that carries a `site_index`).
 | Overview | Two stats cards summarising steps and measurements |
 | Steps | The step table — one row per step execution, in execution order |
 | Measurements | The measurement table — one row per recorded measurement |
-| Execution Timeline | (multi-slot only) Gantt-style chart of all slots in the parallel session, with this run's slot highlighted |
+| Execution Timeline | (multi-site only) Gantt-style chart of all sites in the parallel session, with this run's site highlighted |
 | UUT History | A short list of other runs for the same UUT serial |
 
 The active tab is mirrored into the URL (`?tab=Steps`, `?tab=Measurements`,
@@ -198,7 +198,7 @@ The active tab is mirrored into the URL via the `tab` query parameter:
 | `/results/{run_id}` | Overview (default) |
 | `/results/{run_id}?tab=Steps` | Steps |
 | `/results/{run_id}?tab=Measurements` | Measurements |
-| `/results/{run_id}?tab=Execution%20Timeline` | Execution Timeline (multi-slot only) |
+| `/results/{run_id}?tab=Execution%20Timeline` | Execution Timeline (multi-site only) |
 | `/results/{run_id}?tab=UUT%20History` | UUT History |
 
 Bookmarking the URL bookmarks the run + the open tab.

@@ -258,7 +258,7 @@ Returns the `StationConfig` resolved from `--station` / `stations/*.yaml`, or `N
 
 ### `fixture_config` — session
 
-Returns the `FixtureConfig` resolved from `--fixture` / `fixtures/*.yaml`, or `None`. In worker mode (multi-slot), extracts just this slot's `connections` and `uut_resource`.
+Returns the `FixtureConfig` resolved from `--fixture` / `fixtures/*.yaml`, or `None`. In worker mode (multi-site), extracts just this site's `connections` and `uut_resource`.
 
 ### `run_context` — session
 

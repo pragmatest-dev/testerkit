@@ -17,7 +17,7 @@ That's it. Litmus's pytest plugin registers via its entry point in `pyproject.to
 The plugin registers these CLI flags out of the box:
 
 - `--uut-serial`, `--uut-serials`, `--uut-part-number`, `--uut-revision`, `--uut-lot-number`
-- `--station`, `--slot`, `--fixture`, `--part`
+- `--station`, `--site`, `--fixture`, `--part`
 - `--mock-instruments` / `--no-mock-instruments`, `--test-phase`, `--test-profile` / `--no-test-profile`, `--operator`
 - `--data-dir`, `--guardband`, `--strict-traceability`
 
