@@ -107,8 +107,13 @@ def format_known_sites(sites: list[ResolvedSite]) -> str:
 
     Bare (unnamed) sites render as a bracketed index (``[1]``); named
     sites render by name. Shared by every caller that needs to tell an
-    operator which ``--site`` / ``--uut-serials`` tokens are valid.
+    operator which ``--site`` / ``--uut-serials`` tokens are valid. An
+    empty ``sites`` list (no fixture loaded, or a name token resolved
+    against zero sites) renders a dedicated message instead of an empty
+    string, so callers don't produce a confusing "(known: )." tail.
     """
+    if not sites:
+        return "(no fixture sites loaded)"
     return ", ".join(s.site_name or f"[{s.site_index}]" for s in sites)
 
 

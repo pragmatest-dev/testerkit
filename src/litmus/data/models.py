@@ -416,6 +416,9 @@ class RunSummary(BaseModel):
 
     test_run_id: str
     session_id: str | None = None
+    # Optional to tolerate the pre-RunStarted-correlation in-flight row
+    # (see ``_row_helpers.py``'s placeholder branch); persisted/correlated
+    # rows always carry 0+.
     site_index: int | None = None
     site_name: str | None = None
     started_at: datetime | None = None

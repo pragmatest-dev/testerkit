@@ -40,6 +40,9 @@ class StepRow(BaseModel):
     file_path: str | None = None
     run_id: str | None = None
     session_id: str | None = None
+    # Optional to tolerate the pre-RunStarted-correlation in-flight row
+    # (see ``_row_helpers.py``'s placeholder branch); persisted/correlated
+    # rows always carry 0+.
     site_index: int | None = None
     site_name: str | None = None
     step_index: int | None = None

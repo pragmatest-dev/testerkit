@@ -62,6 +62,12 @@ from litmus.data.backends._row_helpers import (
     INSTRUMENT_STRUCT_FIELDS as INSTRUMENT_STRUCT_FIELDS,  # noqa: F401
 )
 
+# Sentinel distinguishing "caller didn't pass site_name" from "caller
+# explicitly passed None" — unlike site_index (always an int, so a bare
+# ``None`` default is unambiguous), site_name's real value can itself be
+# None, so a plain None default can't tell "unset" from "explicitly no name".
+_UNSET: Any = object()
+
 
 def instrument_info_fields(rec: InstrumentRecord) -> dict[str, Any]:
     """Return ``{manufacturer, model, serial, firmware}`` from a record.
@@ -413,6 +419,14 @@ class RunScope:
         instruments: dict[str, InstrumentRecord] | None = None,
         # Environment snapshot for software traceability
         environment: EnvironmentSnapshot | None = None,
+        # Execution lane — explicit kwargs so a non-pytest caller can pass
+        # site identity directly without touching execution._state. Both
+        # fall back to the resolved site ContextVars when not passed (the
+        # pytest plugin's callers). site_index is always an int, so a bare
+        # ``None`` unambiguously means "not passed"; site_name's real value
+        # can itself be None, so it uses the ``_UNSET`` sentinel instead.
+        site_index: int | None = None,
+        site_name: str | None = _UNSET,
     ):
         # Use provided run_id, environment variable, or generate new
         if isinstance(run_id, str):
@@ -467,14 +481,15 @@ class RunScope:
             git_remote=git_remote,
             project_name=project_name,
         )
-        # Stamp the execution lane from the resolved site ContextVars —
-        # 0/None when nothing installed one (e.g. non-pytest callers),
-        # or whatever a runner adapter resolved (pytest's plugin does
-        # this in hooks._resolve_and_install_site at sessionstart).
-        # Every other identity-field reader sources site_index/site_name
-        # off TestRun uniformly rather than reaching into the ContextVar.
-        self.test_run.site_index = get_current_site_index()
-        self.test_run.site_name = get_current_site_name()
+        # Stamp the execution lane — explicit kwargs win; otherwise fall back
+        # to the resolved site ContextVars (0/None when nothing installed
+        # one, e.g. non-pytest callers, or whatever a runner adapter resolved
+        # — pytest's plugin does this in hooks._resolve_and_install_site at
+        # sessionstart). Every other identity-field reader sources
+        # site_index/site_name off TestRun uniformly rather than reaching
+        # into the ContextVar.
+        self.test_run.site_index = get_current_site_index() if site_index is None else site_index
+        self.test_run.site_name = get_current_site_name() if site_name is _UNSET else site_name
         # Serialize environment eagerly so every event has it
         if environment is not None:
             self.test_run.environment_json = environment.model_dump_json()

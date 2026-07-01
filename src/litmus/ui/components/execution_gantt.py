@@ -44,12 +44,13 @@ def render_execution_gantt(
     sites: dict[int, dict[str, dict[str, Any]]] = {}
     site_names: dict[int, str | None] = {}
     for s in steps:
-        # site_index is always present at rest (0-based, default 0 — see
-        # the site-model contract), but StepRow types it Optional (a
-        # generic query-row shape); the None check below is a type-narrow
-        # for the dict-key use, not a "should we render" signal — the
-        # caller decides whether to render this component at all (gated
-        # on session→runs fan-out, not on any per-step field).
+        # site_index is Optional on StepRow only to tolerate the
+        # pre-RunStarted-correlation in-flight row (a streaming transient —
+        # see _row_helpers.py's placeholder branch), never a persisted "no
+        # site" state. This guard skips that transient for the dict-key use
+        # below; it is not a "should we render" signal — the caller decides
+        # whether to render this component at all (gated on session→runs
+        # fan-out, not on any per-step field).
         if s.site_index is None or s.started_at is None or s.ended_at is None:
             continue
         step_name = s.step_name or ""

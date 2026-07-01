@@ -282,6 +282,10 @@ class RunParquetRow(BaseModel):
     # Session / run identity
     session_id: str
     run_id: str
+    # None only pre-RunStarted-correlation (see the ``run_started is None``
+    # placeholder branch below) — a streaming transient, never a persisted
+    # "no site" state. Corrected to ``run_started.site_index`` (always 0+)
+    # once RunStarted arrives.
     site_index: int | None = None
     site_name: str | None = None
     run_started_at: datetime | None = None

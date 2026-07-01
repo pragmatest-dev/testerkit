@@ -83,9 +83,6 @@ from litmus.pytest_plugin.helpers import (
     mocks_active as _mocks_active,
 )
 from litmus.pytest_plugin.helpers import (
-    prompt_for_serial,
-)
-from litmus.pytest_plugin.helpers import (
     resolve_station_id as _resolve_station_id,
 )
 from litmus.pytest_plugin.helpers import (
@@ -134,25 +131,6 @@ __all__ = [
     "pytest_sessionfinish",
     "pytest_sessionstart",
 ]
-
-
-def _prompt_for_site_serials(
-    sites: list[tuple[int, str | None]],
-    test_phase: str,
-) -> dict[int, str]:
-    """Prompt for UUT serial for each site.
-
-    Args:
-        sites: List of (site_index, site_name) tuples from fixture config.
-        test_phase: Current test phase (for error message).
-
-    Returns:
-        Dict mapping site_index → serial.
-    """
-    serials: dict[int, str] = {}
-    for site_index, _ in sites:
-        serials[site_index] = prompt_for_serial(test_phase, site_index)
-    return serials
 
 
 def _require_fixture_and_instruments(

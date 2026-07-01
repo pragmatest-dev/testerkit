@@ -28,6 +28,8 @@ from uuid import UUID, uuid4
 
 from litmus.data.event_store import EventStore
 from litmus.data.events import SyncArrived, SyncRelease
+from litmus.execution._state import get_current_site_index
+from litmus.execution.site_runner import is_worker_mode
 
 logger = logging.getLogger(__name__)
 
@@ -268,8 +270,7 @@ def get_sync(event_store: EventStore | None = None) -> SyncPoint | None:
         event_store: EventStore for cross-process communication.
             Required if in multi-site mode.
     """
-    site_index_str = os.environ.get("_LITMUS_SITE_INDEX")
-    if site_index_str is None:
+    if not is_worker_mode():
         return None
 
     site_count = int(os.environ.get("_LITMUS_SITE_COUNT", "1"))
@@ -286,7 +287,7 @@ def get_sync(event_store: EventStore | None = None) -> SyncPoint | None:
         )
 
     return SyncPoint(
-        site_index=int(site_index_str),
+        site_index=get_current_site_index(),
         site_count=site_count,
         session_id=session_id,
         event_store=event_store,

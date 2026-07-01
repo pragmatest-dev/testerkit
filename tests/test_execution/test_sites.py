@@ -319,7 +319,7 @@ class TestFormatKnownSites:
         assert format_known_sites(sites) == "left, [1]"
 
     def test_empty(self):
-        assert format_known_sites([]) == ""
+        assert format_known_sites([]) == "(no fixture sites loaded)"
 
 
 class TestResolveSiteToken:
@@ -357,5 +357,8 @@ class TestResolveSiteToken:
         assert resolve_site_token("7", []) == 7
 
     def test_name_token_always_requires_match_even_with_no_sites(self):
-        with pytest.raises(ValueError, match=r"not in fixture's site list"):
+        with pytest.raises(
+            ValueError,
+            match=r"not in fixture's site list \(known: \(no fixture sites loaded\)\)",
+        ):
             resolve_site_token("left", [])

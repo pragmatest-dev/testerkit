@@ -20,6 +20,7 @@ import yaml
 
 from litmus.execution._state import get_active_profile
 from litmus.execution.profiles import load_project_defaults
+from litmus.execution.site_runner import is_worker_mode
 
 
 def config_search_roots(config) -> list[Path]:
@@ -318,10 +319,7 @@ def mocks_active(config: pytest.Config) -> bool:
 
 def is_multi_site_worker() -> bool:
     """Return True when this process is one of N>1 workers in a multi-site run."""
-    return (
-        os.environ.get("_LITMUS_SITE_INDEX") is not None
-        and int(os.environ.get("_LITMUS_SITE_COUNT", "1")) > 1
-    )
+    return is_worker_mode() and int(os.environ.get("_LITMUS_SITE_COUNT", "1")) > 1
 
 
 def prompt_for_serial(test_phase: str, site_index: int | None = None) -> str:
