@@ -5,7 +5,7 @@ import os
 import pytest
 
 from litmus.data.models import UUT
-from litmus.execution.slots import ResolvedSite
+from litmus.execution.sites import ResolvedSite
 from litmus.execution.uut_provider import (
     CLIUUTProvider,
     EnvironmentUUTProvider,

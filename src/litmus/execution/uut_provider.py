@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from litmus.data.models import UUT
 
 if TYPE_CHECKING:
-    from litmus.execution.slots import ResolvedSite
+    from litmus.execution.sites import ResolvedSite
 
 
 class UUTProviderError(ValueError):

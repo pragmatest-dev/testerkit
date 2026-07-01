@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from litmus.data.models import UUT
-from litmus.execution.slots import ResolvedSite
+from litmus.execution.sites import ResolvedSite
 
 if TYPE_CHECKING:
     from litmus.data.event_store import EventStore
@@ -646,7 +646,7 @@ def run_multi_site_session(
     import warnings
 
     from litmus.execution._state import get_current_run_scope
-    from litmus.execution.slots import detect_shared_instruments, resolve_fixture_sites
+    from litmus.execution.sites import detect_shared_instruments, resolve_fixture_sites
     from litmus.execution.uut_provider import CLIUUTProvider
     from litmus.pytest_plugin import _mocks_active
     from litmus.pytest_plugin.helpers import find_fixture_file

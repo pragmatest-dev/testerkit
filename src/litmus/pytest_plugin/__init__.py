@@ -907,7 +907,7 @@ def sync(_run_scope):
             assert v > 3.0
     """
     del _run_scope  # dependency-only: forces the session EventStore to exist
-    from litmus.execution.slot_runner import is_worker_mode  # checks _LITMUS_SITE_INDEX
+    from litmus.execution.site_runner import is_worker_mode  # checks _LITMUS_SITE_INDEX
 
     if not is_worker_mode():
         yield None

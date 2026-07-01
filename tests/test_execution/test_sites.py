@@ -2,7 +2,7 @@
 
 import pytest
 
-from litmus.execution.slots import (
+from litmus.execution.sites import (
     ResolvedSite,
     detect_shared_instruments,
     resolve_fixture_sites,

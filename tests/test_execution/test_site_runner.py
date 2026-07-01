@@ -6,8 +6,8 @@ from uuid import uuid4
 import pytest
 
 from litmus.data.models import UUT
-from litmus.execution.slot_runner import SiteRunner
-from litmus.execution.slots import ResolvedSite
+from litmus.execution.site_runner import SiteRunner
+from litmus.execution.sites import ResolvedSite
 
 
 def _make_sites() -> list[ResolvedSite]:

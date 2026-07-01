@@ -1644,7 +1644,7 @@ def pytest_runtestloop(session):
     or single-site mode, returns ``None`` to fall through to pytest's default
     loop.
     """
-    from litmus.execution.slot_runner import is_orchestrator_mode, run_multi_site_session
+    from litmus.execution.site_runner import is_orchestrator_mode, run_multi_site_session
     from litmus.store import load_station
 
     if not is_orchestrator_mode(session.config):

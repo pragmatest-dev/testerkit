@@ -22,7 +22,7 @@ from unittest import mock
 from uuid import uuid4
 
 from litmus.analysis.runs_query import RunsQuery
-from litmus.execution.slot_runner import SiteRunner
+from litmus.execution.site_runner import SiteRunner
 
 
 def _wait_for_session_runs(session_id: str, expected: int, *, timeout: float = 3.0) -> list:
@@ -115,7 +115,7 @@ class TestSiteRunnerPropagateTermination:
     @staticmethod
     def _make_runner() -> SiteRunner:
         from litmus.data.models import UUT
-        from litmus.execution.slots import ResolvedSite
+        from litmus.execution.sites import ResolvedSite
 
         sites = [
             ResolvedSite(site_index=0),
