@@ -33,7 +33,8 @@ def _step(
     measurement_count: int = 1,
     uut_serial: str = "SN001",
     station_id: str = "STA-01",
-    slot_id: str | None = None,
+    site_index: int | None = None,
+    site_name: str | None = None,
 ) -> dict:
     """Build one ``record_type='step'`` row in unified RUN_ROW_SCHEMA shape."""
     ended = started.replace(microsecond=0)
@@ -53,7 +54,8 @@ def _step(
             "measurement_name": None,
             "run_id": run_id,
             "session_id": session_id,
-            "slot_id": slot_id,
+            "site_index": site_index,
+            "site_name": site_name,
             "run_started_at": started,
             "run_ended_at": ended,
             "run_outcome": outcome,
@@ -197,11 +199,11 @@ class TestTreeForRun:
 
 
 class TestListForSession:
-    """Multi-slot session: two sibling runs sharing one ``session_id``."""
+    """Multi-site session: two sibling runs sharing one ``session_id``."""
 
     @pytest.fixture(scope="class")
-    def multi_slot_data(self) -> dict[str, str]:
-        """Two runs (different slots) sharing one unique session."""
+    def multi_site_data(self) -> dict[str, str]:
+        """Two runs (different sites) sharing one unique session."""
         session_id = str(uuid4())
         run_a = str(uuid4())
         run_b = str(uuid4())
@@ -209,11 +211,11 @@ class TestListForSession:
         canonical_runs = resolve_data_dir() / "runs" / "test-steps-query-multi"
         base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
 
-        slot_a_steps = [
+        site_0_steps = [
             _step(
                 run_id=run_a,
                 session_id=session_id,
-                slot_id="slot-A",
+                site_index=0,
                 started=base,
                 step_index=0,
                 step_name="warmup",
@@ -221,25 +223,25 @@ class TestListForSession:
             _step(
                 run_id=run_a,
                 session_id=session_id,
-                slot_id="slot-A",
+                site_index=0,
                 started=base,
                 step_index=1,
                 step_name="measure",
             ),
         ]
-        slot_b_steps = [
+        site_1_steps = [
             _step(
                 run_id=run_b,
                 session_id=session_id,
-                slot_id="slot-B",
+                site_index=1,
                 started=base,
                 step_index=0,
                 step_name="warmup",
                 uut_serial="SN002",
             ),
         ]
-        path_a = _write_run_parquet(canonical_runs, run_a, slot_a_steps)
-        path_b = _write_run_parquet(canonical_runs, run_b, slot_b_steps)
+        path_a = _write_run_parquet(canonical_runs, run_a, site_0_steps)
+        path_b = _write_run_parquet(canonical_runs, run_b, site_1_steps)
 
         notifier = RunStore()
         try:
@@ -254,13 +256,13 @@ class TestListForSession:
             "run_b": run_b,
         }
 
-    def test_returns_steps_across_session_siblings(self, multi_slot_data: dict[str, str]):
+    def test_returns_steps_across_session_siblings(self, multi_site_data: dict[str, str]):
         with StepsQuery() as q:
-            rows = q.list_for_session(multi_slot_data["session_id"])
+            rows = q.list_for_session(multi_site_data["session_id"])
         assert len(rows) == 3
-        assert {r.slot_id for r in rows} == {"slot-A", "slot-B"}
-        slot_a_rows = [r for r in rows if r.slot_id == "slot-A"]
-        assert [r.step_index for r in slot_a_rows] == [0, 1]
+        assert {r.site_index for r in rows} == {0, 1}
+        site_0_rows = [r for r in rows if r.site_index == 0]
+        assert [r.step_index for r in site_0_rows] == [0, 1]
 
 
 class TestDescribeColumns:

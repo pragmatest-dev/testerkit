@@ -63,7 +63,8 @@ class RunRow(BaseModel):
     file_path: str | None = None
     run_id: str | None = None
     session_id: str | None = None
-    slot_id: str | None = None
+    site_index: int | None = None
+    site_name: str | None = None
     uut_serial_number: str | None = None
     uut_part_number: str | None = None
     uut_lot_number: str | None = None
@@ -210,7 +211,7 @@ class RunsQuery:
         """Return all runs sharing a ``session_id`` (multi-UUT siblings).
 
         Default excludes in-flight rows; pass ``include_incomplete=True``
-        to surface running peers (e.g. live multi-slot view).
+        to surface running peers (e.g. live multi-site view).
         """
         ended_clause = "" if include_incomplete else "AND ended_at IS NOT NULL"
         rows = self._query_dicts(f"""

@@ -20,7 +20,7 @@ Each level emits its own event in the run log. Each level rolls its outcome up t
 
 One run = one pytest session. Wraps a session_id, run_id, uut_serial_number, station, fixture, operator — all of it is the run-level context.
 
-Events: `RunStarted` at session start, `RunEnded` at session end. The session also emits `SessionStarted` / `SessionEnded`, but those are session-scoped (could span multiple runs in a multi-slot harness).
+Events: `RunStarted` at session start, `RunEnded` at session end. The session also emits `SessionStarted` / `SessionEnded`, but those are session-scoped (could span multiple runs in a multi-site harness).
 
 ### Step — the unit of "one thing the test did"
 

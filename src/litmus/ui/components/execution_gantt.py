@@ -1,11 +1,11 @@
 """Execution timeline (Gantt chart) for multi-UUT parallel runs.
 
-Renders an ECharts Gantt chart showing per-slot test step execution
-over time. Each slot gets a Y-axis row; each step is a colored bar
+Renders an ECharts Gantt chart showing per-site test step execution
+over time. Each site gets a Y-axis row; each step is a colored bar
 showing its duration.
 
 Sources from typed :class:`StepRow` objects so the chart never sees
-raw measurement dicts — slot_id, started_at, ended_at, outcome, and
+raw measurement dicts — site_index, started_at, ended_at, outcome, and
 uut_serial_number are all first-class fields.
 """
 
@@ -32,24 +32,26 @@ _DEFAULT_COLOR = "#94a3b8"  # slate-400
 def render_execution_gantt(
     steps: list[StepRow],
     *,
-    current_slot_id: str | None = None,
+    current_site_index: int | None = None,
 ) -> ui.echart | None:
-    """Render a Gantt chart of step execution grouped by ``slot_id``.
+    """Render a Gantt chart of step execution grouped by ``site_index``.
 
-    Uses separate stacks per slot so offset+duration bars don't
-    interfere across slots. If ``current_slot_id`` is provided, that
+    Uses separate stacks per site so offset+duration bars don't
+    interfere across sites. If ``current_site_index`` is provided, that
     lane's label is highlighted with an arrow marker.
     """
-    # Group steps by slot_id (one lane per slot, deduplicated by step_name)
-    slots: dict[str, dict[str, dict[str, Any]]] = {}
+    # Group steps by site_index (one lane per site, deduplicated by step_name)
+    sites: dict[int, dict[str, dict[str, Any]]] = {}
+    site_names: dict[int, str | None] = {}
     for s in steps:
-        if not s.slot_id or s.started_at is None or s.ended_at is None:
+        if s.site_index is None or s.started_at is None or s.ended_at is None:
             continue
         step_name = s.step_name or ""
-        slot = slots.setdefault(s.slot_id, {})
-        existing = slot.get(step_name)
+        site = sites.setdefault(s.site_index, {})
+        site_names.setdefault(s.site_index, s.site_name)
+        existing = site.get(step_name)
         if existing is None:
-            slot[step_name] = {
+            site[step_name] = {
                 "step_name": step_name,
                 "started": s.started_at,
                 "ended": s.ended_at,
@@ -57,42 +59,44 @@ def render_execution_gantt(
                 "uut_serial_number": s.uut_serial_number or "",
             }
         else:
-            # Worst-outcome wins when multiple step rows share a name in a slot.
+            # Worst-outcome wins when multiple step rows share a name in a site.
             if s.outcome == "failed":
                 existing["outcome"] = "failed"
             elif s.outcome == "errored" and existing["outcome"] != "failed":
                 existing["outcome"] = "errored"
 
-    if not slots:
-        ui.label("No multi-slot execution data available.").classes("text-slate-500 italic")
+    if not sites:
+        ui.label("No multi-site execution data available.").classes("text-slate-500 italic")
         return None
 
     # Reference time and duration
-    all_starts = [i["started"] for s in slots.values() for i in s.values()]
-    all_ends = [i["ended"] for s in slots.values() for i in s.values()]
+    all_starts = [i["started"] for s in sites.values() for i in s.values()]
+    all_ends = [i["ended"] for s in sites.values() for i in s.values()]
     t0 = min(all_starts)
     t_end = max(all_ends)
     parallel_duration = (t_end - t0).total_seconds()
 
-    # Build slot labels — highlight current slot with arrow
-    slot_ids = list(slots.keys())
-    slot_labels = []
-    for sid in slot_ids:
-        uut = next(iter(slots[sid].values()))["uut_serial_number"]
-        label = f"{sid} ({uut})" if uut else sid
-        if sid == current_slot_id:
+    # Build site labels — highlight current site with arrow
+    site_indices = sorted(sites.keys())
+    site_labels = []
+    for idx in site_indices:
+        uut = next(iter(sites[idx].values()))["uut_serial_number"]
+        name = site_names.get(idx)
+        display = name if name else f"Site {idx}"
+        label = f"{display} ({uut})" if uut else display
+        if idx == current_site_index:
             label = f"► {label}"
-        slot_labels.append(label)
+        site_labels.append(label)
 
-    # Build series: for each slot, sort steps by start time and create
-    # offset+duration bar pairs in that slot's own stack.
+    # Build series: for each site, sort steps by start time and create
+    # offset+duration bar pairs in that site's own stack.
     series: list[dict[str, Any]] = []
     sequential_total = 0.0
-    n_slots = len(slot_ids)
+    n_sites = len(site_indices)
 
-    for slot_idx, sid in enumerate(slot_ids):
-        stack_name = f"slot_{slot_idx}"
-        step_list = sorted(slots[sid].values(), key=lambda s: s["started"])
+    for site_idx, idx in enumerate(site_indices):
+        stack_name = f"site_{site_idx}"
+        step_list = sorted(sites[idx].values(), key=lambda s: s["started"])
         cursor = 0.0  # current stack position in seconds
 
         for info in step_list:
@@ -100,18 +104,18 @@ def render_execution_gantt(
             dur = (info["ended"] - info["started"]).total_seconds()
             sequential_total += dur
             color = _OUTCOME_COLORS.get(info["outcome"] or "", _DEFAULT_COLOR)
-            # Dim non-current slots when a current slot is specified
-            is_current = current_slot_id is None or sid == current_slot_id
+            # Dim non-current sites when a current site is specified
+            is_current = current_site_index is None or idx == current_site_index
             opacity = 1.0 if is_current else 0.35
 
             # Gap from cursor to start of this bar
             gap = max(0, start_sec - cursor)
 
-            # Build data array: one value per slot, 0 for all except this slot
-            gap_data = [0] * n_slots
-            gap_data[slot_idx] = round(gap, 4)
-            dur_data: list[Any] = [0] * n_slots
-            dur_data[slot_idx] = {
+            # Build data array: one value per site, 0 for all except this site
+            gap_data = [0] * n_sites
+            gap_data[site_idx] = round(gap, 4)
+            dur_data: list[Any] = [0] * n_sites
+            dur_data[site_idx] = {
                 "value": round(dur, 4),
                 "itemStyle": {"color": color, "opacity": opacity},
             }
@@ -178,14 +182,14 @@ def render_execution_gantt(
         },
         "yAxis": {
             "type": "category",
-            "data": slot_labels,
+            "data": site_labels,
             "inverse": True,
             "axisLabel": {"fontSize": 12},
         },
         "series": series,
     }
 
-    chart_height = max(200, len(slot_ids) * 80 + 80)
+    chart_height = max(200, len(site_indices) * 80 + 80)
     chart = ui.echart(option).classes("w-full").style(f"height: {chart_height}px")
 
     # Return chart so caller can trigger resize when tab becomes visible

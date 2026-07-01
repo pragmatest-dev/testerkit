@@ -138,7 +138,7 @@ class RunStore:
         The runs TABLE carries every run-level field needed to
         render the summary card. We only crack open the measurements
         parquet to fill in fields the table doesn't denormalize
-        (``slot_id``, ``station_type``). For measurement-less runs
+        (``site_index``, ``site_name``, ``station_type``). For measurement-less runs
         (``file_path`` IS NULL) we return the table row as-is.
         """
         prefix = self._id_prefix(run_id)
@@ -185,7 +185,8 @@ class RunStore:
                     table = pq.read_table(pq_path)
                     if table.num_rows > 0:
                         first = table.to_pylist()[0]
-                        summary.slot_id = first.get("slot_id")
+                        summary.site_index = first.get("site_index")
+                        summary.site_name = first.get("site_name")
                         summary.station_type = first.get("station_type")
                 except Exception as exc:
                     logger.debug("Failed to enrich run %s from parquet: %s", run_id, exc)

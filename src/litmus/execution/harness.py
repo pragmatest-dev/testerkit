@@ -1139,7 +1139,7 @@ class TestHarness:
             mock_instruments: Whether using mock instruments.
             channel_store: Optional ChannelStore for direct writes of numeric data.
             session_id: Session this harness's contexts belong to. Production paths
-                (pytest plugin, connect.py, slot_runner) pass the active session;
+                (pytest plugin, connect.py, site_runner) pass the active session;
                 test paths can leave None when the blob-observation path isn't
                 exercised.
         """

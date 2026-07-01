@@ -264,9 +264,9 @@ A named config set applied to a pytest session.
 | `fixture` | `str \| None` | `None` |
 | `verify_requires_limit` | `bool \| None` | `None` |
 
-#### `MultiSlotConfig` {#model-multislotconfig}
+#### `MultiSiteConfig` {#model-multisiteconfig}
 
-Multi-slot orchestration knobs.
+Multi-site orchestration knobs.
 
 | Field | Type | Default |
 |---|---|---|
@@ -291,7 +291,7 @@ Schema for litmus.yaml project config files — all fields at root.
 | `profiles` | `dict[str, ProfileConfig]` | `{}` |
 | `runner` | `dict[str, Any]` | `{}` |
 | `required_inputs` | `dict[str, PromptConfig]` | `{}` |
-| `multi_slot` | `MultiSlotConfig` | *via* `MultiSlotConfig()` |
+| `multi_site` | `MultiSiteConfig` | *via* `MultiSiteConfig()` |
 
 ### Station — `litmus.models.station`
 
@@ -571,12 +571,13 @@ A named connection on a test fixture.
 | `function` | `MeasurementFunction \| None` | `None` |
 | `route` | `SwitchRoute \| None` | `None` |
 
-#### `FixtureSlot` {#model-fixtureslot}
+#### `FixtureSite` {#model-fixturesite}
 
-A UUT slot within a multi-UUT fixture.
+A UUT site within a multi-UUT fixture.
 
 | Field | Type | Default |
 |---|---|---|
+| `name` | `str \| None` | `None` |
 | `connections` | `dict[str, FixtureConnection]` | `{}` |
 | `uut_resource` | `str \| None` | `None` |
 | `description` | `str \| None` | `None` |
@@ -595,7 +596,7 @@ Test fixture definition (UUT interface).
 | `station_types` | `list[str]` | `[]` |
 | `uut_resource` | `str \| None` | `None` |
 | `connections` | `dict[str, FixtureConnection]` | `{}` |
-| `slots` | `dict[str, FixtureSlot]` | `{}` |
+| `sites` | `list[FixtureSite]` | `[]` |
 | `description` | `str \| None` | `None` |
 
 #### `PromptConfig` {#model-promptconfig}
@@ -1077,7 +1078,8 @@ Lightweight run header read from parquet index (no steps/measurements).
 |---|---|---|
 | `test_run_id` | `str` | *required* |
 | `session_id` | `str \| None` | `None` |
-| `slot_id` | `str \| None` | `None` |
+| `site_index` | `int \| None` | `None` |
+| `site_name` | `str \| None` | `None` |
 | `started_at` | `datetime \| None` | `None` |
 | `ended_at` | `datetime \| None` | `None` |
 | `uut_serial_number` | `str \| None` | `None` |
@@ -1465,7 +1467,8 @@ One row from the ``runs`` table — denormalized run-level summary.
 | `file_path` | `str \| None` | `None` |
 | `run_id` | `str \| None` | `None` |
 | `session_id` | `str \| None` | `None` |
-| `slot_id` | `str \| None` | `None` |
+| `site_index` | `int \| None` | `None` |
+| `site_name` | `str \| None` | `None` |
 | `uut_serial_number` | `str \| None` | `None` |
 | `uut_part_number` | `str \| None` | `None` |
 | `uut_lot_number` | `str \| None` | `None` |
@@ -1494,7 +1497,8 @@ One row from the ``steps`` table — full denormalized run + step context.
 | `file_path` | `str \| None` | `None` |
 | `run_id` | `str \| None` | `None` |
 | `session_id` | `str \| None` | `None` |
-| `slot_id` | `str \| None` | `None` |
+| `site_index` | `int \| None` | `None` |
+| `site_name` | `str \| None` | `None` |
 | `step_index` | `int \| None` | `None` |
 | `step_name` | `str \| None` | `None` |
 | `step_path` | `str \| None` | `None` |

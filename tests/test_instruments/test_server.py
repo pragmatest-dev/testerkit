@@ -334,7 +334,7 @@ class TestPoolIntegration:
         server = InstrumentServer({"dmm": driver})
         server.start()
         try:
-            # Set env vars as SlotRunner would
+            # Set env vars as SiteRunner would
             os.environ["_LITMUS_INSTRUMENT_SERVER"] = server.address_str
             os.environ["_LITMUS_SHARED_ROLES"] = "dmm"
 

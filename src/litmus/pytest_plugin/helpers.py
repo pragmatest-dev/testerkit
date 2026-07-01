@@ -298,7 +298,7 @@ def mocks_active(config: pytest.Config) -> bool:
 
     Single source of truth for every consumer (``pytest_sessionstart``,
     ``_build_run_metadata``, the ``mock_instruments`` session fixture,
-    ``slot_runner``). Resolution order, highest priority first:
+    ``site_runner``). Resolution order, highest priority first:
 
     1. CLI flag — ``--mock-instruments`` (True) or ``--no-mock-instruments``
        (False). Either explicit flag wins.
@@ -316,25 +316,25 @@ def mocks_active(config: pytest.Config) -> bool:
     return load_project_defaults().mock_instruments
 
 
-def is_multi_slot_worker() -> bool:
-    """Return True when this process is one of N>1 workers in a multi-slot run."""
+def is_multi_site_worker() -> bool:
+    """Return True when this process is one of N>1 workers in a multi-site run."""
     return (
-        os.environ.get("_LITMUS_SLOT_ID") is not None
-        and int(os.environ.get("_LITMUS_SLOT_COUNT", "1")) > 1
+        os.environ.get("_LITMUS_SITE_INDEX") is not None
+        and int(os.environ.get("_LITMUS_SITE_COUNT", "1")) > 1
     )
 
 
-def prompt_for_serial(test_phase: str, slot_id: str | None = None) -> str:
+def prompt_for_serial(test_phase: str, site_index: int | None = None) -> str:
     """Prompt for UUT serial or raise if non-interactive.
 
     Args:
         test_phase: Current test phase (for error message).
-        slot_id: If provided, prompt for a specific slot.
+        site_index: If provided, prompt for a specific site.
 
     Returns:
         Non-empty serial string.
     """
-    label = f" for slot '{slot_id}'" if slot_id else ""
+    label = f" for site {site_index}" if site_index is not None else ""
 
     if sys.stdin.isatty():
         serial = input(
@@ -352,5 +352,5 @@ def prompt_for_serial(test_phase: str, slot_id: str | None = None) -> str:
 
     raise pytest.UsageError(
         f"UUT serial number is required for test_phase='{test_phase}'{label}. "
-        "Use --uut-serial <serial> or --uut-serials slot=serial."
+        "Use --uut-serial <serial> or --uut-serials <index>=serial."
     )

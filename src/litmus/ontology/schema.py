@@ -33,8 +33,8 @@ class VerbKind(StrEnum):
     OFFERS = "offers"  # CatalogEntry → channels/attrs/caps
     IDENTIFIES = "identifies"  # Asset/Record → InstrumentInfo
     CALIBRATED_PER = "calibrated_per"  # Asset/Record → CalibrationInfo
-    WIRES = "wires"  # FixtureConfig/Slot → FixtureConnection
-    PARTITIONS_INTO = "partitions_into"  # FixtureConfig → FixtureSlot
+    WIRES = "wires"  # FixtureConfig/Site → FixtureConnection
+    PARTITIONS_INTO = "partitions_into"  # FixtureConfig → FixtureSite
     ROUTED_THROUGH = "routed_through"  # FixtureConnection → SwitchRoute
     DECLARES = "declares"  # ProjectConfig → config blocks
     CONFIGURES = "configures"  # TestEntry → marker fields

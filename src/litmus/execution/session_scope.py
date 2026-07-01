@@ -15,7 +15,7 @@ the ContextVar isolates them.
 an orchestrator post-join). The spine reaper (derived close from the lease) is the
 authority. See ``docs/_internal/explorations/session-foundation.md``.
 
-This is the shared core that ``connect()``, the pytest plugin, and the slot runner
+This is the shared core that ``connect()``, the pytest plugin, and the site runner
 build on; the public ``Session`` rename lands in a later phase.
 """
 
@@ -74,7 +74,7 @@ class SessionScope:
     def emit_ended(self) -> None:
         """Emit ``SessionEnded`` (best-effort fast-path).
 
-        No-op for attach-only scopes (``emit_lifecycle=False`` — e.g. a multi-slot
+        No-op for attach-only scopes (``emit_lifecycle=False`` — e.g. a multi-site
         worker attached to the orchestrator's session). The authoritative close is
         the spine reaper; this is the fast-path so a clean end shows immediately.
         """
@@ -161,13 +161,13 @@ def open_session(
             + the will). Caller-built so each entry point supplies its own fields.
             Ignored when ``emit_lifecycle`` is False.
         session_id: The session's correlation id (client-minted, or injected for a
-            multi-slot worker attaching to the orchestrator's session).
+            multi-site worker attaching to the orchestrator's session).
         data_dir: Where a freshly-created EventStore writes. Ignored when reusing.
         reuse_existing: Reuse an EventStore already in the ContextVar if present
             (the pytest setup path); otherwise always create a fresh one (connect).
             Ownership — and thus who closes it — follows from whether we created it.
         emit_lifecycle: Emit ``SessionStarted``/``SessionEnded``. False for a
-            multi-slot worker that attaches to the orchestrator's injected session.
+            multi-site worker that attaches to the orchestrator's injected session.
 
     Returns:
         A :class:`SessionScope` handle. Caller brackets the end with

@@ -74,8 +74,9 @@ _session_inputs_var: ContextVar[dict[str, str]] = ContextVar("_session_inputs")
 _active_vector_params_var: ContextVar[dict[str, Any]] = ContextVar("_active_vector_params")
 _active_vector_index_var: ContextVar[int] = ContextVar("_active_vector_index")
 _active_connection_var: ContextVar[FixtureConnection | None] = ContextVar("_active_connection")
-_slot_id_var: ContextVar[str | None] = ContextVar("_slot_id", default=None)
-_active_slot_runner_var: ContextVar[Any] = ContextVar("_active_slot_runner", default=None)
+_site_index_var: ContextVar[int | None] = ContextVar("_site_index", default=None)
+_site_name_var: ContextVar[str | None] = ContextVar("_site_name", default=None)
+_active_site_runner_var: ContextVar[Any] = ContextVar("_active_site_runner", default=None)
 _registered_instrument_roles_var: ContextVar[frozenset[str]] = ContextVar(
     "_registered_instrument_roles", default=frozenset()
 )
@@ -593,36 +594,46 @@ def set_current_code_identity(value: dict[str, str | None]) -> None:
     _current_code_identity_var.set(value)
 
 
-def get_current_slot_id() -> str | None:
-    """Return the active slot id (e.g. ``"slot_1"``) or ``None``.
+def get_current_site_index() -> int | None:
+    """Return the active site index or ``None``.
 
-    In multi-slot worker children, set from the ``_LITMUS_SLOT_ID`` env
+    In multi-site worker children, set from the ``_LITMUS_SITE_INDEX`` env
     var at session start. In single-process operator-targeted runs, set
-    from the ``--slot`` CLI flag. ``None`` for non-fixtured single-UUT
-    runs. Read by the plugin to stamp ``slot_id`` on run rows.
+    from the ``--site`` CLI flag. ``None`` for non-fixtured single-UUT
+    runs. Read by the plugin to stamp ``site_index`` on run rows.
     """
-    return _slot_id_var.get()
+    return _site_index_var.get()
 
 
-def set_current_slot_id(value: str | None) -> None:
-    """Set the active slot id. Returns None."""
-    _slot_id_var.set(value)
+def set_current_site_index(value: int | None) -> None:
+    """Set the active site index. Returns None."""
+    _site_index_var.set(value)
 
 
-def get_active_slot_runner() -> Any:
-    """Return the orchestrator's :class:`SlotRunner`, or ``None``.
+def get_current_site_name() -> str | None:
+    """Return the active site name or ``None``."""
+    return _site_name_var.get()
 
-    Set by ``run_multi_slot_session`` for the lifetime of one
+
+def set_current_site_name(value: str | None) -> None:
+    """Set the active site name. Returns None."""
+    _site_name_var.set(value)
+
+
+def get_active_site_runner() -> Any:
+    """Return the orchestrator's :class:`SiteRunner`, or ``None``.
+
+    Set by ``run_multi_site_session`` for the lifetime of one
     orchestrator session so ``pytest_keyboard_interrupt`` can forward
     SIGTERM to live children before its own teardown unwinds. ``None``
     in single-process / worker-mode invocations.
     """
-    return _active_slot_runner_var.get()
+    return _active_site_runner_var.get()
 
 
-def set_active_slot_runner(value: Any) -> None:
-    """Set the active slot runner. Returns None."""
-    _active_slot_runner_var.set(value)
+def set_active_site_runner(value: Any) -> None:
+    """Set the active site runner. Returns None."""
+    _active_site_runner_var.set(value)
 
 
 def get_registered_instrument_roles() -> frozenset[str]:

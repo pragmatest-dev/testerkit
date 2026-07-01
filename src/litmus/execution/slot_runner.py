@@ -1,17 +1,17 @@
-"""Platform-level parallel slot execution for multi-UUT testing.
+"""Platform-level parallel site execution for multi-UUT testing.
 
-SlotRunner manages per-slot **subprocesses** with environment-based isolation.
-Each slot gets its own OS process with slot-specific env vars. The parent
+SiteRunner manages per-site **subprocesses** with environment-based isolation.
+Each site gets its own OS process with site-specific env vars. The parent
 process coordinates sync points via EventStore.
 
 Usage:
-    runner = SlotRunner(
-        slots=resolved_slots,
-        uuts={"slot_1": uut1, "slot_2": uut2},
+    runner = SiteRunner(
+        sites=resolved_sites,
+        uuts={0: uut0, 1: uut1},
         session_id=session_id,
     )
     results = runner.run(["pytest", "tests/", "-v"])
-    # results = {"slot_1": SlotResult(outcome="passed"), ...}
+    # results = {0: SiteResult(outcome="passed"), 1: SiteResult(...)}
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from litmus.data.models import UUT
-from litmus.execution.slots import ResolvedSlot
+from litmus.execution.slots import ResolvedSite
 
 if TYPE_CHECKING:
     from litmus.data.event_store import EventStore
@@ -35,24 +35,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _build_slot_env(
-    slot_id: str,
+def _build_site_env(
+    site_index: int,
     uut: UUT,
-    slot: ResolvedSlot,
+    site: ResolvedSite,
     base_env: dict[str, str],
 ) -> dict[str, str]:
-    """Build environment variables for a slot subprocess.
+    """Build environment variables for a site subprocess.
 
     Environment variables set:
-    - ``_LITMUS_SLOT_ID`` — which slot this process handles
-    - ``LITMUS_UUT_SERIAL`` — UUT serial for this slot
+    - ``_LITMUS_SITE_INDEX`` — which site index this process handles
+    - ``LITMUS_UUT_SERIAL`` — UUT serial for this site
     - ``LITMUS_UUT_PART_NUMBER`` — optional UUT part number
     - ``LITMUS_UUT_REVISION`` — optional UUT revision
     - ``LITMUS_UUT_LOT_NUMBER`` — optional UUT lot/batch number
-    - ``LITMUS_FIXTURE_SLOT`` — JSON-serialized slot config
+    - ``LITMUS_FIXTURE_SITE`` — JSON-serialized site config
     """
     env = base_env.copy()
-    env["_LITMUS_SLOT_ID"] = slot_id
+    env["_LITMUS_SITE_INDEX"] = str(site_index)
     env["LITMUS_UUT_SERIAL"] = uut.serial
     if uut.part_number:
         env["LITMUS_UUT_PART_NUMBER"] = uut.part_number
@@ -60,33 +60,33 @@ def _build_slot_env(
         env["LITMUS_UUT_REVISION"] = uut.revision
     if uut.lot_number:
         env["LITMUS_UUT_LOT_NUMBER"] = uut.lot_number
-    if slot.uut_resource:
-        env["LITMUS_UUT_RESOURCE"] = slot.uut_resource
-    env["LITMUS_FIXTURE_SLOT"] = slot.model_dump_json()
+    if site.uut_resource:
+        env["LITMUS_UUT_RESOURCE"] = site.uut_resource
+    env["LITMUS_FIXTURE_SITE"] = site.model_dump_json()
     return env
 
 
 @dataclass
-class SlotResult:
-    """Outcome of a single slot's subprocess execution."""
+class SiteResult:
+    """Outcome of a single site's subprocess execution."""
 
-    slot_id: str
+    site_index: int
     outcome: str  # "passed", "failed", "errored"
     returncode: int | None = None
     output_lines: list[str] = field(default_factory=list, repr=False)
 
 
-class SlotRunner:
-    """Runs a command for each UUT slot in parallel subprocesses.
+class SiteRunner:
+    """Runs a command for each UUT site in parallel subprocesses.
 
     Each subprocess gets:
-    - ``_LITMUS_SESSION_ID`` — shared across all slots
-    - ``_LITMUS_SLOT_ID`` — which slot this process handles
-    - ``_LITMUS_SLOT_COUNT`` — total slot count (for sync)
-    - ``LITMUS_UUT_SERIAL`` — UUT serial for this slot
+    - ``_LITMUS_SESSION_ID`` — shared across all sites
+    - ``_LITMUS_SITE_INDEX`` — which site index this process handles
+    - ``_LITMUS_SITE_COUNT`` — total site count (for sync)
+    - ``LITMUS_UUT_SERIAL`` — UUT serial for this site
     - ``LITMUS_UUT_PART_NUMBER`` — optional UUT metadata
     - ``LITMUS_UUT_RESOURCE`` — UUT driver connection string
-    - ``LITMUS_FIXTURE_SLOT`` — JSON-serialized slot config
+    - ``LITMUS_FIXTURE_SITE`` — JSON-serialized site config
     - ``_LITMUS_INSTRUMENT_SERVER`` — instrument server address (if shared instruments)
     - ``_LITMUS_SHARED_ROLES`` — comma-separated roles served remotely
 
@@ -95,34 +95,36 @@ class SlotRunner:
 
     def __init__(
         self,
-        slots: dict[str, ResolvedSlot],
-        uuts: dict[str, UUT],
+        sites: list[ResolvedSite],
+        uuts: dict[int, UUT],
         *,
         session_id: UUID | None = None,
         instrument_server_address: str | None = None,
         shared_roles: set[str] | None = None,
         child_grace_seconds: float = 5.0,
     ) -> None:
-        if not slots:
-            raise ValueError("At least one slot is required")
+        if not sites:
+            raise ValueError("At least one site is required")
 
-        missing = set(slots) - set(uuts)
+        site_indices = {s.site_index for s in sites}
+        missing = site_indices - set(uuts)
         if missing:
-            raise ValueError(f"Missing UUT identity for slots: {', '.join(sorted(missing))}")
+            missing_str = ", ".join(str(i) for i in sorted(missing))
+            raise ValueError(f"Missing UUT identity for site indices: {missing_str}")
 
-        self._slots = slots
+        self._sites = sites
         self._uuts = uuts
         self._session_id = session_id or uuid4()
         self._instrument_server_address = instrument_server_address
         self._shared_roles = shared_roles or set()
         self._child_grace_seconds = child_grace_seconds
-        # Live child processes, keyed by slot id. Populated as each child
+        # Live child processes, keyed by site_index. Populated as each child
         # is spawned in :meth:`run`; consulted by
         # :meth:`_propagate_termination` (called from
         # ``pytest_keyboard_interrupt``) to forward SIGTERM and by the
         # ``finally`` cleanup path to kill survivors past the grace
         # budget. Empty outside of a ``run()`` call.
-        self._processes: dict[str, subprocess.Popen] = {}
+        self._processes: dict[int, subprocess.Popen] = {}
 
     def _propagate_termination(self) -> None:
         """Forward SIGTERM to every live child.
@@ -139,9 +141,9 @@ class SlotRunner:
         ``poll`` and the syscall) are swallowed; the goal is best-effort
         propagation, not a strict delivery guarantee.
         """
-        for slot_id, proc in self._processes.items():
+        for site_index, proc in self._processes.items():
             if proc.poll() is None:
-                logger.info("Forwarding SIGTERM to slot '%s'", slot_id)
+                logger.info("Forwarding SIGTERM to site %d", site_index)
                 try:
                     proc.terminate()
                 except (ProcessLookupError, OSError):
@@ -157,24 +159,24 @@ class SlotRunner:
         *,
         env: dict[str, str] | None = None,
         sync: bool = True,
-        on_output: Callable[[str, str], None] | None = None,
+        on_output: Callable[[int, str], None] | None = None,
         event_store: EventStore | None = None,
-    ) -> dict[str, SlotResult]:
-        """Spawn one subprocess per slot, optionally coordinate sync.
+    ) -> dict[int, SiteResult]:
+        """Spawn one subprocess per site, optionally coordinate sync.
 
         Args:
-            cmd: Command to run in each slot (e.g., ["pytest", "tests/", "-v"]).
+            cmd: Command to run in each site (e.g., ["pytest", "tests/", "-v"]).
             env: Extra environment variables to pass to all children.
             sync: If True, coordinate sync points via EventStore.
-            on_output: Callback ``(slot_id, line)`` for each stdout line.
-                If None, output is collected silently in SlotResult.
+            on_output: Callback ``(site_index, line)`` for each stdout line.
+                If None, output is collected silently in SiteResult.
             event_store: Pre-existing EventStore for sync coordination.
                 If None, a new one is created when ``sync=True``.
 
         Returns:
-            Dict mapping slot_id -> SlotResult.
+            Dict mapping site_index -> SiteResult.
         """
-        results: dict[str, SlotResult] = {}
+        results: dict[int, SiteResult] = {}
         self._processes = {}
         threads: list[threading.Thread] = []
 
@@ -184,7 +186,7 @@ class SlotRunner:
 
         # Set shared env vars
         base_env["_LITMUS_SESSION_ID"] = str(self._session_id)
-        base_env["_LITMUS_SLOT_COUNT"] = str(len(self._slots))
+        base_env["_LITMUS_SITE_COUNT"] = str(len(self._sites))
 
         # Instrument server env vars for shared instruments
         if self._instrument_server_address and self._shared_roles:
@@ -196,7 +198,7 @@ class SlotRunner:
         # Start sync coordinator if needed
         coordinator: SyncCoordinator | None = None
         owns_event_store = False
-        if sync and len(self._slots) > 1:
+        if sync and len(self._sites) > 1:
             try:
                 from litmus.data.event_store import EventStore
                 from litmus.execution.sync import SyncCoordinator
@@ -205,7 +207,7 @@ class SlotRunner:
                     event_store = EventStore()
                     owns_event_store = True
                 coordinator = SyncCoordinator(
-                    slot_count=len(self._slots),
+                    site_count=len(self._sites),
                     session_id=self._session_id,
                     event_store=event_store,
                 )
@@ -213,26 +215,23 @@ class SlotRunner:
             except (ImportError, ValueError, OSError) as exc:
                 logger.warning("Sync coordinator unavailable: %s", exc)
 
-        # Get event log for emitting slot lifecycle events
+        # Get event log for emitting site lifecycle events
         event_log = None
         if event_store is not None:
             event_log = event_store.get_event_log(self._session_id)
 
-        slot_ids = list(self._slots.keys())
-
         try:
-            # Spawn one subprocess per slot
-            for slot_id, slot in self._slots.items():
-                uut = self._uuts[slot_id]
-                slot_env = _build_slot_env(slot_id, uut, slot, base_env)
-                slot_env["_LITMUS_SLOT_INDEX"] = str(slot_ids.index(slot_id))
+            # Spawn one subprocess per site
+            for site in self._sites:
+                uut = self._uuts[site.site_index]
+                site_env = _build_site_env(site.site_index, uut, site, base_env)
 
-                result = SlotResult(slot_id=slot_id, outcome="errored")
-                results[slot_id] = result
+                result = SiteResult(site_index=site.site_index, outcome="errored")
+                results[site.site_index] = result
 
                 logger.info(
-                    "Spawning slot '%s' (UUT %s): %s",
-                    slot_id,
+                    "Spawning site %d (UUT %s): %s",
+                    site.site_index,
                     uut.serial,
                     " ".join(cmd),
                 )
@@ -241,19 +240,20 @@ class SlotRunner:
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    env=slot_env,
+                    env=site_env,
                     text=True,
                 )
-                self._processes[slot_id] = proc
+                self._processes[site.site_index] = proc
 
-                # Emit SlotStarted event
+                # Emit SiteStarted event
                 if event_log is not None:
-                    from litmus.data.events import SlotStarted
+                    from litmus.data.events import SiteStarted
 
                     event_log.emit(
-                        SlotStarted(
+                        SiteStarted(
                             session_id=self._session_id,
-                            slot_id=slot_id,
+                            site_index=site.site_index,
+                            site_name=site.site_name,
                             uut_serial_number=uut.serial,
                         )
                     )
@@ -262,9 +262,9 @@ class SlotRunner:
                 # coordinator *immediately* when a child dies so sync points
                 # don't deadlock.
                 t = threading.Thread(
-                    target=self._monitor_slot,
+                    target=self._monitor_site,
                     args=(proc, result, coordinator, on_output),
-                    name=f"litmus-slot-{slot_id}",
+                    name=f"litmus-site-{site.site_index}",
                     daemon=True,
                 )
                 t.start()
@@ -274,15 +274,19 @@ class SlotRunner:
             for t in threads:
                 t.join()
 
-            # Emit SlotCompleted events after all workers finish
+            # Emit SiteCompleted events after all workers finish
             if event_log is not None:
-                from litmus.data.events import SlotCompleted
+                from litmus.data.events import SiteCompleted
 
-                for slot_id, result in results.items():
+                for site_index, result in results.items():
                     event_log.emit(
-                        SlotCompleted(
+                        SiteCompleted(
                             session_id=self._session_id,
-                            slot_id=slot_id,
+                            site_index=site_index,
+                            site_name=next(
+                                (s.site_name for s in self._sites if s.site_index == site_index),
+                                None,
+                            ),
                             outcome=result.outcome,
                             error_message=(
                                 f"exit code {result.returncode}"
@@ -298,9 +302,9 @@ class SlotRunner:
             # path), most children are already exiting and ``terminate``
             # below is a no-op; the wait/kill cascade then enforces the
             # grace budget for any laggard.
-            for slot_id, proc in self._processes.items():
+            for site_index, proc in self._processes.items():
                 if proc.poll() is None:
-                    logger.warning("Terminating orphaned slot '%s'", slot_id)
+                    logger.warning("Terminating orphaned site %d", site_index)
                     proc.terminate()
                     try:
                         proc.wait(timeout=self._child_grace_seconds)
@@ -315,11 +319,11 @@ class SlotRunner:
         return results
 
     @staticmethod
-    def _monitor_slot(
+    def _monitor_site(
         proc: subprocess.Popen,
-        result: SlotResult,
+        result: SiteResult,
         coordinator: SyncCoordinator | None,
-        on_output: Callable[[str, str], None] | None = None,
+        on_output: Callable[[int, str], None] | None = None,
     ) -> None:
         """Read stdout and wait for exit. Notifies coordinator immediately
         when a child dies so blocked sync points don't deadlock."""
@@ -329,7 +333,7 @@ class SlotRunner:
                 stripped = line.rstrip("\n")
                 result.output_lines.append(stripped)
                 if on_output is not None:
-                    on_output(result.slot_id, line)
+                    on_output(result.site_index, line)
 
         # Process has exited (stdout EOF implies exit)
         proc.wait()
@@ -339,39 +343,39 @@ class SlotRunner:
 
         # Immediately notify coordinator so blocked sync points unblock
         if returncode != 0 and coordinator is not None:
-            coordinator.mark_slot_dead(result.slot_id)
+            coordinator.mark_site_dead(result.site_index)
 
 
 # ---------------------------------------------------------------------------
 # Pytest-plugin orchestrator layer
 #
 # ``pytest_runtestloop`` in plugin.py detects orchestrator mode and delegates
-# to :func:`run_multi_slot_session`, which spawns per-slot subprocesses via
-# :class:`SlotRunner`, optionally stands up an :class:`InstrumentServer` for
+# to :func:`run_multi_site_session`, which spawns per-site subprocesses via
+# :class:`SiteRunner`, optionally stands up an :class:`InstrumentServer` for
 # shared instruments, coordinates session-level events, and aggregates results.
 # ---------------------------------------------------------------------------
 
 
 def is_orchestrator_mode(config) -> bool:
-    """Detect if this process should orchestrate multi-slot execution.
+    """Detect if this process should orchestrate multi-site execution.
 
     Orchestrator mode activates when:
 
-    1. ``_LITMUS_SLOT_ID`` is NOT set (we're not a worker child)
-    2. ``--slot=N`` is NOT set (operator is targeting one specific
-       slot in single-process mode — bypass orchestrator dispatch)
-    3. A multi-slot fixture config is detected
+    1. ``_LITMUS_SITE_INDEX`` is NOT set (we're not a worker child)
+    2. ``--site=N`` is NOT set (operator is targeting one specific
+       site in single-process mode — bypass orchestrator dispatch)
+    3. A multi-site fixture config is detected
 
-    The ``--slot`` opt-out is what makes operator targeting work
-    against a multi-slot fixture: the operator passes ``--slot=slot_2``
+    The ``--site`` opt-out is what makes operator targeting work
+    against a multi-site fixture: the operator passes ``--site=1``
     (and a single ``--uut-serial``) and gets a single-process run that
-    records as ``slot_id=slot_2`` instead of N parallel children.
+    records as ``site_index=1`` instead of N parallel children.
     """
-    if os.environ.get("_LITMUS_SLOT_ID"):
+    if os.environ.get("_LITMUS_SITE_INDEX") is not None:
         return False  # Already a worker
 
-    if config.getoption("--slot"):
-        return False  # Operator targeting a single slot in single-process mode
+    if config.getoption("--site"):
+        return False  # Operator targeting a single site in single-process mode
 
     from litmus.pytest_plugin.helpers import find_fixture_file
 
@@ -383,16 +387,16 @@ def is_orchestrator_mode(config) -> bool:
         from litmus.store import load_fixture
 
         fc = load_fixture(fixture_path)
-        return fc.is_multi_slot
-    except Exception:  # noqa: BLE001 — fall back to single-slot on any load error
-        # Missing or invalid fixture file — fall back to single-slot mode
+        return fc.is_multi_site
+    except Exception:  # noqa: BLE001 — fall back to single-site on any load error
+        # Missing or invalid fixture file — fall back to single-site mode
         # and let the normal config-loading path surface the real error.
         return False
 
 
 def is_worker_mode() -> bool:
-    """Detect if this process is a multi-slot worker child."""
-    return bool(os.environ.get("_LITMUS_SLOT_ID"))
+    """Detect if this process is a multi-site worker child."""
+    return os.environ.get("_LITMUS_SITE_INDEX") is not None
 
 
 def _build_child_cmd(config) -> list[str]:
@@ -443,36 +447,36 @@ def _extract_pytest_summary(output_lines: list[str]) -> str:
     return "(no summary)"
 
 
-def _report_slot_results(session, results: dict[str, SlotResult]) -> None:
-    """Report per-slot results from subprocess mode."""
+def _report_site_results(session, results: dict[int, SiteResult]) -> None:
+    """Report per-site results from subprocess mode."""
     import sys
 
     sys.stdout.write("\n" + "=" * 60 + "\n")
     sys.stdout.write("Multi-UUT Results\n")
     sys.stdout.write("=" * 60 + "\n")
-    for slot_id in results:
-        r = results[slot_id]
+    for site_index in sorted(results):
+        r = results[site_index]
         status = "PASS" if r.outcome == "passed" else "FAIL"
         summary = _extract_pytest_summary(r.output_lines)
-        sys.stdout.write(f"  {slot_id}: {status}  {summary}\n")
+        sys.stdout.write(f"  site[{site_index}]: {status}  {summary}\n")
     sys.stdout.write("=" * 60 + "\n\n")
     sys.stdout.flush()
 
-    failed_slots = [sid for sid, r in results.items() if r.outcome != "passed"]
-    session.testsfailed = len(failed_slots)
+    failed_sites = [idx for idx, r in results.items() if r.outcome != "passed"]
+    session.testsfailed = len(failed_sites)
 
 
 def _run_subprocess_mode(
     session,
-    slots: dict[str, ResolvedSlot],
-    uuts: dict[str, UUT],
+    sites: list[ResolvedSite],
+    uuts: dict[int, UUT],
     session_id: UUID,
     shared_roles: set[str] | None = None,
     station_instruments: dict[str, Any] | None = None,
     mock_all: bool = False,
     child_grace_seconds: float = 5.0,
 ) -> None:
-    """Run multi-slot tests using subprocess-per-slot.
+    """Run multi-site tests using subprocess-per-site.
 
     If shared instruments are detected, starts an :class:`InstrumentServer` in
     the orchestrator process and passes the address to workers via env vars.
@@ -562,7 +566,7 @@ def _run_subprocess_mode(
 
     # Open the session via the shared primitive — the orchestrator owns it
     # (reuse the store if the logger fixture set one, else create + own). Emits
-    # SessionStarted(slot_count); workers attach to this injected session id.
+    # SessionStarted(site_count); workers attach to this injected session id.
     scope = open_session(
         SessionStarted.from_station(
             session_id=session_id,
@@ -573,7 +577,7 @@ def _run_subprocess_mode(
             operator_id=operator_id,
             operator_name=operator_name,
             fixture_id=fixture_id,
-            slot_count=len(slots),
+            site_count=len(sites),
         ),
         session_id=session_id,
         reuse_existing=True,
@@ -582,14 +586,14 @@ def _run_subprocess_mode(
 
     try:
 
-        def _stream_output(slot_id: str, line: str) -> None:
-            sys.stdout.write(f"[{slot_id}] {line}")
+        def _stream_output(site_index: int, line: str) -> None:
+            sys.stdout.write(f"[site:{site_index}] {line}")
             sys.stdout.flush()
 
-        from litmus.execution._state import set_active_slot_runner
+        from litmus.execution._state import set_active_site_runner
 
-        runner = SlotRunner(
-            slots,
+        runner = SiteRunner(
+            sites,
             uuts,
             session_id=session_id,
             instrument_server_address=server.address_str if server else None,
@@ -600,7 +604,7 @@ def _run_subprocess_mode(
         # Expose the runner via ContextVar so
         # ``pytest_keyboard_interrupt`` can forward SIGTERM to live
         # children before the orchestrator's own teardown unwinds.
-        set_active_slot_runner(runner)
+        set_active_site_runner(runner)
         try:
             results = runner.run(
                 child_cmd,
@@ -608,9 +612,9 @@ def _run_subprocess_mode(
                 event_store=scope.event_store,
             )
         finally:
-            set_active_slot_runner(None)
+            set_active_site_runner(None)
 
-        _report_slot_results(session, results)
+        _report_site_results(session, results)
 
         scope.emit_ended()
     finally:
@@ -625,16 +629,16 @@ def _run_subprocess_mode(
             disconnect(driver, role)
 
 
-def run_multi_slot_session(
+def run_multi_site_session(
     session,
     station_config=None,
 ) -> bool:
-    """Orchestrate a multi-slot pytest session.
+    """Orchestrate a multi-site pytest session.
 
     Called from ``pytest_runtestloop`` when :func:`is_orchestrator_mode` is
-    true. Loads the fixture config, resolves per-slot UUT identities, stands
+    true. Loads the fixture config, resolves per-site UUT identities, stands
     up an :class:`InstrumentServer` for any shared roles, then drives
-    :class:`SlotRunner` and reports per-slot summaries.
+    :class:`SiteRunner` and reports per-site summaries.
 
     Returns ``True`` to signal the caller should suppress pytest's default
     test-execution loop.
@@ -642,7 +646,7 @@ def run_multi_slot_session(
     import warnings
 
     from litmus.execution._state import get_current_run_scope
-    from litmus.execution.slots import detect_shared_instruments, resolve_fixture_slots
+    from litmus.execution.slots import detect_shared_instruments, resolve_fixture_sites
     from litmus.execution.uut_provider import CLIUUTProvider
     from litmus.pytest_plugin import _mocks_active
     from litmus.pytest_plugin.helpers import find_fixture_file
@@ -653,10 +657,9 @@ def run_multi_slot_session(
         return False
     fixture_config = load_fixture(fixture_path)
 
-    slots = resolve_fixture_slots(fixture_config)
-    slot_ids = list(slots.keys())
+    sites = resolve_fixture_sites(fixture_config)
 
-    shared_roles = detect_shared_instruments(slots)
+    shared_roles = detect_shared_instruments(sites)
     station_instruments = station_config.instruments if station_config else {}
 
     uut_serial = session.config.getoption("--uut-serial")
@@ -664,14 +667,14 @@ def run_multi_slot_session(
     provider = CLIUUTProvider.from_cli_args(
         uut_serial=uut_serial,
         uut_serials=uut_serials_raw,
-        slot_ids=slot_ids,
+        sites=sites,
     )
-    uuts = {sid: provider.get_uut(sid) for sid in slot_ids}
+    uuts = {site.site_index: provider.get_uut(site.site_index) for site in sites}
 
-    if uut_serial and not uut_serials_raw and len(slot_ids) > 1:
+    if uut_serial and not uut_serials_raw and len(sites) > 1:
         warnings.warn(
-            f"Single --uut-serial '{uut_serial}' applied to all {len(slot_ids)} slots. "
-            f"Use --uut-serials for per-slot assignment.",
+            f"Single --uut-serial '{uut_serial}' applied to all {len(sites)} sites. "
+            f"Use --uut-serials for per-site assignment.",
             stacklevel=1,
         )
 
@@ -682,13 +685,13 @@ def run_multi_slot_session(
 
     _run_subprocess_mode(
         session,
-        slots,
+        sites,
         uuts,
         session_id,
         shared_roles=shared_roles,
         station_instruments=station_instruments,
         mock_all=_mocks_active(session.config),
-        child_grace_seconds=project_config.multi_slot.child_grace_seconds,
+        child_grace_seconds=project_config.multi_site.child_grace_seconds,
     )
 
     return True

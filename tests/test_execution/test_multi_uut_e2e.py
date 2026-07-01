@@ -1,7 +1,7 @@
 """End-to-end tests for multi-UUT parallel execution.
 
 Tests the full orchestrator → workers → results path using
-subprocess-based slot execution with fixture YAML configs.
+subprocess-based site execution with fixture YAML configs.
 """
 
 from __future__ import annotations
@@ -11,13 +11,13 @@ import sys
 import textwrap
 
 
-def _write_fixture_yaml(path, slots: dict[str, dict]) -> None:
-    """Write a minimal fixture YAML."""
+def _write_fixture_yaml(path, site_count: int = 2) -> None:
+    """Write a minimal multi-site fixture YAML."""
     import yaml
 
     fixture = {
         "id": path.stem,
-        "slots": slots,
+        "sites": [{"connections": {}} for _ in range(site_count)],
     }
     path.write_text(yaml.safe_dump(fixture))
 
@@ -42,19 +42,13 @@ def _write_test_file(path, content: str) -> None:
 class TestMultiUutE2E:
     """Full orchestrator → workers → results tests."""
 
-    def test_two_slots_both_pass(self, tmp_path):
-        """Full run: 2-slot fixture, both slots pass."""
+    def test_two_sites_both_pass(self, tmp_path):
+        """Full run: 2-site fixture, both sites pass."""
         fixture_path = tmp_path / "fixture.yaml"
         station_path = tmp_path / "station.yaml"
         test_file = tmp_path / "test_simple.py"
 
-        _write_fixture_yaml(
-            fixture_path,
-            {
-                "slot_1": {"connections": {}},
-                "slot_2": {"connections": {}},
-            },
-        )
+        _write_fixture_yaml(fixture_path, site_count=2)
         _write_station_yaml(station_path)
         _write_test_file(
             test_file,
@@ -85,22 +79,16 @@ class TestMultiUutE2E:
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
         assert "Multi-UUT Results" in result.stdout
-        assert "slot_1: PASS" in result.stdout
-        assert "slot_2: PASS" in result.stdout
+        assert "site[0]: PASS" in result.stdout
+        assert "site[1]: PASS" in result.stdout
 
-    def test_one_slot_fails(self, tmp_path):
-        """One slot conditionally fails, verify per-slot reporting."""
+    def test_one_site_fails(self, tmp_path):
+        """One site conditionally fails, verify per-site reporting."""
         fixture_path = tmp_path / "fixture.yaml"
         station_path = tmp_path / "station.yaml"
         test_file = tmp_path / "test_conditional.py"
 
-        _write_fixture_yaml(
-            fixture_path,
-            {
-                "slot_1": {"connections": {}},
-                "slot_2": {"connections": {}},
-            },
-        )
+        _write_fixture_yaml(fixture_path, site_count=2)
         _write_station_yaml(station_path)
         _write_test_file(
             test_file,
@@ -108,9 +96,9 @@ class TestMultiUutE2E:
             import os
 
             def test_conditional():
-                slot_id = os.environ.get("_LITMUS_SLOT_ID", "")
-                if slot_id == "slot_2":
-                    assert False, "Intentional failure for slot_2"
+                site_index = os.environ.get("_LITMUS_SITE_INDEX", "")
+                if site_index == "1":
+                    assert False, "Intentional failure for site 1"
                 assert True
         """,
         )
@@ -133,22 +121,16 @@ class TestMultiUutE2E:
 
         assert result.returncode != 0
         assert "Multi-UUT Results" in result.stdout
-        assert "slot_1: PASS" in result.stdout
-        assert "slot_2: FAIL" in result.stdout
+        assert "site[0]: PASS" in result.stdout
+        assert "site[1]: FAIL" in result.stdout
 
     def test_single_serial_warning(self, tmp_path):
-        """Single --uut-serial with 2 slots emits warning."""
+        """Single --uut-serial with 2 sites emits warning."""
         fixture_path = tmp_path / "fixture.yaml"
         station_path = tmp_path / "station.yaml"
         test_file = tmp_path / "test_pass.py"
 
-        _write_fixture_yaml(
-            fixture_path,
-            {
-                "slot_1": {"connections": {}},
-                "slot_2": {"connections": {}},
-            },
-        )
+        _write_fixture_yaml(fixture_path, site_count=2)
         _write_station_yaml(station_path)
         _write_test_file(
             test_file,

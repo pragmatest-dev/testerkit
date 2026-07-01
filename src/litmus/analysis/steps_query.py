@@ -40,7 +40,8 @@ class StepRow(BaseModel):
     file_path: str | None = None
     run_id: str | None = None
     session_id: str | None = None
-    slot_id: str | None = None
+    site_index: int | None = None
+    site_name: str | None = None
     step_index: int | None = None
     step_name: str | None = None
     step_path: str | None = None
@@ -234,9 +235,9 @@ class StepsQuery:
     ) -> list[StepRow]:
         """Return every step row across every run sharing a ``session_id``.
 
-        Used by multi-slot timeline / Gantt views: a session spans N
-        sibling runs (one per slot), and the timeline needs them all.
-        Ordered by ``slot_id`` then ``step_index`` so each slot's
+        Used by multi-site timeline / Gantt views: a session spans N
+        sibling runs (one per site), and the timeline needs them all.
+        Ordered by ``site_index`` then ``step_index`` so each site's
         lane reads top-to-bottom.
 
         Default excludes in-flight rows; pass ``include_incomplete=True``
@@ -248,7 +249,7 @@ class StepsQuery:
             FROM steps
             WHERE session_id = '{sql_escape(session_id)}'
             {ended_clause}
-            ORDER BY slot_id, step_index, step_retry, vector_index
+            ORDER BY site_index, step_index, step_retry, vector_index
         """)
         step_rows: list[StepRow] = []
         for r in rows:

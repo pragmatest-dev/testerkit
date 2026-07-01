@@ -50,7 +50,8 @@ To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type
 |--------|------|-------------|
 | `session_id` | string | Session UUID — groups runs that ran together in one `litmus serve` / `pytest` invocation |
 | `run_id` | string | Run UUID — primary key for the run |
-| `slot_id` | string | Multi-UUT slot ID (NULL for single-UUT runs) |
+| `site_index` | int64 | Multi-UUT site index, 0-based (NULL for single-UUT runs) |
+| `site_name` | string | Optional human label for the site (NULL when unnamed or single-UUT) |
 | `run_started_at` | timestamp[us, UTC] | When the run started |
 | `run_ended_at` | timestamp[us, UTC] | When the run ended |
 | `step_name` | string | Test function or class name |

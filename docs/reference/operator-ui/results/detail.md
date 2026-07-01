@@ -38,8 +38,8 @@ content. It carries:
 ## Tabs
 
 Below the header, a tab strip switches between five views. The
-Execution Timeline tab only appears for multi-slot runs (sessions
-with at least one measurement that carries a `slot_id`).
+Execution Timeline tab only appears for multi-site runs (sessions
+with at least one measurement that carries a `site_index`).
 
 | Tab | What's there |
 |---|---|
@@ -121,15 +121,15 @@ you can click to download or view inline.
 Empty measurements render the `No measurements recorded yet.` message
 until the first row arrives.
 
-### Execution Timeline (multi-slot only)
+### Execution Timeline (multi-site only)
 
-The Execution Timeline tab only appears for multi-slot parallel
-sessions — runs where at least one measurement carries a `slot_id`.
+The Execution Timeline tab only appears for multi-site parallel
+sessions — runs where at least one measurement carries a `site_index`.
 It loads on demand: the first time you click the tab, the chart
 fetches the session's full step list and draws a Gantt of every
-slot's activity, with this run's slot highlighted.
+site's activity, with this run's site highlighted.
 
-For single-slot runs (the common case) the tab is hidden entirely.
+For single-site runs (the common case) the tab is hidden entirely.
 
 ### UUT History
 

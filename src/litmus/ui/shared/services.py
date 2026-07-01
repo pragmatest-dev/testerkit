@@ -1336,7 +1336,8 @@ def _run_row_to_summary(row: Any) -> RunSummary:
     return RunSummary(
         test_run_id=row.run_id or "",
         session_id=row.session_id,
-        slot_id=row.slot_id,
+        site_index=row.site_index,
+        site_name=row.site_name,
         started_at=row.started_at,
         ended_at=row.ended_at,
         uut_serial_number=row.uut_serial_number,

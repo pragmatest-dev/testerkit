@@ -188,7 +188,8 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             run_id VARCHAR PRIMARY KEY,
             file_path VARCHAR,
             session_id VARCHAR,
-            slot_id VARCHAR,
+            site_index BIGINT,
+            site_name VARCHAR,
             uut_serial_number VARCHAR,
             uut_part_number VARCHAR,
             uut_lot_number VARCHAR,
@@ -225,7 +226,8 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             step_index INTEGER,
             file_path VARCHAR,
             session_id VARCHAR,
-            slot_id VARCHAR,
+            site_index BIGINT,
+            site_name VARCHAR,
             step_name VARCHAR,
             outcome outcome_kind,
             started_at TIMESTAMPTZ,
@@ -325,7 +327,8 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             record_type           VARCHAR NOT NULL DEFAULT 'measurement',
             run_id                VARCHAR,
             session_id            VARCHAR,
-            slot_id               VARCHAR,
+            site_index            BIGINT,
+            site_name             VARCHAR,
             run_started_at        TIMESTAMPTZ,
             run_ended_at          TIMESTAMPTZ,
             run_outcome           VARCHAR,
@@ -490,7 +493,8 @@ _RUNS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("run_id", "VARCHAR"),
     ("file_path", "VARCHAR"),
     ("session_id", "VARCHAR"),
-    ("slot_id", "VARCHAR"),
+    ("site_index", "BIGINT"),
+    ("site_name", "VARCHAR"),
     ("uut_serial_number", "VARCHAR"),
     ("uut_part_number", "VARCHAR"),
     ("uut_lot_number", "VARCHAR"),
@@ -513,7 +517,8 @@ _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("step_index", "INTEGER"),
     ("file_path", "VARCHAR"),
     ("session_id", "VARCHAR"),
-    ("slot_id", "VARCHAR"),
+    ("site_index", "BIGINT"),
+    ("site_name", "VARCHAR"),
     ("step_name", "VARCHAR"),
     ("step_path", "VARCHAR"),
     ("outcome", "outcome_kind"),
@@ -537,7 +542,8 @@ _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("file_path", "VARCHAR"),
     ("run_id", "VARCHAR"),
     ("session_id", "VARCHAR"),
-    ("slot_id", "VARCHAR"),
+    ("site_index", "BIGINT"),
+    ("site_name", "VARCHAR"),
     ("run_started_at", "TIMESTAMPTZ"),
     ("run_ended_at", "TIMESTAMPTZ"),
     ("run_outcome", "VARCHAR"),
@@ -905,7 +911,8 @@ _MEAS_FIXED_COLS: frozenset[str] = frozenset(
         "record_type",
         "run_id",
         "session_id",
-        "slot_id",
+        "site_index",
+        "site_name",
         "run_started_at",
         "run_ended_at",
         "run_outcome",
@@ -1199,7 +1206,8 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             run_id,
             filename AS file_path,
             session_id,
-            slot_id,
+            site_index,
+            site_name,
             uut_serial_number, uut_part_number, uut_lot_number,
             station_id, station_name, station_hostname,
             fixture_id,
@@ -1216,7 +1224,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
         FROM read_parquet({flist}, filename=true, union_by_name=true)
         WHERE run_id IS NOT NULL
         GROUP BY
-            filename, run_id, session_id, slot_id,
+            filename, run_id, session_id, site_index, site_name,
             uut_serial_number, uut_part_number, uut_lot_number,
             station_id, station_name, station_hostname,
             fixture_id,
@@ -1225,7 +1233,8 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
         ON CONFLICT (run_id) DO UPDATE SET
             file_path = excluded.file_path,
             session_id = excluded.session_id,
-            slot_id = excluded.slot_id,
+            site_index = excluded.site_index,
+            site_name = excluded.site_name,
             uut_serial_number = excluded.uut_serial_number,
             uut_part_number = excluded.uut_part_number,
             uut_lot_number = excluded.uut_lot_number,
@@ -1276,7 +1285,8 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             step_index,
             filename AS file_path,
             session_id,
-            slot_id,
+            site_index,
+            site_name,
             step_name,
             -- v2: step-level rollups live only on the 'step' record (the scope
             -- 'vector' record sheds them), so aggregate via ANY_VALUE FILTER
@@ -1308,7 +1318,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
         GROUP BY
             filename, run_id,
             step_path, COALESCE(step_retry, 0), vector_index, vector_outer_index, step_index,
-            session_id, slot_id, step_name,
+            session_id, site_index, site_name, step_name,
             uut_serial_number, station_id
         ON CONFLICT (run_id, step_path, step_retry, vector_index_key, vector_outer_index_key)
         DO UPDATE SET
@@ -1317,7 +1327,8 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             step_index = excluded.step_index,
             file_path = excluded.file_path,
             session_id = excluded.session_id,
-            slot_id = excluded.slot_id,
+            site_index = excluded.site_index,
+            site_name = excluded.site_name,
             step_name = excluded.step_name,
             outcome = excluded.outcome,
             started_at = excluded.started_at,
@@ -1622,7 +1633,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
         UNION BY NAME
         SELECT
             record_type,
-            run_id, session_id, slot_id,
+            run_id, session_id, site_index, site_name,
             run_started_at, run_ended_at, run_outcome,
             uut_serial_number, uut_part_number, uut_revision, uut_lot_number,
             part_id, part_name, part_revision,
@@ -1658,7 +1669,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
         SELECT * FROM runs_materialized
         UNION ALL BY NAME
         SELECT
-            run_id, file_path, session_id, slot_id,
+            run_id, file_path, session_id, site_index, site_name,
             uut_serial_number, uut_part_number, uut_lot_number, station_id, station_name,
             station_hostname, fixture_id,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
@@ -1678,7 +1689,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             step_retry,
             vector_index,
             vector_outer_index,
-            step_index, file_path, session_id, slot_id,
+            step_index, file_path, session_id, site_index, site_name,
             step_name,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
@@ -2293,7 +2304,7 @@ def _events_daemon_alive(events_dir: Path) -> bool:
     daemon attaches to an existing events daemon; it never spawns one.
 
     Why no spawn: the events daemon should be spawned by the actual
-    emitter (pytest plugin, ``StationConnection``, ``SlotRunner``, the
+    emitter (pytest plugin, ``StationConnection``, ``SiteRunner``, the
     UI's serve-level acquire) — those processes need to write events
     anyway. The runs daemon emits ``RunMaterialized`` after attach
     (post-spawn), so it has no need to bring the events daemon up itself.
