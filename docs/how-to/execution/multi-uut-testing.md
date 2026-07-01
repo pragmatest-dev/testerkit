@@ -129,7 +129,7 @@ Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{run_id8}_{
 
 `site_index` / `site_name` aren't columns bolted onto the query layer after the fact — they're stamped at emit time and carried through:
 
-- The parent process that dispatches the per-site subprocesses (the **orchestrator**) lists every configured site up front (site count + names) in its own session-open event, before any site subprocess (a **worker**) starts.
+- The parent process that dispatches the per-site subprocesses (the **orchestrator**) records the total site count in its own session-open event, before any site subprocess (a **worker**) starts.
 - Each worker emits its own run-start event carrying **its** `site_index` and `site_name` — this is the freeze point. Rename a site in the fixture YAML next month and this run's row still reads the name that was active when it ran.
 - Per-site start/end events mark when each worker begins and finishes, independent of the individual test steps inside it.
 
