@@ -21,6 +21,7 @@ members = [
     "litmus-example-09-instrument-streaming",
     "litmus-example-10-artifacts-and-byte-streams",
     "litmus-example-11-querying-data",
+    "litmus-example-12-parallel-sites",
     "litmus-test",
 ]
 
@@ -1739,6 +1740,21 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "litmus-test", editable = "." }]
+
+[[package]]
+name = "litmus-example-12-parallel-sites"
+version = "0.0.0"
+source = { editable = "examples/12-parallel-sites" }
+dependencies = [
+    { name = "litmus-test" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "litmus-test", editable = "." },
+    { name = "pytest" },
+]
 
 [[package]]
 name = "litmus-test"

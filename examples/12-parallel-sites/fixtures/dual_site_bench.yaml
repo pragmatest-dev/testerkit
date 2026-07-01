@@ -1,0 +1,42 @@
+id: dual_site_bench
+name: Dual-Site Bench Fixture
+description: >-
+  Two-UUT parallel fixture — left/right sites share the bench's psu
+  and dmm but land on different instrument channels. 2 sites makes
+  this fixture is_multi_site, which is what fans a bare `pytest` into
+  the parallel-site orchestrator (see README).
+part_id: dual_rail_uut
+station_types: [bench]
+sites:
+  - name: left
+    connections:
+      vout:
+        name: vout
+        instrument: dmm
+        instrument_channel: "1"
+        instrument_terminal: hi
+        uut_pin: TP_VOUT
+        net: VOUT_3V3
+      vin:
+        name: vin
+        instrument: psu
+        instrument_channel: "1"
+        instrument_terminal: hi
+        uut_pin: TP_VIN
+        net: VIN_5V
+  - name: right
+    connections:
+      vout:
+        name: vout
+        instrument: dmm
+        instrument_channel: "2"
+        instrument_terminal: hi
+        uut_pin: TP_VOUT
+        net: VOUT_3V3
+      vin:
+        name: vin
+        instrument: psu
+        instrument_channel: "2"
+        instrument_terminal: hi
+        uut_pin: TP_VIN
+        net: VIN_5V
