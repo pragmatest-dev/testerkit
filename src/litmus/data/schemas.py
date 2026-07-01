@@ -156,6 +156,7 @@ RUN_ROW_SCHEMA = pa.schema(
         # retry). Both stamp every execution so a rerun is a distinct row.
         ("step_retry", pa.int64()),
         ("vector_index", pa.int64()),
+        ("vector_outer_index", pa.int64()),
         ("vector_retry", pa.int64()),
         ("vector_started_at", pa.timestamp("us", tz="UTC")),
         ("vector_ended_at", pa.timestamp("us", tz="UTC")),

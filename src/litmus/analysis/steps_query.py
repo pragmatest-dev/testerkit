@@ -45,11 +45,11 @@ class StepRow(BaseModel):
     step_name: str | None = None
     step_path: str | None = None
     parent_path: str | None = None
-    # vector_index: 0 for non-swept steps; 0..N-1 for sweep variants of the
-    # same logical step. The composite (run_id, step_path, step_retry,
-    # vector_index) is the per-execution identity within a run — step_retry
-    # distinguishes reruns of the same logical step.
+    # vector_index: NULL for step rows; 0..N-1 for vector rows (own position
+    # within the sweep). vector_outer_index: NULL at top level; the enclosing
+    # outer (class) vector index for method steps nested inside a swept class.
     vector_index: int | None = None
+    vector_outer_index: int | None = None
     outcome: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None

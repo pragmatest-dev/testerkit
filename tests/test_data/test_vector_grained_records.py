@@ -352,9 +352,9 @@ def test_scenario_4_class_container_x_method(tmp_path):
             inputs={"temp": 25},
         )
     )
-    # Inner method, parented to the container; enclosing vector_index=0 (the
-    # container's iteration). StepStarted carries the inherited temp; the
-    # method's own vin lands on StepEnded (step-scope configure).
+    # Inner method, parented to the container; runs inside the container's
+    # vector 0 → vector_outer_index=0. StepStarted carries the inherited temp;
+    # the method's own vin lands on StepEnded (step-scope configure).
     acc.on_event(
         StepStarted(
             session_id=sid,
@@ -363,6 +363,7 @@ def test_scenario_4_class_container_x_method(tmp_path):
             step_index=0,
             step_path="TestC/test_m",
             vector_index=0,
+            vector_outer_index=0,
             inputs={"temp": 25},
             class_name="TestC",
             function="test_m",
@@ -376,6 +377,7 @@ def test_scenario_4_class_container_x_method(tmp_path):
             step_index=0,
             step_path="TestC/test_m",
             vector_index=0,
+            vector_outer_index=0,
             measurement_name="vout",
             value=3.3,
             outcome="passed",
@@ -389,6 +391,7 @@ def test_scenario_4_class_container_x_method(tmp_path):
             step_index=0,
             step_path="TestC/test_m",
             vector_index=0,
+            vector_outer_index=0,
             inputs={"temp": 25, "vin": 3.3},
             outcome="passed",
         )
@@ -420,10 +423,13 @@ def test_scenario_4_class_container_x_method(tmp_path):
     kinds = _by_kind(_materialize(acc, tmp_path))
     steps = {s["step_path"]: s for s in kinds["step"]}
     assert set(steps) == {"TestC", "TestC/test_m"}
-    # Container step is top-level → enclosing vector_index NULL; the method is
-    # nested under a swept parent → enclosing vector_index 0.
+    # All step rows carry vector_index=NULL; the enclosing outer coordinate is
+    # vector_outer_index. Container is top-level → NULL; method is nested under
+    # the container's vector 0 → 0.
     assert steps["TestC"]["vector_index"] is None
-    assert steps["TestC/test_m"]["vector_index"] == 0
+    assert steps["TestC"]["vector_outer_index"] is None
+    assert steps["TestC/test_m"]["vector_index"] is None
+    assert steps["TestC/test_m"]["vector_outer_index"] == 0
     # ONE leaf vector — the container's class-outer iteration at temp=25.
     vectors = {v["step_path"]: v for v in kinds["vector"]}
     assert set(vectors) == {"TestC"}

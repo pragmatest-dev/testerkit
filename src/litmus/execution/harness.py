@@ -34,6 +34,7 @@ from litmus.execution._state import (
     get_active_station_config,
     get_active_test_characteristics,
     get_current_code_identity,
+    get_current_context,
     get_current_run_scope,
     get_current_step,
     get_current_vector,
@@ -600,9 +601,20 @@ class Context:
         run_id = getattr(getattr(run_scope, "test_run", None), "id", None)
         step_path = getattr(step, "step_path", "") if step else ""
         vector_index = getattr(vector, "index", 0) if vector else 0
-        occurrence = run_scope.next_vector_occurrence(step_path, vector_index)
+        # The outer (class-level) vector this step's method runs inside.
+        enc = run_scope._step_enclosing[-1] if run_scope._step_enclosing else None
+        vector_outer_index: int | None = enc.index if enc is not None else None
+        occurrence = run_scope.next_vector_occurrence(step_path, vector_outer_index, vector_index)
         if vector is not None:
             vector.retry = occurrence
+        # Inputs from the LIVE context (flattened chain) — the same view the test
+        # holds — not a copy off the vector, so every logged input matches reality.
+        ctx = get_current_context()
+        vs_inputs = (
+            {k: v for k, v in ctx.params.items() if not str(k).startswith("_")}
+            if ctx is not None
+            else (dict(vector.params) if vector is not None else {})
+        )
         event_log.emit(
             VectorStarted(
                 session_id=self._session_id,
@@ -611,9 +623,10 @@ class Context:
                 step_index=run_scope._current_step_index,
                 step_path=step_path,
                 vector_index=vector_index,
+                vector_outer_index=vector_outer_index,
                 retry=occurrence,
                 step_retry=getattr(step, "retry", 0) if step else 0,
-                inputs=dict(vector.params) if vector is not None else {},
+                inputs=vs_inputs,
                 input_units=dict(vector.param_units) if vector is not None else {},
                 node_id=getattr(step, "node_id", None) if step else None,
             )
@@ -637,6 +650,16 @@ class Context:
         vector = get_current_vector()
         run_id = getattr(getattr(run_scope, "test_run", None), "id", None)
         outcome = getattr(vector, "outcome", None) if vector is not None else None
+        enc = run_scope._step_enclosing[-1] if run_scope._step_enclosing else None
+        vector_outer_index: int | None = enc.index if enc is not None else None
+        # Live context (flattened) — captures in-body configure() applied during
+        # this iteration, unlike a stale copy off the vector.
+        ctx = get_current_context()
+        ve_inputs = (
+            {k: v for k, v in ctx.params.items() if not str(k).startswith("_")}
+            if ctx is not None
+            else (dict(vector.params) if vector is not None else {})
+        )
         event_log.emit(
             VectorEnded(
                 session_id=self._session_id,
@@ -645,10 +668,11 @@ class Context:
                 step_index=run_scope._current_step_index,
                 step_path=getattr(step, "step_path", "") if step else "",
                 vector_index=getattr(vector, "index", 0) if vector else 0,
+                vector_outer_index=vector_outer_index,
                 retry=getattr(vector, "retry", 0) if vector else 0,
                 step_retry=getattr(step, "retry", 0) if step else 0,
                 outcome=outcome.value if outcome is not None else None,
-                inputs=dict(vector.params) if vector is not None else {},
+                inputs=ve_inputs,
                 outputs=dict(vector.observations) if vector is not None else {},
                 input_units=dict(vector.param_units) if vector is not None else {},
                 output_units=dict(vector.observation_units) if vector is not None else {},

@@ -463,6 +463,9 @@ class StepStarted(EventBase):
     # subscribers need to disambiguate "test_efficiency starting" from
     # "test_efficiency starting at vin=2.0V".
     vector_index: int = 0
+    # The vector_index of the outer (class-level) vector this step runs
+    # inside; NULL when the step is not nested under a sweep.
+    vector_outer_index: int | None = None
     # 0-based retry of this execution. 0 for first run, N for the Nth retry.
     # Meaningful for the Mode-1 fused step-execution≡vector boundary (parametrize
     # item rerun, or class-container re-execution).
@@ -495,6 +498,7 @@ class MeasurementRecorded(EventBase):
     step_index: int
     step_path: str = ""
     vector_index: int = 0
+    vector_outer_index: int | None = None
     step_retry: int = 0  # outer item-attempt axis (de-fuse identity)
     retry: int = 0  # inner vector retry — 0 for first execution, N for Nth
 
@@ -570,6 +574,7 @@ class StepEnded(EventBase):
     # parameters for completeness; ``outputs`` carries vector-level
     # observations not tied to any specific measurement.
     vector_index: int = 0
+    vector_outer_index: int | None = None
     # 0-based retry of this execution (Mode-1 fused boundary). Companion to
     # ``StepStarted.retry``.
     retry: int = 0
@@ -607,6 +612,9 @@ class VectorStarted(EventBase):
     step_index: int
     step_path: str = ""
     vector_index: int = 0
+    # The vector_index of the outer (class-level) vector this vector's step
+    # runs inside; NULL when the step is at the top level.
+    vector_outer_index: int | None = None
     retry: int = 0
     step_retry: int = 0
     inputs: dict[str, Any] = Field(default_factory=dict)
@@ -624,6 +632,7 @@ class VectorEnded(EventBase):
     step_index: int
     step_path: str = ""
     vector_index: int = 0
+    vector_outer_index: int | None = None
     retry: int = 0
     step_retry: int = 0
     outcome: str | None = None

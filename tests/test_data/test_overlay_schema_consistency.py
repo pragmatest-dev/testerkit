@@ -363,7 +363,7 @@ def _table_rows(conn: duckdb.DuckDBPyConnection, table: str) -> list[dict[str, A
 # ``file_path`` (no parquet file in-flight) and ``vector_index_key`` (an
 # internal COALESCE(vector_index,-1) dedup key for the PK, not data — the
 # ``steps`` view EXCLUDEs it; the overlay never carries it).
-_MATERIALIZATION_ONLY = {"file_path", "vector_index_key"}
+_MATERIALIZATION_ONLY = {"file_path", "vector_index_key", "vector_outer_index_key"}
 
 # Sentinel: a materialized column with no corresponding inflight key.
 _MISSING = object()

@@ -507,25 +507,23 @@ class RunScope:
         # second call (e.g. pytest_sessionfinish finalizing on KeyboardInterrupt
         # before the run fixture's teardown) does not double-emit.
         self._finalized: bool = False
-        # Per-(step_path, vector_index) execution count for iteration vectors.
+        # Per-(step_path, vector_outer_index, vector_index) execution count.
         # Survives pytest reruns (RunScope is session-scoped, set once per run),
         # so it counts every occurrence of a vector point across the whole run —
         # in-body retries AND outer item reruns alike. Sourced as the event-time
         # ``vector_retry`` (the occurrence ordinal) at VectorStarted emit.
-        self._vector_occurrences: dict[tuple[str, int], int] = {}
+        self._vector_occurrences: dict[tuple[str, int | None, int], int] = {}
 
-    def next_vector_occurrence(self, step_path: str, vector_index: int) -> int:
-        """Return the 0-based occurrence ordinal of ``(step_path, vector_index)``.
+    def next_vector_occurrence(
+        self, step_path: str, vector_outer_index: int | None, vector_index: int
+    ) -> int:
+        """Return the 0-based ordinal of ``(step_path, vector_outer_index, vector_index)``.
 
-        Returns the current count then increments, so the first execution of a
-        vector point yields 0, the second 1, and so on. Because :class:`RunScope`
-        persists across pytest reruns (they run in-process under one session),
-        this counts BOTH in-body ``litmus_retry`` re-executions and outer pytest
-        item reruns of the point — the cause is irrelevant to the count. Stamped
-        as ``vector_retry`` on ``VectorStarted`` so the value rides the event
-        instead of being re-derived downstream.
+        Returns the current count then increments. The outer index keeps
+        distinct outer-sweep executions of the same inner point from being
+        counted as retries of each other.
         """
-        key = (step_path, vector_index)
+        key = (step_path, vector_outer_index, vector_index)
         n = self._vector_occurrences.get(key, 0)
         self._vector_occurrences[key] = n + 1
         return n
@@ -742,6 +740,7 @@ class RunScope:
         if self._event_log is None:
             return
         enc_vi = enclosing.index if enclosing is not None else 0
+        enc_voi: int | None = enclosing.index if enclosing is not None else None
         enc_inputs = coerce_dict(enclosing.params) if enclosing is not None else {}
         enc_units = dict(enclosing.param_units) if enclosing is not None else {}
         if is_start:
@@ -753,6 +752,7 @@ class RunScope:
                 step_path=step.step_path,
                 description=step.description,
                 vector_index=enc_vi,
+                vector_outer_index=enc_voi,
                 retry=step.retry,
                 inputs=enc_inputs,
                 input_units=enc_units,
@@ -778,6 +778,7 @@ class RunScope:
                 step_path=step.step_path,
                 outcome=step.outcome.value if step.outcome else None,
                 vector_index=enc_vi,
+                vector_outer_index=enc_voi,
                 retry=step.retry,
                 vector_outcome=vec_outcome,
                 inputs={**enc_inputs, **own_inputs},
@@ -854,16 +855,27 @@ class RunScope:
             except ImportError:
                 pass  # non-pytest path; flag is unused
 
-        # Emit event if event log is wired
+        # Emit event if event log is wired. Inputs are resolved from the LIVE
+        # context the test code holds at this point — the flattened param chain
+        # (outer sweep → inner iteration → in-body configure()) — so the logged
+        # record is exactly what the test saw, never a reconstruction from
+        # private step/vector snapshots (which silently drop in-loop configure).
         if self._event_log is not None:
-            if vector is not None:
+            ctx = get_current_context()
+            if ctx is not None:
+                inputs = {
+                    k: v for k, v in coerce_dict(ctx.params).items() if not str(k).startswith("_")
+                }
+            elif vector is not None:
                 inputs = {**step.inputs, **build_input_columns(vector)}
             else:
                 inputs = dict(step.inputs)
-            # enc_vi routes step-scope events so the accumulator can match them to the step row.
             enc_vi = active_vector.index if active_vector is not None else 0
             event_vi = vector.index if vector is not None else enc_vi
             event_retry = vector.retry if vector is not None else 0
+            # The outer (class-level) vector this step runs inside; from the step's saved enclosing.
+            enc = self._step_enclosing[-1] if self._step_enclosing else None
+            event_voi: int | None = enc.index if enc is not None else None
             event = MeasurementRecorded(
                 session_id=self._session_id,
                 run_id=self.test_run.id,
@@ -872,6 +884,7 @@ class RunScope:
                 step_index=self._current_step_index,
                 step_path=step.step_path,
                 vector_index=event_vi,
+                vector_outer_index=event_voi,
                 step_retry=step.retry,
                 retry=event_retry,
                 # Measurement fields
@@ -951,7 +964,8 @@ class RunScope:
         if self._event_log is None:
             return
         step_path = getattr(step, "step_path", "") if step else ""
-        occurrence = self.next_vector_occurrence(step_path, vector.index)
+        # Class-outer vectors are not nested under another outer vector.
+        occurrence = self.next_vector_occurrence(step_path, None, vector.index)
         vector.retry = occurrence
         self._event_log.emit(
             VectorStarted(
@@ -961,6 +975,7 @@ class RunScope:
                 step_index=self._current_step_index,
                 step_path=step_path,
                 vector_index=vector.index,
+                vector_outer_index=None,
                 retry=occurrence,
                 step_retry=getattr(step, "retry", 0) if step else 0,
                 inputs=coerce_dict(vector.params),
@@ -984,6 +999,7 @@ class RunScope:
                     step_index=self._current_step_index,
                     step_path=getattr(step, "step_path", "") if step else "",
                     vector_index=vector.index,
+                    vector_outer_index=None,
                     retry=vector.retry,
                     step_retry=getattr(step, "retry", 0) if step else 0,
                     outcome=vector.outcome.value if vector.outcome is not None else None,

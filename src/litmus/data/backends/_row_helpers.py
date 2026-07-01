@@ -339,8 +339,11 @@ class RunParquetRow(BaseModel):
     # step. On step + scope-vector rows; NULL on run/measurement rows. The
     # inner per-vector retry is ``vector_retry``.
     step_retry: int | None = None
-    # NULL keeps the step row out of the per-vector GROUP BY in _bulk_insert_steps.
+    # NULL on step rows (step.vector_index is always NULL at rest).
     vector_index: int | None = None
+    # The vector_index of the outer (class-level) vector a step or vector
+    # record belongs to; NULL for top-level steps.
+    vector_outer_index: int | None = None
     # 0-based retry counter — 0 for the first execution, N for the Nth retry.
     # Per-measurement (NULL on step / run rows). Companion to ``RetryConfig.max_retries``
     # which bounds the count (max_retries=0 → no retries; max_retries=N → up to N retries).
@@ -850,6 +853,7 @@ def build_step_row(
         step_outcome=entry.get("outcome"),
         step_retry=entry.get("step_retry") or 0,
         vector_index=raw_vi,
+        vector_outer_index=entry.get("vector_outer_index"),
         vector_retry=None,
         measurement_name=None,
         run_outcome=run_outcome,
@@ -908,6 +912,7 @@ def build_vector_row(
         step_outcome=None,
         step_retry=entry.get("step_retry") or 0,
         vector_index=raw_vi if raw_vi is not None else 0,
+        vector_outer_index=entry.get("vector_outer_index"),
         vector_retry=raw_retry if raw_retry is not None else 0,
         vector_started_at=_to_datetime(entry.get("started_at")),
         vector_ended_at=_to_datetime(entry.get("ended_at")),
@@ -939,6 +944,7 @@ def vector_entry_dict(
     step_started_at: datetime | None,
     step_ended_at: datetime | None,
     vector_index: int,
+    vector_outer_index: int | None = None,
     retry: int,
     step_retry: int = 0,
     outcome: str | None,
@@ -955,9 +961,9 @@ def vector_entry_dict(
     """Single source of truth for one in-body vector manifest entry's shape.
 
     Distinct from :func:`step_entry_dict` — a vector entry keys on
-    ``(step_path, vector_index, retry)`` and carries vector-grain timing
-    and outcome. ``step_retry`` is the enclosing step's outer (item) attempt.
-    Timestamps are serialised here.
+    ``(step_path, vector_outer_index, vector_index, retry)`` and carries
+    vector-grain timing and outcome. ``step_retry`` is the enclosing step's
+    outer (item) attempt. Timestamps are serialised here.
     """
     return {
         "index": index,
@@ -972,6 +978,7 @@ def vector_entry_dict(
         "step_started_at": step_started_at.isoformat() if step_started_at else None,
         "step_ended_at": step_ended_at.isoformat() if step_ended_at else None,
         "vector_index": vector_index,
+        "vector_outer_index": vector_outer_index,
         "retry": retry,
         "step_retry": step_retry,
         "outcome": outcome,
@@ -1006,7 +1013,7 @@ def build_step_manifest(
     """
     manifest: list[dict[str, Any]] = []
     executed_node_ids: set[str] = set()
-    executed_vectors: set[tuple[str, int]] = set()
+    executed_vectors: set[tuple[str, int | None]] = set()
 
     for index, step in enumerate(test_run.steps):
         if step.node_id:
@@ -1103,6 +1110,7 @@ def step_entry_dict(
     started_at: datetime | None,
     ended_at: datetime | None,
     vector_index: int | None = None,
+    vector_outer_index: int | None = None,
     inputs: dict[str, Any] | None = None,
     outputs: dict[str, Any] | None = None,
     input_units: dict[str, str] | None = None,
@@ -1120,9 +1128,9 @@ def step_entry_dict(
     pre-compute their values and pass them as kwargs. Timestamps are
     serialised here, ``duration_s`` derived from start/end.
 
-    ``vector_index`` is NULL for top-level / non-swept steps (so their
-    step row stays out of the per-vector GROUP BY) and an integer for steps
-    nested under a swept parent (enclosing iteration index).
+    ``vector_index`` is always NULL at rest (step rows never carry their
+    own sweep index). ``vector_outer_index`` identifies which outer (class-
+    level) vector this step ran inside; NULL for top-level steps.
     """
     duration_s: float | None = None
     if started_at and ended_at:
@@ -1143,6 +1151,7 @@ def step_entry_dict(
         "ended_at": ended_at.isoformat() if ended_at else None,
         "duration_s": duration_s,
         "vector_index": vector_index,
+        "vector_outer_index": vector_outer_index,
         "inputs": inputs or {},
         "outputs": outputs or {},
         "input_units": input_units or {},
@@ -1160,7 +1169,7 @@ def _append_not_started(
     collected_items: list[dict[str, str | int | None]],
     executed_node_ids: set[str],
     *,
-    executed_vectors: set[tuple[str, int]] | None = None,
+    executed_vectors: set[tuple[str, int | None]] | None = None,
 ) -> None:
     """Append ``planned`` entries for collected items that never executed.
 

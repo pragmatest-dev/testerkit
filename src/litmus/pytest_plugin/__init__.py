@@ -1167,7 +1167,7 @@ class _VectorIterator:
             # measure).
             step = get_current_step()
             if step is not None:
-                new_vector = TestVector(index=i, params=dict(params))
+                new_vector = TestVector(index=i, params={**dict(step.inputs), **dict(params)})
                 step.vectors.append(new_vector)
                 token = push_current_vector(new_vector)
                 self._consumed += 1

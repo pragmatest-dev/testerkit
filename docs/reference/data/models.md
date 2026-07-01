@@ -1500,6 +1500,7 @@ One row from the ``steps`` table — full denormalized run + step context.
 | `step_path` | `str \| None` | `None` |
 | `parent_path` | `str \| None` | `None` |
 | `vector_index` | `int \| None` | `None` |
+| `vector_outer_index` | `int \| None` | `None` |
 | `outcome` | `str \| None` | `None` |
 | `started_at` | `datetime \| None` | `None` |
 | `ended_at` | `datetime \| None` | `None` |

@@ -212,6 +212,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
 
     # ── steps_materialized ─────────────────────────────────────────────
     # vector_index_key = COALESCE(vector_index, -1): PK cannot be NULL, -1 is step-own sentinel.
+    # vector_outer_index_key = COALESCE(vector_outer_index, -1): same sentinel for outer axis.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS steps_materialized (
             run_id VARCHAR NOT NULL,
@@ -219,6 +220,8 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             step_retry BIGINT NOT NULL DEFAULT 0,
             vector_index BIGINT,
             vector_index_key BIGINT NOT NULL DEFAULT -1,
+            vector_outer_index BIGINT,
+            vector_outer_index_key BIGINT NOT NULL DEFAULT -1,
             step_index INTEGER,
             file_path VARCHAR,
             session_id VARCHAR,
@@ -233,7 +236,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             uut_serial_number VARCHAR,
             station_id VARCHAR,
             dynamic_attrs MAP(VARCHAR, VARCHAR),
-            PRIMARY KEY (run_id, step_path, step_retry, vector_index_key)
+            PRIMARY KEY (run_id, step_path, step_retry, vector_index_key, vector_outer_index_key)
         )
     """)
     for col, sql_type in _STEPS_PERSISTED_COLUMNS:
@@ -344,6 +347,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             step_started_at       TIMESTAMPTZ,
             step_ended_at         TIMESTAMPTZ,
             vector_index          BIGINT,
+            vector_outer_index    BIGINT,
             vector_retry        BIGINT,
             vector_outcome        VARCHAR,
             measurement_name      VARCHAR,
@@ -396,6 +400,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             run_id          VARCHAR,
             step_index      INTEGER,
             vector_index    BIGINT,
+            vector_outer_index BIGINT,
             vector_retry    BIGINT,
             role            VARCHAR NOT NULL,
             name            VARCHAR NOT NULL,
@@ -520,6 +525,7 @@ _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     # overwriting the prior attempt.
     ("step_retry", "BIGINT"),
     ("vector_index", "BIGINT"),
+    ("vector_outer_index", "BIGINT"),
     ("measurement_count", "INTEGER"),
     ("markers", "VARCHAR"),
     ("uut_serial_number", "VARCHAR"),
@@ -565,6 +571,7 @@ _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("step_started_at", "TIMESTAMPTZ"),
     ("step_ended_at", "TIMESTAMPTZ"),
     ("vector_index", "BIGINT"),
+    ("vector_outer_index", "BIGINT"),
     ("vector_retry", "BIGINT"),
     ("vector_outcome", "VARCHAR"),
     ("measurement_name", "VARCHAR"),
@@ -831,14 +838,15 @@ def _dynamic_unnest_union(source: str, *, where: str, with_filename: bool = Fals
     """UNION ALL that UNNESTs the nested inputs/outputs lanes from ``source``.
 
     ``source`` is a relation expression (a ``read_parquet(...)`` call or a table
-    name). Emits ``(run_id, step_index, vector_index, vector_retry, role, lanes)``.
-    With ``with_filename`` it also projects the ``filename`` column (requires the
-    source to read with ``filename=true``) so a multi-file batch keeps each row's
-    own ``file_path``; single-file callers prepend a constant instead.
+    name). Emits ``(run_id, step_index, vector_index, vector_outer_index,
+    vector_retry, role, lanes)``. With ``with_filename`` it also projects the
+    ``filename`` column (requires the source to read with ``filename=true``) so a
+    multi-file batch keeps each row's own ``file_path``; single-file callers
+    prepend a constant instead.
     """
     prefix = "filename, " if with_filename else ""
     return " UNION ALL ".join(
-        f"SELECT {prefix}run_id, step_index, vector_index, vector_retry, "
+        f"SELECT {prefix}run_id, step_index, vector_index, vector_outer_index, vector_retry, "
         f"'{role}' AS role, {_LANE_SELECT} "
         f"FROM {source}, UNNEST({col}) AS t(u) WHERE {where}"
         for col, role in _DYNAMIC_ROLES
@@ -931,6 +939,7 @@ _MEAS_FIXED_COLS: frozenset[str] = frozenset(
         "step_started_at",
         "step_ended_at",
         "vector_index",
+        "vector_outer_index",
         "vector_retry",
         "vector_outcome",
         "measurement_name",
@@ -1012,7 +1021,8 @@ def _measurement_unnest_insert(src: str, *, file_path_expr: str) -> str:
     is the load-bearing "belongs to the step itself" marker the NULL-safe EAV
     join keys on.
     """
-    ctx_cols = sorted(_MEAS_FIXED_COLS - _MEAS_MEASUREMENT_COLS - {"record_type", "vector_index"})
+    _exclude = {"record_type", "vector_index", "vector_outer_index"}
+    ctx_cols = sorted(_MEAS_FIXED_COLS - _MEAS_MEASUREMENT_COLS - _exclude)
     ctx = ", ".join(f"v.{c}" for c in ctx_cols)
     meas = ", ".join(f"m.{s} AS {f}" for s, f in _MEAS_STRUCT_TO_FACT)
     map_expr = _dynamic_attrs_map_expr()
@@ -1033,6 +1043,7 @@ def _measurement_unnest_insert(src: str, *, file_path_expr: str) -> str:
             'measurement' AS record_type,
             {ctx},
             CASE WHEN v.record_type = 'vector' THEN v.vector_index END AS vector_index,
+            v.vector_outer_index AS vector_outer_index,
             {meas},
             v.dynamic_attrs AS dynamic_attrs
         FROM carrier AS v, UNNEST(v.measurements) AS t(m)
@@ -1108,7 +1119,8 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
     conn.execute(f"""
         INSERT INTO measurements_dynamic
         SELECT DISTINCT
-            '{escaped}' AS file_path, run_id, step_index, vector_index, vector_retry,
+            '{escaped}' AS file_path, run_id, step_index,
+            vector_index, vector_outer_index, vector_retry,
             role, name, value_type, value_int, value_double, value_bool, value_text,
             value_timestamp, value_json, unit, uut_pin
         FROM ({union_sql})
@@ -1259,6 +1271,8 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             COALESCE(step_retry, 0) AS step_retry,
             vector_index,
             COALESCE(vector_index, -1) AS vector_index_key,
+            vector_outer_index,
+            COALESCE(vector_outer_index, -1) AS vector_outer_index_key,
             step_index,
             filename AS file_path,
             session_id,
@@ -1293,11 +1307,13 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
         WHERE run_id IS NOT NULL AND record_type <> 'run'
         GROUP BY
             filename, run_id,
-            step_path, COALESCE(step_retry, 0), vector_index, step_index,
+            step_path, COALESCE(step_retry, 0), vector_index, vector_outer_index, step_index,
             session_id, slot_id, step_name,
             uut_serial_number, station_id
-        ON CONFLICT (run_id, step_path, step_retry, vector_index_key) DO UPDATE SET
+        ON CONFLICT (run_id, step_path, step_retry, vector_index_key, vector_outer_index_key)
+        DO UPDATE SET
             vector_index = excluded.vector_index,
+            vector_outer_index = excluded.vector_outer_index,
             step_index = excluded.step_index,
             file_path = excluded.file_path,
             session_id = excluded.session_id,
@@ -1616,7 +1632,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             python_version, litmus_version, env_fingerprint,
             step_name, step_index, step_path, step_outcome,
             step_started_at, step_ended_at,
-            vector_index, vector_retry, vector_outcome,
+            vector_index, vector_outer_index, vector_retry, vector_outcome,
             measurement_name, measurement_value, measurement_outcome,
             measurement_unit, measurement_timestamp,
             limit_low, limit_high, limit_nominal, limit_comparator,
@@ -1654,13 +1670,14 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     """)
     conn.execute("""
         CREATE OR REPLACE VIEW steps AS
-        SELECT * EXCLUDE (vector_index_key) FROM steps_materialized
+        SELECT * EXCLUDE (vector_index_key, vector_outer_index_key) FROM steps_materialized
         UNION ALL BY NAME
         SELECT
             run_id,
             COALESCE(step_path, '') AS step_path,
             step_retry,
             vector_index,
+            vector_outer_index,
             step_index, file_path, session_id, slot_id,
             step_name,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
@@ -1730,7 +1747,8 @@ def _batch_insert_measurement_rows(
     conn.execute(f"""
         INSERT INTO measurements_dynamic
         SELECT DISTINCT
-            filename AS file_path, run_id, step_index, vector_index, vector_retry,
+            filename AS file_path, run_id, step_index,
+            vector_index, vector_outer_index, vector_retry,
             role, name, value_type, value_int, value_double, value_bool, value_text,
             value_timestamp, value_json, unit, uut_pin
         FROM ({union_sql})

@@ -77,7 +77,9 @@ def _wait_for_run(session_id: str, *, timeout: float = 15.0) -> str:
 
 
 def _read_steps(session_id: str) -> list[StepRow]:
-    """Return all step rows for the session, sorted by (step_index, vector_index).
+    """Return all step rows for the session.
+
+    Sorted by (step_index, vector_index, vector_outer_index).
 
     Uses ``include_incomplete=True`` so vector rows (which have ``ended_at=NULL``
     in the daemon's GROUP-BY aggregation for vector-only groups) are also returned.
@@ -89,7 +91,7 @@ def _read_steps(session_id: str) -> list[StepRow]:
         rows = list(steps_q.list_for_run(run_id, include_incomplete=True))
     finally:
         steps_q.close()
-    rows.sort(key=lambda s: (s.step_index or 0, s.vector_index or 0))
+    rows.sort(key=lambda s: (s.step_index or 0, s.vector_index or 0, s.vector_outer_index or 0))
     return rows
 
 
@@ -329,6 +331,24 @@ def test_canonical_composed_sweep_order(tmp_path: Path) -> None:
     ]
     actual_inputs = [e.get("inputs") or {} for e in started]
     assert actual_inputs == expected_inputs, actual_inputs
+
+    # Union-at-rest on the Mode-1 (parametrize) VECTOR rows: each test_b variant
+    # is a separate pytest item whose class-outer begin_outer_vector emits a
+    # VectorStarted carrying the merged callspec {voltage, current}. This guards
+    # the parametrize build path — the peer of the vectors-fixture inner path
+    # (test_swept_class_with_vectors_fixture_inner_sweep). Both must carry the
+    # full enclosing+own condition on the vector row, not the inner layer alone.
+    store = EventStore.get_shared()
+    vec_events = store.events(session_id=UUID(session_id), event_type="test.vector_started")
+    b_vecs = [e for e in vec_events if e.get("step_name") == "test_b"]
+    assert len(b_vecs) == 9, b_vecs
+    for e in b_vecs:
+        inputs = e.get("inputs") or {}
+        assert "voltage" in inputs and "current" in inputs, inputs
+    b_pairs = {
+        ((e.get("inputs") or {})["voltage"], (e.get("inputs") or {})["current"]) for e in b_vecs
+    }
+    assert b_pairs == {(v, c) for v in (1, 2, 3) for c in (4, 5, 6)}, b_pairs
 
 
 # ---------------------------------------------------------------------------
@@ -583,6 +603,85 @@ def test_swept_class_with_vectors_fixture_inner_sweep(tmp_path: Path) -> None:
     }
     assert pairs == {(v, c) for v in (1, 2, 3) for c in (4, 5, 6)}, pairs
 
+    # Union-at-rest invariant on the INNER VECTOR rows themselves (not just the
+    # measurements): each vectors-fixture iteration under the swept class carries
+    # the merged {voltage, current} — the enclosing class condition overlaid with
+    # the iteration's own — because the plugin builds TestVector.params as the
+    # union at construction. The class-outer vectors carry only their own layer.
+    vec_events = store.events(session_id=UUID(session_id), event_type="test.vector_started")
+    inner_vecs = [e for e in vec_events if e.get("step_name") == "test_b"]
+    assert len(inner_vecs) == 9, inner_vecs
+    for e in inner_vecs:
+        inputs = e.get("inputs") or {}
+        assert "voltage" in inputs and "current" in inputs, inputs
+    inner_pairs = {
+        ((e.get("inputs") or {})["voltage"], (e.get("inputs") or {})["current"]) for e in inner_vecs
+    }
+    assert inner_pairs == {(v, c) for v in (1, 2, 3) for c in (4, 5, 6)}, inner_pairs
+    outer_vecs = [e for e in vec_events if e.get("step_name") == "TestSeq"]
+    assert {(e.get("inputs") or {}).get("voltage") for e in outer_vecs} == {1, 2, 3}
+    for e in outer_vecs:
+        assert "current" not in (e.get("inputs") or {}), e
+
+    # Isolation (union flows outer→inner, NEVER inner→outer): the test_b STEP
+    # rows carry only the enclosing {voltage} — never the per-iteration `current`,
+    # which varies across inner vectors and lives on the vector rows alone. Guards
+    # against the union fix leaking inner context up onto the step.
+    b_steps = [
+        r for r in _read_steps(session_id) if r.step_name == "test_b" and r.vector_index is None
+    ]
+    assert len(b_steps) == 3, [(r.step_path, r.vector_index, r.vector_outer_index) for r in b_steps]
+    for r in b_steps:
+        assert (r.inputs or {}).get("voltage") in (1, 2, 3), r.inputs
+        assert "current" not in (r.inputs or {}), r.inputs
+
+
+def test_inner_loop_configure_is_logged(tmp_path: Path) -> None:
+    """An in-body ``configure()`` inside a Mode-2 ``vectors`` loop reaches the
+    logged measurement AND the ``VectorEnded`` row — because inputs are resolved
+    from the live context the test holds at that instant, not a snapshot copied
+    off the vector. Guards the reconstruction path that silently dropped in-loop
+    configure() (the values existed in the context but never made it to the log).
+    """
+    session_id = str(uuid4())
+    test_file = tmp_path / "test_cfg_loop.py"
+    _write_test(
+        test_file,
+        """\
+        import pytest
+        from litmus.execution._state import get_current_context
+
+        @pytest.mark.litmus_sweeps([{"voltage": [1, 2]}])
+        class TestSeq:
+            @pytest.mark.litmus_sweeps([{"current": [4, 5]}])
+            def test_b(self, voltage, vectors, measure):
+                for v in vectors:
+                    get_current_context().configure("trim", v["current"] * 10)
+                    measure("vout", 1.0)
+        """,
+    )
+    result = _run_pytest(test_file, session_id=session_id)
+    assert result.returncode == 0, result.stderr
+
+    store = EventStore.get_shared()
+    meas = store.events(session_id=UUID(session_id), event_type="test.measurement")
+    assert len(meas) == 4, meas
+    for m in meas:
+        inp = m.get("inputs") or {}
+        assert {"voltage", "current", "trim"} <= set(inp), inp
+        assert inp["trim"] == inp["current"] * 10, inp
+    # VectorEnded (emitted after the iteration body) also carries the configured
+    # trim — the vector row reflects the final context, not the seeded params.
+    ve = [
+        e
+        for e in store.events(session_id=UUID(session_id), event_type="test.vector_ended")
+        if e.get("step_name") == "test_b"
+    ]
+    assert len(ve) == 4, ve
+    for e in ve:
+        inp = e.get("inputs") or {}
+        assert {"voltage", "current", "trim"} <= set(inp), inp
+
 
 def test_vectors_fixture_outcome_rollup(tmp_path: Path) -> None:
     """Vectors-fixture step outcome is the severity-max rollup of its
@@ -711,9 +810,9 @@ def test_configure_overrides_parametrize_in_stored_inputs(tmp_path: Path) -> Non
 
     rows = _read_steps(session_id)
     method_rows = [r for r in rows if r.step_name == "test_one"]
-    assert len(method_rows) == 3, [(r.step_path, r.vector_index) for r in method_rows]
+    assert len(method_rows) == 3, [(r.step_path, r.vector_outer_index) for r in method_rows]
 
-    by_vi = {r.vector_index: r.inputs for r in method_rows}
+    by_vi = {r.vector_outer_index: r.inputs for r in method_rows}
     assert by_vi == {
         0: {"voltage": 101, "trim": 7},
         1: {"voltage": 102, "trim": 7},

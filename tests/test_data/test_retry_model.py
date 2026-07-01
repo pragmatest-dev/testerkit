@@ -348,9 +348,9 @@ def test_runscope_next_vector_occurrence_counts_per_point():
     from litmus.execution.run_scope import RunScope
 
     rs = RunScope(uut_serial="SN1", station_id="st1")
-    assert rs.next_vector_occurrence("s", 0) == 0
-    assert rs.next_vector_occurrence("s", 1) == 0
-    assert rs.next_vector_occurrence("s", 0) == 1  # step rerun re-runs point 0
-    assert rs.next_vector_occurrence("s", 1) == 1  # step rerun re-runs point 1
-    assert rs.next_vector_occurrence("s", 1) == 2  # in-body retry of point 1
-    assert rs.next_vector_occurrence("s", 2) == 0  # a point first seen later
+    assert rs.next_vector_occurrence("s", None, 0) == 0
+    assert rs.next_vector_occurrence("s", None, 1) == 0
+    assert rs.next_vector_occurrence("s", None, 0) == 1  # step rerun re-runs point 0
+    assert rs.next_vector_occurrence("s", None, 1) == 1  # step rerun re-runs point 1
+    assert rs.next_vector_occurrence("s", None, 1) == 2  # in-body retry of point 1
+    assert rs.next_vector_occurrence("s", None, 2) == 0  # a point first seen later

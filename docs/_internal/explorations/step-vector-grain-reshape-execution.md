@@ -292,3 +292,44 @@ is BANNED. NO code comments beyond a genuine one-line non-obvious *why*.
   drift. Full suite **2335 passed**. All five phases committed on `feat/0.3.0-grain-reshape`
   (`327da234` P1–P3, `029b1e64` P4, this commit P5). **Branch ready for review/merge.** Deferred to the
   reusable-subsequence future: surrogate execution-id for positional parent-rerun disambiguation.
+
+## Follow-up fix: `vector_outer_index` (nested-vector identity + correct retry) — LOCKED 2026-06-30
+
+**Bug (verified in parquet):** a clean N×M nested sweep (swept class × in-body method loop) mislabels
+`vector_retry` as the outer-iteration ordinal (e.g. 3×3 → `vector_retry` 0/1/2 with zero real retries),
+and the nested vectors aren't uniquely identifiable because the outer coordinate isn't carried.
+
+**Root cause:** the occurrence counter keys on `(step_path, vector_index)`, which omits the outer
+(class) vector a nested step runs under. `vector_index` alone can't distinguish the same inner point
+across outer iterations.
+
+**Fix — one new coordinate, `vector_outer_index`:**
+- Meaning: *the `vector_index` of the outer vector this record's step runs inside; NULL at top level.*
+  (Named `vector_outer_index`, not `parent_*`/`enclosing_*`: "parent" resolves to a step and isn't a
+  grain; "outer" is the codebase's own word for the outer sweep. It names a tree edge, so it carries a
+  column definition.)
+- **Coordinate model (at rest, run/step/vector rows):** `vector_index` is **vector-rows-only** (own
+  position; NULL on run/step). `vector_outer_index` is on the **step** (which outer vector it runs
+  under; NULL top-level) and propagated onto that step's **vector** rows. `step.vector_index` ≡ NULL —
+  delete `_parent_emitted_vectors` / the null-vs-0 hack.
+- **Keys:** step = `(step_path, step_retry, vector_outer_index)`; vector =
+  `(step_path, vector_outer_index, vector_index, vector_retry)`. Retry counts on
+  `(step_path, vector_outer_index, vector_index)` → same-exact-thing-twice increments; a clean sweep is
+  all `0`. `parent_path` stays derived (`rsplit`), `/` reserved.
+- **Producer-stamped (decided): events gain `vector_outer_index`** — `StepStarted/Ended`,
+  `VectorStarted/Ended`, `MeasurementRecorded`, stamped from the active outer vector at emit
+  (`RunScope._step_enclosing` / `get_current_vector`). Single authoritative source (the alternative —
+  accumulator deriving by outer-vector ordering — is the fragile path that already misfired). This DOES
+  change the event shape; forced, because with `step.vector_index` NULL a swept method's executions
+  otherwise share `(step_path, step_retry)`.
+- **Projections:** `vector_outer_index` column on `steps_materialized` + measurement/input/output
+  projections; carried in the UNNEST; `_VECTOR_KEY` join (`measurements_query.py`) includes it NULL-safe
+  (`IS NOT DISTINCT FROM`) → 1:1.
+- **Depth ≥3 is impossible today** (pytest caps at class-outer × method-inner); when reusable
+  subsequences bring it, `vector_outer_index` becomes a parent *execution* id (joins-or-coordinates) —
+  no cost now.
+
+**Verify (clean-room, real query — NOT a synthetic probe):** wipe `data/`; run the 3×3 probe; query the
+measurement projection → exactly 9 `vout` rows, each a distinct `(voltage,current)`, **all `retry=0`**;
+filter `voltage=2 AND current=5` → exactly one row (1:1 join); a rerun-one-point variant → that point
+`retry=1`, others 0. Read integer conditions from `value_int`. S1–S6 + full `pytest -q` green.

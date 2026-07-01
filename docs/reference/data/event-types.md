@@ -220,6 +220,7 @@ Emitted when an instrument is disconnected during teardown.
 | `step_path` | `str` | `''` |
 | `description` | `str \| None` | `None` |
 | `vector_index` | `int` | `0` |
+| `vector_outer_index` | `int \| None` | `None` |
 | `retry` | `int` | `0` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `input_units` | `dict[str, str]` | `{}` |
@@ -238,6 +239,7 @@ Emitted when an instrument is disconnected during teardown.
 | `step_path` | `str` | `''` |
 | `outcome` | `str \| None` | `None` |
 | `vector_index` | `int` | `0` |
+| `vector_outer_index` | `int \| None` | `None` |
 | `retry` | `int` | `0` |
 | `vector_outcome` | `str \| None` | `None` |
 | `inputs` | `dict[str, Any]` | `{}` |
@@ -261,6 +263,7 @@ An in-body loop vector is entered (Mode 2: the ``vectors`` fixture or a ``run_ve
 | `step_index` | `int` | *required* |
 | `step_path` | `str` | `''` |
 | `vector_index` | `int` | `0` |
+| `vector_outer_index` | `int \| None` | `None` |
 | `retry` | `int` | `0` |
 | `step_retry` | `int` | `0` |
 | `inputs` | `dict[str, Any]` | `{}` |
@@ -277,6 +280,7 @@ Completion of an in-body loop vector (Mode 2). Carries the vector's verdict and 
 | `step_index` | `int` | *required* |
 | `step_path` | `str` | `''` |
 | `vector_index` | `int` | `0` |
+| `vector_outer_index` | `int \| None` | `None` |
 | `retry` | `int` | `0` |
 | `step_retry` | `int` | `0` |
 | `outcome` | `str \| None` | `None` |
@@ -297,6 +301,7 @@ A single measurement. Normalized: carries only measurement-specific fields.
 | `step_index` | `int` | *required* |
 | `step_path` | `str` | `''` |
 | `vector_index` | `int` | `0` |
+| `vector_outer_index` | `int \| None` | `None` |
 | `step_retry` | `int` | `0` |
 | `retry` | `int` | `0` |
 | `measurement_name` | `str` | *required* |

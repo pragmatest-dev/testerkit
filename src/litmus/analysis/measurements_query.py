@@ -55,6 +55,7 @@ _VECTOR_KEY = (
     "{a}.run_id = m.run_id"
     " AND {a}.step_index = m.step_index"
     " AND {a}.vector_index IS NOT DISTINCT FROM m.vector_index"
+    " AND {a}.vector_outer_index IS NOT DISTINCT FROM m.vector_outer_index"
     " AND {a}.vector_retry IS NOT DISTINCT FROM m.vector_retry"
 )
 
