@@ -20,7 +20,7 @@ calibration before that batch?").
 | Filter | What it does | Notes |
 |---|---|---|
 | Session ID | Restrict to events for one session | Free-text. Full or short (first 8 chars) UUID works. |
-| Event type | Pick one of 15 curated event types, or `(any)` for all | The event log can hold any event type; this dropdown lists the categories worth a one-click filter — it is **not exhaustive**. Other event types (e.g. `fixture.uut_scanned`, `route.*`, `site.*`, `stream.*`) only appear under `(any)`. See the [Event types reference](../data/event-types.md) for the full list. |
+| Event type | Pick one of 15 curated event types, or `(any)` for all | The event log can hold any event type; this dropdown lists the categories worth a one-click filter — it is **not exhaustive**. Other event types (e.g. `fixture.uut_scanned`, `route.*`, `site.*`, `channel.*`) only appear under `(any)`. See the [Event types reference](../data/event-types.md) for the full list. |
 | Role | Filter by instrument role (e.g. `dmm`, `psu`) | Free-text. |
 | Since (ISO) | Earliest event timestamp | ISO-8601 string. |
 | Limit | Maximum events fetched | Default 100, range 1–10,000. |
