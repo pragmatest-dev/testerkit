@@ -533,12 +533,12 @@ class EventAccumulator:
         return by_vector
 
     def _build_vector_results_from_events(self) -> list[dict[str, Any]]:
-        """Build in-body vector manifest entries from VectorStarted/VectorEnded.
+        """Build vector manifest entries from VectorStarted/VectorEnded.
 
-        Present ONLY for Mode-2 in-body loops (the ``vectors`` fixture /
-        ``run_vector``) — their VectorStarted/VectorEnded events are the
-        signal. Mode 1 and class containers emit no such events and fuse
-        into the ``step`` record, so this returns ``[]`` for them.
+        One entry per emitted vector — every sweep point emits these events:
+        function ``@parametrize``, class-outer ``litmus_sweeps``, and in-body
+        ``vectors`` / ``run_vector`` alike. A non-swept step emits none, so it
+        contributes no vector rows (its data rides the ``step`` record).
 
         One entry per ``(step_path, vector_index, retry)`` execution. The
         enclosing leaf step's identity (node_id / file / class / function /

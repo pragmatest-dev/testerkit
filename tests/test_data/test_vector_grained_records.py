@@ -813,3 +813,329 @@ def test_scenario_8_vector_with_unit(tmp_path):
     assert _lane_units(step["outputs"]) == {"temp": "°C"}
     assert decode_lane_structs(step["inputs"]) == {"vin": 3.3}
     assert decode_lane_structs(step["outputs"]) == {"temp": 24.8}
+
+
+# ---------------------------------------------------------------------------
+# Permutation-table rows C/D — in-body loop with step-scope data on the step row.
+#
+# Row C: `def t(ctx, vectors)` — step carries setup inputs + N vector rows.
+# The step's StepEnded.inputs (configure before the loop) and StepEnded.outputs
+# (observe after the loop) ride on the step record; vectors carry the
+# loop-specific measurements. Verifies steps-carry-own-data when an in-body
+# loop also runs.
+# ---------------------------------------------------------------------------
+
+
+def test_row_c_inbody_loop_step_carries_setup_data(tmp_path):
+    acc = EventAccumulator()
+    rid, sid = uuid4(), uuid4()
+    acc.on_event(_run_started(rid, sid))
+    # Step with setup inputs (configure before loop) and teardown outputs
+    # (observe after loop). The loop runs 2 in-body iterations.
+    acc.on_event(
+        StepStarted(
+            session_id=sid,
+            run_id=rid,
+            step_name="test_sweep",
+            step_index=0,
+            step_path="test_sweep",
+            inputs={"vin": 3.3},
+        )
+    )
+    for vi, x in ((0, 10.0), (1, 20.0)):
+        acc.on_event(
+            VectorStarted(
+                session_id=sid,
+                run_id=rid,
+                step_name="test_sweep",
+                step_index=0,
+                step_path="test_sweep",
+                vector_index=vi,
+                inputs={"vin": 3.3, "x": x},
+            )
+        )
+        acc.on_event(
+            MeasurementRecorded(
+                session_id=sid,
+                run_id=rid,
+                step_name="test_sweep",
+                step_index=0,
+                step_path="test_sweep",
+                vector_index=vi,
+                measurement_name="vout",
+                value=x * 1.1,
+                outcome="passed",
+            )
+        )
+        acc.on_event(
+            VectorEnded(
+                session_id=sid,
+                run_id=rid,
+                step_name="test_sweep",
+                step_index=0,
+                step_path="test_sweep",
+                vector_index=vi,
+                outcome="passed",
+                inputs={"vin": 3.3, "x": x},
+            )
+        )
+    # StepEnded carries the step's own configure inputs + observe outputs.
+    acc.on_event(
+        StepEnded(
+            session_id=sid,
+            run_id=rid,
+            step_name="test_sweep",
+            step_index=0,
+            step_path="test_sweep",
+            inputs={"vin": 3.3},
+            outputs={"ambient": 22.5},
+            outcome="passed",
+        )
+    )
+
+    kinds = _by_kind(_materialize(acc, tmp_path))
+
+    # ONE step row — the loop step itself.
+    assert len(kinds["step"]) == 1
+    step = kinds["step"][0]
+    assert step["step_path"] == "test_sweep"
+    # Top-level step → enclosing vector_index is NULL (null-vs-0 reconstruction:
+    # no parent emitted vectors, so _parent_emitted_vectors is False).
+    assert step["vector_index"] is None
+
+    # The step row carries its own inputs (from StepEnded) and outputs (observe
+    # after the loop) — steps-carry-own-data, not shed to a synthesized vector.
+    assert decode_lane_structs(step["inputs"]) == {"vin": 3.3}
+    assert decode_lane_structs(step["outputs"]) == {"ambient": 22.5}
+
+    # N in-body vector rows (vi=0, vi=1) carry the loop-specific measurements.
+    vrows = sorted(kinds["vector"], key=lambda r: r["vector_index"])
+    assert [v["vector_index"] for v in vrows] == [0, 1]
+    assert [len(v["measurements"]) for v in vrows] == [1, 1]
+    assert [v["measurements"][0]["name"] for v in vrows] == ["vout", "vout"]
+
+    # Step row carries NO measurements (all inside the vectors); no fabricated scope vector.
+    assert step["measurements"] == []
+    assert "measurement" not in kinds
+
+
+# ---------------------------------------------------------------------------
+# Permutation-table row G — nested method in a NON-swept class.
+#
+# Row G: `class C: def m(ctx)` — C plain (no litmus_sweeps), m has no own
+# sweep → at-rest: C step vi=NULL, m step vi=NULL, ZERO vector rows for
+# either. Verifies null-vs-0 reconstruction: _parent_emitted_vectors("C/m")
+# is False (C emitted no VectorStarted), so m's at-rest vector_index is NULL.
+# ---------------------------------------------------------------------------
+
+
+def test_row_g_nested_method_unswept_class_vector_index_null(tmp_path):
+    acc = EventAccumulator()
+    rid, sid = uuid4(), uuid4()
+    acc.on_event(_run_started(rid, sid))
+    # Container step for class C — no VectorStarted (C is not swept).
+    acc.on_event(
+        StepStarted(
+            session_id=sid,
+            run_id=rid,
+            step_name="TestC",
+            step_index=0,
+            step_path="TestC",
+            class_name="TestC",
+        )
+    )
+    # Method m nested under C — no own vectors (m is not parametrized).
+    acc.on_event(
+        StepStarted(
+            session_id=sid,
+            run_id=rid,
+            step_name="test_m",
+            step_index=0,
+            step_path="TestC/test_m",
+            class_name="TestC",
+            function="test_m",
+        )
+    )
+    acc.on_event(
+        MeasurementRecorded(
+            session_id=sid,
+            run_id=rid,
+            step_name="test_m",
+            step_index=0,
+            step_path="TestC/test_m",
+            vector_index=0,
+            measurement_name="reading",
+            value=1.0,
+            outcome="passed",
+        )
+    )
+    acc.on_event(
+        StepEnded(
+            session_id=sid,
+            run_id=rid,
+            step_name="test_m",
+            step_index=0,
+            step_path="TestC/test_m",
+            outcome="passed",
+        )
+    )
+    acc.on_event(
+        StepEnded(
+            session_id=sid,
+            run_id=rid,
+            step_name="TestC",
+            step_index=0,
+            step_path="TestC",
+            outcome="passed",
+        )
+    )
+
+    kinds = _by_kind(_materialize(acc, tmp_path))
+
+    steps = {s["step_path"]: s for s in kinds["step"]}
+    assert set(steps) == {"TestC", "TestC/test_m"}
+
+    # Neither step is swept → both get vector_index=NULL at rest.
+    # _parent_emitted_vectors("TestC") = False (no "/" in "TestC").
+    assert steps["TestC"]["vector_index"] is None
+    # _parent_emitted_vectors("TestC/test_m") = False (parent "TestC" has no VectorStarted).
+    assert steps["TestC/test_m"]["vector_index"] is None
+
+    # ZERO vector rows for either step — no loops ran.
+    assert "vector" not in kinds
+
+    # The measurement is step-scope on m's step row (no vector to carry it).
+    assert [m["name"] for m in steps["TestC/test_m"]["measurements"]] == ["reading"]
+
+
+# ---------------------------------------------------------------------------
+# Permutation-table row J — @parametrize method in a plain (unswept) class.
+#
+# Row J: `class C: @parametrize(v=[0,1]) def m(ctx)` — C is plain (not swept
+# with litmus_sweeps), m has its own Mode-1 parametrize variants → m emits
+# one VectorStarted/Ended per variant (vi=0/1). At rest:
+#   - C step row: vector_index=NULL (top-level, no enclosing loop)
+#   - C has NO vector rows (C is not swept)
+#   - m (logical step, two variants sharing step_path) step row: vector_index=NULL
+#     (parent C has no VectorStarted → _parent_emitted_vectors("C/m")=False)
+#   - m has 2 vector rows (vi=0/1 from parametrize)
+# ---------------------------------------------------------------------------
+
+
+def test_row_j_parametrize_method_in_plain_class(tmp_path):
+    acc = EventAccumulator()
+    rid, sid = uuid4(), uuid4()
+    acc.on_event(_run_started(rid, sid))
+
+    # Container step for plain class C (no VectorStarted — not swept).
+    acc.on_event(
+        StepStarted(
+            session_id=sid,
+            run_id=rid,
+            step_name="TestC",
+            step_index=0,
+            step_path="TestC",
+            class_name="TestC",
+        )
+    )
+    # Mode-1 parametrize: each variant is a separate pytest item sharing step_path.
+    # Both variants carry StepStarted.vector_index=0 (enclosing=None for top-level C).
+    for vi, v in ((0, "a"), (1, "b")):
+        node_id = f"test_file.py::TestC::test_m[{v}]"
+        acc.on_event(
+            StepStarted(
+                session_id=sid,
+                run_id=rid,
+                step_name="test_m",
+                step_index=0,
+                step_path="TestC/test_m",
+                vector_index=0,
+                class_name="TestC",
+                function="test_m",
+                node_id=node_id,
+            )
+        )
+        acc.on_event(
+            VectorStarted(
+                session_id=sid,
+                run_id=rid,
+                step_name="test_m",
+                step_index=0,
+                step_path="TestC/test_m",
+                vector_index=vi,
+                inputs={"v": v},
+            )
+        )
+        acc.on_event(
+            MeasurementRecorded(
+                session_id=sid,
+                run_id=rid,
+                step_name="test_m",
+                step_index=0,
+                step_path="TestC/test_m",
+                vector_index=vi,
+                measurement_name="result",
+                value=float(vi),
+                outcome="passed",
+            )
+        )
+        acc.on_event(
+            VectorEnded(
+                session_id=sid,
+                run_id=rid,
+                step_name="test_m",
+                step_index=0,
+                step_path="TestC/test_m",
+                vector_index=vi,
+                outcome="passed",
+                inputs={"v": v},
+            )
+        )
+        acc.on_event(
+            StepEnded(
+                session_id=sid,
+                run_id=rid,
+                step_name="test_m",
+                step_index=0,
+                step_path="TestC/test_m",
+                vector_index=0,
+                outcome="passed",
+                node_id=node_id,
+            )
+        )
+    acc.on_event(
+        StepEnded(
+            session_id=sid,
+            run_id=rid,
+            step_name="TestC",
+            step_index=0,
+            step_path="TestC",
+            outcome="passed",
+        )
+    )
+
+    kinds = _by_kind(_materialize(acc, tmp_path))
+    steps = {s["step_path"]: s for s in kinds["step"]}
+    assert set(steps) == {"TestC", "TestC/test_m"}
+
+    # C is plain (not swept) → top-level, no enclosing loop → vector_index=NULL.
+    assert steps["TestC"]["vector_index"] is None
+    # m's parent C has no VectorStarted → _parent_emitted_vectors("TestC/test_m")=False
+    # → m step row vector_index=NULL even though m DOES have its own vectors below.
+    assert steps["TestC/test_m"]["vector_index"] is None
+
+    # C has NO vector rows (C is not swept with litmus_sweeps).
+    c_vectors = [v for v in kinds.get("vector", []) if v["step_path"] == "TestC"]
+    assert c_vectors == []
+
+    # m has 2 vector rows (the @parametrize variants), each with own vi and measurement.
+    m_vectors = sorted(
+        [v for v in kinds.get("vector", []) if v["step_path"] == "TestC/test_m"],
+        key=lambda v: v["vector_index"],
+    )
+    assert [v["vector_index"] for v in m_vectors] == [0, 1]
+    assert [decode_lane_structs(v["inputs"])["v"] for v in m_vectors] == ["a", "b"]
+    assert [v["measurements"][0]["name"] for v in m_vectors] == ["result", "result"]
+
+    # Step row for m carries NO measurements (all in the variant vector rows).
+    assert steps["TestC/test_m"]["measurements"] == []

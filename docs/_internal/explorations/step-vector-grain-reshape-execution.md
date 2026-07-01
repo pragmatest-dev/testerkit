@@ -281,3 +281,14 @@ is BANNED. NO code comments beyond a genuine one-line non-obvious *why*.
   parent chain, (b) no cross-iteration bleed, (c) base unpolluted after the loop; two tests that asserted
   the old mutate-shared-context behavior updated to read the active child context. Full suite green (2332
   passed). **Next: Phase 5 (permutation tests + docs).**
+- **2026-06-30** — **Phase 5 done → RESHAPE COMPLETE.** Internal docs corrected against source:
+  `runs-architecture-map.md` grain section rewritten (step = code + default carrier; vector = optional
+  condition point; measurement source-agnostic; daemon `vector_index_key`); the three known band-aids
+  marked resolved/deleted. `runs-execution-model.md` decisions 1 (uniform vectors) + 4 (scope vector)
+  struck + REVERSED, Open A + #2/#3 marked RESOLVED. Permutation rows A–J mapped; added C (in-body
+  setup/teardown + N vectors), G (nested method in non-swept class → `vector_index` NULL), J
+  (`@parametrize` in plain class → method vectors, step `vector_index` NULL). Fixed the stale
+  `_build_vector_results_from_events` docstring ("Mode-2 only" → all sweep sources). Reference docs: no
+  drift. Full suite **2335 passed**. All five phases committed on `feat/0.3.0-grain-reshape`
+  (`327da234` P1–P3, `029b1e64` P4, this commit P5). **Branch ready for review/merge.** Deferred to the
+  reusable-subsequence future: surrogate execution-id for positional parent-rerun disambiguation.
