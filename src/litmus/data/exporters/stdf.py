@@ -90,6 +90,7 @@ def _pack_record(rec: object) -> bytes:
 
 def _build_ptr(
     test_num: int,
+    site_num: int,
     step_name: str,
     meas_name: str,
     value: float | None,
@@ -103,7 +104,7 @@ def _build_ptr(
     ptr = PTR()
     ptr.set_value("TEST_NUM", test_num)
     ptr.set_value("HEAD_NUM", 1)
-    ptr.set_value("SITE_NUM", 1)
+    ptr.set_value("SITE_NUM", site_num)
     ptr.set_value("TEST_FLG", _make_test_flg(outcome, value))
     ptr.set_value("PARM_FLG", ["0"] * 8)
     ptr.set_value("RESULT", value if value is not None else 0.0)
@@ -170,6 +171,10 @@ class StdfSubscriber(EventSubscriber):
         if not s:
             return
 
+        # STDF SITE_NUM = site_index (0-based, emitted directly). A single-UUT
+        # run carries no site (site_index is None) and is site 0.
+        site_num = s.site_index if s.site_index is not None else 0
+
         records: list[bytes] = []
 
         # FAR
@@ -199,7 +204,7 @@ class StdfSubscriber(EventSubscriber):
         # PIR
         pir = PIR()
         pir.set_value("HEAD_NUM", 1)
-        pir.set_value("SITE_NUM", 1)
+        pir.set_value("SITE_NUM", site_num)
         records.append(_pack_record(pir))
 
         # PTR records
@@ -209,6 +214,7 @@ class StdfSubscriber(EventSubscriber):
             records.append(
                 _build_ptr(
                     test_num,
+                    site_num,
                     m.step_name,
                     m.measurement_name,
                     m.value,
@@ -225,7 +231,7 @@ class StdfSubscriber(EventSubscriber):
         # PRR
         prr = PRR()
         prr.set_value("HEAD_NUM", 1)
-        prr.set_value("SITE_NUM", 1)
+        prr.set_value("SITE_NUM", site_num)
         part_flg = ["0"] * 8
         if any_fail or outcome in ("failed", "errored", "aborted"):
             part_flg[3] = "1"
