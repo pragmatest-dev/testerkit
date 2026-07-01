@@ -13,6 +13,7 @@ Define sites in your [fixture YAML](../../concepts/configuration/fixtures.md). S
 id: dual_board
 sites:
   - name: left
+    uut_resource: /dev/ttyUSB0
     connections:
       vout:
         name: vout
@@ -23,6 +24,7 @@ sites:
         instrument: psu
         instrument_channel: "1"
   - name: right
+    uut_resource: /dev/ttyUSB1
     connections:
       vout:
         name: vout
@@ -35,6 +37,8 @@ sites:
 ```
 
 Every connection block needs a `name:` field — Litmus doesn't auto-fill it from the dict key. Omit it and the file fails to load at session start with a clear error pointing at the missing field.
+
+`uut_resource:` is a sibling of `name:` and `connections:` on each site — a per-site UUT control connection string (a COM port, a USB serial number). It's optional; set it when your test code talks to the UUT directly (e.g. to read a serial number over a debug UART) rather than only through instruments.
 
 The `name:` on each site is optional — omit it and the site is referred to as "site N" by its index. Sites run in parallel, in list order. The `instrument_channel` mappings route each site to its own channel on a shared instrument.
 
@@ -78,6 +82,7 @@ Requires the serial count to match the site count exactly — positional means "
 ```bash
 --uut-serials left=SN001,right=SN002
 ```
+Requires every site referenced by name to actually have a `name:` set — a token that doesn't parse as an integer is matched against `name:` only, never against the index. Against a fixture with unnamed sites this fails with `Unknown site name 'left'. Available: [0], [1]`. Use the indexed form (`0=SN001,1=SN002`) for fixtures whose sites have no `name:`.
 
 A single `--uut-serials` string is positional **or** keyed, never both — any `=` in the string switches every entry to keyed parsing, so `SN001,1=SN002` is a parse error rather than a silent partial match.
 
@@ -124,9 +129,9 @@ Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{run_id8}_{
 
 `site_index` / `site_name` aren't columns bolted onto the query layer after the fact — they're stamped at emit time and carried through:
 
-- The orchestrator's own session-open event lists every configured site up front (site count + names), before any worker starts.
-- Each site worker emits its own run-start event carrying **its** `site_index` and `site_name` — this is the freeze point. Rename a site in the fixture YAML next month and this run's row still reads the name that was active when it ran.
-- Per-site start/end events mark when each site's subprocess begins and finishes, independent of the individual test steps inside it.
+- The parent process that dispatches the per-site subprocesses (the **orchestrator**) lists every configured site up front (site count + names) in its own session-open event, before any site subprocess (a **worker**) starts.
+- Each worker emits its own run-start event carrying **its** `site_index` and `site_name` — this is the freeze point. Rename a site in the fixture YAML next month and this run's row still reads the name that was active when it ran.
+- Per-site start/end events mark when each worker begins and finishes, independent of the individual test steps inside it.
 
 See [event-types reference](../../reference/data/event-types.md) for the full field list on each event.
 
@@ -138,7 +143,7 @@ Mock instruments are NOT shared — each site gets its own mock so mock state ne
 
 ## Sync Points
 
-Use the `sync` fixture to hold all sites at a named point until every site arrives:
+Use the [`sync`](../../reference/pytest/fixtures.md#sync-session) fixture to hold all sites at a named point until every site arrives:
 
 ```python
 def test_thermal_soak(dmm, sync):
@@ -150,13 +155,13 @@ def test_thermal_soak(dmm, sync):
     v = dmm.measure_voltage()
 ```
 
-`sync.wait("label", timeout=...)` blocks each site until every site reaches the same labeled point, then releases them together. If a site fails or exits before reaching the point, the remaining sites are released automatically so the run does not get stuck.
+`sync.wait("label", timeout=...)` blocks each site until every site reaches the same labeled point, then releases them together. If a site fails or exits before reaching the point, Litmus releases the remaining sites automatically so the run does not get stuck.
 
 ## Debugging Failures
 
 ### Environment Variables
 
-Inside a site's test process these identify the UUT, so your test or a serial-port helper can read them:
+Inside a site's test process these identify the UUT, so your test or a serial-port helper can read them (see also [reference/cli.md → Environment variables](../../reference/cli.md#environment-variables) for the full platform-wide list):
 
 | Variable | Description |
 |----------|-------------|
@@ -188,10 +193,16 @@ Site stdout is prefixed with `[site:N]` in the terminal output:
 
 **Shared instrument is the bottleneck:** Sites queue for a shared instrument — check the Execution Timeline to see whether sites are waiting on instrument access.
 
-**Orphaned site processes:** On normal teardown or Ctrl-C, all sites are shut down automatically, so you shouldn't be left with orphaned site processes. A hard kill (e.g. `kill -9` on the parent) can bypass this cleanup.
+**Orphaned site processes:** On normal teardown or Ctrl-C, Litmus terminates every site subprocess automatically. A hard kill (e.g. `kill -9` on the parent) bypasses this cleanup and can leave orphaned site processes behind.
 
 
 ## See also
+
+- [Litmus fixtures → `sync`](../../reference/pytest/fixtures.md#sync-session) — the sync-point fixture's full API
+- [CLI reference](../../reference/cli.md) — every flag and environment variable used on this page
+- [Configuration reference → Fixture YAML](../../reference/configuration.md#fixture-yaml) — field-by-field `sites:` / `connections:` schema
+- [Operator UI → Results detail](../../reference/operator-ui/results/detail.md) — the Execution Timeline tab in the browser
+- [Event types reference](../../reference/data/event-types.md) — full field list for `SiteStarted` / `SiteCompleted` / `SessionStarted` / `RunStarted`
 
 **Related quadrants:**
 
