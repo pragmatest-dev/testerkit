@@ -1119,8 +1119,9 @@ class _VectorIterator:
       from active state.
     * A fresh :class:`TestVector` is appended to the current step per
       iteration, so parquet rows land on distinct records.
-    * ``context.get_param``, ``.changed``, ``.last``, and ``.params``
-      reflect the current row; ``_prev`` chains to the prior iteration.
+    * The active context (``get_current_context()``) reflects the current
+      row's params plus any step-scope configures on the base; ``_prev``
+      chains to the prior iteration's snapshot.
 
     On cleanup the ContextVars restore; if the matrix is non-empty and
     the test body iterated zero times, the fixture fails the test.
@@ -1147,15 +1148,18 @@ class _VectorIterator:
             set_active_vector_params(dict(params))
             set_active_vector_index(i)
 
-            # Chain prev-context for ``context.changed()`` / ``.last()``.
+            # A per-iteration child keeps step-scope configure() on the base
+            # unpolluted and stops params bleeding across iterations.
+            child_ctx = self._ctx.child()
+            child_ctx._params.update(params)
             if prev_snapshot is not None:
-                self._ctx._prev = prev_snapshot
-            self._ctx._params.clear()
-            self._ctx._params.update(params)
+                child_ctx._prev = prev_snapshot
 
             snapshot = Context(channel_store=self._ctx._channel_store)
-            snapshot._params = dict(params)
+            snapshot._params = dict(child_ctx.params)
             prev_snapshot = snapshot
+
+            ctx_token = push_current_context(child_ctx)
 
             # Fresh TestVector per iteration so vector_index / params
             # stamp distinctly. Only push when a step already exists
@@ -1171,15 +1175,19 @@ class _VectorIterator:
                 # itself so data-less vectors stay visible and offline/streaming
                 # don't drift. Emitted after the push so step/vector context
                 # resolves to this iteration.
-                self._ctx._emit_vector_started()
+                child_ctx._emit_vector_started()
                 try:
                     yield vec
                 finally:
-                    self._ctx._emit_vector_ended()
+                    child_ctx._emit_vector_ended()
                     reset_current_vector(token)
+                    reset_current_context(ctx_token)
             else:
                 self._consumed += 1
-                yield vec
+                try:
+                    yield vec
+                finally:
+                    reset_current_context(ctx_token)
 
     @property
     def consumed(self) -> int:

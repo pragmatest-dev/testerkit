@@ -263,3 +263,21 @@ is BANNED. NO code comments beyond a genuine one-line non-obvious *why*.
   EAV join (`measurements_query._VECTOR_KEY` `=`→`IS NOT DISTINCT FROM`), exclude internal
   `vector_index_key` from drift parity, rewrite the drift test's event stream to the new shape. **Next:
   review Phase 3 → full suite → comment-scrub → commit the reshape.**
+- **2026-06-30** — **At-rest reshape COMMITTED** as `327da234` (P1 + P2 + P3 measurement projection),
+  24 files, full suite green (2331 passed) through the gate. Phase 3 gate-reviewed (two-branch UNNEST
+  rendered as one SELECT with a `CASE`; two extra overlay-parity changes — `snapshot_step_rows` emits
+  vector-grain rows, step-row `measurement_count` is step-scope-only — sound). Comment-scrub pass done
+  (agents' what-narration removed per the no-comments hard rule); dead `_snapshot_active_vector_params`
+  + its import deleted. The phase split proved artificial: scope-vector deletion (P2) and the step-row
+  measurement UNNEST (P3) are atomic (else step-scope measurements vanish at finalize), so they landed
+  together. **Remaining: Phase 4 (Mode-2 `_VectorIterator` child-context hygiene; also drop the dead
+  `_step_ran_inbody_loop` if still present) and Phase 5 (row A–J permutation tests, docs — mark
+  runs-execution-model v2 decisions reversed, update runs-architecture-map).**
+- **2026-06-30** — **Phase 4 done + gate-reviewed.** `_VectorIterator` no longer mutates the shared
+  step context; each iteration pushes a `self._ctx.child()` (params = the vector's, `_prev` chained for
+  `changed()`/`.last()`), made the active context with try/finally reset symmetry in both branches, so a
+  step-scope `configure()` before the loop survives on the base and per-iteration keys don't bleed. Dead
+  `_step_ran_inbody_loop` deleted. Regression test asserts (a) setup key visible each iteration via the
+  parent chain, (b) no cross-iteration bleed, (c) base unpolluted after the loop; two tests that asserted
+  the old mutate-shared-context behavior updated to read the active child context. Full suite green (2332
+  passed). **Next: Phase 5 (permutation tests + docs).**

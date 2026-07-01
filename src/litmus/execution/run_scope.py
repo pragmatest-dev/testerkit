@@ -530,14 +530,6 @@ class RunScope:
         self._vector_occurrences[key] = n + 1
         return n
 
-    def _step_ran_inbody_loop(self, step_path: str) -> bool:
-        """True if an in-body vector loop emitted vectors for ``step_path``.
-
-        ``next_vector_occurrence`` fires only on the Mode-2 in-body path, so a
-        ``step_path`` recorded here ran a loop; absent means Mode-1 (scope).
-        """
-        return any(p == step_path for (p, _) in self._vector_occurrences)
-
     def record_external_outcome(self, outcome: Outcome | None) -> None:
         """Fold a run-level outcome contribution that has no owning step.
 
