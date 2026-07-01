@@ -299,7 +299,7 @@ Choose self-loop mode when an outer setup (thermal soak, supply ramp) shouldn't 
 
 ### `sync` — session
 
-Yields a `SyncPoint` for multi-UUT coordination when running in worker mode (`_LITMUS_SLOT_ID` is set), or `None` in single-slot mode. `sync.wait(name, timeout=...)` blocks until every slot reaches the same name:
+Yields a `SyncPoint` for multi-UUT coordination when running in worker mode (`_LITMUS_SITE_INDEX` is set), or `None` in single-site mode. `sync.wait(name, timeout=...)` blocks until every site reaches the same name:
 
 ```python
 def test_measure_hot(dmm, sync):

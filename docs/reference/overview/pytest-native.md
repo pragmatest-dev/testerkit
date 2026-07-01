@@ -86,8 +86,8 @@ Litmus adds the flags below.
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--uut-serial` | `text` | `'UUT001'` | UUT serial number |
-| `--uut-serials` | `text` |  | Per-slot UUT serials: slot_1=SN1,slot_2=SN2 |
-| `--slot` | `text` |  | Physical fixture slot for this single-process run (e.g. ``slot_1``, ``slot_2``). Use this when running a single UUT against a specific position in a multi-slot fixture so the run records which slot was exercised. Multi-slot orchestration uses ``--uut-serials`` instead — supplying both is an error. |
+| `--uut-serials` | `text` |  | Per-site UUT serials: 0=SN1,1=SN2 (by index) or left=SN1,right=SN2 (by name) |
+| `--site` | `text` |  | Physical fixture site for this single-process run (e.g. ``0``, ``1``, or a named site like ``left``). Use this when running a single UUT against a specific position in a multi-site fixture so the run records which site was exercised. Multi-site orchestration uses ``--uut-serials`` instead — supplying both is an error. |
 | `--uut-part-number` | `text` |  | UUT part number |
 | `--uut-revision` | `text` |  | UUT revision |
 | `--uut-lot-number` | `text` |  | UUT lot/batch number (mirrors LITMUS_UUT_LOT_NUMBER env var) |

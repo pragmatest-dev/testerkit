@@ -151,7 +151,7 @@ class StationConnection:
         cleanup_key = str(self._session_id)
         register_cleanup(cleanup_key, self._emergency_stop)
 
-        # Set up sync point if in multi-slot worker mode
+        # Set up sync point if in multi-site worker mode
         from litmus.execution.sync import get_sync
 
         self._sync_point = get_sync(self._event_store)
@@ -495,18 +495,18 @@ class StationConnection:
     def sync(self, name: str, timeout: float | None = None) -> None:
         """Wait at a named sync point (multi-UUT coordination).
 
-        In single-slot mode (no _LITMUS_SLOT_ID), returns immediately.
-        In multi-slot mode, blocks until all slots arrive at this point.
+        In single-site mode (no _LITMUS_SITE_INDEX), returns immediately.
+        In multi-site mode, blocks until all sites arrive at this point.
 
         Args:
             name: Sync point name (e.g., "thermal_soak").
             timeout: Max seconds to wait. None = wait forever.
 
         Raises:
-            SyncError: If timeout expires before all slots arrive.
+            SyncError: If timeout expires before all sites arrive.
         """
         if self._sync_point is None:
-            return  # Single-slot, no sync needed
+            return  # Single-site, no sync needed
         self._sync_point.wait(name, timeout=timeout)
 
     @property

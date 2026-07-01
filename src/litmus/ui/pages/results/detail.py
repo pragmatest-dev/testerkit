@@ -193,7 +193,7 @@ async def result_detail_page(run_id: str, tab: str = ""):
                             on_click=lambda sid=_sid: ui.navigate.to(f"/files?session_id={sid}"),
                         ).props('flat dense color=primary data-testid="run-detail-view-files"')
 
-        has_slots = any(m.get("slot_id") for m in measurements)
+        has_sites = any(m.get("site_index") is not None for m in measurements)
         session_id = run_obj.session_id
 
         timeline_tab: Any = None
@@ -201,7 +201,7 @@ async def result_detail_page(run_id: str, tab: str = ""):
             overview_tab = ui.tab("Overview", icon="dashboard")
             steps_tab = ui.tab("Steps", icon="list_alt")
             measurements_tab = ui.tab("Measurements", icon="science")
-            if has_slots and session_id:
+            if has_sites and session_id:
                 timeline_tab = ui.tab("Execution Timeline", icon="timeline")
             history_tab = ui.tab("UUT History", icon="history")
         ui.add_css(
@@ -238,7 +238,7 @@ async def result_detail_page(run_id: str, tab: str = ""):
             with ui.tab_panel(measurements_tab).props('data-testid="result-measurements"'):
                 meas_table = _create_meas_table(run_id, state["measurements"])
 
-            if has_slots and timeline_tab is not None and session_id:
+            if has_sites and timeline_tab is not None and session_id:
                 with ui.tab_panel(timeline_tab):
                     timeline_container = ui.column().classes("w-full")
                     render_skeleton(timeline_container, "h-64")
@@ -256,8 +256,11 @@ async def result_detail_page(run_id: str, tab: str = ""):
                 return
             timeline_loaded["done"] = True
             session_steps = await run.io_bound(get_session_steps, session_id)
-            current_slot = next((m.get("slot_id") for m in measurements if m.get("slot_id")), None)
-            _render_timeline_tab(timeline_container, session_steps, current_slot_id=current_slot)
+            current_site = next(
+                (m.get("site_index") for m in measurements if m.get("site_index") is not None),
+                None,
+            )
+            _render_timeline_tab(timeline_container, session_steps, current_site_index=current_site)
 
         async def _load_history() -> None:
             if history_loaded["done"] or history_container is None:
@@ -602,7 +605,7 @@ def _render_timeline_tab(
     container: Any,
     steps: list,
     *,
-    current_slot_id: str | None = None,
+    current_site_index: int | None = None,
 ) -> None:
     from litmus.ui.components.execution_gantt import render_execution_gantt
 
@@ -611,11 +614,11 @@ def _render_timeline_tab(
         with ui.card_section():
             ui.label("Execution Timeline").classes("font-semibold")
             ui.label(
-                "Combined view of all slots in this parallel session. "
-                "This run's slot is highlighted."
+                "Combined view of all sites in this parallel session. "
+                "This run's site is highlighted."
             ).classes("text-sm text-slate-500")
         with ui.card_section().classes("w-full"):
-            render_execution_gantt(steps, current_slot_id=current_slot_id)
+            render_execution_gantt(steps, current_site_index=current_site_index)
 
 
 def _render_not_found() -> None:

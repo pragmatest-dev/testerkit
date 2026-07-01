@@ -220,7 +220,7 @@ def _write_or_check(path: Path, new_content: str, *, check: bool) -> bool:
 _EVENT_CATEGORIES: list[tuple[str, list[str]]] = [
     ("Session", ["SessionStarted", "SessionEnded"]),
     ("Run", ["RunStarted", "RunEnded", "RunMaterialized"]),
-    ("Slot (multi-UUT)", ["SlotStarted", "SlotCompleted", "SyncArrived", "SyncRelease"]),
+    ("Site (multi-UUT)", ["SiteStarted", "SiteCompleted", "SyncArrived", "SyncRelease"]),
     (
         "Fixture",
         [
@@ -484,7 +484,7 @@ _CONFIG_FILES: list[tuple[str, str, str]] = [
     (
         "`litmus.yaml`",
         "litmus.models.project.ProjectConfig",
-        "Project root — names, defaults, profiles, multi-slot knobs.",
+        "Project root — names, defaults, profiles, multi-site knobs.",
     ),
     (
         "`stations/<id>.yaml`",
@@ -499,7 +499,7 @@ _CONFIG_FILES: list[tuple[str, str, str]] = [
     (
         "`fixtures/<id>.yaml`",
         "litmus.models.test_config.FixtureConfig",
-        "UUT-pin ↔ instrument-channel routing (single-UUT) or per-slot routing (multi-UUT).",
+        "UUT-pin ↔ instrument-channel routing (single-UUT) or per-site routing (multi-UUT).",
     ),
     (
         "`parts/<id>.yaml`",

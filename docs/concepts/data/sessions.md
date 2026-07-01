@@ -20,7 +20,7 @@ Sessions are broader than test runs. A single session might contain multiple tes
 | **Station** | `station_id`, `station_name`, `station_type`, `station_location`, `station_hostname` |
 | **Process** | `pid`, `client` (pytest, jupyter, script name) |
 | **Operator** | `operator_id`, `operator_name` |
-| **Fixture / slot** | `fixture_id`, `slot_count` |
+| **Fixture / site** | `fixture_id`, `site_count`, `site_names` |
 
 `RunStarted` (emitted once per test run within a session) carries the per-run context:
 
@@ -28,7 +28,7 @@ Sessions are broader than test runs. A single session might contain multiple tes
 |----------|--------|
 | **UUT** | `uut_serial_number`, `uut_part_number`, `uut_revision`, `uut_lot_number` |
 | **Part** | `part_id`, `part_name`, `part_revision` |
-| **Slot** | `slot_id`, `slot_index` |
+| **Site** | `site_index`, `site_name` |
 | **Test context** | `fixture_id`, `test_phase`, `project_name` |
 | **Git** | `git_commit`, `git_branch`, `git_remote` |
 | **Environment** | `environment_json` (Python version, litmus version, top-level deps, lockfile hash) |

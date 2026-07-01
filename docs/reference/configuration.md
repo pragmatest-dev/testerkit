@@ -9,10 +9,10 @@ For the full field-by-field reference of each model, see [models.md](data/models
 <!-- GENERATED:configuration-file-index:start -->
 | File | Pydantic model | What it carries |
 |---|---|---|
-| `litmus.yaml` | [`ProjectConfig`](data/models.md#model-projectconfig) | Project root — names, defaults, profiles, multi-slot knobs. |
+| `litmus.yaml` | [`ProjectConfig`](data/models.md#model-projectconfig) | Project root — names, defaults, profiles, multi-site knobs. |
 | `stations/<id>.yaml` | [`StationConfig`](data/models.md#model-stationconfig) | Concrete station deployment — instruments, drivers, resources. |
 | `stations/types/<id>.yaml` | [`StationType`](data/models.md#model-stationtype) | Abstract station-type template — required roles, capabilities. |
-| `fixtures/<id>.yaml` | [`FixtureConfig`](data/models.md#model-fixtureconfig) | UUT-pin ↔ instrument-channel routing (single-UUT) or per-slot routing (multi-UUT). |
+| `fixtures/<id>.yaml` | [`FixtureConfig`](data/models.md#model-fixtureconfig) | UUT-pin ↔ instrument-channel routing (single-UUT) or per-site routing (multi-UUT). |
 | `parts/<id>.yaml` | [`Part`](data/models.md#model-part) | Part specification — pins, signal groups, characteristics. |
 | `tests/test_<name>.yaml` | [`SidecarConfig`](data/models.md#model-sidecarconfig) | Sidecar test config co-located with `tests/test_<name>.py` — sweeps, limits, mocks, retry, prompts. |
 | `catalog/<vendor>/<model>.yaml` | [`InstrumentCatalogEntry`](data/models.md#model-instrumentcatalogentry) | Instrument capability catalog — see [the catalog schema](catalog/schema.md) for the full reference. |
@@ -44,7 +44,7 @@ required_inputs:                  # optional — dict[name, PromptConfig] (opera
     message: "Scan operator badge"
     prompt_type: input
 
-multi_slot:                       # optional — multi-UUT orchestrator knobs
+multi_site:                       # optional — multi-UUT orchestrator knobs
   child_grace_seconds: 5.0        # seconds from SIGTERM to SIGKILL per child pytest
 ```
 
@@ -180,24 +180,24 @@ connections:                           # dict[name, FixtureConnection]
       settling_ms: 10
 ```
 
-Multi-UUT — top-level `slots:` instead of `connections:`:
+Multi-UUT — top-level `sites:` instead of `connections:`:
 
 ```yaml
-id: multi_slot_fix
+id: multi_site_fix
 name: "Quad Power Board Fixture"
 part_id: power_board
 station_types: [bench_4ch]
-slots:                                 # dict[slot_name, FixtureSlot]
-  slot_1:
-    uut_resource: "/dev/ttyUSB0"       # per-slot UUT connection
-    description: "Bottom-left slot"
+sites:                                 # list[FixtureSite] (ordered; index = position)
+  - name: left                         # optional human label
+    uut_resource: "/dev/ttyUSB0"       # per-site UUT connection
+    description: "Bottom-left site"
     connections:
       vout_measure:
         name: vout_measure
         instrument: dmm
         instrument_channel: "1"
         uut_pin: VOUT
-  slot_2:
+  - name: right
     uut_resource: "/dev/ttyUSB1"
     connections:
       vout_measure:
@@ -208,9 +208,10 @@ slots:                                 # dict[slot_name, FixtureSlot]
 ```
 
 - `FixtureConnection.name` is required — there is no key-as-name auto-fill. Declare `name:` matching the dict key on every connection.
-- `connections:` and `slots:` are mutually exclusive on a single `FixtureConfig` — validator rejects both being set.
+- `sites:` is an ordered list; each site's 0-based position is its `site_index` (never authored in YAML). The `name:` on a site is optional.
+- `connections:` and `sites:` are mutually exclusive on a single `FixtureConfig` — validator rejects both being set.
 
-See [concepts/fixtures.md](../concepts/configuration/fixtures.md) for the design rationale, [how-to/multi-uut-testing.md](../how-to/execution/multi-uut-testing.md) for slot workflow.
+See [concepts/fixtures.md](../concepts/configuration/fixtures.md) for the design rationale, [how-to/multi-uut-testing.md](../how-to/execution/multi-uut-testing.md) for site workflow.
 
 ## Part — `parts/<id>.yaml` {#part-yaml}
 
@@ -398,7 +399,7 @@ Every loader raises with the offending field path on type / shape errors and a c
 - [Profiles (how-to)](../how-to/execution/profiles.md) — workflow for the `profiles:` block
 - [Limits (how-to)](../how-to/execution/limits.md) — `MeasurementLimitConfig` shapes
 - [Spec-driven testing (how-to)](../how-to/execution/spec-driven-testing.md) — characteristic-driven limits
-- [Multi-UUT testing (how-to)](../how-to/execution/multi-uut-testing.md) — fixture `slots:` workflow
+- [Multi-UUT testing (how-to)](../how-to/execution/multi-uut-testing.md) — fixture `sites:` workflow
 - [Mock mode (how-to)](../how-to/configuration/mock-mode.md) — station `mock_config:` and sidecar `mocks:`
 - [Pytest-native (reference)](overview/pytest-native.md) — node IDs, marker surface
 - [Litmus markers (reference)](pytest/markers.md) — every marker with payload shape

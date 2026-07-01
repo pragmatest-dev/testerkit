@@ -66,7 +66,7 @@ _IPC_SCHEMA = pa.schema(
         # it's immune to the do_put/ingest insert race (#228) and survives a
         # backend swap. event_number (daemon nextval) stays the insert-order
         # resume cursor, never an emit-order key. Provenance (which station /
-        # slot) is the existing typed columns, not this key.
+        # site) is the existing typed columns, not this key.
         ("writer_key", pa.string()),
         ("event_offset", pa.int64()),
         ("json", pa.string()),

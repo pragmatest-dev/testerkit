@@ -45,7 +45,8 @@ Emitted once at the start of a session (interactive or test orchestrator).
 | `operator_id` | `str \| None` | `None` |
 | `operator_name` | `str \| None` | `None` |
 | `fixture_id` | `str \| None` | `None` |
-| `slot_count` | `int` | `1` |
+| `site_count` | `int` | `1` |
+| `site_names` | `list[str \| None]` | `[]` |
 | `process_uuid` | `str \| None` | `None` |
 | `idle_lease_seconds` | `float \| None` | `None` |
 | `abandon_grace_seconds` | `float \| None` | `None` |
@@ -72,8 +73,8 @@ Emitted once per test run. Contains full run context.
 | `station_type` | `str \| None` | `None` |
 | `station_location` | `str \| None` | `None` |
 | `station_hostname` | `str \| None` | `None` |
-| `slot_id` | `str \| None` | `None` |
-| `slot_index` | `int \| None` | `None` |
+| `site_index` | `int \| None` | `None` |
+| `site_name` | `str \| None` | `None` |
 | `pid` | `int \| None` | `None` |
 | `client` | `str` | *via* `_detect_client()` |
 | `uut_serial_number` | `str` | `''` |
@@ -113,24 +114,26 @@ Emitted by a materializer after a run's state has been written to a durable, que
 | `materialized_at` | `datetime` | *via* `_utcnow()` |
 | `row_counts` | `dict[str, int] \| None` | `None` |
 
-## Slot (multi-UUT) events
+## Site (multi-UUT) events
 
-### `slot.started` — `SlotStarted`
+### `site.started` — `SiteStarted`
 
-Emitted when a UUT slot begins execution.
+Emitted when a UUT site begins execution.
 
 | Field | Type | Default |
 |---|---|---|
-| `slot_id` | `str` | *required* |
+| `site_index` | `int` | *required* |
+| `site_name` | `str \| None` | `None` |
 | `uut_serial_number` | `str` | *required* |
 
-### `slot.completed` — `SlotCompleted`
+### `site.completed` — `SiteCompleted`
 
-Emitted when a UUT slot finishes execution.
+Emitted when a UUT site finishes execution.
 
 | Field | Type | Default |
 |---|---|---|
-| `slot_id` | `str` | *required* |
+| `site_index` | `int` | *required* |
+| `site_name` | `str \| None` | `None` |
 | `outcome` | `str` | *required* |
 | `error_message` | `str \| None` | `None` |
 
@@ -140,12 +143,12 @@ Emitted by a child process when it reaches a named sync point.
 
 | Field | Type | Default |
 |---|---|---|
-| `slot_id` | `str` | *required* |
+| `site_index` | `int` | *required* |
 | `name` | `str` | *required* |
 
 ### `sync.release` — `SyncRelease`
 
-Emitted by the orchestrator to unblock all slots at a sync point.
+Emitted by the orchestrator to unblock all sites at a sync point.
 
 | Field | Type | Default |
 |---|---|---|

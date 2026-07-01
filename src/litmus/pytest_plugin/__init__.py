@@ -136,22 +136,22 @@ __all__ = [
 ]
 
 
-def _prompt_for_slot_serials(
-    slot_ids: list[str],
+def _prompt_for_site_serials(
+    sites: list[tuple[int, str | None]],
     test_phase: str,
-) -> dict[str, str]:
-    """Prompt for UUT serial for each slot.
+) -> dict[int, str]:
+    """Prompt for UUT serial for each site.
 
     Args:
-        slot_ids: Ordered list of slot IDs from fixture config.
+        sites: List of (site_index, site_name) tuples from fixture config.
         test_phase: Current test phase (for error message).
 
     Returns:
-        Dict mapping slot_id → serial.
+        Dict mapping site_index → serial.
     """
-    serials: dict[str, str] = {}
-    for slot_id in slot_ids:
-        serials[slot_id] = prompt_for_serial(test_phase, slot_id)
+    serials: dict[int, str] = {}
+    for site_index, _ in sites:
+        serials[site_index] = prompt_for_serial(test_phase, site_index)
     return serials
 
 
@@ -232,18 +232,17 @@ def _emit_run_start_events(run_scope: RunScope) -> None:
     if event_log is None:
         return
 
-    from litmus.execution._state import get_current_slot_id
+    from litmus.execution._state import get_current_site_index, get_current_site_name
 
-    slot_id = get_current_slot_id()
-    env_slot_index_str = os.environ.get("_LITMUS_SLOT_INDEX")
-    env_slot_index = int(env_slot_index_str) if env_slot_index_str else None
+    site_index = get_current_site_index()
+    site_name = get_current_site_name()
 
     event_log.emit(
         RunStarted(
             session_id=run_scope._session_id,
             run_id=run_scope.test_run.id,
-            slot_id=slot_id,
-            slot_index=env_slot_index,
+            site_index=site_index,
+            site_name=site_name,
             station_id=run_scope.test_run.station_id,
             station_name=run_scope.test_run.station_name,
             station_type=run_scope.test_run.station_type,
@@ -558,9 +557,9 @@ def station_config(request) -> StationConfig | None:
 def fixture_config(request) -> FixtureConfig | None:
     """Load fixture configuration resolved from ``--fixture``.
 
-    In worker mode (``_LITMUS_SLOT_ID`` set), extracts this slot's points
-    from a multi-slot fixture config so downstream fixtures (pins,
-    FixtureManager) see a flat ``points`` dict.
+    In worker mode (``_LITMUS_SITE_INDEX`` set), extracts this site's points
+    from a multi-site fixture config so downstream fixtures (pins,
+    FixtureManager) see a flat ``connections`` dict.
 
     Returns:
         FixtureConfig instance, or None if not specified.
@@ -574,12 +573,13 @@ def fixture_config(request) -> FixtureConfig | None:
 
     fc = load_fixture(Path(config_path))
 
-    # Worker mode: extract this slot's points from multi-slot fixture
-    slot_id = os.environ.get("_LITMUS_SLOT_ID")
-    if slot_id and fc.is_multi_slot and fc.slots:
-        slot = fc.slots.get(slot_id)
-        if slot is not None:
-            # Return a flat fixture config with just this slot's connections
+    # Worker mode: extract this site's connections from multi-site fixture
+    site_index_str = os.environ.get("_LITMUS_SITE_INDEX")
+    if site_index_str is not None and fc.is_multi_site and fc.sites:
+        site_index = int(site_index_str)
+        if site_index < len(fc.sites):
+            site = fc.sites[site_index]
+            # Return a flat fixture config with just this site's connections
             fc = FixtureConfig(
                 id=fc.id,
                 name=fc.name,
@@ -587,8 +587,8 @@ def fixture_config(request) -> FixtureConfig | None:
                 part_id=fc.part_id,
                 part_family=fc.part_family,
                 part_revision=fc.part_revision,
-                connections=slot.connections,
-                uut_resource=slot.uut_resource,
+                connections=site.connections,
+                uut_resource=site.uut_resource,
             )
 
     return fc
@@ -896,8 +896,8 @@ def fixture_manager(instruments, fixture_config, _route_manager) -> FixtureManag
 def sync(_run_scope):
     """Provide sync point for multi-UUT test coordination.
 
-    In worker mode (_LITMUS_SLOT_ID set), returns a SyncPoint that
-    blocks until all slots arrive. In single-slot mode, returns None.
+    In worker mode (_LITMUS_SITE_INDEX set), returns a SyncPoint that
+    blocks until all sites arrive. In single-site mode, returns None.
 
     Usage:
         def test_measure_hot(dmm, sync):
@@ -907,7 +907,7 @@ def sync(_run_scope):
             assert v > 3.0
     """
     del _run_scope  # dependency-only: forces the session EventStore to exist
-    from litmus.execution.slot_runner import is_worker_mode
+    from litmus.execution.slot_runner import is_worker_mode  # checks _LITMUS_SITE_INDEX
 
     if not is_worker_mode():
         yield None

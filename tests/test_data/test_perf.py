@@ -730,7 +730,7 @@ def _writer_event_worker(n_events: int, seed: int) -> tuple[float, int]:
 
     Returns (wall_seconds, ok_count). Spawned via multiprocessing.Process
     so the worker hits the real daemon RPC path the way pytest workers
-    in multi-slot mode would.
+    in multi-site mode would.
     """
     import time
     from uuid import uuid4

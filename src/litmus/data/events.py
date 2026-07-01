@@ -48,8 +48,8 @@ def _detect_client() -> str:
 # Three groups, by reason:
 #
 # * **Pairing IDs** — an open-event ``file_id`` / ``dialog_id`` /
-#   ``channel_id`` / ``slot_id`` has a matching close-event with the
-#   same value. The pushdown answers "did this open ever close?"
+#   ``channel_id`` has a matching close-event with the same value.
+#   The pushdown answers "did this open ever close?"
 # * **Operator-facing identifiers** — ``uut_serial_number`` /
 #   ``station_hostname`` are how operators name what they're querying
 #   ("everything that happened to SN001 on bench-3").
@@ -65,7 +65,6 @@ TYPED_PAYLOAD_COLUMNS: tuple[str, ...] = (
     "file_id",
     "dialog_id",
     "channel_id",
-    "slot_id",
     # Operator-facing identifiers
     "uut_serial_number",
     "station_hostname",
@@ -164,9 +163,10 @@ class SessionStarted(EventBase):
     operator_id: str | None = None
     operator_name: str | None = None
 
-    # Fixture & slot
+    # Fixture & site
     fixture_id: str | None = None
-    slot_count: int = 1
+    site_count: int = 1
+    site_names: list[str | None] = Field(default_factory=list)
 
     # The will — the owner's liveness policy, read by the reaper off this event
     # (never config). ``process_uuid`` pairs with pid + station_hostname as the
@@ -197,7 +197,8 @@ class SessionStarted(EventBase):
         operator_id: str | None = None,
         operator_name: str | None = None,
         fixture_id: str | None = None,
-        slot_count: int | None = None,
+        site_count: int | None = None,
+        site_names: list[str | None] | None = None,
         session_type: str = "test_run",
         idle_lease_seconds: float | None = None,
         abandon_grace_seconds: float | None = None,
@@ -206,14 +207,14 @@ class SessionStarted(EventBase):
         """Build a SessionStarted with common station fields.
 
         Shared by plugin.py (pytest) and connect.py (interactive).
-        If ``slot_count`` is None, reads ``_LITMUS_SLOT_COUNT`` env var
+        If ``site_count`` is None, reads ``_LITMUS_SITE_COUNT`` env var
         (defaults to 1). The will fields (``idle_lease_seconds`` /
         ``abandon_grace_seconds`` / ``abandon_reason``) are resolved
         producer-side from ``SessionOptions`` by the caller; ``process_uuid``
         is stamped automatically, like ``pid``.
         """
-        if slot_count is None:
-            slot_count = int(os.environ.get("_LITMUS_SLOT_COUNT", "1"))
+        if site_count is None:
+            site_count = int(os.environ.get("_LITMUS_SITE_COUNT", "1"))
 
         return cls(
             session_id=session_id,
@@ -225,7 +226,8 @@ class SessionStarted(EventBase):
             operator_id=operator_id,
             operator_name=operator_name,
             fixture_id=fixture_id,
-            slot_count=slot_count,
+            site_count=site_count,
+            site_names=site_names or [],
             session_type=session_type,
             pid=os.getpid(),
             process_uuid=process_uuid(),
@@ -274,8 +276,8 @@ class RunStarted(EventBase):
     station_type: str | None = None
     station_location: str | None = None
     station_hostname: str | None = None
-    slot_id: str | None = None
-    slot_index: int | None = None
+    site_index: int | None = None
+    site_name: str | None = None
 
     # Process
     pid: int | None = None
@@ -351,23 +353,25 @@ class RunMaterialized(EventBase):
 
 
 # ---------------------------------------------------------------------------
-# Slot events (multi-UUT)
+# Site events (multi-UUT)
 # ---------------------------------------------------------------------------
 
 
-class SlotStarted(EventBase):
-    """Emitted when a UUT slot begins execution."""
+class SiteStarted(EventBase):
+    """Emitted when a UUT site begins execution."""
 
-    event_type: Literal["slot.started"] = "slot.started"
-    slot_id: str
+    event_type: Literal["site.started"] = "site.started"
+    site_index: int
+    site_name: str | None = None
     uut_serial_number: str
 
 
-class SlotCompleted(EventBase):
-    """Emitted when a UUT slot finishes execution."""
+class SiteCompleted(EventBase):
+    """Emitted when a UUT site finishes execution."""
 
-    event_type: Literal["slot.completed"] = "slot.completed"
-    slot_id: str
+    event_type: Literal["site.completed"] = "site.completed"
+    site_index: int
+    site_name: str | None = None
     outcome: str  # "passed", "failed", "errored", etc — see Outcome
     error_message: str | None = None
 
@@ -376,12 +380,12 @@ class SyncArrived(EventBase):
     """Emitted by a child process when it reaches a named sync point."""
 
     event_type: Literal["sync.arrived"] = "sync.arrived"
-    slot_id: str
+    site_index: int
     name: str  # Sync point name (e.g., "thermal_soak")
 
 
 class SyncRelease(EventBase):
-    """Emitted by the orchestrator to unblock all slots at a sync point."""
+    """Emitted by the orchestrator to unblock all sites at a sync point."""
 
     event_type: Literal["sync.release"] = "sync.release"
     name: str  # Sync point name
@@ -920,7 +924,7 @@ class DialogResponded(EventBase):
 
 SESSION_EVENTS = {SessionStarted, SessionEnded}
 RUN_EVENTS = {RunStarted, RunEnded, RunMaterialized}
-SLOT_EVENTS = {SlotStarted, SlotCompleted, SyncArrived, SyncRelease}
+SITE_EVENTS = {SiteStarted, SiteCompleted, SyncArrived, SyncRelease}
 FIXTURE_EVENTS = {
     InstrumentConnected,
     IdentityVerified,
@@ -946,7 +950,7 @@ DIALOG_EVENTS = {DialogOpened, DialogResponded}
 ALL_EVENTS = (
     SESSION_EVENTS
     | RUN_EVENTS
-    | SLOT_EVENTS
+    | SITE_EVENTS
     | FIXTURE_EVENTS
     | TEST_EVENTS
     | ROUTE_EVENTS
@@ -964,8 +968,8 @@ Event = Annotated[
     | RunStarted
     | RunEnded
     | RunMaterialized
-    | SlotStarted
-    | SlotCompleted
+    | SiteStarted
+    | SiteCompleted
     | SyncArrived
     | SyncRelease
     | InstrumentConnected

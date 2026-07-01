@@ -13,7 +13,7 @@ from litmus.data.events import (
     ROUTE_EVENTS,
     RUN_EVENTS,
     SESSION_EVENTS,
-    SLOT_EVENTS,
+    SITE_EVENTS,
     TEST_EVENTS,
     InstrumentConnected,
     MeasurementRecorded,
@@ -32,7 +32,7 @@ class TestEventModels:
         e = SessionStarted(station_id="st1")
         assert e.event_type == "session.started"
         assert e.station_id == "st1"
-        assert e.slot_count == 1
+        assert e.site_count == 1
         assert e.id is not None
         assert e.occurred_at is not None
 
@@ -111,12 +111,12 @@ class TestEventModels:
             session_id=sid,
             station_id="st1",
             station_name="Station 1",
-            slot_count=3,
+            site_count=3,
             session_type="interactive",
         )
         assert e.session_id == sid
         assert e.station_id == "st1"
-        assert e.slot_count == 3
+        assert e.site_count == 3
         assert e.session_type == "interactive"
         assert e.pid is not None
         assert e.station_hostname is not None
@@ -144,12 +144,12 @@ class TestEventModels:
         assert process_uuid() == process_uuid()
 
     def test_session_started_from_station_reads_env(self, monkeypatch):
-        monkeypatch.setenv("_LITMUS_SLOT_COUNT", "4")
+        monkeypatch.setenv("_LITMUS_SITE_COUNT", "4")
         e = SessionStarted.from_station(
             session_id=uuid4(),
             station_id="st1",
         )
-        assert e.slot_count == 4
+        assert e.site_count == 4
 
     def test_session_started_rejects_run_id(self):
         import pytest as _pytest
@@ -175,9 +175,9 @@ class TestEventModels:
         e = SessionEnded()
         assert e.run_id is None
 
-    def test_run_started_slot_index(self):
-        e = RunStarted(station_id="st1", slot_id="slot_1", slot_index=0)
-        assert e.slot_index == 0
+    def test_run_started_site_index(self):
+        e = RunStarted(station_id="st1", site_index=0)
+        assert e.site_index == 0
 
     def test_category_grouping(self):
         assert SessionStarted in SESSION_EVENTS
@@ -188,7 +188,7 @@ class TestEventModels:
         assert len(ALL_EVENTS) == (
             len(SESSION_EVENTS)
             + len(RUN_EVENTS)
-            + len(SLOT_EVENTS)
+            + len(SITE_EVENTS)
             + len(FIXTURE_EVENTS)
             + len(TEST_EVENTS)
             + len(ROUTE_EVENTS)

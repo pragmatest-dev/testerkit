@@ -61,11 +61,11 @@ class ProfileConfig(TestEntry):
     verify_requires_limit: bool | None = None
 
 
-class MultiSlotConfig(BaseModel):
-    """Multi-slot orchestration knobs.
+class MultiSiteConfig(BaseModel):
+    """Multi-site orchestration knobs.
 
-    Surfaced as ``multi_slot:`` in ``litmus.yaml``; consumed by the
-    orchestrator path that spawns one pytest child per slot.
+    Surfaced as ``multi_site:`` in ``litmus.yaml``; consumed by the
+    orchestrator path that spawns one pytest child per site.
     """
 
     model_config = {"extra": "forbid"}
@@ -103,7 +103,7 @@ class ProjectConfig(BaseModel):
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
     runner: dict[str, Any] = Field(default_factory=dict)
     required_inputs: dict[str, PromptConfig] = Field(default_factory=dict)
-    multi_slot: MultiSlotConfig = Field(default_factory=MultiSlotConfig)
+    multi_site: MultiSiteConfig = Field(default_factory=MultiSiteConfig)
 
 
 # Resolve forward references — ProfileConfig inherits from TestEntry,

@@ -282,7 +282,8 @@ class RunParquetRow(BaseModel):
     # Session / run identity
     session_id: str
     run_id: str
-    slot_id: str | None = None
+    site_index: int | None = None
+    site_name: str | None = None
     run_started_at: datetime | None = None
     run_ended_at: datetime | None = None
 
@@ -378,7 +379,7 @@ class RunParquetRow(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
     instruments: list[dict[str, Any]] = Field(default_factory=list)
-    # Optional per-slot engineering unit for inputs / outputs (name → unit),
+    # Optional per-site engineering unit for inputs / outputs (name → unit),
     # flowed into the lane's ``unit`` field at encode time.
     input_units: dict[str, str] = Field(default_factory=dict)
     output_units: dict[str, str] = Field(default_factory=dict)
@@ -424,12 +425,13 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
     Python objects (datetime, str, None) — callers that need JSON
     serialisation should post-process timestamps.
     """
-    from litmus.execution._state import get_current_slot_id
+    from litmus.execution._state import get_current_site_index, get_current_site_name
 
     return {
         "session_id": str(test_run.session_id),
         "run_id": str(test_run.id),
-        "slot_id": get_current_slot_id(),
+        "site_index": get_current_site_index(),
+        "site_name": get_current_site_name(),
         "run_started_at": test_run.started_at,
         "run_ended_at": test_run.ended_at,
         # WHO
@@ -500,7 +502,8 @@ def run_context_from_run_started(
         kwargs: dict[str, Any] = {
             "session_id": str(event.session_id),
             "run_id": str(event.run_id) if event.run_id else "",
-            "slot_id": None,
+            "site_index": None,
+            "site_name": None,
             "run_started_at": None,
             "run_ended_at": None,
             "operator_id": None,
@@ -528,7 +531,8 @@ def run_context_from_run_started(
         kwargs = {
             "session_id": str(run_started.session_id),
             "run_id": str(event.run_id) if event.run_id else "",
-            "slot_id": run_started.slot_id,
+            "site_index": run_started.site_index,
+            "site_name": run_started.site_name,
             "run_started_at": run_started.occurred_at,
             "run_ended_at": None,
             "operator_id": run_started.operator_id,

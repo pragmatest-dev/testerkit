@@ -416,7 +416,8 @@ class RunSummary(BaseModel):
 
     test_run_id: str
     session_id: str | None = None
-    slot_id: str | None = None
+    site_index: int | None = None
+    site_name: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
     uut_serial_number: str | None = None
