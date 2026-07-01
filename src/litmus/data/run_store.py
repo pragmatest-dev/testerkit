@@ -135,11 +135,14 @@ class RunStore:
     def get_run(self, run_id: str) -> RunSummary | None:
         """Get a run summary by ID (prefix match), runs-table-first.
 
-        The runs TABLE carries every run-level field needed to
-        render the summary card. We only crack open the measurements
-        parquet to fill in fields the table doesn't denormalize
-        (``site_index``, ``site_name``, ``station_type``). For measurement-less runs
-        (``file_path`` IS NULL) we return the table row as-is.
+        The runs TABLE (or, for a not-yet-materialized run, the
+        in-flight overlay row — see ``runs`` view) carries every
+        run-level field needed to render the summary card, including
+        ``site_index`` / ``site_name`` (denormalized onto every row at
+        ingest, per ``_RUNS_PERSISTED_COLUMNS``). Only ``station_type``
+        isn't denormalized onto the runs table — we crack open the
+        measurements parquet just for that one, skipped silently when
+        ``file_path`` is NULL (a not-yet-materialized / in-flight run).
         """
         prefix = self._id_prefix(run_id)
         rows = self._flight_query(f"""
@@ -157,6 +160,8 @@ class RunStore:
         summary = RunSummary(
             test_run_id=run_id_val,
             session_id=r.get("session_id"),
+            site_index=r.get("site_index"),
+            site_name=r.get("site_name"),
             started_at=r.get("started_at"),
             ended_at=r.get("ended_at"),
             uut_serial_number=r.get("uut_serial_number"),
@@ -174,9 +179,9 @@ class RunStore:
             file_path=r.get("file_path"),
         )
 
-        # Fields not in the runs table — sourced from the measurements
-        # parquet when available. Skipped silently for measurement-less
-        # runs.
+        # station_type isn't in the runs table — sourced from the
+        # measurements parquet when available. Skipped silently for
+        # not-yet-materialized (in-flight) runs.
         pq_path_str = r.get("file_path")
         if pq_path_str:
             pq_path = Path(pq_path_str)
@@ -185,8 +190,6 @@ class RunStore:
                     table = pq.read_table(pq_path)
                     if table.num_rows > 0:
                         first = table.to_pylist()[0]
-                        summary.site_index = first.get("site_index")
-                        summary.site_name = first.get("site_name")
                         summary.station_type = first.get("station_type")
                 except Exception as exc:
                     logger.debug("Failed to enrich run %s from parquet: %s", run_id, exc)

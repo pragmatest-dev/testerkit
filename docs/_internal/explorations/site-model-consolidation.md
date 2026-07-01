@@ -137,10 +137,28 @@ per-lane deltas with last-wins-per-name merge). No schema impact, so it doesn't 
 
 ## Open (decide at implementation)
 
-- **`LITMUS_FIXTURE_SITE`:** consume it (saves the worker's redundant fixture-YAML reload) vs.
-  delete it (finding #5, confirmed dead) — default to **delete** unless consuming is trivial.
 - **`site_count` denormalization onto run rows:** convenience only (UI can derive parallelism
   from session fan-out). Keep or drop.
+
+## Implementation log — 0.3.0 staged half (2026-07-01)
+
+The 0.3.0 half (changes 1, 2, 4, 5 + findings #2/#6/#10) landed on
+`feat/0.3.0-grain-reshape`. Notes for the next session:
+
+- **`LITMUS_FIXTURE_SITE`: deleted** (finding #5) — the round-trip-only test
+  (`test_fixture_site_json_in_env`) was removed with it. The unified
+  `fixture_config` fixture flatten now re-derives `sites[site_index]` from the
+  loaded fixture YAML by `get_current_site_index()` uniformly (worker env var
+  and single-process `--site` both feed the same ContextVar), so nothing needed
+  the env var's payload.
+- **Change 4 (multi-site UI gate):** `RunsQuery.list_for_session()` was the
+  clean existing signal — `ui.shared.services.get_run_detail` now returns
+  `(run, steps, measurements, is_multi_site)`; `is_multi_site =
+  len(list_for_session(session_id, include_incomplete=True)) > 1`. No new
+  query surface needed.
+- **Change 3 (baseline+augment) and the XOR-validator reversal remain
+  untouched** — still a post-0.3.0 follow-on per the staged scope decision
+  above.
 
 Carried by the `schema_version` scheme like its siblings — but note **data is being wiped for
 0.3.0**, so no migration path is needed; lay the shape down directly.

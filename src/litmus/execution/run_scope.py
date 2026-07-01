@@ -38,6 +38,8 @@ from litmus.execution._state import (
     get_active_limits,
     get_active_part_context,
     get_current_context,
+    get_current_site_index,
+    get_current_site_name,
     get_current_step,
     get_current_vector,
     push_current_step,
@@ -465,6 +467,14 @@ class RunScope:
             git_remote=git_remote,
             project_name=project_name,
         )
+        # Stamp the execution lane from the resolved site ContextVars —
+        # 0/None when nothing installed one (e.g. non-pytest callers),
+        # or whatever a runner adapter resolved (pytest's plugin does
+        # this in hooks._resolve_and_install_site at sessionstart).
+        # Every other identity-field reader sources site_index/site_name
+        # off TestRun uniformly rather than reaching into the ContextVar.
+        self.test_run.site_index = get_current_site_index()
+        self.test_run.site_name = get_current_site_name()
         # Serialize environment eagerly so every event has it
         if environment is not None:
             self.test_run.environment_json = environment.model_dump_json()

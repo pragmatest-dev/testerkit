@@ -1108,6 +1108,8 @@ A complete test run with steps and measurements.
 | `session_id` | `UUID` | *via* `uuid4()` |
 | `started_at` | `datetime` | *via* `_utcnow()` |
 | `ended_at` | `datetime \| None` | `None` |
+| `site_index` | `int` | `0` |
+| `site_name` | `str \| None` | `None` |
 | `uut` | `UUT` | *required* |
 | `part_id` | `str \| None` | `None` |
 | `part_name` | `str \| None` | `None` |

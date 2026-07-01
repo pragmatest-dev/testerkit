@@ -170,7 +170,6 @@ Inside a site's test process these identify the UUT, so your test or a serial-po
 | `LITMUS_UUT_REVISION` | UUT revision (shared across sites) |
 | `LITMUS_UUT_LOT_NUMBER` | UUT lot / batch (shared across sites) |
 | `LITMUS_UUT_RESOURCE` | Per-site UUT control connection (e.g. `/dev/ttyUSB0`) from the site's `uut_resource:` field |
-| `LITMUS_FIXTURE_SITE` | JSON-serialized site configuration |
 
 ### Viewing Per-Site Output
 

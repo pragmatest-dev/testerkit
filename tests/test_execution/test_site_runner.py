@@ -116,22 +116,6 @@ class TestSiteRunnerExecution:
 
         assert "hello from site" in results[0].output_lines
 
-    def test_fixture_site_json_in_env(self):
-        sites = _make_sites()
-        uuts = _make_uuts()
-        runner = SiteRunner(sites, uuts)
-
-        script = (
-            "import os, json; "
-            "data = json.loads(os.environ['LITMUS_FIXTURE_SITE']); "
-            "print(data['site_index'])"
-        )
-        cmd = [sys.executable, "-c", script]
-        results = runner.run(cmd, sync=False)
-
-        assert results[0].output_lines[0] == "0"
-        assert results[1].output_lines[0] == "1"
-
 
 class TestSiteRunnerValidation:
     """Input validation."""

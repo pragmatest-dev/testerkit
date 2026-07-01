@@ -584,7 +584,6 @@ See [Profiles](../how-to/execution/profiles.md) for the profile YAML shape.
 | `LITMUS_UUT_PART_NUMBER` | Default UUT part number (`uut_part_number` on every run). |
 | `LITMUS_UUT_REVISION` | Default UUT hardware revision. |
 | `LITMUS_UUT_LOT_NUMBER` | Default UUT lot / batch number. |
-| `LITMUS_FIXTURE_SITE` | Set by the multi-UUT orchestrator for per-site child processes; not operator-configurable. |
 | `LITMUS_DAEMON_IDLE_TIMEOUT` | Seconds a background daemon (events, runs, channels) waits idle before self-shutting-down (default: `300`). |
 | `LITMUS_DAEMON_SPAWN_TIMEOUT` | Seconds to wait for a daemon to report ready after spawning (default: `30`). |
 | `LITMUS_CHANNELS_SYNC_PUSH` | Set to `1` to force channel-sample writes to push synchronously instead of the default async push (determinism / debugging). |

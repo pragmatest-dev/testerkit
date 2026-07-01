@@ -9,6 +9,7 @@ import os
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from litmus.data.models import UUT
+from litmus.execution.sites import resolve_site_token
 
 if TYPE_CHECKING:
     from litmus.execution.sites import ResolvedSite
@@ -113,6 +114,12 @@ class CLIUUTProvider:
 
         Returns:
             Dict mapping site_index → serial.
+
+        Raises:
+            UUTProviderError: A key is malformed, doesn't resolve to a
+                known site, or two keys resolve to the same
+                ``site_index`` (bijection violation — see the
+                site-model contract's "no site fed twice" rule).
         """
         parts = [p.strip() for p in raw.split(",")]
 
@@ -129,22 +136,17 @@ class CLIUUTProvider:
                 key = key.strip()
                 serial = serial.strip()
 
-                # Resolve key: try int first (site_index), then name match
                 try:
-                    site_index = int(key)
-                except ValueError:
-                    if sites is None:
-                        raise UUTProviderError(
-                            f"Named site key '{key}' requires fixture sites to be loaded."
-                        ) from None
-                    matched = [s for s in sites if s.site_name == key]
-                    if not matched:
-                        available = ", ".join(s.site_name or f"[{s.site_index}]" for s in sites)
-                        raise UUTProviderError(
-                            f"Unknown site name '{key}'. Available: {available}"
-                        ) from None
-                    site_index = matched[0].site_index
+                    site_index = resolve_site_token(key, sites or [])
+                except ValueError as exc:
+                    raise UUTProviderError(str(exc)) from exc
 
+                if site_index in serials:
+                    raise UUTProviderError(
+                        f"--uut-serials key '{key}' resolves to site_index "
+                        f"{site_index}, already assigned serial "
+                        f"{serials[site_index]!r} by an earlier key."
+                    )
                 serials[site_index] = serial
             return serials
 

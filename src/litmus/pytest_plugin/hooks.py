@@ -15,7 +15,7 @@ import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
@@ -88,6 +88,9 @@ from litmus.pytest_plugin.sweeps import (
     parametrize_calls_for_entry,
     sweep_to_parametrize_args,
 )
+
+if TYPE_CHECKING:
+    from litmus.execution.sites import ResolvedSite
 
 # Step ids (UUIDs as strings) that have shown verdict intent during
 # their execution — either pytest's rewritten assert hit and passed,
@@ -436,11 +439,17 @@ def _resolve_and_install_site(config) -> None:
        error so typos surface immediately.
     3. **Orchestrator parent** (multi-site fixture, no ``--site``,
        this process is *about to* dispatch per-site children) —
-       leave the ContextVars at ``None``. The orchestrator parent
-       never runs tests itself; each child carries its own site_index
-       via ``_LITMUS_SITE_INDEX`` env var.
-    4. **No fixture / single-site fixture** — leave the ContextVars at
-       ``None``; the run row's ``site_index`` column reads as null.
+       leave the ContextVars unset. The orchestrator parent never runs
+       a test itself (``pytest_runtestloop`` short-circuits before any
+       fixture executes — see ``site_runner.is_orchestrator_mode``),
+       so it never emits a RunStarted; whatever the getter's default
+       resolves to is never observed for this process.
+    4. **No fixture / single-site fixture** — leave the ContextVars
+       unset too. Unlike case 3, this process DOES run tests, so
+       ``get_current_site_index()`` matters here — its ``0`` default
+       (see ``execution._state``) is what makes a bare single-UUT run
+       record ``site_index=0`` rather than a null we can no longer
+       represent.
     """
     env_site_index_str = os.environ.get("_LITMUS_SITE_INDEX")
     cli_site = config.getoption("--site")
@@ -455,45 +464,38 @@ def _resolve_and_install_site(config) -> None:
         site_index = int(env_site_index_str)
         set_current_site_index(site_index)
         # Look up site_name from fixture config if available
-        fixture_sites = _resolved_fixture_site_identifiers(config)
-        site_name = next((name for idx, name in fixture_sites if idx == site_index), None)
+        fixture_sites = _resolved_fixture_sites(config)
+        site_name = next((s.site_name for s in fixture_sites if s.site_index == site_index), None)
         set_current_site_name(site_name)
         return
 
-    fixture_sites = _resolved_fixture_site_identifiers(config)
+    fixture_sites = _resolved_fixture_sites(config)
 
     if cli_site:
-        # Resolve cli_site: try int (site_index) first, then name match
+        from litmus.execution.sites import resolve_site_token
+
         try:
-            resolved_index = int(cli_site)
-        except ValueError:
-            matched = [(idx, name) for idx, name in fixture_sites if name == cli_site]
-            if not matched:
-                known = ", ".join(name if name else str(idx) for idx, name in fixture_sites)
-                raise pytest.UsageError(
-                    f"--site={cli_site!r} not in fixture's site list (known: {known})."
-                ) from None
-            resolved_index, cli_site_name = matched[0]
-        else:
-            if fixture_sites and resolved_index not in {idx for idx, _ in fixture_sites}:
-                known = ", ".join(name if name else str(idx) for idx, name in fixture_sites)
-                raise pytest.UsageError(
-                    f"--site={cli_site!r} not in fixture's site list (known: {known})."
-                )
-            cli_site_name = next(
-                (name for idx, name in fixture_sites if idx == resolved_index), None
-            )
+            resolved_index = resolve_site_token(cli_site, fixture_sites)
+        except ValueError as exc:
+            raise pytest.UsageError(f"--site={exc}") from exc
+        cli_site_name = next(
+            (s.site_name for s in fixture_sites if s.site_index == resolved_index), None
+        )
         set_current_site_index(resolved_index)
         set_current_site_name(cli_site_name)
         return
     # Multi-site fixture without --site: this is the orchestrator
     # parent. It dispatches per-site children that each carry their
     # own site_index via env var; the parent never emits a RunStarted
-    # of its own, so leaving the ContextVars at None is correct.
+    # of its own, so leaving the ContextVars unset is correct.
+    #
+    # No fixture / single-site fixture without --site: a real
+    # single-process run. Leaving the ContextVars unset here is also
+    # correct — get_current_site_index() resolves the unset case to 0.
 
 
-def _resolved_fixture_site_identifiers(config) -> list[tuple[int, str | None]]:
-    """Return ordered (site_index, site_name) pairs from the resolved fixture, or ``[]``.
+def _resolved_fixture_sites(config) -> list[ResolvedSite]:
+    """Return resolved sites from the fixture config, or ``[]``.
 
     Returns ``[]`` for single-site fixtures, missing fixtures, or load
     errors — callers treat any of those as "no site validation
@@ -501,6 +503,7 @@ def _resolved_fixture_site_identifiers(config) -> list[tuple[int, str | None]]:
     here must not block test collection; the normal config-loading
     path will surface a real error if one exists.
     """
+    from litmus.execution.sites import resolve_fixture_sites
     from litmus.store import load_fixture
 
     fixture_path = find_fixture_file(config)
@@ -512,7 +515,7 @@ def _resolved_fixture_site_identifiers(config) -> list[tuple[int, str | None]]:
         return []
     if not fixture_config.is_multi_site or not fixture_config.sites:
         return []
-    return [(i, site.name) for i, site in enumerate(fixture_config.sites)]
+    return resolve_fixture_sites(fixture_config)
 
 
 def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:

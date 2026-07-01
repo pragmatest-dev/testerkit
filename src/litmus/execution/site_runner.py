@@ -49,7 +49,11 @@ def _build_site_env(
     - ``LITMUS_UUT_PART_NUMBER`` — optional UUT part number
     - ``LITMUS_UUT_REVISION`` — optional UUT revision
     - ``LITMUS_UUT_LOT_NUMBER`` — optional UUT lot/batch number
-    - ``LITMUS_FIXTURE_SITE`` — JSON-serialized site config
+
+    The worker re-derives its own site's connections from the loaded
+    fixture YAML by its resolved ``_LITMUS_SITE_INDEX`` (see the
+    ``fixture_config`` fixture) — no serialized site config needs to
+    ride the environment.
     """
     env = base_env.copy()
     env["_LITMUS_SITE_INDEX"] = str(site_index)
@@ -62,7 +66,6 @@ def _build_site_env(
         env["LITMUS_UUT_LOT_NUMBER"] = uut.lot_number
     if site.uut_resource:
         env["LITMUS_UUT_RESOURCE"] = site.uut_resource
-    env["LITMUS_FIXTURE_SITE"] = site.model_dump_json()
     return env
 
 
@@ -86,7 +89,6 @@ class SiteRunner:
     - ``LITMUS_UUT_SERIAL`` — UUT serial for this site
     - ``LITMUS_UUT_PART_NUMBER`` — optional UUT metadata
     - ``LITMUS_UUT_RESOURCE`` — UUT driver connection string
-    - ``LITMUS_FIXTURE_SITE`` — JSON-serialized site config
     - ``_LITMUS_INSTRUMENT_SERVER`` — instrument server address (if shared instruments)
     - ``_LITMUS_SHARED_ROLES`` — comma-separated roles served remotely
 

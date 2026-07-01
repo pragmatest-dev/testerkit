@@ -102,6 +102,50 @@ def _build_resolved_site(
     )
 
 
+def format_known_sites(sites: list[ResolvedSite]) -> str:
+    """Format a fixture's site list for "known sites" error messages.
+
+    Bare (unnamed) sites render as a bracketed index (``[1]``); named
+    sites render by name. Shared by every caller that needs to tell an
+    operator which ``--site`` / ``--uut-serials`` tokens are valid.
+    """
+    return ", ".join(s.site_name or f"[{s.site_index}]" for s in sites)
+
+
+def resolve_site_token(token: str, sites: list[ResolvedSite]) -> int:
+    """Resolve a ``--site`` / ``--uut-serials`` key token to a concrete site_index.
+
+    ``token`` is tried as a decimal ``site_index`` first; if that
+    fails, it's matched against ``sites`` by name. The single resolver
+    behind both the CLI ``--site`` flag (``hooks._resolve_and_install_site``)
+    and ``--uut-serials`` keyed parsing (``CLIUUTProvider.parse_serials``).
+
+    Integer tokens are validated against ``sites`` only when ``sites``
+    is non-empty — bringup / single-site runs (no multi-site fixture
+    loaded) accept any numeric ``--site`` value permissively, matching
+    the pre-existing single-process behavior. Name tokens always
+    require a match; an empty ``sites`` list means "no such name."
+
+    Raises:
+        ValueError: ``token`` doesn't resolve to a known site.
+    """
+    try:
+        site_index = int(token)
+    except ValueError:
+        matched = [s for s in sites if s.site_name == token]
+        if not matched:
+            raise ValueError(
+                f"{token!r} not in fixture's site list (known: {format_known_sites(sites)})."
+            ) from None
+        return matched[0].site_index
+
+    if sites and site_index not in {s.site_index for s in sites}:
+        raise ValueError(
+            f"{token!r} not in fixture's site list (known: {format_known_sites(sites)})."
+        )
+    return site_index
+
+
 def detect_shared_instruments(sites: list[ResolvedSite]) -> set[str]:
     """Detect instrument roles shared by multiple sites.
 

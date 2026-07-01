@@ -5,7 +5,9 @@ import pytest
 from litmus.execution.sites import (
     ResolvedSite,
     detect_shared_instruments,
+    format_known_sites,
     resolve_fixture_sites,
+    resolve_site_token,
 )
 from litmus.models.test_config import FixtureConfig, FixtureConnection, FixtureSite
 
@@ -172,6 +174,28 @@ class TestFixtureConfigValidation:
         assert fc.site_count == 1
         assert not fc.is_multi_site
 
+    def test_duplicate_site_names_raise(self):
+        with pytest.raises(ValueError, match="duplicate site name"):
+            FixtureConfig(
+                id="dupe",
+                sites=[
+                    FixtureSite(name="left"),
+                    FixtureSite(name="left"),
+                ],
+            )
+
+    def test_distinct_site_names_ok(self):
+        fc = FixtureConfig(
+            id="ok",
+            sites=[FixtureSite(name="left"), FixtureSite(name="right")],
+        )
+        assert [s.name for s in fc.sites] == ["left", "right"]
+
+    def test_unnamed_sites_do_not_collide(self):
+        # None names must not be treated as a "duplicate" pair.
+        fc = FixtureConfig(id="ok", sites=[FixtureSite(), FixtureSite()])
+        assert fc.site_count == 2
+
 
 class TestInstrumentValidation:
     """Site resolution validates instrument references against station."""
@@ -274,3 +298,64 @@ class TestDetectSharedInstruments:
             ResolvedSite(site_index=2, instrument_roles={"dmm"}),
         ]
         assert detect_shared_instruments(sites) == {"dmm"}
+
+
+class TestFormatKnownSites:
+    """format_known_sites brackets bare indices, names named sites."""
+
+    def test_all_named(self):
+        sites = [
+            ResolvedSite(site_index=0, site_name="left"),
+            ResolvedSite(site_index=1, site_name="right"),
+        ]
+        assert format_known_sites(sites) == "left, right"
+
+    def test_all_bare(self):
+        sites = [ResolvedSite(site_index=0), ResolvedSite(site_index=1)]
+        assert format_known_sites(sites) == "[0], [1]"
+
+    def test_mixed(self):
+        sites = [ResolvedSite(site_index=0, site_name="left"), ResolvedSite(site_index=1)]
+        assert format_known_sites(sites) == "left, [1]"
+
+    def test_empty(self):
+        assert format_known_sites([]) == ""
+
+
+class TestResolveSiteToken:
+    """resolve_site_token — the shared int-parse-first resolver.
+
+    Unifies what used to be duplicated (with diverging error text)
+    between ``uut_provider.parse_serials`` and
+    ``hooks._resolve_and_install_site``.
+    """
+
+    def test_index_token_resolves(self):
+        sites = [ResolvedSite(site_index=0), ResolvedSite(site_index=1)]
+        assert resolve_site_token("1", sites) == 1
+
+    def test_name_token_resolves(self):
+        sites = [
+            ResolvedSite(site_index=0, site_name="left"),
+            ResolvedSite(site_index=1, site_name="right"),
+        ]
+        assert resolve_site_token("right", sites) == 1
+
+    def test_unknown_index_against_known_sites_raises(self):
+        sites = [ResolvedSite(site_index=0), ResolvedSite(site_index=1)]
+        with pytest.raises(ValueError, match=r"not in fixture's site list"):
+            resolve_site_token("5", sites)
+
+    def test_unknown_name_raises(self):
+        sites = [ResolvedSite(site_index=0, site_name="left")]
+        with pytest.raises(ValueError, match=r"not in fixture's site list"):
+            resolve_site_token("bogus", sites)
+
+    def test_index_token_permissive_when_no_sites_loaded(self):
+        # Bringup / single-site: no multi-site fixture, any numeric
+        # --site value is accepted (matches pre-existing behavior).
+        assert resolve_site_token("7", []) == 7
+
+    def test_name_token_always_requires_match_even_with_no_sites(self):
+        with pytest.raises(ValueError, match=r"not in fixture's site list"):
+            resolve_site_token("left", [])

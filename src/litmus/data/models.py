@@ -447,6 +447,15 @@ class TestRun(BaseModel):
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
 
+    # Execution lane — always present, 0-based, default 0. Stamped in
+    # RunScope.__init__ from the resolved site ContextVars (see
+    # execution._state.get_current_site_index/get_current_site_name)
+    # so every identity-field reader (build_run_metadata, RunStarted)
+    # sources it uniformly from TestRun instead of reaching into the
+    # ContextVar directly.
+    site_index: int = 0
+    site_name: str | None = None
+
     # UUT identification
     uut: UUT
 

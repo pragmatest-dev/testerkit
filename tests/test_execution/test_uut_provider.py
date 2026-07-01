@@ -203,6 +203,20 @@ class TestParseSerials:
         with pytest.raises(ValueError, match="Invalid"):
             CLIUUTProvider.parse_serials("0=SN001,SN002")
 
+    def test_duplicate_index_key_raises(self):
+        """Two keys resolving to the same site_index must fail fast,
+        not silently overwrite the earlier serial (bijection rule)."""
+        with pytest.raises(ValueError, match="Duplicate|duplicate|already assigned"):
+            CLIUUTProvider.parse_serials("0=SN001,0=SN002")
+
+    def test_duplicate_name_key_resolving_same_index_raises(self):
+        sites = [
+            ResolvedSite(site_index=0, site_name="left"),
+            ResolvedSite(site_index=1, site_name="right"),
+        ]
+        with pytest.raises(ValueError, match="already assigned"):
+            CLIUUTProvider.parse_serials("left=SN001,0=SN002", sites=sites)
+
 
 class TestUUTProviderProtocol:
     """UUTProvider is a runtime-checkable protocol."""

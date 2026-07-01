@@ -179,6 +179,13 @@ class TestEventModels:
         e = RunStarted(station_id="st1", site_index=0)
         assert e.site_index == 0
 
+    def test_run_started_site_index_defaults_to_zero_not_none(self):
+        """site_index is always present — a single-UUT run (no explicit
+        site) resolves to 0 at construction, never null."""
+        e = RunStarted(station_id="st1")
+        assert e.site_index == 0
+        assert e.site_index is not None
+
     def test_category_grouping(self):
         assert SessionStarted in SESSION_EVENTS
         assert RunStarted in RUN_EVENTS

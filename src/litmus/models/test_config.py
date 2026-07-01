@@ -6,6 +6,7 @@ sequences, and all test-runner configuration.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable
 from typing import Any, Literal, Self
 
@@ -511,18 +512,28 @@ class FixtureConfig(BaseModel):
     description: str | None = None
 
     @model_validator(mode="after")
-    def _validate_connections_or_slots(self) -> Self:
+    def _validate_connections_or_sites(self) -> Self:
         if self.connections and self.sites:
             raise ValueError(
                 "FixtureConfig cannot have both 'connections' and 'sites'. "
                 "Use 'connections' for single-UUT fixtures or 'sites' for multi-UUT."
             )
+        names: list[str] = []
         for site in self.sites:
             if site.name is not None and site.name.strip().lstrip("-").isdigit():
                 raise ValueError(
                     f"site name {site.name!r} is numeric; names must be non-numeric so "
                     f"--site / --uut-serials resolve index-vs-name unambiguously"
                 )
+            if site.name is not None:
+                names.append(site.name)
+        duplicates = sorted({name for name, count in Counter(names).items() if count >= 2})
+        if duplicates:
+            raise ValueError(
+                f"FixtureConfig has duplicate site name(s): {duplicates}. "
+                "Site names must be unique within a fixture so --site / "
+                "--uut-serials resolve unambiguously."
+            )
         return self
 
     @property

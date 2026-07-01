@@ -171,9 +171,9 @@ class StdfSubscriber(EventSubscriber):
         if not s:
             return
 
-        # STDF SITE_NUM = site_index (0-based, emitted directly). A single-UUT
-        # run carries no site (site_index is None) and is site 0.
-        site_num = s.site_index if s.site_index is not None else 0
+        # STDF SITE_NUM = site_index (0-based, emitted directly). site_index
+        # is always present — a single-UUT run resolves to site 0.
+        site_num = s.site_index
 
         records: list[bytes] = []
 

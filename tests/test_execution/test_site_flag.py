@@ -41,6 +41,28 @@ def _write_multi_site_fixture(path: Path, site_count: int) -> None:
     path.write_text(yaml.safe_dump(fixture))
 
 
+def _write_multi_site_fixture_with_connections(path: Path, channels: list[str]) -> None:
+    """A multi-site fixture where each site's 'sense' connection wires a
+    distinct instrument_channel — lets a test observe which site's
+    connections actually got flattened into ``fixture_config``."""
+    fixture = {
+        "id": path.stem,
+        "sites": [
+            {
+                "connections": {
+                    "sense": {
+                        "name": "sense",
+                        "instrument": "dmm",
+                        "instrument_channel": ch,
+                    }
+                }
+            }
+            for ch in channels
+        ],
+    }
+    path.write_text(yaml.safe_dump(fixture))
+
+
 def _write_station(path: Path) -> None:
     path.write_text(yaml.safe_dump({"id": path.stem, "name": "Test Station", "instruments": {}}))
 
@@ -53,6 +75,17 @@ def _write_pass_test(path: Path) -> None:
                 assert 1 == 1
             """
         )
+    )
+
+
+def _write_connections_probe_test(path: Path, expected_channel: str) -> None:
+    """A test that fails unless ``fixture_config.connections`` came from
+    the site the operator asked for (via its instrument_channel value)."""
+    path.write_text(
+        "def test_wires_expected_site_connections(fixture_config):\n"
+        "    assert fixture_config is not None\n"
+        "    conn = fixture_config.connections['sense']\n"
+        f"    assert conn.instrument_channel == {expected_channel!r}, conn.instrument_channel\n"
     )
 
 
@@ -163,6 +196,56 @@ class TestSiteFlag:
         assert result.returncode != 0
         combined = result.stdout + result.stderr
         assert "99" in combined and "not in fixture" in combined, combined
+
+    def test_site_2_single_process_wires_sites_2_connections(self, tmp_path):
+        """Change 2: single-process --site N flattens sites[N]'s connections
+        (the RESOLVED site_index), not just the site_name label."""
+        session_id = str(uuid4())
+        fixture_path = tmp_path / "fixture.yaml"
+        station_path = tmp_path / "station.yaml"
+        test_file = tmp_path / "test_probe.py"
+
+        _write_multi_site_fixture_with_connections(fixture_path, channels=["0", "1", "2"])
+        _write_station(station_path)
+        _write_connections_probe_test(test_file, expected_channel="2")
+
+        result = _run_pytest(
+            test_file,
+            fixture_path,
+            station_path,
+            session_id=session_id,
+            site="2",
+        )
+        assert result.returncode == 0, (
+            f"pytest exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+
+    def test_no_fixture_single_uut_run_records_site_index_zero(self, tmp_path):
+        """Change 1: a bare single-UUT run (no fixture, no --site) resolves
+        site_index=0 at rest — never null."""
+        session_id = str(uuid4())
+        test_file = tmp_path / "test_pass.py"
+        _write_pass_test(test_file)
+
+        args = [
+            sys.executable,
+            "-m",
+            "pytest",
+            str(test_file),
+            "--mock-instruments",
+            "--uut-serial=SN42",
+            "-v",
+        ]
+        env = {**os.environ, "_LITMUS_SESSION_ID": session_id}
+        result = subprocess.run(args, capture_output=True, text=True, timeout=60, env=env)
+        assert result.returncode == 0, (
+            f"pytest exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+
+        runs = _list_runs(session_id)
+        assert len(runs) == 1, runs
+        assert runs[0].site_index == 0, runs[0]
+        assert runs[0].site_index is not None
 
     def test_no_site_against_multi_site_fixture_dispatches_or_errors(self, tmp_path):
         """Multi-site fixture without --site triggers orchestrator dispatch or serial error."""

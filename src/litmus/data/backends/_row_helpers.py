@@ -425,13 +425,11 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
     Python objects (datetime, str, None) — callers that need JSON
     serialisation should post-process timestamps.
     """
-    from litmus.execution._state import get_current_site_index, get_current_site_name
-
     return {
         "session_id": str(test_run.session_id),
         "run_id": str(test_run.id),
-        "site_index": get_current_site_index(),
-        "site_name": get_current_site_name(),
+        "site_index": test_run.site_index,
+        "site_name": test_run.site_name,
         "run_started_at": test_run.started_at,
         "run_ended_at": test_run.ended_at,
         # WHO

@@ -594,18 +594,24 @@ def set_current_code_identity(value: dict[str, str | None]) -> None:
     _current_code_identity_var.set(value)
 
 
-def get_current_site_index() -> int | None:
-    """Return the active site index or ``None``.
+def get_current_site_index() -> int:
+    """Return the active site index. Defaults to ``0`` when unset.
 
     In multi-site worker children, set from the ``_LITMUS_SITE_INDEX`` env
     var at session start. In single-process operator-targeted runs, set
-    from the ``--site`` CLI flag. ``None`` for non-fixtured single-UUT
-    runs. Read by the plugin to stamp ``site_index`` on run rows.
+    from the ``--site`` CLI flag. Site is *always present* — a bare
+    single-UUT run (no fixture, no ``--site``) resolves to ``0`` via
+    this default rather than leaving the ContextVar unset. The
+    multi-site orchestrator PARENT process also leaves the ContextVar
+    unset, but that's inert: it never runs a test itself (dispatches
+    children and exits), so this getter is never consulted there.
+    Read by the plugin to stamp ``site_index`` on run rows.
     """
-    return _site_index_var.get()
+    value = _site_index_var.get()
+    return 0 if value is None else value
 
 
-def set_current_site_index(value: int | None) -> None:
+def set_current_site_index(value: int) -> None:
     """Set the active site index. Returns None."""
     _site_index_var.set(value)
 

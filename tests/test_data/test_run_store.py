@@ -191,6 +191,45 @@ def test_get_run_not_found(runs_store: RunStore) -> None:
     assert runs_store.get_run("nonexistent-prefix-xxxxxxxx") is None
 
 
+def test_get_run_site_fields_when_file_path_null(
+    runs_store: RunStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Finding #2: site_index/site_name come straight off the runs-table
+    row, not a parquet reopen — so a not-yet-materialized run (``file_path
+    IS NULL``, the in-flight overlay shape) still surfaces them instead of
+    silently dropping them behind the ``if pq_path_str:`` gate.
+    """
+    run_id = str(uuid4())
+    fake_row = {
+        "run_id": run_id,
+        "session_id": str(uuid4()),
+        "site_index": 2,
+        "site_name": "right",
+        "started_at": _dt("2026-03-09T09:00:00Z"),
+        "ended_at": None,
+        "uut_serial_number": "SN700",
+        "uut_part_number": None,
+        "part_id": None,
+        "station_id": "station-9",
+        "station_name": None,
+        "station_hostname": None,
+        "fixture_id": None,
+        "test_phase": None,
+        "project_name": None,
+        "operator_id": None,
+        "outcome": None,
+        "num_measurements": 0,
+        "file_path": None,
+    }
+    monkeypatch.setattr(runs_store, "_flight_query", lambda sql: [fake_row])  # noqa: ARG005
+
+    found = runs_store.get_run(run_id[:8])
+    assert found is not None
+    assert found.site_index == 2
+    assert found.site_name == "right"
+    assert found.station_type is None  # not denormalized; skipped for file_path IS NULL
+
+
 def test_find_run_file(runs_store: RunStore, fixture_data: dict[str, str]) -> None:
     """RunStore.find_run_file returns the parquet path."""
     f = runs_store.find_run_file(fixture_data["run_001"][:8])

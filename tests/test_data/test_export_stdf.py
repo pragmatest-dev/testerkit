@@ -213,8 +213,8 @@ class TestStdfSubscriber:
         tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
-        """A single-UUT run (site_index is None) emits SITE_NUM 0 on every
-        part record (PIR/PTR/PRR) — 0-based, per the site_index contract."""
+        """A single-UUT run (site_index defaults to 0) emits SITE_NUM 0 on
+        every part record (PIR/PTR/PRR) — 0-based, per the site_index contract."""
         result = self._write_via_subscriber(
             realistic_test_run,
             tmp_path,

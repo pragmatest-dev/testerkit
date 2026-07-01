@@ -232,17 +232,12 @@ def _emit_run_start_events(run_scope: RunScope) -> None:
     if event_log is None:
         return
 
-    from litmus.execution._state import get_current_site_index, get_current_site_name
-
-    site_index = get_current_site_index()
-    site_name = get_current_site_name()
-
     event_log.emit(
         RunStarted(
             session_id=run_scope._session_id,
             run_id=run_scope.test_run.id,
-            site_index=site_index,
-            site_name=site_name,
+            site_index=run_scope.test_run.site_index,
+            site_name=run_scope.test_run.site_name,
             station_id=run_scope.test_run.station_id,
             station_name=run_scope.test_run.station_name,
             station_type=run_scope.test_run.station_type,
@@ -557,9 +552,15 @@ def station_config(request) -> StationConfig | None:
 def fixture_config(request) -> FixtureConfig | None:
     """Load fixture configuration resolved from ``--fixture``.
 
-    In worker mode (``_LITMUS_SITE_INDEX`` set), extracts this site's points
-    from a multi-site fixture config so downstream fixtures (pins,
-    FixtureManager) see a flat ``connections`` dict.
+    Flattens ``sites[site_index]`` into a flat ``connections`` dict
+    using the RESOLVED site_index (``get_current_site_index()`` — fed
+    by either a worker's ``_LITMUS_SITE_INDEX`` env var or a
+    single-process ``--site`` flag; see
+    ``hooks._resolve_and_install_site``, which runs in
+    ``pytest_sessionstart`` and so always installs the ContextVar
+    before this session-scoped fixture is first resolved). So a
+    single-process ``--site 2`` run wires ``sites[2]`` exactly like a
+    worker child does.
 
     Returns:
         FixtureConfig instance, or None if not specified.
@@ -573,10 +574,10 @@ def fixture_config(request) -> FixtureConfig | None:
 
     fc = load_fixture(Path(config_path))
 
-    # Worker mode: extract this site's connections from multi-site fixture
-    site_index_str = os.environ.get("_LITMUS_SITE_INDEX")
-    if site_index_str is not None and fc.is_multi_site and fc.sites:
-        site_index = int(site_index_str)
+    if fc.is_multi_site and fc.sites:
+        from litmus.execution._state import get_current_site_index
+
+        site_index = get_current_site_index()
         if site_index < len(fc.sites):
             site = fc.sites[site_index]
             # Return a flat fixture config with just this site's connections

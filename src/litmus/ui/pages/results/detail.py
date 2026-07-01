@@ -70,7 +70,7 @@ async def result_detail_page(run_id: str, tab: str = ""):
             ui.card().classes("w-full h-20 animate-pulse bg-slate-200 rounded")
             ui.card().classes("w-full h-48 animate-pulse bg-slate-200 rounded")
 
-        run_obj, steps, measurements = await run.io_bound(get_run_detail, run_id)
+        run_obj, steps, measurements, is_multi_site = await run.io_bound(get_run_detail, run_id)
 
         loading.delete()
 
@@ -193,7 +193,11 @@ async def result_detail_page(run_id: str, tab: str = ""):
                             on_click=lambda sid=_sid: ui.navigate.to(f"/files?session_id={sid}"),
                         ).props('flat dense color=primary data-testid="run-detail-view-files"')
 
-        has_sites = any(m.get("site_index") is not None for m in measurements)
+        # Parallel-gantt gate: session→runs fan-out, not site_index
+        # null-ness (site_index is always present now — 0-based,
+        # default 0 — so it can no longer distinguish a single-UUT run
+        # from a multi-site sibling).
+        has_sites = is_multi_site
         session_id = run_obj.session_id
 
         timeline_tab: Any = None
@@ -256,11 +260,9 @@ async def result_detail_page(run_id: str, tab: str = ""):
                 return
             timeline_loaded["done"] = True
             session_steps = await run.io_bound(get_session_steps, session_id)
-            current_site = next(
-                (m.get("site_index") for m in measurements if m.get("site_index") is not None),
-                None,
+            _render_timeline_tab(
+                timeline_container, session_steps, current_site_index=run_obj.site_index
             )
-            _render_timeline_tab(timeline_container, session_steps, current_site_index=current_site)
 
         async def _load_history() -> None:
             if history_loaded["done"] or history_container is None:
@@ -291,7 +293,9 @@ async def result_detail_page(run_id: str, tab: str = ""):
             unsubscribe_ref: list[Any] = []
 
             async def _live_refresh() -> None:
-                new_run, new_steps, new_meas = await run.io_bound(get_run_detail, run_id)
+                new_run, new_steps, new_meas, _new_is_multi_site = await run.io_bound(
+                    get_run_detail, run_id
+                )
                 if new_run is None:
                     return
 
