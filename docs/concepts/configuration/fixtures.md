@@ -174,7 +174,7 @@ Three independent features scale the single-UUT shape to multiple boards:
 
 ### Sites — parallel UUT positions
 
-When the bench has multiple identical positions and you test them in parallel, use `sites` instead of `connections`. Sites are an ordered list; each site has its own `FixtureConnection` map and an optional `name`:
+A **site** is one parallel UUT position on the bench — the same concept STDF calls `SITE_NUM` and NI TestStand calls a "test socket." When the bench has multiple identical positions and you test them in parallel, use `sites` instead of `connections`. Sites are an ordered list; each site has its own `FixtureConnection` map and an optional `name`:
 
 ```yaml
 # fixtures/dual_board_fixture.yaml
@@ -202,7 +202,11 @@ sites:
         instrument_channel: "2"
 ```
 
-Litmus runs each site in parallel; each site's test sees only its own connections. A site's 0-based position in the list is its `site_index` (never authored). Per-site `uut_resource` overrides the fixture-level value. See [Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) for the operational guide.
+Litmus runs each site in parallel; each site's test sees only its own connections. A site's 0-based position in the list is its `site_index` — **never authored**, always the list position, so there's no field to typo or get out of sync with the actual order. This is the same shape as a bare single-UUT fixture: `connections:` directly on the fixture is site_index 0 with no list around it. `connections` and `sites` are two views of one model, not two separate features — the list is what makes a fixture multi-site, and its length is the site count. There's no way to declare a gap in the list; a site exists because it has an entry.
+
+`name:` is an optional human label ("left", "right") for a site that otherwise has no identity beyond its index — it's frozen onto every row that site produces, so renaming a site in the fixture YAML later doesn't change what a historical run's rows say. Fixture loading rejects a bare-integer name (`name: "1"`) with a clear error: `--site` and `--uut-serials` resolve a token as an index first and a name second, so a numeric name would be unreachable (shadowed by the index it looks like) rather than silently wrong. Use a non-numeric label (`"S1"`, `"pos1"`) if you need a silkscreen-style number.
+
+Per-site `uut_resource` overrides the fixture-level value. See [Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) for the operational guide — CLI serial assignment, per-site parquet columns, and the events that carry `site_index` / `site_name`.
 
 ### Shared instruments
 

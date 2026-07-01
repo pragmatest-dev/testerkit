@@ -1,6 +1,6 @@
 # Multi-UUT Testing
 
-Litmus runs multiple UUTs in parallel, one site per UUT. Each site is isolated, and a shared instrument (one physical DMM or PSU) can drive every site without sites colliding on it. This page shows how to define the sites and run them.
+Litmus runs multiple UUTs in parallel, one **site** per UUT — the same parallel-position concept STDF calls `SITE_NUM` and NI TestStand calls a "test socket." Each site is isolated, and a shared instrument (one physical DMM or PSU) can drive every site without sites colliding on it. This page shows how to define the sites and run them.
 
 > **Prerequisites.** Single-UUT tests already working against your station — multi-UUT is a layer on top, not a replacement (see [tutorial step 7](../../tutorial/07-real-instruments.md)). A fixture YAML defining at least two sites (template in this page). Instruments that can be channel-shared or one physical instrument per site.
 
@@ -55,17 +55,31 @@ pytest tests/ \
 |--------|-------------|
 | `--fixture` | Path to fixture YAML (2+ sites → parallel sites) |
 | `--uut-serial` | Single serial applied to all sites (with warning) |
-| `--uut-serials` | Per-site assignment by index (`0=SN001,1=SN002`) or by name (`left=SN001,right=SN002`) |
-| `--site` | Run just one site of the fixture by itself, by index or name — useful for debugging a single UUT position in isolation. Cannot be combined with `--uut-serials`. |
+| `--uut-serials` | Per-site assignment — positional (`SN001,SN002`), by index (`0=SN001,1=SN002`), or by name (`left=SN001,right=SN002`); see [Serial Assignment](#serial-assignment) |
+| `--site` | Target one site, by index or name, for a single-process run — useful for debugging one UUT position in isolation. Setting `--site` always runs single-process, even against a multi-site fixture; pair it with `--uut-serial` for that site's identity, not `--uut-serials` (see below). |
 | `--mock-instruments` | Use mock instruments (each site gets independent mocks) |
 
 ## Serial Assignment
 
-**Per-site (recommended)** — by index or by name:
+`--uut-serials` takes one string, auto-detected as one of three forms. All three are **dense** — every site the fixture config declares needs a serial in the string, or the run fails at launch with `No UUT serial for site N`. There is no way to leave a configured site idle for one launch; the fixture's `sites:` list is what defines which sites exist for every run against it.
+
+**Positional** — no `=`, one serial per site in list order (first serial → `site_index 0`):
+```bash
+--uut-serials SN001,SN002
+```
+Requires the serial count to match the site count exactly — positional means "all of them, in order."
+
+**Indexed** — `site_index=serial` pairs, any order:
 ```bash
 --uut-serials 0=SN001,1=SN002
+```
+
+**Named** — `site_name=serial` pairs, resolved against each site's `name:` in the fixture YAML:
+```bash
 --uut-serials left=SN001,right=SN002
 ```
+
+A single `--uut-serials` string is positional **or** keyed, never both — any `=` in the string switches every entry to keyed parsing, so `SN001,1=SN002` is a parse error rather than a silent partial match.
 
 **Single serial:** Using `--uut-serial` with multiple sites applies the same serial to all sites and emits a warning. This is useful for development but not recommended for production.
 
@@ -105,6 +119,16 @@ ORDER BY site_index, step_index
 ```
 
 Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{run_id8}_{serial}.parquet`. `<data_dir>` is the active project's data dir — resolved from `--data-dir` → project `litmus.yaml` → `LITMUS_HOME` → platform default. See [reference/parquet-schema.md](../../reference/data/parquet-schema.md) for the column shape and the `record_type` discriminator (`run` / `step` / `vector`); measurements are nested under the vector rows.
+
+### Events
+
+`site_index` / `site_name` aren't columns bolted onto the query layer after the fact — they're stamped at emit time and carried through:
+
+- The orchestrator's own session-open event lists every configured site up front (site count + names), before any worker starts.
+- Each site worker emits its own run-start event carrying **its** `site_index` and `site_name` — this is the freeze point. Rename a site in the fixture YAML next month and this run's row still reads the name that was active when it ran.
+- Per-site start/end events mark when each site's subprocess begins and finishes, independent of the individual test steps inside it.
+
+See [event-types reference](../../reference/data/event-types.md) for the full field list on each event.
 
 ## Sharing One Instrument Across Sites
 
@@ -157,6 +181,10 @@ Site stdout is prefixed with `[site:N]` in the terminal output:
 **Sites appear to hang:** A `sync.wait()` may be waiting on a site that already failed. Litmus releases the other sites automatically when a site exits, but shorten a too-long `timeout=` if the wait is the bottleneck.
 
 **Same serial warning:** If you see "Single --uut-serial applied to all N sites", use `--uut-serials` for per-site assignment.
+
+**`--uut-serials` looks ignored when `--site` is also set:** `--site` always runs single-process against the one site you named — it never reads `--uut-serials`. Use `--uut-serial` for that site's identity instead.
+
+**Sparse launches aren't supported yet:** every site the fixture config declares needs a serial in `--uut-serials` (or all sites share one `--uut-serial`). There is no way to launch a parallel run that leaves some configured sites out and only exercises a subset — target one site at a time with `--site` instead.
 
 **Shared instrument is the bottleneck:** Sites queue for a shared instrument — check the Execution Timeline to see whether sites are waiting on instrument access.
 
