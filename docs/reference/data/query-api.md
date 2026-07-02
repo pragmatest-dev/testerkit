@@ -108,7 +108,13 @@ Release daemon ref and close Flight client.
 
 `list_for_run(run_id: str, *, include_incomplete: bool = False) → list[StepRow]`
 
-Return every step row for a run, ordered by ``step_index``.
+Return the LOGICAL step rows for a run, ordered by ``step_index``.
+
+### `StepsQuery.list_vectors_for_run` {#stepsquery-list_vectors_for_run}
+
+`list_vectors_for_run(run_id: str, *, include_incomplete: bool = False) → list[StepRow]`
+
+Return the condition-point (vector) rows for a run.
 
 ### `StepsQuery.pareto` {#stepsquery-pareto}
 

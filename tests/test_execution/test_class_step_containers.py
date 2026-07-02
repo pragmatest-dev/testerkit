@@ -77,18 +77,19 @@ def _wait_for_run(session_id: str, *, timeout: float = 15.0) -> str:
 
 
 def _read_steps(session_id: str) -> list[StepRow]:
-    """Return all step rows for the session.
+    """Return all step + vector rows for the session (both grains).
 
-    Sorted by (step_index, vector_index, vector_outer_index).
-
-    Uses ``include_incomplete=True`` so vector rows (which have ``ended_at=NULL``
-    in the daemon's GROUP-BY aggregation for vector-only groups) are also returned.
-    For finalized runs the overlay branch is empty, so no phantom inflight rows appear.
+    Sorted by (step_index, vector_index, vector_outer_index). ``steps`` and
+    ``step_vectors`` are now grain-explicit surfaces, so this merges the
+    logical-step rows with their condition-point rows to reproduce the flat
+    step+vector view these assertions expect. ``include_incomplete=True`` so
+    finalized rows aren't filtered by the default ``ended_at IS NOT NULL``.
     """
     run_id = _wait_for_run(session_id)
     steps_q = StepsQuery()
     try:
         rows = list(steps_q.list_for_run(run_id, include_incomplete=True))
+        rows += list(steps_q.list_vectors_for_run(run_id, include_incomplete=True))
     finally:
         steps_q.close()
     rows.sort(key=lambda s: (s.step_index or 0, s.vector_index or 0, s.vector_outer_index or 0))

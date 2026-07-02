@@ -273,8 +273,11 @@ class EventAccumulator:
         for entry in self._build_step_results_from_events():
             started_at = _to_datetime(entry.get("started_at"))
             entry_ended_at = _to_datetime(entry.get("ended_at"))
+            # Round to microseconds — matches the materialized ROUND(..., 6),
+            # so the inflight↔materialized equivalence guard doesn't trip on
+            # float64 tails (timestamps are us-resolution anyway).
             duration_s = (
-                (entry_ended_at - started_at).total_seconds()
+                round((entry_ended_at - started_at).total_seconds(), 6)
                 if started_at and entry_ended_at
                 else None
             )
@@ -308,6 +311,11 @@ class EventAccumulator:
                 }
             )
         for entry in self._build_vector_results_from_events():
+            v_started = _to_datetime(entry.get("started_at"))
+            v_ended = _to_datetime(entry.get("ended_at"))
+            v_duration = (
+                round((v_ended - v_started).total_seconds(), 6) if v_started and v_ended else None
+            )
             rows.append(
                 {
                     "run_id": _safe_str(s.run_id),
@@ -319,11 +327,14 @@ class EventAccumulator:
                     "step_path": entry.get("step_path"),
                     "vector_index": entry.get("vector_index"),
                     "vector_outer_index": entry.get("vector_outer_index"),
-                    # Daemon aggregation FILTERs step-level columns to the step record.
-                    "outcome": None,
-                    "started_at": None,
-                    "ended_at": None,
-                    "duration_s": None,
+                    # A vector row carries its OWN timing/outcome — the daemon's
+                    # materialized aggregation COALESCEs the vector_* columns onto
+                    # these for the vector grain (#24), so the overlay must match
+                    # or the inflight/materialized consistency check diverges.
+                    "outcome": entry.get("outcome"),
+                    "started_at": v_started,
+                    "ended_at": v_ended,
+                    "duration_s": v_duration,
                     "step_retry": entry.get("step_retry", 0),
                     "measurement_count": len(entry.get("measurements") or []),
                     "markers": None,

@@ -1299,20 +1299,50 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             site_index,
             site_name,
             step_name,
-            -- v2: step-level rollups live only on the 'step' record (the scope
-            -- 'vector' record sheds them), so aggregate via ANY_VALUE FILTER
-            -- rather than GROUP BY — otherwise the step row and its scope
-            -- vector (differing on these columns) split into two groups.
-            ANY_VALUE(step_outcome) FILTER (WHERE record_type = 'step') AS outcome,
-            ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step') AS started_at,
-            ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step') AS ended_at,
-            CASE
-                WHEN ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step') IS NOT NULL
-                 AND ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step') IS NOT NULL
-                THEN EPOCH(ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step'))
-                   - EPOCH(ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step'))
+            -- Each grain row draws timing/outcome from its own record kind: a
+            -- step-grain group (vector_index NULL) has the 'step' record; each
+            -- vector-grain group (vector_index 0..N) is disjoint and has only
+            -- its 'vector' record (+ its measurements), never a 'step' row. So
+            -- COALESCE step-record columns with the vector-record columns —
+            -- otherwise every vector bucket gets NULL started_at/ended_at and
+            -- list_for_run's ``ended_at IS NOT NULL`` filter drops it, making
+            -- vectors invisible in the steps tree (#24).
+            COALESCE(
+                ANY_VALUE(step_outcome) FILTER (WHERE record_type = 'step'),
+                ANY_VALUE(vector_outcome) FILTER (WHERE record_type = 'vector')
+            ) AS outcome,
+            COALESCE(
+                ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step'),
+                ANY_VALUE(vector_started_at) FILTER (WHERE record_type = 'vector')
+            ) AS started_at,
+            COALESCE(
+                ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step'),
+                ANY_VALUE(vector_ended_at) FILTER (WHERE record_type = 'vector')
+            ) AS ended_at,
+            -- Rounded to microseconds: timestamps are ``timestamp("us")``, so
+            -- duration is only meaningful to 6 decimals. Rounding also erases
+            -- the float64 tail from EPOCH()'s large-double subtraction, so this
+            -- matches the overlay's Python ``total_seconds()`` exactly (the
+            -- inflight↔materialized equivalence guard).
+            ROUND(CASE
+                WHEN COALESCE(
+                        ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step'),
+                        ANY_VALUE(vector_ended_at) FILTER (WHERE record_type = 'vector')
+                     ) IS NOT NULL
+                 AND COALESCE(
+                        ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step'),
+                        ANY_VALUE(vector_started_at) FILTER (WHERE record_type = 'vector')
+                     ) IS NOT NULL
+                THEN EPOCH(COALESCE(
+                        ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step'),
+                        ANY_VALUE(vector_ended_at) FILTER (WHERE record_type = 'vector')
+                     ))
+                   - EPOCH(COALESCE(
+                        ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step'),
+                        ANY_VALUE(vector_started_at) FILTER (WHERE record_type = 'vector')
+                     ))
                 ELSE NULL
-            END AS duration_s,
+            END, 6) AS duration_s,
             CAST(COALESCE(
                 SUM(len(measurements)) FILTER (WHERE record_type <> 'measurement'), 0
             ) AS INTEGER)
@@ -1690,9 +1720,21 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
         FROM overlay.inflight_runs
         WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
     """)
+    # Grain-explicit surfaces over the dual-grain steps_materialized table:
+    #   * ``steps``        — one row per LOGICAL step (vector_index IS NULL):
+    #                        the code node / ambient carrier. This is what
+    #                        aggregators (yield, pareto, dashboards) and the
+    #                        flat step list want; a swept step is ONE row here.
+    #   * ``step_vectors`` — one row per condition point (vector_index 0..N):
+    #                        a swept step's sweep variants / in-body iterations.
+    #                        The step tree fetches these to nest under a step.
+    # The at-rest table holds both grains with correct timing (COALESCE'd at
+    # ingest); these views just declare which grain a reader wants, so no
+    # consumer has to remember a ``vector_index IS NULL`` filter (#24).
     conn.execute("""
         CREATE OR REPLACE VIEW steps AS
         SELECT * EXCLUDE (vector_index_key, vector_outer_index_key) FROM steps_materialized
+        WHERE vector_index IS NULL
         UNION ALL BY NAME
         SELECT
             run_id,
@@ -1709,6 +1751,29 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             dynamic_attrs
         FROM overlay.inflight_steps
         WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
+          AND vector_index IS NULL
+    """)
+    conn.execute("""
+        CREATE OR REPLACE VIEW step_vectors AS
+        SELECT * EXCLUDE (vector_index_key, vector_outer_index_key) FROM steps_materialized
+        WHERE vector_index IS NOT NULL
+        UNION ALL BY NAME
+        SELECT
+            run_id,
+            COALESCE(step_path, '') AS step_path,
+            step_retry,
+            vector_index,
+            vector_outer_index,
+            step_index, file_path, session_id, site_index, site_name,
+            step_name,
+            TRY_CAST(outcome AS outcome_kind) AS outcome,
+            started_at, ended_at,
+            duration_s, measurement_count,
+            markers, uut_serial_number, station_id,
+            dynamic_attrs
+        FROM overlay.inflight_steps
+        WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
+          AND vector_index IS NOT NULL
     """)
 
     # ``instruments``: one row per instrument per run, materialized from the

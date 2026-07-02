@@ -4,9 +4,13 @@ Every permutation here is a REAL pytest subprocess run through the real
 litmus plugin (same harness as ``test_class_step_containers.py``'s
 ``_run_pytest``), materialized through the REAL runs daemon, then read
 back by globbing the actual parquet files on disk and querying them with
-DuckDB directly — NOT through ``StepsQuery``/``list_for_run`` (which drops
-vector rows by default per #24). No ``_FakeLog``, no hand-built
+DuckDB directly — the at-rest ground truth. No ``_FakeLog``, no hand-built
 ``TestStep``/``TestVector``/``RunParquetRow``, no monkeypatched query.
+
+The final test reads THROUGH ``StepsQuery.tree_for_run`` instead of the raw
+parquet, to prove the query layer surfaces a swept step's vectors with their
+own timing (the #24 fix — before it, vector rows were dropped by the default
+``ended_at IS NOT NULL`` filter).
 
 This is a one-off verification harness (not meant to be a permanent
 regression suite) — run directly:
@@ -557,3 +561,47 @@ def test_configure_io_lands_on_vector_row_when_swept(tmp_path: Path) -> None:
         inp = decode_lane_structs(v["inputs"])
         assert inp.get("vin") == expected_vin, inp
         assert inp.get("trim") == expected_vin + 100, inp
+
+
+# ---------------------------------------------------------------------------
+# Query layer — #24: a swept step's vectors survive daemon materialization and
+# surface through StepsQuery.tree_for_run with their OWN non-null timing (they
+# were previously dropped by the default ``ended_at IS NOT NULL`` filter because
+# the materializer nulled vector-bucket timestamps). This is the one test that
+# reads THROUGH the query, not the raw parquet — closing the loop to StepsQuery.
+# ---------------------------------------------------------------------------
+
+
+def test_swept_vectors_visible_through_stepsquery(tmp_path: Path) -> None:
+    from litmus.analysis.steps_query import StepsQuery
+
+    session_id = str(uuid4())
+    test_file = tmp_path / "test_sq_sweep.py"
+    _write_test(
+        test_file,
+        """\
+        import pytest
+
+        @pytest.mark.parametrize("vin", [1, 2, 3])
+        def test_x(vin, measure):
+            measure("vout", vin)
+        """,
+    )
+    result = _run_pytest(test_file, session_id=session_id)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    run_id = _wait_for_run(session_id)
+    with StepsQuery() as q:
+        tree = q.tree_for_run(run_id)
+
+    assert len(tree) == 1, [n.step.step_path for n in tree]
+    node = tree[0]
+    assert node.step.step_path == "test_x"
+    assert node.step.vector_index is None  # the step (ambient) carrier
+    # The three sweep vectors are visible (pre-#24 they were filtered out) and
+    # carry their OWN timing + outcome, not NULL.
+    assert [v.vector_index for v in node.vectors] == [0, 1, 2]
+    for v in node.vectors:
+        assert v.started_at is not None, "vector must carry its own started_at (#24)"
+        assert v.ended_at is not None, "vector must carry its own ended_at (#24)"
+        assert v.outcome is not None, "vector must carry its own outcome (#24)"

@@ -88,6 +88,10 @@ def _row(
     """Build a vector RunParquetRow carrying one nested measurement."""
     return RunParquetRow(
         record_type="vector",
+        # A ``vector`` record ALWAYS has a concrete vector_index (0..N); NULL
+        # marks the logical step grain. Without this the row leaks into the
+        # logical ``steps`` view and inflates step-based aggregates (RTY).
+        vector_index=0,
         session_id="sess-1",
         run_id=run_id,
         run_started_at=datetime.fromisoformat(run_started_at).replace(tzinfo=UTC),

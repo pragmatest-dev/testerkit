@@ -203,39 +203,32 @@ class TestTreeForRun:
     def test_swept_step_no_duplicate_children(
         self, fixture_data: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ):
-        """A swept step's vector rows must not appear as extra tree nodes.
+        """A swept step's condition points nest under ONE node, not siblings.
 
-        Before the fix, a step-summary row (``vector_index=NULL``) plus its
-        vector rows (``vector_index`` 0..N) — which all share the SAME
-        ``step_path`` — became separate ``StepNode``s: an N+1 same-named-node
-        bug. The tree must have exactly ONE node for this step, with its
-        vectors attached via ``StepNode.vectors``.
-
-        ``list_for_run`` is monkeypatched to return canned rows rather than
-        going through the real daemon: ``steps_materialized`` currently
-        never populates ``ended_at`` for vector-index rows (a separate,
-        pre-existing daemon-aggregation gap — its ``ANY_VALUE(...) FILTER
-        (WHERE record_type = 'step')`` columns can never match within a
-        vector row's own ``GROUP BY`` bucket), so ``list_for_run``'s default
-        ``include_incomplete=False`` filter excludes real vector rows before
-        they'd ever reach ``tree_for_run``. That's a separate bug from the
-        tree-building one under test here.
+        The logical step (from the ``steps`` grain, ``vector_index=NULL``)
+        is one node; its condition points (from the ``step_vectors`` grain,
+        ``vector_index`` 0..N, same ``step_path``) attach to
+        ``StepNode.vectors`` — never as extra same-named tree nodes. Both
+        grains are stubbed here so this exercises only the tree-nesting logic
+        (the real daemon path is covered end-to-end in
+        ``test_grain_reshape_e2e_acceptance.test_swept_vectors_visible_through_stepsquery``).
         """
-        rows = [
+        step_rows = [
             StepRow(step_path="sweep_step", step_name="sweep_step", step_index=0, step_retry=0),
-            *(
-                StepRow(
-                    step_path="sweep_step",
-                    step_name="sweep_step",
-                    step_index=0,
-                    step_retry=0,
-                    vector_index=vi,
-                )
-                for vi in range(3)
-            ),
+        ]
+        vector_rows = [
+            StepRow(
+                step_path="sweep_step",
+                step_name="sweep_step",
+                step_index=0,
+                step_retry=0,
+                vector_index=vi,
+            )
+            for vi in range(3)
         ]
         with StepsQuery() as q:
-            monkeypatch.setattr(q, "list_for_run", lambda run_id: rows)
+            monkeypatch.setattr(q, "list_for_run", lambda run_id: step_rows)
+            monkeypatch.setattr(q, "list_vectors_for_run", lambda run_id: vector_rows)
             tree = q.tree_for_run(fixture_data["run_flat"])
         assert len(tree) == 1
         node = tree[0]
