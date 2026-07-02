@@ -806,6 +806,20 @@ class EventAccumulator:
                 )
             )
 
+        # A @parametrize variant emits its own VectorStarted at (step_path,
+        # vector_index), but the step-fusion key collapses all top-level
+        # variants onto vector_outer_index (None→0), so the loop above only
+        # recorded (step_path, 0) in ``executed_vectors``. Record every vector
+        # that actually emitted, keyed by its OWN vector_index — the same axis
+        # ``_append_not_started`` matches collected items on — so a ran-but-
+        # fused variant (vi=1,2,…) is not mistaken for never-run and ghosted.
+        # A genuinely unrun vector emits no event, so a partially-run sweep
+        # still leaves its unrun positions absent (their "never ran" rows are
+        # preserved). Keyed by (step_path, vector_index), matching the check.
+        for vkey in set(self._vector_starts) | set(self._vector_ends):
+            # vkey = (step_path, vector_outer_index, vector_index, retry)
+            executed_vectors.add((vkey[0], vkey[2]))
+
         _append_not_started(
             manifest,
             self._collected_items,

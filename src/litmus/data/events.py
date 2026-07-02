@@ -501,7 +501,13 @@ class MeasurementRecorded(EventBase):
     step_name: str
     step_index: int
     step_path: str = ""
-    vector_index: int = 0
+    # NULL ⟺ an ambient / step-scope measurement (no owning condition point);
+    # 0..N ⟺ the owning vector's index. The enclosing outer condition rides
+    # ``vector_outer_index``. Default 0 kept for construction sites that omit
+    # it; the live capture path (``run_scope.log_measurement``) always sets it
+    # explicitly (None for ambient) so a pre-loop measure never collides with
+    # the in-body loop's real vector 0.
+    vector_index: int | None = 0
     vector_outer_index: int | None = None
     step_retry: int = 0  # outer item-attempt axis (de-fuse identity)
     retry: int = 0  # inner vector retry — 0 for first execution, N for Nth

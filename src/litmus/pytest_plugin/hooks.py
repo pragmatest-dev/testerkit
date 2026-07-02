@@ -1282,7 +1282,9 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
         # Cascade child step outcomes into the container before we close it
         # so the container row reflects "did anything in this iteration fail".
         _stamp_container_outcome(logger_inst, open_state)
-        logger_inst.end_outer_vector(open_state["vector"])
+        open_vec = open_state.get("vector")
+        if open_vec is not None:
+            logger_inst.end_outer_vector(open_vec)
         logger_inst.end_step()
         setattr(logger_inst, _OPEN_CLASS_ATTR, None)
 
@@ -1304,8 +1306,18 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
             module=getattr(cls, "__module__", None),
             step_retry=getattr(item, "execution_count", 1) - 1,
         )
-        c_vec = TestVector(index=vi, params=dict(outer_values))
-        logger_inst.begin_outer_vector(c_vec)
+        # A class-outer vector is a real condition point ONLY when the class
+        # carries a ``litmus_sweeps`` marker (``outer_values`` non-empty). For
+        # an unswept container there is no condition point: pushing one would
+        # (a) write a spurious empty vector row and (b) install a bogus
+        # enclosing vector for the methods, mis-routing their measurements off
+        # their own vectors and onto the step row. So open the outer vector
+        # only when the class actually sweeps — otherwise the container is a
+        # pure structural step and the methods' context stays un-shadowed.
+        c_vec: TestVector | None = None
+        if outer_values:
+            c_vec = TestVector(index=vi, params=dict(outer_values))
+            logger_inst.begin_outer_vector(c_vec)
         setattr(
             logger_inst,
             _OPEN_CLASS_ATTR,

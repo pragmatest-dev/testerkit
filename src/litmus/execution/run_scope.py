@@ -510,6 +510,16 @@ class RunScope:
         self._outer_vector_tokens: list[Token[TestVector | None]] = []
         self._owning_contexts: list[Any] = []
         self._step_enclosing: list[TestVector | None] = []
+        # Per-step snapshot of the configured params that were AMBIENT — set
+        # before the step's own vector began. ``None`` means the step never
+        # opened an own vector (plain/ambient step), so its full configured
+        # params are step-scope. A non-None snapshot (set by begin_outer_vector)
+        # is the pre-vector layer: the step keeps exactly this, and everything
+        # configured after the vector opened rides the vector. This is the
+        # ``configure()`` layering — base layer on the step, per-vector layer on
+        # the vector — that makes a swept-body configure() land on the vector,
+        # not the fused rollup step.
+        self._step_ambient_config: list[dict[str, Any] | None] = []
         # Clear contextvars — each logger owns its execution context
         push_current_step(None)
         push_current_vector(None)
@@ -684,6 +694,9 @@ class RunScope:
             step.inputs = dict(coerce_dict(enclosing.params))
         self._step_tokens.append(push_current_step(step))
         self._owning_contexts.append(get_current_context())
+        # None until (and unless) this step opens its own vector; begin_outer_vector
+        # fills it with the ambient (pre-vector) configured-param snapshot.
+        self._step_ambient_config.append(None)
 
         self._emit_step_event(step, is_start=True, enclosing=enclosing)
 
@@ -745,6 +758,7 @@ class RunScope:
         is_start: bool,
         owning_context: Any = None,
         enclosing: TestVector | None = None,
+        own_configured: dict[str, Any] | None = None,
     ) -> None:
         """Emit a StepStarted or StepEnded event for ``step``.
 
@@ -785,7 +799,14 @@ class RunScope:
             )
         else:
             ctx = owning_context if owning_context is not None else get_current_context()
-            own_inputs = coerce_dict(ctx.configured_params) if ctx is not None else {}
+            # ``own_configured`` (the ambient pre-vector snapshot) wins when the
+            # step opened its own vector, so per-vector configure() does not leak
+            # onto the fused step; otherwise fall back to the context's full set.
+            own_inputs = (
+                own_configured
+                if own_configured is not None
+                else (coerce_dict(ctx.configured_params) if ctx is not None else {})
+            )
             event = StepEnded(
                 session_id=self._session_id,
                 run_id=self.test_run.id,
@@ -885,8 +906,14 @@ class RunScope:
                 inputs = {**step.inputs, **build_input_columns(vector)}
             else:
                 inputs = dict(step.inputs)
-            enc_vi = active_vector.index if active_vector is not None else 0
-            event_vi = vector.index if vector is not None else enc_vi
+            # An own-vector measurement takes that vector's index; an ambient /
+            # step-scope measurement (no owning vector) is NULL — the invariant
+            # that ``vector_index IS NULL`` marks the step/ambient carrier. The
+            # enclosing outer condition (if any) rides ``vector_outer_index``
+            # below, NOT here — so a pre-loop measure() stamps NULL and never
+            # collides with the in-body loop's real vector 0 (which would fold
+            # the ambient measurement onto that condition point at rest).
+            event_vi = vector.index if vector is not None else None
             event_retry = vector.retry if vector is not None else 0
             # The outer (class-level) vector this step runs inside; from the step's saved enclosing.
             enc = self._step_enclosing[-1] if self._step_enclosing else None
@@ -940,14 +967,26 @@ class RunScope:
 
         owning = self._owning_contexts[-1] if self._owning_contexts else None
         enc = self._step_enclosing[-1] if self._step_enclosing else None
+        # If the step opened its own vector, keep only the AMBIENT (pre-vector)
+        # configured params on the step — anything configured inside the
+        # vector's scope belongs to the vector (see begin/end_outer_vector). A
+        # ``None`` snapshot means no own vector was opened → the step's full
+        # configured params are step-scope (plain/ambient step).
+        ambient = self._step_ambient_config[-1] if self._step_ambient_config else None
         if step is not None:
             ctx = owning if owning is not None else get_current_context()
             if ctx is not None:
-                own_inputs = coerce_dict(ctx.configured_params)
+                own_inputs = ambient if ambient is not None else coerce_dict(ctx.configured_params)
                 step.inputs = {**step.inputs, **own_inputs}
                 step.outputs = coerce_dict(ctx.observations)
         if step is not None:
-            self._emit_step_event(step, is_start=False, owning_context=owning, enclosing=enc)
+            self._emit_step_event(
+                step,
+                is_start=False,
+                owning_context=owning,
+                enclosing=enc,
+                own_configured=ambient,
+            )
 
         # Pop step from hierarchy stack
         if self._step_stack:
@@ -965,6 +1004,8 @@ class RunScope:
             self._owning_contexts.pop()
         if self._step_enclosing:
             self._step_enclosing.pop()
+        if self._step_ambient_config:
+            self._step_ambient_config.pop()
 
     def begin_outer_vector(self, vector: TestVector) -> None:
         """Push a sweep-source vector (Mode-1 parametrize or class-outer) and emit VectorStarted.
@@ -975,12 +1016,31 @@ class RunScope:
         step = get_current_step()
         if step is not None and vector not in step.vectors:
             step.vectors.append(vector)
+        # Snapshot the ambient (pre-vector) configured params for this step:
+        # end_step keeps only what was configured BEFORE this vector opened;
+        # everything configured inside the vector's scope rides the vector. In
+        # Mode-1 (@parametrize) the vector wraps the whole body, so this is {}
+        # and the fused step row carries no per-variant configure().
+        if self._step_ambient_config:
+            open_ctx = get_current_context()
+            self._step_ambient_config[-1] = (
+                coerce_dict(open_ctx.configured_params) if open_ctx is not None else {}
+            )
         self._outer_vector_tokens.append(push_current_vector(vector))
         if self._event_log is None:
             return
         step_path = getattr(step, "step_path", "") if step else ""
-        # Class-outer vectors are not nested under another outer vector.
-        occurrence = self.next_vector_occurrence(step_path, None, vector.index)
+        # This vector's enclosing outer is the step's enclosing vector — the
+        # SAME source ``log_measurement`` reads for a measurement's
+        # ``vector_outer_index`` (``_step_enclosing[-1]``). A top-level sweep
+        # (class-outer, leaf @parametrize) has no enclosing → None; a method's
+        # own inner sweep running under a swept class inherits the class-outer's
+        # index. Reading the one source guarantees the vector row and the
+        # measurements taken inside it agree on (step_path, outer, index), so a
+        # measurement never falls off its own vector onto the step row.
+        enc = self._step_enclosing[-1] if self._step_enclosing else None
+        enc_outer = enc.index if enc is not None else None
+        occurrence = self.next_vector_occurrence(step_path, enc_outer, vector.index)
         vector.retry = occurrence
         self._event_log.emit(
             VectorStarted(
@@ -990,7 +1050,7 @@ class RunScope:
                 step_index=self._current_step_index,
                 step_path=step_path,
                 vector_index=vector.index,
-                vector_outer_index=None,
+                vector_outer_index=enc_outer,
                 retry=occurrence,
                 step_retry=getattr(step, "retry", 0) if step else 0,
                 inputs=coerce_dict(vector.params),
@@ -1006,6 +1066,18 @@ class RunScope:
         if step is not None and vector in step.vectors and vector.outcome is None:
             vector.outcome = step.outcome
         if self._event_log is not None:
+            # Mirror begin_outer_vector's enclosing-outer source so Started and
+            # Ended carry the same (step_path, outer, index) key.
+            enc = self._step_enclosing[-1] if self._step_enclosing else None
+            enc_outer = enc.index if enc is not None else None
+            # Grab the vector's final input state: the seeded sweep params plus
+            # anything configure()'d inside the vector's scope (the live context
+            # configured params). This is the "grab the last context state for
+            # the vector at VectorEnded" layering — so a swept-body configure()
+            # lands on the vector, not the fused step. Mirrors Mode-2's
+            # Context._emit_vector_ended, which already reads the live context.
+            end_ctx = get_current_context()
+            end_configured = coerce_dict(end_ctx.configured_params) if end_ctx is not None else {}
             self._event_log.emit(
                 VectorEnded(
                     session_id=self._session_id,
@@ -1014,11 +1086,11 @@ class RunScope:
                     step_index=self._current_step_index,
                     step_path=getattr(step, "step_path", "") if step else "",
                     vector_index=vector.index,
-                    vector_outer_index=None,
+                    vector_outer_index=enc_outer,
                     retry=vector.retry,
                     step_retry=getattr(step, "retry", 0) if step else 0,
                     outcome=vector.outcome.value if vector.outcome is not None else None,
-                    inputs=coerce_dict(vector.params),
+                    inputs={**coerce_dict(vector.params), **end_configured},
                     outputs=coerce_dict(vector.observations),
                     input_units=dict(vector.param_units),
                     output_units=dict(vector.observation_units),

@@ -302,7 +302,7 @@ A single measurement. Normalized: carries only measurement-specific fields.
 | `step_name` | `str` | *required* |
 | `step_index` | `int` | *required* |
 | `step_path` | `str` | `''` |
-| `vector_index` | `int` | `0` |
+| `vector_index` | `int \| None` | `0` |
 | `vector_outer_index` | `int \| None` | `None` |
 | `step_retry` | `int` | `0` |
 | `retry` | `int` | `0` |
