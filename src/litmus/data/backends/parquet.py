@@ -249,7 +249,8 @@ class ParquetBackend:
 
         Used by the batch writer (``save_test_run``). For each step in the
         TestRun:
-        - ONE step row (vi=NULL for top-level; enclosing vi for nested)
+        - ONE step row (vector_index always NULL — a step row never carries
+          its own sweep index, top-level or nested)
         - ONE vector row per vector in ``step.vectors`` (from own VectorStarted
           events — Mode-1 outer, class-outer, or Mode-2 in-body)
 
@@ -264,23 +265,16 @@ class ParquetBackend:
         run_ended_at = test_run.ended_at
         ref_saver = self._filestore_ref_saver(test_run)
 
-        parent_has_vectors: set[str] = set()
-        for step in test_run.steps:
-            if step.vectors:
-                parent_has_vectors.add(step.step_path or step.name)
-
         for index, step in enumerate(test_run.steps):
             step_path = step.step_path or step.name
             step_started = step.started_at or test_run.started_at
             step_ended = step.ended_at or test_run.ended_at or test_run.started_at
             instruments = list(step.instrument_records or [])
 
-            parent_path = step_path.rsplit("/", 1)[0] if "/" in step_path else None
-            if parent_path is not None and parent_path in parent_has_vectors:
-                # Offline batch path cannot recover the exact enclosing vi; 0 is safe fallback.
-                at_rest_vi: int | None = 0
-            else:
-                at_rest_vi = None
+            # step.vector_index is always NULL at rest — the invariant the
+            # event-driven accumulator honors (a step row never carries its
+            # own sweep index, swept or not; vectors are separate rows).
+            at_rest_vi: int | None = None
 
             step_meas = [
                 {

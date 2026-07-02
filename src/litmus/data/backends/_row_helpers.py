@@ -264,14 +264,17 @@ class RunParquetRow(BaseModel):
       and vector columns are NULL. Provides an addressable
       "runs table" within the unified per-run parquet (lakehouse
       adopters can ``WHERE record_type = 'run'`` for clean ingest).
-    * ``record_type = 'step'`` — one per ``(step_path, vector_index)``
-      execution; carries code identity + timing + rolled-up outcome.
+    * ``record_type = 'step'`` — one per ``(step_path, step_retry,
+      vector_outer_index)`` execution; carries code identity + timing +
+      rolled-up outcome. ``vector_index`` is always NULL on this row kind.
     * ``record_type = 'vector'`` — one execution carrier; holds the
       ``inputs``/``outputs`` lanes and the nested ``measurements``
       list for that execution.
 
     Run rows are keyed by ``run_id``; steps and vectors share grain
-    ``(run_id, step_path, vector_index)``.
+    ``(run_id, step_path, step_retry, vector_outer_index)`` — a step row's
+    own ``vector_index`` is always NULL, while its vector rows carry
+    ``vector_index`` 0..N within that same grain.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1000,106 +1003,6 @@ def vector_entry_dict(
     }
 
 
-def build_step_manifest(
-    test_run: TestRun,
-    ref_saver: Callable[[str, str, Any], str] | None = None,
-) -> list[dict[str, Any]]:
-    """Build step manifest entries from all (step, vector) pairs in a TestRun.
-
-    Returns one entry per ``(step_index, vector_index)`` execution so
-    each sweep variant gets its own entry — matches the streaming path
-    (``EventAccumulator._build_step_results_from_events``). Executed
-    entries come first; ``_append_not_started`` follows with entries
-    for collected items / planned vectors that never ran.
-
-    ``ref_saver`` claim-checks blob observations through the same saver
-    the measurement path uses (``build_output_columns``) so a raw blob
-    never reaches the step-record lane structs. Without it, blobs fall back
-    to ``repr()``.
-    """
-    manifest: list[dict[str, Any]] = []
-    executed_node_ids: set[str] = set()
-    executed_vectors: set[tuple[str, int | None]] = set()
-
-    for index, step in enumerate(test_run.steps):
-        if step.node_id:
-            executed_node_ids.add(step.node_id)
-        # Iterate vectors so each (step, vector) pair becomes its own
-        # manifest entry — non-swept steps still produce one entry
-        # because ``step.vectors`` always contains at least one
-        # ``TestVector`` once the step ran.
-        vectors = step.vectors or [None]
-        # Fall back to the run's timing so step-summary rows always
-        # carry ``step_ended_at IS NOT NULL`` — the daemon's runs view
-        # filters on that to drop in-flight rows, and in-process batch
-        # callers that build a TestRun without populating per-step
-        # timing would otherwise be invisible to queries.
-        step_started = step.started_at or test_run.started_at
-        step_ended = step.ended_at or test_run.ended_at or test_run.started_at
-        for vec_offset, vector in enumerate(vectors):
-            measurement_count = len(vector.measurements) if vector is not None else 0
-            vec_idx = (
-                vector.index if vector is not None and vector.index is not None else vec_offset
-            )
-            inputs = dict(vector.params) if vector is not None else {}
-            # Vector observations ride on the step record's outputs lanes
-            # (Mode-1 fused) — same as the streaming path merges
-            # StepEnded.outputs / observations into its step entry. Routed
-            # through ``build_output_columns`` (same as the measurement
-            # path) so blobs are claim-checked via ``ref_saver`` rather
-            # than reaching the lane structs raw.
-            outputs = (
-                build_output_columns(vector, ref_saver=ref_saver) if vector is not None else {}
-            )
-            if step.node_id:
-                executed_node_ids.add(step.node_id)
-            # ``executed_vectors`` is keyed by (step_path, vector_index) so
-            # _append_not_started can match across parametrize variants that
-            # share one logical step_path but have distinct node_ids.
-            executed_vectors.add((step.step_path or step.name, vec_idx))
-            manifest.append(
-                step_entry_dict(
-                    index=index,
-                    name=step.name,
-                    node_id=step.node_id,
-                    file=step.file,
-                    function=step.function,
-                    class_name=step.class_name,
-                    module=step.module,
-                    step_path=step.step_path or step.name,
-                    description=step.description,
-                    markers=step.markers,
-                    outcome=step.outcome.value if step.outcome else None,
-                    started_at=step_started,
-                    ended_at=step_ended,
-                    vector_index=vec_idx,
-                    inputs=inputs,
-                    outputs=outputs,
-                    input_units=dict(vector.param_units) if vector is not None else {},
-                    output_units=dict(vector.observation_units) if vector is not None else {},
-                    output_pins=dict(vector.observation_pins) if vector is not None else {},
-                    measurements=[
-                        build_measurement_struct(m)
-                        for m in (vector.measurements if vector is not None else [])
-                    ],
-                    measurement_count=measurement_count,
-                    step_retry=step.retry,
-                    instrument_records=list(step.instrument_records or []),
-                )
-            )
-
-    # Append not-started entries for collected items that never executed,
-    # plus unrun-vector entries for partially-run sweeps.
-    _append_not_started(
-        manifest,
-        [ci.model_dump() for ci in test_run.collected_items],
-        executed_node_ids,
-        executed_vectors=executed_vectors,
-    )
-
-    return manifest
-
-
 def step_entry_dict(
     *,
     index: int,
@@ -1129,9 +1032,9 @@ def step_entry_dict(
 ) -> dict[str, Any]:
     """Single source of truth for one step manifest entry's shape.
 
-    Shared by the batch path (:func:`build_step_manifest`) and the
-    streaming path (``the accumulator-to-parquet path``); both
-    pre-compute their values and pass them as kwargs. Timestamps are
+    Shared by the batch path (``ParquetBackend._append_step_rows``) and the
+    streaming path (``EventAccumulator._build_step_results_from_events``);
+    both pre-compute their values and pass them as kwargs. Timestamps are
     serialised here, ``duration_s`` derived from start/end.
 
     ``vector_index`` is always NULL at rest (step rows never carry their
@@ -1179,8 +1082,10 @@ def _append_not_started(
 ) -> None:
     """Append ``planned`` entries for collected items that never executed.
 
-    Shared by both the batch path (``build_step_manifest``) and the
-    streaming path (``the accumulator-to-parquet path``).
+    Used by the streaming path
+    (``EventAccumulator._build_step_results_from_events``); the offline
+    batch path (``ParquetBackend._append_step_rows``) writes exactly the
+    steps present on the ``TestRun`` and has no separate not-started notion.
 
     Each collected item maps to ONE execution at its own
     ``(step_path, vector_index)``.  We add a "not-started" entry iff

@@ -1840,8 +1840,19 @@ class TestHarness:
         finally:
             step.ended_at = _utcnow()
 
-            # Compute step outcome from vectors
+            # Compute step outcome from vectors — collapse each condition
+            # point (by index) to its FINAL attempt before escalating, so a
+            # vector that failed then passed on retry doesn't drag the step
+            # to FAILED. run_with_retry appends one TestVector per retry
+            # attempt at the same index; a plain dict keyed by index keeps
+            # "last write wins" (== last attempt, since attempts for one
+            # index are appended in order). Mirrors the node_id-based
+            # collapse in retry_aware_rollup (litmus.data.models), which
+            # operates one level up (step containers, not vectors).
+            final_attempt_by_index: dict[int, TestVector] = {}
             for tv in step.vectors:
+                final_attempt_by_index[tv.index] = tv
+            for tv in final_attempt_by_index.values():
                 step.outcome = escalate_outcome(step.outcome, tv.outcome)
 
             # Emit StepEnded event via public API

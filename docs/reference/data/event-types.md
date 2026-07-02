@@ -244,7 +244,6 @@ Emitted when an instrument is disconnected during teardown.
 | `vector_index` | `int` | `0` |
 | `vector_outer_index` | `int \| None` | `None` |
 | `retry` | `int` | `0` |
-| `vector_outcome` | `str \| None` | `None` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `outputs` | `dict[str, Any]` | `{}` |
 | `input_units` | `dict[str, str]` | `{}` |

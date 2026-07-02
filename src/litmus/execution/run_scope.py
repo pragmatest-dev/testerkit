@@ -757,10 +757,6 @@ class RunScope:
         variant — and its params are the inherited condition pre-merged onto
         the step's own inputs (so a step-scope measurement carries the
         enclosing sweep without a chain-walk).
-
-        ``vector_outcome`` on ``StepEnded`` aggregates across all vectors
-        via :func:`escalate_outcome` so self-loop iterations roll into a
-        single per-step verdict.
         """
         if self._event_log is None:
             return
@@ -789,11 +785,6 @@ class RunScope:
             )
         else:
             ctx = owning_context if owning_context is not None else get_current_context()
-            agg: Outcome | None = None
-            for v in step.vectors:
-                if v.outcome is not None:
-                    agg = escalate_outcome(agg, v.outcome)
-            vec_outcome = agg.value if agg is not None else None
             own_inputs = coerce_dict(ctx.configured_params) if ctx is not None else {}
             event = StepEnded(
                 session_id=self._session_id,
@@ -805,7 +796,6 @@ class RunScope:
                 vector_index=enc_vi,
                 vector_outer_index=enc_voi,
                 retry=step.retry,
-                vector_outcome=vec_outcome,
                 inputs={**enc_inputs, **own_inputs},
                 outputs=coerce_dict(ctx.observations) if ctx is not None else {},
                 input_units=enc_units,

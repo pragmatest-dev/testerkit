@@ -81,9 +81,15 @@ class StepNode(BaseModel):
     ``power/output/voltage``) so the tree is constructed client-side
     by splitting on it. Roots are the top-level steps; leaves are the
     actual test steps.
+
+    A node's identity is its step-summary row (``vector_index IS NULL``);
+    its ``vectors`` are that step's own vector rows (``vector_index``
+    0..N — a swept step's condition points, or a single row for a plain
+    step), never siblings/children in the tree.
     """
 
     step: StepRow
+    vectors: list[StepRow] = Field(default_factory=list)
     children: list[StepNode] = Field(default_factory=list)
 
 
@@ -267,13 +273,29 @@ class StepsQuery:
         Top-level paths (no ``/``) are roots. Children are appended
         under their parent path prefix. Order within each level
         matches ``step_index``.
+
+        A swept step's own row (``vector_index IS NULL``) becomes the
+        node; its vector rows (``vector_index`` 0..N) share that SAME
+        ``step_path`` — they are the step's condition points, not
+        distinct tree nodes, so they're attached onto ``node.vectors``
+        instead of becoming siblings/children (which would show a
+        swept step as N+1 same-named nodes).
         """
         rows = self.list_for_run(run_id)
         parent_anchor: dict[str, StepNode] = {}
+        node_by_key: dict[tuple[str, int, int | None], StepNode] = {}
         roots: list[StepNode] = []
+        pending_vectors: list[tuple[tuple[str, int, int | None], StepRow]] = []
         for row in rows:
-            node = StepNode(step=row)
             path = row.step_path or row.step_name or ""
+            key = (path, row.step_retry or 0, row.vector_outer_index)
+            if row.vector_index is not None:
+                # A vector row — attach to its step-summary node's
+                # ``vectors`` list once that node exists (below).
+                pending_vectors.append((key, row))
+                continue
+            node = StepNode(step=row)
+            node_by_key[key] = node
             # Anchor parent attachment to the first node at a path; every
             # execution (rerun / sweep variant) keeps its own node, so reruns
             # are never overwritten and lost.
@@ -289,6 +311,10 @@ class StepsQuery:
                 # Orphan — parent path didn't appear before child.
                 # Treat as a root so it isn't lost.
                 roots.append(node)
+        for key, vec_row in pending_vectors:
+            node = node_by_key.get(key)
+            if node is not None:
+                node.vectors.append(vec_row)
         return roots
 
     def describe_columns(self) -> ColumnSchema:

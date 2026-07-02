@@ -572,17 +572,14 @@ class StepEnded(EventBase):
     # measurements; step-summary rows fill the gap.
     outcome: str | None = None
 
-    # Vector context for this specific execution.
-    # ``vector_outcome`` is the per-vector verdict (the step-level ``outcome``
-    # is the aggregate across vectors).  ``inputs`` repeat the commanded sweep
-    # parameters for completeness; ``outputs`` carries vector-level
-    # observations not tied to any specific measurement.
+    # Vector context for this specific execution. ``inputs`` repeat the
+    # commanded sweep parameters for completeness; ``outputs`` carries
+    # vector-level observations not tied to any specific measurement.
     vector_index: int = 0
     vector_outer_index: int | None = None
     # 0-based retry of this execution (Mode-1 fused boundary). Companion to
     # ``StepStarted.retry``.
     retry: int = 0
-    vector_outcome: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
     # Optional engineering unit / pin per input / output name → the lane fields.

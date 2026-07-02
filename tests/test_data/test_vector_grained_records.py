@@ -640,7 +640,6 @@ def test_scenario_6_assert_only_no_assert_row(tmp_path):
             step_index=0,
             step_path="test_a",
             outcome="failed",
-            vector_outcome="failed",
         )
     )
 

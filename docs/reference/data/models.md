@@ -1526,6 +1526,7 @@ One node in a hierarchical step tree, built from ``step_path``.
 | Field | Type | Default |
 |---|---|---|
 | `step` | `StepRow` | *required* |
+| `vectors` | `list[StepRow]` | `[]` |
 | `children` | `list[StepNode]` | `[]` |
 
 ### Query API facets & filters — `litmus.analysis.measurement_facets`

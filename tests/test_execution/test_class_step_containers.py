@@ -690,12 +690,12 @@ def test_vectors_fixture_outcome_rollup(tmp_path: Path) -> None:
     Three inner iterations: two measurements pass their limit, one fails.
     Severity ladder says FAILED beats PASSED — so:
 
-    * ``StepEnded.outcome`` (the step's aggregate verdict) = FAILED
-    * ``StepEnded.vector_outcome`` (aggregated across step.vectors[]) = FAILED
+    * ``StepEnded.outcome`` (the step's aggregate verdict, escalated across
+      ``step.vectors[]`` via :func:`escalate_outcome`) = FAILED
     * Class-container ``StepEnded.outcome`` = FAILED (rolled up from the step)
 
     This locks in the rollup chain for mixed-outcome inner iterations and
-    catches the prior bug where ``vector_outcome`` reflected only the last
+    catches the prior bug where the step's outcome reflected only the last
     inner iteration's verdict (a passing iteration after a failing one
     would have masked the failure).
     """
@@ -739,10 +739,9 @@ def test_vectors_fixture_outcome_rollup(tmp_path: Path) -> None:
         for e in events
         if e.get("event_type") == "test.step_ended" and e.get("step_name") == "test_check"
     )
-    # Step outcome AND vector_outcome both reflect the rollup of inner
-    # measurements: FAILED wins over the two PASSED siblings.
+    # Step outcome reflects the rollup of inner measurements: FAILED wins
+    # over the two PASSED siblings.
     assert method_end.get("outcome") == "failed", method_end.get("outcome")
-    assert method_end.get("vector_outcome") == "failed", method_end.get("vector_outcome")
 
     container_end = next(
         e

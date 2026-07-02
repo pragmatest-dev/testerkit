@@ -390,8 +390,12 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
 
     # Long/EAV projection of the nested inputs/outputs lanes — one row
-    # per (vector, role, name), keyed on the natural vector identity. Queries
-    # anchor on the core measurements table and join here per dynamic column;
+    # per (vector, role, name), keyed on the natural vector identity
+    # PLUS ``step_path`` (``step_index`` alone resets per parent bucket —
+    # see ``_collection_indices.assign_indices`` — so two unswept steps at
+    # step_index=0 with NULL vector coords would otherwise collide and
+    # cross-join their dynamic values). Queries anchor on the core
+    # measurements table and join here per dynamic column;
     # ``value_type`` is the value-type tag selecting which value_* lane holds
     # the value (see _row_helpers). Index only ``name`` — high-cardinality ART
     # indexes (the vector key) don't spill and OOM at scale; hash joins don't
@@ -402,6 +406,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             file_path       VARCHAR NOT NULL,
             run_id          VARCHAR,
             step_index      INTEGER,
+            step_path       VARCHAR,
             vector_index    BIGINT,
             vector_outer_index BIGINT,
             vector_retry    BIGINT,
@@ -844,16 +849,19 @@ def _dynamic_unnest_union(source: str, *, where: str, with_filename: bool = Fals
     """UNION ALL that UNNESTs the nested inputs/outputs lanes from ``source``.
 
     ``source`` is a relation expression (a ``read_parquet(...)`` call or a table
-    name). Emits ``(run_id, step_index, vector_index, vector_outer_index,
-    vector_retry, role, lanes)``. With ``with_filename`` it also projects the
-    ``filename`` column (requires the source to read with ``filename=true``) so a
-    multi-file batch keeps each row's own ``file_path``; single-file callers
-    prepend a constant instead.
+    name). Emits ``(run_id, step_index, step_path, vector_index,
+    vector_outer_index, vector_retry, role, lanes)``. ``step_path`` rides
+    along so the EAV join can disambiguate two unswept steps that share a
+    ``step_index`` (it resets per parent bucket — see
+    ``_collection_indices.assign_indices``). With ``with_filename`` it also
+    projects the ``filename`` column (requires the source to read with
+    ``filename=true``) so a multi-file batch keeps each row's own
+    ``file_path``; single-file callers prepend a constant instead.
     """
     prefix = "filename, " if with_filename else ""
     return " UNION ALL ".join(
-        f"SELECT {prefix}run_id, step_index, vector_index, vector_outer_index, vector_retry, "
-        f"'{role}' AS role, {_LANE_SELECT} "
+        f"SELECT {prefix}run_id, step_index, step_path, vector_index, vector_outer_index, "
+        f"vector_retry, '{role}' AS role, {_LANE_SELECT} "
         f"FROM {source}, UNNEST({col}) AS t(u) WHERE {where}"
         for col, role in _DYNAMIC_ROLES
     )
@@ -1126,7 +1134,7 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
     conn.execute(f"""
         INSERT INTO measurements_dynamic
         SELECT DISTINCT
-            '{escaped}' AS file_path, run_id, step_index,
+            '{escaped}' AS file_path, run_id, step_index, step_path,
             vector_index, vector_outer_index, vector_retry,
             role, name, value_type, value_int, value_double, value_bool, value_text,
             value_timestamp, value_json, unit, uut_pin
@@ -1264,13 +1272,16 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
     (``measurement_count``, ``duration_s``).
     """
     flist = _file_list_sql(parquet_paths)
-    # ``dynamic_attrs`` is rebuilt per step row from the vector record's nested
-    # lanes (v2: the step record sheds inputs/outputs onto its scope vector).
-    # The step grain is (step_path, step_retry, vector_index); within a group
-    # the vector at that vector_index is the scope vector (non-looping step) or
-    # the iteration vector (Mode-2 loop), so ANY_VALUE of the per-'vector'-row
-    # MAP is exact. ``step_retry`` is part of the grain so a rerun is a distinct
-    # row, never fused onto the prior attempt (the de-fuse).
+    # ``dynamic_attrs`` is rebuilt per group from whichever non-measurement
+    # row carries the lanes: a non-looping step carries its own
+    # inputs/outputs directly on its own step row (zero vector rows — no
+    # synthesized scope vector); a swept/looping step's own row
+    # (record_type='step', vector_index=NULL) falls into a separate group
+    # from each of its vector rows (vector_index 0..N), so every group still
+    # has exactly one qualifying row and ANY_VALUE of the per-row MAP is
+    # exact. The step grain is (step_path, step_retry, vector_index).
+    # ``step_retry`` is part of the grain so a rerun is a distinct row, never
+    # fused onto the prior attempt (the de-fuse).
     map_expr = _dynamic_attrs_map_expr()
     conn.execute(f"""
         INSERT INTO steps_materialized BY NAME
@@ -1758,7 +1769,7 @@ def _batch_insert_measurement_rows(
     conn.execute(f"""
         INSERT INTO measurements_dynamic
         SELECT DISTINCT
-            filename AS file_path, run_id, step_index,
+            filename AS file_path, run_id, step_index, step_path,
             vector_index, vector_outer_index, vector_retry,
             role, name, value_type, value_int, value_double, value_bool, value_text,
             value_timestamp, value_json, unit, uut_pin
