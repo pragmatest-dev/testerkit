@@ -1726,10 +1726,12 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     # The at-rest table holds both grains with correct timing (COALESCE'd at
     # ingest); these views just declare which grain a reader wants, so no
     # consumer has to remember a ``vector_index IS NULL`` filter (#24).
-    conn.execute("""
-        CREATE OR REPLACE VIEW steps AS
+    # ``steps`` and ``step_vectors`` are the SAME dual-grain projection
+    # (materialized ∪ live overlay) filtered by grain — so the column list lives
+    # in ONE place (``_steps_all``); a new inflight_steps column is added once,
+    # not in two view bodies that must stay identical.
+    _steps_all = """
         SELECT * EXCLUDE (vector_index_key, vector_outer_index_key) FROM steps_materialized
-        WHERE vector_index IS NULL
         UNION ALL BY NAME
         SELECT
             run_id,
@@ -1746,30 +1748,14 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             dynamic_attrs
         FROM overlay.inflight_steps
         WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
-          AND vector_index IS NULL
-    """)
-    conn.execute("""
-        CREATE OR REPLACE VIEW step_vectors AS
-        SELECT * EXCLUDE (vector_index_key, vector_outer_index_key) FROM steps_materialized
-        WHERE vector_index IS NOT NULL
-        UNION ALL BY NAME
-        SELECT
-            run_id,
-            COALESCE(step_path, '') AS step_path,
-            step_retry,
-            vector_index,
-            vector_outer_index,
-            step_index, file_path, session_id, site_index, site_name,
-            step_name,
-            TRY_CAST(outcome AS outcome_kind) AS outcome,
-            started_at, ended_at,
-            duration_s, measurement_count,
-            markers, uut_serial_number, station_id,
-            dynamic_attrs
-        FROM overlay.inflight_steps
-        WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
-          AND vector_index IS NOT NULL
-    """)
+    """
+    conn.execute(
+        f"CREATE OR REPLACE VIEW steps AS SELECT * FROM ({_steps_all}) WHERE vector_index IS NULL"
+    )
+    conn.execute(
+        f"CREATE OR REPLACE VIEW step_vectors AS "
+        f"SELECT * FROM ({_steps_all}) WHERE vector_index IS NOT NULL"
+    )
 
     # ``instruments``: one row per instrument per run, materialized from the
     # run row's nested ``instruments`` LIST<STRUCT> at ingest. No inflight
