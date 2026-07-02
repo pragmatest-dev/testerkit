@@ -110,5 +110,5 @@ class TestSerialization:
         assert data["resource"] == "GPIB0::22::INSTR"
 
 
-def test_event_catalog_version_is_1_1():
-    assert EVENT_LOG_SCHEMA_VERSION == "1.1"
+def test_event_catalog_version_is_0_1():
+    assert EVENT_LOG_SCHEMA_VERSION == "0.1"

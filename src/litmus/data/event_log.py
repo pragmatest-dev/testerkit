@@ -34,7 +34,7 @@ from litmus.data.events import TYPED_PAYLOAD_COLUMNS, EventBase
 # Bump this constant (and add a migration entry in
 # ``docs/_internal/event-log-wal-format.md``) whenever the column set or
 # types in ``_IPC_SCHEMA`` change in a backward-incompatible way.
-EVENT_LOG_SCHEMA_VERSION = "1.1"
+EVENT_LOG_SCHEMA_VERSION = "0.1"
 
 # Schema for the index columns stored in IPC files.
 #

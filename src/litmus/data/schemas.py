@@ -31,7 +31,7 @@ __all__ = [
     "table_from_rows",
 ]
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "0.1"
 
 # EAV lane struct — the nested at-rest representation of one input / output
 # entry. ``value_type`` selects which ``value_*`` lane holds the value. Field
