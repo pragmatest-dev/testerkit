@@ -36,6 +36,7 @@ from typing import Any
 
 import duckdb
 import pyarrow as pa
+import pyarrow.parquet as pq
 
 from litmus.data._accumulator_pool import (
     EMPTY_INFLIGHT_MEASUREMENTS,
@@ -55,6 +56,12 @@ from litmus.data._sql_helpers import sql_escape as _sql_escape
 from litmus.data.backends.parquet import materialize_run_to_parquet
 from litmus.data.models import Outcome
 from litmus.data.runs_duckdb_manager import RunsDuckDBManager
+from litmus.data.schema_dispatch import (
+    SchemaVersionRefused,
+    dispatch,
+    stamp_from_arrow_metadata,
+)
+from litmus.data.schema_versions import SchemaStore
 from litmus.models.data_options import RUN_ORPHAN_TIMEOUT_SECONDS
 from litmus.models.enums import Comparator
 
@@ -1510,6 +1517,29 @@ def _quarantine_message(fkey: str, exc: Exception) -> str:
     return f"Quarantined parquet {fkey}: {type(exc).__name__}: {exc}"
 
 
+def _refuse_parquet_version(fkey: str) -> str | None:
+    """Whitelist-dispatch a runs parquet's schema-version stamp.
+
+    Reads the footer ``schema_version`` metadata and dispatches it (§1). Returns
+    a quarantine error string when the version is unknown or absent (pre-1.0),
+    else ``None`` (the file is a known version — ingest proceeds). A KNOWN
+    version's adapter is identity today, and the runs data is read by DuckDB
+    (not routed through a Python Arrow table), so this is used purely as the
+    whitelist guard; real forward-adaptation of runs parquet lands with the
+    first future major. An unreadable footer is left to normal ingest, which
+    quarantines it as a parse failure.
+    """
+    try:
+        metadata = pq.ParquetFile(fkey).schema_arrow.metadata
+    except Exception:  # noqa: BLE001 — unreadable footer: defer to ingest's parse-error path
+        return None
+    try:
+        dispatch(SchemaStore.RUNS, stamp_from_arrow_metadata(metadata))
+    except SchemaVersionRefused as exc:
+        return str(exc)
+    return None
+
+
 def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None:
     """Index one unified per-run parquet into runs / steps / measurements tables.
 
@@ -1528,6 +1558,9 @@ def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | 
     can't be parsed (the caller marks it quarantined; the operator
     sees the warning and decides what to do).
     """
+    version_error = _refuse_parquet_version(fkey)
+    if version_error is not None:
+        return version_error
     try:
         _bulk_insert_runs(conn, [fkey])
         _bulk_insert_steps(conn, [fkey])
@@ -1561,6 +1594,22 @@ def _ingest_file_batch(
     Caller holds the write lock; all rows for the batch commit atomically.
     Returns the ingested run_ids when ``collect_run_ids`` (else ``[]``).
     """
+    # Whitelist-dispatch each file's schema version up front; refused files are
+    # quarantined and dropped from the batch so one bad-version file can't block
+    # the good ones (mirrors the corrupt-file isolation below). The batch path
+    # reads all files in one ``read_parquet([...])``, so the per-file
+    # ``_index_unified_parquet`` guard never runs here — the check must live at
+    # this boundary too.
+    kept: list[tuple[str, float, int, os.stat_result]] = []
+    for entry in batch:
+        version_error = _refuse_parquet_version(entry[0])
+        if version_error is not None:
+            _mark_ingested(conn, entry[0], entry[3], "quarantined", version_error)
+        else:
+            kept.append(entry)
+    batch = kept
+    if not batch:
+        return []
     paths = [e[0] for e in batch]
     try:
         conn.execute("BEGIN")

@@ -23,6 +23,8 @@ import duckdb
 import pyarrow as pa
 
 from litmus.data.files.models import FileArtifactMetadata
+from litmus.data.schema_dispatch import SchemaVersionRefused, dispatch
+from litmus.data.schema_versions import SchemaStore
 
 _SIDECAR_SUFFIX = ".meta.json"
 
@@ -185,9 +187,17 @@ def scan_sidecars(conn: duckdb.DuckDBPyConnection, files_dir: Path) -> int:
         if uri in known:
             continue
         try:
-            meta = FileArtifactMetadata.model_validate_json(sidecar.read_text())
+            # Read the raw dict first so an ABSENT ``schema_version`` is
+            # detectable — the Pydantic default would otherwise mask a pre-1.0
+            # sidecar (no key) as the current version. Dispatch, then validate.
+            raw = json.loads(sidecar.read_text())
+            adapter = dispatch(SchemaStore.FILES, raw.get("schema_version"))
+            meta = adapter(FileArtifactMetadata.model_validate(raw))
             created_at = datetime.fromtimestamp(blob.stat().st_mtime, tz=UTC)
         except (OSError, ValueError):
+            continue
+        except SchemaVersionRefused:
+            # Unsupported / unstamped sidecar — skip (do not catalog).
             continue
         rows.append(
             catalog_row(

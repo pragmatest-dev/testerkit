@@ -35,6 +35,12 @@ from litmus.data._ipc_writer import read_ipc_batches
 from litmus.data._session_reaper import reap_abandoned_sessions
 from litmus.data.duckdb_manager import DuckDBDaemonManager
 from litmus.data.events import TYPED_PAYLOAD_COLUMNS
+from litmus.data.schema_dispatch import (
+    SchemaVersionRefused,
+    dispatch,
+    stamp_from_arrow_metadata,
+)
+from litmus.data.schema_versions import SchemaStore
 
 logger = logging.getLogger(__name__)
 
@@ -344,6 +350,22 @@ def _ingest_one_file(
     if table is None:
         warnings.warn(f"Skipping unreadable IPC file: {fpath.name}", stacklevel=2)
         _mark("quarantined", "no valid batches")
+        return
+
+    # Whitelist-dispatch both of events' coordinates (§1/§3) before ingest. Read
+    # the stamps off the file's schema metadata (present on the table returned by
+    # read_ipc_batches, before the column-select below drops it). Unknown/absent
+    # versions quarantine, keeping the ingest thread alive.
+    try:
+        meta = table.schema.metadata
+        dispatch(SchemaStore.EVENTS_ENVELOPE, stamp_from_arrow_metadata(meta))
+        dispatch(
+            SchemaStore.EVENT_CATALOG,
+            stamp_from_arrow_metadata(meta, key=b"event_catalog_version"),
+        )
+    except SchemaVersionRefused as exc:
+        warnings.warn(f"Skipping unsupported schema in {fpath.name}: {exc}", stacklevel=2)
+        _mark("quarantined", str(exc))
         return
 
     try:

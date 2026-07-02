@@ -98,6 +98,8 @@ def _write_unified(path: Path, row: dict, *, outputs: dict | None = None) -> Non
             {k: v for k, v in outputs.items() if v is not None}
         )
     cols = {f.name: [enriched.get(f.name)] for f in RUN_ROW_SCHEMA}
+    # RUN_ROW_SCHEMA carries the schema_version stamp, so this fixture parquet is
+    # stamped by construction (the daemon guard refuses unstamped artifacts).
     pq.write_table(pa.table(cols, schema=RUN_ROW_SCHEMA), path)
 
 

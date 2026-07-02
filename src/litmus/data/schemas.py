@@ -212,7 +212,13 @@ RUN_ROW_SCHEMA = pa.schema(
         # Instrument inventory on every row (dense, self-describing); the daemon
         # UNNESTs these into the flat ``instruments_materialized`` table.
         ("instruments", _INSTRUMENT_LIST),
-    ]
+    ],
+    # Stamp the schema itself with its version (like events' ``_IPC_SCHEMA``), so
+    # every table built with ``schema=RUN_ROW_SCHEMA`` carries the stamp by
+    # construction — the real write path overrides this metadata with the fuller
+    # ``_build_parquet_metadata`` dict (still schema_version), and fixtures that
+    # write directly are stamped automatically instead of silently unstamped.
+    metadata={b"schema_version": SCHEMA_VERSION.encode()},
 )
 
 _SCHEMA_DICT = {f.name: f.type for f in RUN_ROW_SCHEMA}
@@ -264,7 +270,10 @@ def _build_write_schema(rows: list[dict[str, Any]]) -> pa.Schema:
     for key in sorted(all_keys - used):
         fields.append(pa.field(key, _infer_type_from_value(first_values.get(key))))
 
-    return pa.schema(fields)
+    # Carry the version stamp (as RUN_ROW_SCHEMA does), so tables built from this
+    # dynamic schema are stamped by construction. The real write path overrides
+    # with the fuller _build_parquet_metadata dict; direct writers are covered.
+    return pa.schema(fields, metadata={b"schema_version": SCHEMA_VERSION.encode()})
 
 
 def table_from_rows(rows: list[dict[str, Any]], schema: pa.Schema) -> pa.Table:

@@ -34,6 +34,12 @@ from litmus.data.channels.models import (
     ChannelSample,
     encode_value,
 )
+from litmus.data.schema_dispatch import (
+    SchemaVersionRefused,
+    dispatch,
+    stamp_from_arrow_metadata,
+)
+from litmus.data.schema_versions import SchemaStore
 
 
 def _to_utc(dt: datetime | None) -> datetime | None:
@@ -301,6 +307,14 @@ class ChannelIndex:
                 # Torn / still-open segment — leave it out of the ledger so
                 # the next restart re-reads it once it's a complete file.
                 continue
+            try:
+                adapter = dispatch(
+                    SchemaStore.CHANNELS, stamp_from_arrow_metadata(table.schema.metadata)
+                )
+            except SchemaVersionRefused:
+                # Unsupported / unstamped segment — skip (do not index).
+                continue
+            table = adapter(table)
             desc = self.absorb_descriptor(m.group(1), table.schema)
             if desc is not None and "received_at" in table.column_names:
                 recv = [t for t in table.column("received_at").to_pylist() if t is not None]
