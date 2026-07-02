@@ -40,6 +40,8 @@ def _row(
 ) -> RunParquetRow:
     return RunParquetRow(
         record_type="vector",
+        # A vector row always has a concrete index (NULL marks the step grain).
+        vector_index=0,
         session_id="sess-1",
         run_id=run_id,
         run_started_at=run_started_at,

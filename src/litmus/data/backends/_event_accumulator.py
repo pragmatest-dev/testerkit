@@ -640,8 +640,13 @@ class EventAccumulator:
         start = self._step_start_for(path, vec)
         end = self._step_end_for(path, vec)
         node_id = start.node_id if start else None
+        # A measurement fact mirrors its carrier's vector_index (NULL for an
+        # ambient/step-scope measurement, 0..N for a vector-scope one), so it's
+        # built as record_type='measurement' (unconstrained by the grain guard)
+        # rather than as a 'vector' row — which would fail the guard when the
+        # measurement is ambient (vector_index=NULL).
         row = RunParquetRow(
-            record_type="vector",
+            record_type="measurement",
             **run_context_from_run_started(self._run_started, event, include_env=True),
             step_name=event.step_name,
             step_index=idx,

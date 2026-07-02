@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from litmus.data.models import Measurement, TestRun, TestVector
 from litmus.data.ref import classify_value, is_ref
@@ -279,8 +279,11 @@ class RunParquetRow(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # Discriminator
-    record_type: Literal["run", "step", "vector"]
+    # Discriminator. ``measurement`` is the flat one-row-per-measurement fact
+    # (the overlay / export shape + what the daemon UNNESTs into
+    # ``measurements_materialized``); its ``vector_index`` mirrors its carrier
+    # (NULL for an ambient/step-scope measurement, 0..N for a vector-scope one).
+    record_type: Literal["run", "step", "vector", "measurement"]
 
     # Session / run identity
     session_id: str
@@ -393,6 +396,29 @@ class RunParquetRow(BaseModel):
     output_pins: dict[str, str] = Field(default_factory=dict)
     # Nested measurements carried on the vector row (LIST<STRUCT>).
     measurements: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_grain_invariant(self) -> RunParquetRow:
+        """Enforce the grain law: ``vector_index IS NULL`` ⟺ the logical step.
+
+        A ``vector`` row is a real condition point and ALWAYS carries a concrete
+        ``vector_index`` (0..N); ``run`` and ``step`` rows are the ambient /
+        logical grain and carry NULL. ``measurement`` rows mirror their carrier
+        (NULL = ambient, 0..N = vector-scope) and are unconstrained. This makes
+        a malformed row — e.g. a ``vector`` with NULL index — impossible to
+        construct, rather than a silent leak into a grain-typed query later.
+        """
+        if self.record_type == "vector" and self.vector_index is None:
+            raise ValueError(
+                "record_type='vector' requires a concrete vector_index (0..N); "
+                "NULL vector_index marks the logical step grain"
+            )
+        if self.record_type in ("run", "step") and self.vector_index is not None:
+            raise ValueError(
+                f"record_type='{self.record_type}' requires vector_index=None "
+                f"(NULL ⟺ the logical step / ambient grain); got {self.vector_index}"
+            )
+        return self
 
     def to_flat_dict(self, *, at_rest: bool = False) -> dict[str, Any]:
         """Flatten to denormalized dict for the Parquet write boundary.
@@ -801,7 +827,7 @@ def build_run_row(
         step_function=None,
         step_markers=None,
         step_outcome=None,
-        vector_index=0,
+        vector_index=None,
         vector_retry=None,
         # Measurement payload: NULL on run rows.
         measurement_name=None,
@@ -1126,7 +1152,10 @@ def _append_not_started(
                 "outcome": None,
                 "started_at": None,
                 "ended_at": None,
-                "vector_index": vi,
+                # A never-ran marker is the logical step grain (vector_index
+                # NULL), same as a ran step row — ``vi`` above is only the
+                # dedup key against executed_vectors, not this row's grain.
+                "vector_index": None,
                 "inputs": {},
                 "outputs": {},
                 "measurement_count": 0,
