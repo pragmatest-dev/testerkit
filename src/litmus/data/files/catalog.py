@@ -197,7 +197,11 @@ def scan_sidecars(conn: duckdb.DuckDBPyConnection, files_dir: Path) -> int:
         except (OSError, ValueError):
             continue
         except SchemaVersionRefused:
-            # Unsupported / unstamped sidecar — skip (do not catalog).
+            # Unsupported version — skip WITHOUT cataloging, so the sidecar is
+            # re-read on the next scan and a newer daemon ingests it once it knows
+            # the version, instead of losing it (#43). Presence-only catalog, so
+            # this covers deferrable + absent alike — consistent with runs/events
+            # leaving deferrable refusals un-ledgered.
             continue
         rows.append(
             catalog_row(

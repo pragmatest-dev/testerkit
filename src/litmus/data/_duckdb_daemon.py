@@ -364,6 +364,11 @@ def _ingest_one_file(
             stamp_from_arrow_metadata(meta, key=b"event_catalog_version"),
         )
     except SchemaVersionRefused as exc:
+        if exc.deferrable:
+            # Newer than this daemon — leave UNLEDGERED so the next (newer) daemon
+            # re-reads and ingests it, instead of a permanent skip (#43).
+            logger.debug("Deferring newer-version events file %s: %s", fpath.name, exc)
+            return
         warnings.warn(f"Skipping unsupported schema in {fpath.name}: {exc}", stacklevel=2)
         _mark("quarantined", str(exc))
         return

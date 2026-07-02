@@ -312,7 +312,12 @@ class ChannelIndex:
                     SchemaStore.CHANNELS, stamp_from_arrow_metadata(table.schema.metadata)
                 )
             except SchemaVersionRefused:
-                # Unsupported / unstamped segment — skip (do not index).
+                # Unsupported version — skip WITHOUT ledgering, so the segment is
+                # re-read on the next scan and a newer daemon that knows the
+                # version ingests it instead of losing it (#43). The presence-only
+                # ledger can't mark a permanent quarantine, so this covers
+                # deferrable + absent alike — consistent with runs/events leaving
+                # deferrable refusals un-ledgered.
                 continue
             table = adapter(table)
             desc = self.absorb_descriptor(m.group(1), table.schema)

@@ -40,16 +40,34 @@ from litmus.data.schema_versions import KNOWN_SCHEMA_VERSIONS, SchemaStore
 Adapter = Callable[[Any], Any]
 
 
+def _version_tuple(v: str) -> tuple[int, ...] | None:
+    """Parse a dotted version into a comparable int tuple; ``None`` if unparseable."""
+    try:
+        return tuple(int(part) for part in v.split("."))
+    except (ValueError, AttributeError):
+        return None
+
+
 class SchemaVersionRefused(Exception):
     """A durable artifact carries a schema version this store cannot read.
 
-    Carries the ``store`` and the offending ``version`` (``None`` = absent) so a
-    caller can log an actionable quarantine reason.
+    ``deferrable`` splits the two refusal classes that need different fates at
+    the read boundary (see #43):
+
+    - **deferrable=True** — the stamp is a version *newer* than anything this
+      daemon knows. The machine's singleton daemon trends newest, so a newer
+      daemon WILL read it — the file must stay re-attemptable (never permanently
+      ledgered), else it goes invisible forever after the daemon is upgraded.
+    - **deferrable=False** — absent (pre-1.0) or an unparseable / older-unknown
+      stamp. No future daemon will read it: permanent skip (regenerate).
     """
 
-    def __init__(self, store: SchemaStore, version: str | None, reason: str) -> None:
+    def __init__(
+        self, store: SchemaStore, version: str | None, reason: str, *, deferrable: bool
+    ) -> None:
         self.store = store
         self.version = version
+        self.deferrable = deferrable
         super().__init__(f"[{store.value}] schema version {version!r}: {reason}")
 
 
@@ -84,11 +102,24 @@ def dispatch(store: SchemaStore, version: str | None) -> Adapter:
     """
     if version is None:
         raise SchemaVersionRefused(
-            store, None, "unstamped (pre-1.0) artifact — unsupported by design; regenerate"
+            store,
+            None,
+            "unstamped (pre-1.0) artifact — unsupported by design; regenerate",
+            deferrable=False,
         )
     if version not in KNOWN_SCHEMA_VERSIONS[store]:
         known = ", ".join(sorted(KNOWN_SCHEMA_VERSIONS[store]))
-        raise SchemaVersionRefused(store, version, f"unsupported schema version (known: {known})")
+        # Deferrable iff strictly NEWER than every known version — a newer daemon
+        # will read it. Older / unparseable-unknown is pre-1.0 or garbage: permanent.
+        vt = _version_tuple(version)
+        known_tuples = [t for t in (_version_tuple(k) for k in KNOWN_SCHEMA_VERSIONS[store]) if t]
+        deferrable = bool(vt and known_tuples and vt > max(known_tuples))
+        raise SchemaVersionRefused(
+            store,
+            version,
+            f"unsupported schema version (known: {known})",
+            deferrable=deferrable,
+        )
     return _ADAPTERS[store].get(version, _identity)
 
 

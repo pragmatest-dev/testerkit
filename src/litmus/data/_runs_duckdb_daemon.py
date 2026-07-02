@@ -1506,6 +1506,17 @@ def _ingest_one_file(
     if already:
         return
 
+    refusal = _refuse_parquet_version(path_str)
+    if refusal is not None:
+        deferrable, msg = refusal
+        if deferrable:
+            # Newer than this daemon — leave UNLEDGERED so the next (newer)
+            # daemon re-reads and ingests it, instead of a permanent skip (#43).
+            logger.debug("Deferring newer-version parquet %s: %s", path_str, msg)
+            return
+        _mark_ingested(conn, path_str, stat, "quarantined", msg)
+        return
+
     error = _index_unified_parquet(conn, path_str)
     _mark_ingested(conn, path_str, stat, "ok" if error is None else "quarantined", error)
 
@@ -1517,17 +1528,16 @@ def _quarantine_message(fkey: str, exc: Exception) -> str:
     return f"Quarantined parquet {fkey}: {type(exc).__name__}: {exc}"
 
 
-def _refuse_parquet_version(fkey: str) -> str | None:
-    """Whitelist-dispatch a runs parquet's schema-version stamp.
+def _refuse_parquet_version(fkey: str) -> tuple[bool, str] | None:
+    """Whitelist-dispatch a runs parquet's schema-version stamp (§1).
 
-    Reads the footer ``schema_version`` metadata and dispatches it (§1). Returns
-    a quarantine error string when the version is unknown or absent (pre-1.0),
-    else ``None`` (the file is a known version — ingest proceeds). A KNOWN
-    version's adapter is identity today, and the runs data is read by DuckDB
-    (not routed through a Python Arrow table), so this is used purely as the
-    whitelist guard; real forward-adaptation of runs parquet lands with the
-    first future major. An unreadable footer is left to normal ingest, which
-    quarantines it as a parse failure.
+    Returns ``None`` when the version is known (ingest proceeds — the adapter is
+    identity today, and runs data is read by DuckDB, so this is the whitelist
+    guard; real forward-adaptation lands with the first future major). Otherwise
+    returns ``(deferrable, message)``: ``deferrable=True`` for a *newer* version
+    a newer daemon will read (leave re-attemptable, do NOT quarantine, #43);
+    ``False`` for absent/pre-1.0 (permanent). An unreadable footer returns
+    ``None`` so normal ingest quarantines it as a parse failure.
     """
     try:
         metadata = pq.ParquetFile(fkey).schema_arrow.metadata
@@ -1536,7 +1546,7 @@ def _refuse_parquet_version(fkey: str) -> str | None:
     try:
         dispatch(SchemaStore.RUNS, stamp_from_arrow_metadata(metadata))
     except SchemaVersionRefused as exc:
-        return str(exc)
+        return (exc.deferrable, str(exc))
     return None
 
 
@@ -1558,9 +1568,6 @@ def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | 
     can't be parsed (the caller marks it quarantined; the operator
     sees the warning and decides what to do).
     """
-    version_error = _refuse_parquet_version(fkey)
-    if version_error is not None:
-        return version_error
     try:
         _bulk_insert_runs(conn, [fkey])
         _bulk_insert_steps(conn, [fkey])
@@ -1602,11 +1609,16 @@ def _ingest_file_batch(
     # this boundary too.
     kept: list[tuple[str, float, int, os.stat_result]] = []
     for entry in batch:
-        version_error = _refuse_parquet_version(entry[0])
-        if version_error is not None:
-            _mark_ingested(conn, entry[0], entry[3], "quarantined", version_error)
-        else:
+        refusal = _refuse_parquet_version(entry[0])
+        if refusal is None:
             kept.append(entry)
+            continue
+        deferrable, msg = refusal
+        if deferrable:
+            # Newer than this daemon — leave UNLEDGERED so a newer daemon re-reads it (#43).
+            logger.debug("Deferring newer-version parquet %s: %s", entry[0], msg)
+        else:
+            _mark_ingested(conn, entry[0], entry[3], "quarantined", msg)
     batch = kept
     if not batch:
         return []
