@@ -121,6 +121,42 @@ Once a plan is approved, it is the contract. Execution is faithful execution.
 
 ## 6. Code Craft
 
+- **One-way vs two-way doors — match rigor to reversibility.** Before a design
+  decision, ask: is it reversible? A **two-way door** — an internal
+  implementation detail (a private helper, a data structure, a non-public
+  function) — is cheaply changed later; decide and move, don't over-deliberate.
+  A **one-way door** — anything users depend on: public API shape, at-rest /
+  on-disk schema, event contract, observable behavior — is expensive or
+  impossible to reverse once shipped; get it right up-front, deliberately, and
+  never rush it to hit a date. As a library others build on, most user-facing
+  decisions are one-way — so **design to soften them**: a clean public
+  abstraction lets you change the two-way implementation behind it without
+  breaking users; additive-only schema changes, versioning, and narrow
+  interfaces keep future selves free. Rushing a one-way door and gold-plating a
+  two-way one are the two failure modes; avoid both. **[hard rule]**
+- **No maintenance-hostile shortcuts — design for the reader six months out.**
+  A shortcut that "works now" but is hard to maintain always bites us later:
+  a `cast` to force a mismatched type past the checker, a duck-typed wrapper
+  standing in for a real class, a band-aid that patches a symptom instead of the
+  cause. When a change needs a `cast`, a `# type: ignore`, or a comment
+  apologizing for itself, that is the signal the *design* is wrong — stop and fix
+  the design, don't paper over it. Put the concern where it belongs (make the
+  method scope-aware; don't wrap it in a proxy) even when that's more work now.
+  Expedient-but-fragile loses to correct-and-maintainable every time. **[hard rule]**
+- **DRY — one source of truth for every piece of knowledge.** The same logic,
+  rule, or fact lives in exactly one place. Duplicated logic — copy-paste blocks,
+  near-identical functions, a constant restated, two code paths that must agree —
+  is a defect: extract a helper, parameterize, or centralize. Two things written
+  twice that must stay in sync WILL drift, and that is how bugs are born (the
+  step/vector grain bug family was, at root, two signals that had to agree and
+  didn't). Found duplication → consolidate it; never add a third copy.
+  **[hard rule]**
+- **Separation of concerns / single responsibility.** Each module, function, and
+  model owns ONE concern and does ONE thing. Business logic out of models; I/O out
+  of pure projections; a function mixing parse + validate + write gets split. If
+  you can't name a function's single responsibility in a short phrase, it's doing
+  too much. (This is the "deeper modules" architecture: each domain module
+  self-contained — own models, loader, service.)
 - **Pydantic everywhere, dicts nowhere.** Never return or pass a raw dict when a
   model exists. Functions accept and return models. `model_dump()` ONLY at actual
   write boundaries (YAML file, JSON API response). Need a new shape? Create a
