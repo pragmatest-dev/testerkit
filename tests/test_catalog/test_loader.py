@@ -18,14 +18,12 @@ class TestSchemaVersion:
     def test_schema_version_pinned(self):
         """``CATALOG_SCHEMA_VERSION`` is the public freeze marker for catalog YAML.
 
-        Pre-stable at ``"0.1"`` ahead of the 1.0 release: while on 0.x,
-        additive changes are free and breaking reshapes are still allowed
-        (0.x carries no compatibility promise). At the 1.0 freeze this
-        bumps to ``"1.0"`` and becomes a contract — after that, a breaking
-        reshape must pair with a migration tool and a release-note callout.
+        Reset to ``"1.0"`` at 0.3.0 as the designed baseline (schema version
+        decoupled from package version). MINOR is additive; MAJOR is a breaking
+        reshape that must pair with a migration tool and a release-note callout.
         If this test fails, you're moving the marker on purpose.
         """
-        assert CATALOG_SCHEMA_VERSION == "0.1"
+        assert CATALOG_SCHEMA_VERSION == "1.0"
 
 
 class TestLoadCatalogEntry:

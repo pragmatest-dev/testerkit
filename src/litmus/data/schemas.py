@@ -16,6 +16,7 @@ from litmus.data.backends._row_helpers import (
     LANE_FIELDS,
     MEASUREMENT_STRUCT_FIELDS,
 )
+from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
 
 __all__ = [
     "RUN_ROW_SCHEMA",
@@ -31,7 +32,9 @@ __all__ = [
     "table_from_rows",
 ]
 
-SCHEMA_VERSION = "0.1"
+# Runs parquet footer stamp. Sourced from the central registry (one home);
+# see ``litmus.data.schema_versions`` for the SemVer / migration contract.
+SCHEMA_VERSION = CURRENT_SCHEMA_VERSION[SchemaStore.RUNS]
 
 # EAV lane struct — the nested at-rest representation of one input / output
 # entry. ``value_type`` selects which ``value_*`` lane holds the value. Field

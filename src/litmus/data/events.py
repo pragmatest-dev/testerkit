@@ -19,6 +19,16 @@ from pydantic import BaseModel, Field, model_validator
 
 from litmus.data._process import process_uuid
 from litmus.data.models import _utcnow
+from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
+
+# Event *payload* catalog version — the second of events' two coordinates
+# (the first is the storage envelope, ``event_log.EVENT_LOG_SCHEMA_VERSION``).
+# MAJOR only on a breaking payload change; new event types / fields are MINOR
+# (they ride inside the lossless ``json`` blob). A single catalog version for
+# all event types — per-event-type versions are deferred until one must break
+# on its own cadence. Sourced from the central registry (one home); see
+# ``litmus.data.schema_versions``.
+EVENT_CATALOG_VERSION = CURRENT_SCHEMA_VERSION[SchemaStore.EVENT_CATALOG]
 
 
 def _detect_client() -> str:

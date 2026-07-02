@@ -6,10 +6,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-# FIRST stamp of the FileStore sidecar format. The sidecar
-# ({filename}.meta.json) is a published, directly-readable consumer
-# surface — version it so readers can detect format changes.
-FILE_METADATA_SCHEMA_VERSION = "0.1"
+from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
+
+# FileStore sidecar stamp. The sidecar ({filename}.meta.json) is a published,
+# directly-readable consumer surface — version it so readers can detect format
+# changes. Sourced from the central registry (one home); see
+# ``litmus.data.schema_versions``.
+FILE_METADATA_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION[SchemaStore.FILES]
 
 
 class FileArtifactMetadata(BaseModel):

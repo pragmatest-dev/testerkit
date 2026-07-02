@@ -25,16 +25,17 @@ import pyarrow as pa
 
 from litmus.data._event_filters import event_matches_role
 from litmus.data._ipc_writer import BufferedIPCWriter, read_ipc_batches
-from litmus.data.events import TYPED_PAYLOAD_COLUMNS, EventBase
+from litmus.data.events import EVENT_CATALOG_VERSION, TYPED_PAYLOAD_COLUMNS, EventBase
+from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
 
-# Internal migration/ingest key for the event WAL IPC format.
-#
-# This is NOT a published consumer contract — consumers read events via
-# the daemon index / Query API, never the raw Arrow IPC files directly.
-# Bump this constant (and add a migration entry in
-# ``docs/_internal/event-log-wal-format.md``) whenever the column set or
-# types in ``_IPC_SCHEMA`` change in a backward-incompatible way.
-EVENT_LOG_SCHEMA_VERSION = "0.1"
+# Event WAL IPC storage-ENVELOPE version — the first of events' two coordinates
+# (the second is the payload catalog, ``EVENT_CATALOG_VERSION`` in events.py).
+# The envelope is the ``_IPC_SCHEMA`` column shape; it goes MAJOR only if the
+# ``id`` / ``event_type`` / ``(session_id, writer_key, event_offset)`` ordering
+# keys change semantics (rare — new event types/fields ride inside the ``json``
+# blob, which is a *catalog* change, not an envelope change). Sourced from the
+# central registry (one home); see ``litmus.data.schema_versions``.
+EVENT_LOG_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION[SchemaStore.EVENTS_ENVELOPE]
 
 # Schema for the index columns stored in IPC files.
 #
@@ -47,9 +48,11 @@ EVENT_LOG_SCHEMA_VERSION = "0.1"
 # ``json``) but lets the daemon push WHERE filters down into DuckDB
 # instead of returning rows for Python to post-filter.
 #
-# The ``schema_version`` Arrow metadata key carries ``EVENT_LOG_SCHEMA_VERSION``
-# so every written IPC file is stamped with its format version. The daemon
-# ingest path selects columns by name and is unaffected by schema metadata.
+# Two Arrow metadata keys stamp every IPC file with both of events'
+# coordinates: ``schema_version`` (the envelope, ``EVENT_LOG_SCHEMA_VERSION``)
+# and ``event_catalog_version`` (the payload catalog, ``EVENT_CATALOG_VERSION``)
+# — the file is self-describing on both axes. The daemon ingest path selects
+# columns by name and is unaffected by schema metadata.
 _IPC_SCHEMA = pa.schema(
     [
         ("id", pa.string()),
@@ -72,7 +75,10 @@ _IPC_SCHEMA = pa.schema(
         ("json", pa.string()),
         *((col, pa.string()) for col in TYPED_PAYLOAD_COLUMNS),
     ],
-    metadata={b"schema_version": EVENT_LOG_SCHEMA_VERSION.encode()},
+    metadata={
+        b"schema_version": EVENT_LOG_SCHEMA_VERSION.encode(),
+        b"event_catalog_version": EVENT_CATALOG_VERSION.encode(),
+    },
 )
 
 _DEFAULT_FLUSH_THRESHOLD = 50
