@@ -1089,6 +1089,47 @@ class Context:
         )
 
 
+class _ScopedContext(Context):
+    """The ``context`` a test holds — a view that always acts on the ACTIVE scope.
+
+    A test holds one ``context`` for its whole body, but the active scope changes
+    underneath it: inside a ``vectors`` loop the iterator pushes a per-iteration
+    child context onto the ContextVar. Every ``context.configure`` / ``observe``
+    / ``get_param`` / ``changed`` must land at whatever scope is current — the
+    base outside a loop, the child inside one — the same way ``measure()``
+    resolves via ``get_current_vector()``. Otherwise per-iteration data written
+    through ``context`` lands on the base and leaks onto the enclosing step.
+
+    Mechanism: this subclass stores NO state of its own — it deliberately does
+    not call ``super().__init__``. Every attribute access therefore misses on the
+    instance and falls through ``__getattr__`` to ``get_current_context()``, so
+    the inherited ``Context`` methods read and write the active context's data
+    through a single forwarding point. It IS-A ``Context`` (honest typing,
+    ``isinstance`` holds — no cast). Internal code never sees this view: the
+    ContextVar and every ``get_current_context()`` result are plain ``Context``
+    objects, so specific-context reads (``owning.configured_params``,
+    ``prev.get_param``) are unaffected.
+
+    NEVER store this view for later comparison (e.g. a ``_prev`` snapshot): it
+    forwards to whatever context is current *at read time*, so a stored view
+    reads a later scope, not the one you meant to capture. Store
+    ``get_current_context()`` (a plain ``Context``) instead.
+    """
+
+    def __init__(self, base: Context) -> None:
+        # No super().__init__(): storing state here would shadow the forwarding.
+        object.__setattr__(self, "_base", base)
+
+    def _scope(self) -> Context:
+        return get_current_context() or self._base
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._scope(), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(self._scope(), name, value)
+
+
 class TestHarness:
     """Harness for executing tests across expanded vectors.
 

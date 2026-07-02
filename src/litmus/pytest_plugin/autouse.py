@@ -22,6 +22,7 @@ import pytest
 
 from litmus.execution._state import (
     get_active_part_context,
+    get_current_context,
     push_active_characteristic,
     reset_active_characteristic,
     set_active_limits,
@@ -174,7 +175,10 @@ def _litmus_push_params(request: pytest.FixtureRequest) -> Iterator[None]:
             # latest state via ``context.changed(...)``. On retry the
             # second attempt overwrites the first, which matches the
             # "compare against whatever just ran" semantics callers expect.
-            prev_map[key] = ctx
+            # Store the PLAIN base (a snapshot), never ``ctx`` — that is the
+            # scope-aware view, which forwards to whatever context is current,
+            # so a stored view would read the NEXT case, not this one.
+            prev_map[key] = get_current_context()
             set_active_vector_params({})
     else:
         try:

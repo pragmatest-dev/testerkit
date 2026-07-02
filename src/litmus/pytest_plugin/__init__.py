@@ -18,6 +18,7 @@ from litmus.execution._state import (
     get_active_profile,
     get_channel_store,
     get_collected_items,
+    get_current_context,
     get_current_step,
     get_event_store,
     get_instrument_records,
@@ -36,7 +37,7 @@ from litmus.execution._state import (
 )
 from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.connections import ConnectionIterator
-from litmus.execution.harness import Context
+from litmus.execution.harness import Context, _ScopedContext
 from litmus.execution.instrument_events import emit_instrument_events
 from litmus.execution.metadata import build_run_metadata
 from litmus.execution.profiles import resolve_test_phase
@@ -938,7 +939,9 @@ def context(_run_scope: RunScope | None) -> Generator[Context, None, None]:
         )
     token = push_current_context(ctx)
     try:
-        yield ctx
+        # The ContextVar holds the plain base; the test holds a scope-aware view
+        # so context.* follows into a vectors-loop iteration (like measure()).
+        yield _ScopedContext(ctx)
     finally:
         reset_current_context(token)
 
@@ -1199,8 +1202,13 @@ def vectors(request: pytest.FixtureRequest) -> Iterator[_VectorIterator]:
     parent = request.node.parent
     matrix_map = parent.stash.get(VECTORS_MATRIX_KEY, {}) if parent is not None else {}
     matrix = matrix_map.get(request.node.originalname, [])
-    ctx: Context = request.getfixturevalue("context")
-    it = _VectorIterator(matrix=matrix, ctx=ctx)
+    # Depend on the ``context`` fixture (pushes the base) but hand the iterator
+    # the PLAIN base — its per-iteration children parent off the base, never the
+    # scope-aware view the test holds (which would make the parent chain recurse).
+    request.getfixturevalue("context")
+    base = get_current_context()
+    assert base is not None, "the context fixture must have pushed a base context"
+    it = _VectorIterator(matrix=matrix, ctx=base)
     try:
         yield it
     finally:

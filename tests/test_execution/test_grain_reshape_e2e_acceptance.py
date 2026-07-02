@@ -325,15 +325,11 @@ def test_p3_mode2_inbody_loop_with_preloop_observe_ambient(tmp_path: Path) -> No
     assert len(steps) == 1
     step = steps[0]
     assert step["vector_index"] is None
-    # Bug-3-for-observe: the pre-loop (ambient) observe() lands on the STEP row's
-    # outputs and does NOT fold into the loop's real vector 0.
+    # The pre-loop (ambient) observe() lands on the STEP row's outputs; the
+    # loop's per-iteration observes land ONLY on their vector rows — context is
+    # scope-aware, so in-loop observe() writes to the active child, not the base.
     step_out = decode_lane_structs(step["outputs"])
-    assert step_out.get("ambient_temp") == 22.5, step_out
-    # NOTE: the step also currently carries the loop's `vout` here — a SEPARATE,
-    # pre-existing leak (StepEnded.outputs reads the base context, which the bare
-    # observe fixture writes to; the output analog of the #30 configure scoping).
-    # Tracked as its own task; not asserted here (this test covers the ambient
-    # index/scope fix only).
+    assert step_out == {"ambient_temp": 22.5}, step_out
 
     vecs = sorted(kinds["vector"], key=lambda v: v["vector_index"])
     assert [v["vector_index"] for v in vecs] == [0, 1, 2]
@@ -656,3 +652,77 @@ def test_swept_vectors_visible_through_stepsquery(tmp_path: Path) -> None:
         assert v.started_at is not None, "vector must carry its own started_at (#24)"
         assert v.ended_at is not None, "vector must carry its own ended_at (#24)"
         assert v.outcome is not None, "vector must carry its own outcome (#24)"
+
+
+# ---------------------------------------------------------------------------
+# Scope-aware `context` (#32): context.* follows the active scope into a
+# vectors-loop iteration, the same way measure() does. In-loop configure()
+# lands on the vector (not the fused step); in-loop get_param() reads the
+# iteration's own value.
+# ---------------------------------------------------------------------------
+
+
+def test_inloop_context_configure_lands_on_vector(tmp_path: Path) -> None:
+    session_id = str(uuid4())
+    test_file = tmp_path / "test_inloop_cfg.py"
+    _write_test(
+        test_file,
+        """\
+        import pytest
+
+        @pytest.mark.litmus_sweeps([{"vin": [1, 2]}])
+        def test_x(vectors, context, measure):
+            for v in vectors:
+                context.configure("trim", v["vin"] + 100)
+                measure("vout", v["vin"])
+        """,
+    )
+    result = _run_pytest(test_file, session_id=session_id)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    rows = _read_raw_rows(session_id)
+    _print_rows("in-loop context.configure() → vector", rows)
+    kinds = _by_kind(rows)
+
+    steps = kinds["step"]
+    assert len(steps) == 1
+    # The in-loop configure() did NOT leak onto the step — it wrote to the
+    # active per-iteration scope, so the fused step carries no `trim`.
+    assert decode_lane_structs(steps[0]["inputs"]) == {}, decode_lane_structs(steps[0]["inputs"])
+
+    vecs = sorted(kinds["vector"], key=lambda v: v["vector_index"])
+    assert [v["vector_index"] for v in vecs] == [0, 1]
+    for v, expected_vin in zip(vecs, (1, 2), strict=True):
+        inp = decode_lane_structs(v["inputs"])
+        assert inp.get("vin") == expected_vin, inp
+        assert inp.get("trim") == expected_vin + 100, inp
+
+
+def test_inloop_context_get_param_reads_iteration_value(tmp_path: Path) -> None:
+    session_id = str(uuid4())
+    test_file = tmp_path / "test_inloop_getparam.py"
+    _write_test(
+        test_file,
+        """\
+        import pytest
+
+        @pytest.mark.litmus_sweeps([{"vin": [10, 20, 30]}])
+        def test_x(vectors, context, measure):
+            for v in vectors:
+                # context.get_param must resolve to THIS iteration's scope.
+                measure("echo", context.get_param("vin"))
+        """,
+    )
+    result = _run_pytest(test_file, session_id=session_id)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    rows = _read_raw_rows(session_id)
+    _print_rows("in-loop context.get_param() → iteration value", rows)
+    kinds = _by_kind(rows)
+
+    vecs = sorted(kinds["vector"], key=lambda v: v["vector_index"])
+    assert [v["vector_index"] for v in vecs] == [0, 1, 2]
+    for v, expected_vin in zip(vecs, (10, 20, 30), strict=True):
+        echo = next((m for m in v["measurements"] if m["name"] == "echo"), None)
+        assert echo is not None, v["measurements"]
+        assert echo["value"] == expected_vin, echo
