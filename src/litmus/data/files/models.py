@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 # FIRST stamp of the FileStore sidecar format. The sidecar
 # ({filename}.meta.json) is a published, directly-readable consumer
 # surface — version it so readers can detect format changes.
-FILE_METADATA_SCHEMA_VERSION = "1.0"
+FILE_METADATA_SCHEMA_VERSION = "0.1"
 
 
 class FileArtifactMetadata(BaseModel):

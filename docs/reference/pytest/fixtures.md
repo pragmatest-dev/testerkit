@@ -258,7 +258,7 @@ Returns the `StationConfig` resolved from `--station` / `stations/*.yaml`, or `N
 
 ### `fixture_config` — session
 
-Returns the `FixtureConfig` resolved from `--fixture` / `fixtures/*.yaml`, or `None`. In worker mode (multi-slot), extracts just this slot's `connections` and `uut_resource`.
+Returns the `FixtureConfig` resolved from `--fixture` / `fixtures/*.yaml`, or `None`. In worker mode (multi-site), extracts just this site's `connections` and `uut_resource`.
 
 ### `run_context` — session
 
@@ -299,7 +299,7 @@ Choose self-loop mode when an outer setup (thermal soak, supply ramp) shouldn't 
 
 ### `sync` — session
 
-Yields a `SyncPoint` for multi-UUT coordination when running in worker mode (`_LITMUS_SLOT_ID` is set), or `None` in single-slot mode. `sync.wait(name, timeout=...)` blocks until every slot reaches the same name:
+Yields a `SyncPoint` for multi-UUT coordination when running in worker mode (`_LITMUS_SITE_INDEX` is set), or `None` in single-site mode. `sync.wait(name, timeout=...)` blocks until every site reaches the same name:
 
 ```python
 def test_measure_hot(dmm, sync):

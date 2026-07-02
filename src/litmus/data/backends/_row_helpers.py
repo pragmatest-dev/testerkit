@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from litmus.data.models import Measurement, TestRun, TestVector
 from litmus.data.ref import classify_value, is_ref
@@ -264,25 +264,36 @@ class RunParquetRow(BaseModel):
       and vector columns are NULL. Provides an addressable
       "runs table" within the unified per-run parquet (lakehouse
       adopters can ``WHERE record_type = 'run'`` for clean ingest).
-    * ``record_type = 'step'`` — one per ``(step_path, vector_index)``
-      execution; carries code identity + timing + rolled-up outcome.
+    * ``record_type = 'step'`` — one per ``(step_path, step_retry,
+      vector_outer_index)`` execution; carries code identity + timing +
+      rolled-up outcome. ``vector_index`` is always NULL on this row kind.
     * ``record_type = 'vector'`` — one execution carrier; holds the
       ``inputs``/``outputs`` lanes and the nested ``measurements``
       list for that execution.
 
     Run rows are keyed by ``run_id``; steps and vectors share grain
-    ``(run_id, step_path, vector_index)``.
+    ``(run_id, step_path, step_retry, vector_outer_index)`` — a step row's
+    own ``vector_index`` is always NULL, while its vector rows carry
+    ``vector_index`` 0..N within that same grain.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    # Discriminator
-    record_type: Literal["run", "step", "vector"]
+    # Discriminator. ``measurement`` is the flat one-row-per-measurement fact
+    # (the overlay / export shape + what the daemon UNNESTs into
+    # ``measurements_materialized``); its ``vector_index`` mirrors its carrier
+    # (NULL for an ambient/step-scope measurement, 0..N for a vector-scope one).
+    record_type: Literal["run", "step", "vector", "measurement"]
 
     # Session / run identity
     session_id: str
     run_id: str
-    slot_id: str | None = None
+    # None only pre-RunStarted-correlation (see the ``run_started is None``
+    # placeholder branch below) — a streaming transient, never a persisted
+    # "no site" state. Corrected to ``run_started.site_index`` (always 0+)
+    # once RunStarted arrives.
+    site_index: int | None = None
+    site_name: str | None = None
     run_started_at: datetime | None = None
     run_ended_at: datetime | None = None
 
@@ -339,7 +350,11 @@ class RunParquetRow(BaseModel):
     # step. On step + scope-vector rows; NULL on run/measurement rows. The
     # inner per-vector retry is ``vector_retry``.
     step_retry: int | None = None
-    vector_index: int = 0
+    # NULL on step rows (step.vector_index is always NULL at rest).
+    vector_index: int | None = None
+    # The vector_index of the outer (class-level) vector a step or vector
+    # record belongs to; NULL for top-level steps.
+    vector_outer_index: int | None = None
     # 0-based retry counter — 0 for the first execution, N for the Nth retry.
     # Per-measurement (NULL on step / run rows). Companion to ``RetryConfig.max_retries``
     # which bounds the count (max_retries=0 → no retries; max_retries=N → up to N retries).
@@ -374,13 +389,36 @@ class RunParquetRow(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
     instruments: list[dict[str, Any]] = Field(default_factory=list)
-    # Optional per-slot engineering unit for inputs / outputs (name → unit),
+    # Optional per-site engineering unit for inputs / outputs (name → unit),
     # flowed into the lane's ``unit`` field at encode time.
     input_units: dict[str, str] = Field(default_factory=dict)
     output_units: dict[str, str] = Field(default_factory=dict)
     output_pins: dict[str, str] = Field(default_factory=dict)
     # Nested measurements carried on the vector row (LIST<STRUCT>).
     measurements: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_grain_invariant(self) -> RunParquetRow:
+        """Enforce the grain law: ``vector_index IS NULL`` ⟺ the logical step.
+
+        A ``vector`` row is a real condition point and ALWAYS carries a concrete
+        ``vector_index`` (0..N); ``run`` and ``step`` rows are the ambient /
+        logical grain and carry NULL. ``measurement`` rows mirror their carrier
+        (NULL = ambient, 0..N = vector-scope) and are unconstrained. This makes
+        a malformed row — e.g. a ``vector`` with NULL index — impossible to
+        construct, rather than a silent leak into a grain-typed query later.
+        """
+        if self.record_type == "vector" and self.vector_index is None:
+            raise ValueError(
+                "record_type='vector' requires a concrete vector_index (0..N); "
+                "NULL vector_index marks the logical step grain"
+            )
+        if self.record_type in ("run", "step") and self.vector_index is not None:
+            raise ValueError(
+                f"record_type='{self.record_type}' requires vector_index=None "
+                f"(NULL ⟺ the logical step / ambient grain); got {self.vector_index}"
+            )
+        return self
 
     def to_flat_dict(self, *, at_rest: bool = False) -> dict[str, Any]:
         """Flatten to denormalized dict for the Parquet write boundary.
@@ -420,12 +458,11 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
     Python objects (datetime, str, None) — callers that need JSON
     serialisation should post-process timestamps.
     """
-    from litmus.execution._state import get_current_slot_id
-
     return {
         "session_id": str(test_run.session_id),
         "run_id": str(test_run.id),
-        "slot_id": get_current_slot_id(),
+        "site_index": test_run.site_index,
+        "site_name": test_run.site_name,
         "run_started_at": test_run.started_at,
         "run_ended_at": test_run.ended_at,
         # WHO
@@ -496,7 +533,8 @@ def run_context_from_run_started(
         kwargs: dict[str, Any] = {
             "session_id": str(event.session_id),
             "run_id": str(event.run_id) if event.run_id else "",
-            "slot_id": None,
+            "site_index": None,
+            "site_name": None,
             "run_started_at": None,
             "run_ended_at": None,
             "operator_id": None,
@@ -524,7 +562,8 @@ def run_context_from_run_started(
         kwargs = {
             "session_id": str(run_started.session_id),
             "run_id": str(event.run_id) if event.run_id else "",
-            "slot_id": run_started.slot_id,
+            "site_index": run_started.site_index,
+            "site_name": run_started.site_name,
             "run_started_at": run_started.occurred_at,
             "run_ended_at": None,
             "operator_id": run_started.operator_id,
@@ -788,7 +827,7 @@ def build_run_row(
         step_function=None,
         step_markers=None,
         step_outcome=None,
-        vector_index=0,
+        vector_index=None,
         vector_retry=None,
         # Measurement payload: NULL on run rows.
         measurement_name=None,
@@ -822,11 +861,6 @@ def build_step_row(
     ``COUNT(*) FILTER (WHERE record_type = 'step')`` instead of
     deduping over measurement rows.
 
-    The step record carries ONLY code identity + timing + rolled-up
-    outcome (v2). Conditions/observations live on the synthesized scope
-    ``vector`` row (:func:`build_scope_vector_row`), so the step row's
-    ``inputs`` / ``outputs`` lanes are empty.
-
     ``run_context`` is the dict returned by ``build_run_metadata`` or
     ``run_context_from_run_started`` (with ``run_ended_at`` overridden
     by the caller for the streaming case). ``entry`` is one step
@@ -853,68 +887,9 @@ def build_step_row(
         step_markers=entry.get("markers"),
         step_outcome=entry.get("outcome"),
         step_retry=entry.get("step_retry") or 0,
-        vector_index=raw_vi if raw_vi is not None else 0,
+        vector_index=raw_vi,
+        vector_outer_index=entry.get("vector_outer_index"),
         vector_retry=None,
-        measurement_name=None,
-        run_outcome=run_outcome,
-        # v2: the step sheds inputs/outputs onto its scope vector.
-        inputs={},
-        outputs={},
-        instruments=instruments,
-    )
-    return row.to_flat_dict(at_rest=True)
-
-
-def build_scope_vector_row(
-    *,
-    run_context: dict[str, Any],
-    entry: dict[str, Any],
-    run_outcome: str | None,
-    run_ended_at: datetime | None,
-    instruments: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Synthesize one scope ``vector`` row from a step manifest entry (v2).
-
-    Every step execution that has NO in-body iteration vectors (Mode 1,
-    parametrize item, class container, single, measurement-less) gets one
-    uniform scope vector — derived here by the materializer — so the
-    at-rest parquet is uniform: a ``vector`` row per execution. It carries
-    the step's conditions (``inputs``) and observations (``outputs``) that
-    the step record sheds, keyed ``(step_path, vector_index, retry=0)`` to
-    match the step and its measurements, so the EAV vector-key join is
-    unchanged.
-
-    Mode-2 in-body loops emit their own ``vector`` rows
-    (:func:`build_vector_row`) at the iteration grain; for those steps no
-    scope vector is synthesized (the iteration vectors are the carriers).
-    """
-    ctx = dict(run_context)
-    ctx["run_ended_at"] = run_ended_at
-    raw_vi = entry.get("vector_index")
-    raw_idx = entry.get("index")
-    row = RunParquetRow(
-        record_type="vector",
-        **ctx,
-        step_name=entry.get("name") or "",
-        step_index=int(raw_idx) if raw_idx is not None else 0,
-        step_path=entry.get("step_path") or "",
-        step_started_at=_to_datetime(entry.get("started_at")),
-        step_ended_at=_to_datetime(entry.get("ended_at")),
-        step_node_id=entry.get("node_id"),
-        step_module=entry.get("module"),
-        step_file=entry.get("file"),
-        step_class=entry.get("class_name"),
-        step_function=entry.get("function"),
-        step_markers=entry.get("markers"),
-        step_outcome=None,
-        step_retry=entry.get("step_retry") or 0,
-        vector_index=raw_vi if raw_vi is not None else 0,
-        # Scope vector runs once per step execution → its (step_path,
-        # vector_index) occurrence ordinal equals the step's attempt count.
-        vector_retry=entry.get("step_retry") or 0,
-        vector_started_at=_to_datetime(entry.get("started_at")),
-        vector_ended_at=_to_datetime(entry.get("ended_at")),
-        vector_outcome=entry.get("outcome"),
         measurement_name=None,
         run_outcome=run_outcome,
         inputs=dict(entry.get("inputs") or {}),
@@ -938,12 +913,13 @@ def build_vector_row(
 ) -> dict[str, Any]:
     """Build one ``record_type = 'vector'`` row from a vector manifest entry.
 
-    A vector row appears ONLY for Mode-2 in-body iterations (the ``vectors``
-    fixture / ``run_vector`` loop) — Mode 1 and class containers fuse into
-    the ``step`` record. It carries the in-body iteration's own
-    ``(step_path, vector_index, retry)`` identity, its
-    ``inputs`` (this iteration's conditions), ``outputs``, and
-    ``vector_outcome``. ``measurement_*`` columns are NULL.
+    Vector rows are the leaf carriers for ALL emitted VectorStarted/VectorEnded
+    events — Mode-1 (parametrize outer), class-outer sweeps, and Mode-2
+    in-body iterations (the ``vectors`` fixture / ``run_vector`` loop). Each
+    carries the iteration's own ``(step_path, vector_index, retry)`` identity,
+    ``inputs`` (this iteration's conditions), ``outputs``, nested
+    ``measurements``, and ``vector_outcome``. ``measurement_*`` scalar
+    columns are NULL (measurements live in the nested list).
 
     ``entry`` is one vector manifest entry as produced by
     ``vector_entry_dict``. Mirrors :func:`build_step_row` so both record
@@ -970,7 +946,11 @@ def build_vector_row(
         step_markers=entry.get("markers"),
         step_outcome=None,
         step_retry=entry.get("step_retry") or 0,
-        vector_index=raw_vi if raw_vi is not None else 0,
+        # A vector row MUST have a concrete index (0..N) — vector_entry_dict
+        # always supplies one; a None here is a real bug, caught loudly by
+        # RunParquetRow._check_grain_invariant rather than masked as vector 0.
+        vector_index=raw_vi,
+        vector_outer_index=entry.get("vector_outer_index"),
         vector_retry=raw_retry if raw_retry is not None else 0,
         vector_started_at=_to_datetime(entry.get("started_at")),
         vector_ended_at=_to_datetime(entry.get("ended_at")),
@@ -1002,6 +982,7 @@ def vector_entry_dict(
     step_started_at: datetime | None,
     step_ended_at: datetime | None,
     vector_index: int,
+    vector_outer_index: int | None = None,
     retry: int,
     step_retry: int = 0,
     outcome: str | None,
@@ -1018,9 +999,9 @@ def vector_entry_dict(
     """Single source of truth for one in-body vector manifest entry's shape.
 
     Distinct from :func:`step_entry_dict` — a vector entry keys on
-    ``(step_path, vector_index, retry)`` and carries vector-grain timing
-    and outcome. ``step_retry`` is the enclosing step's outer (item) attempt.
-    Timestamps are serialised here.
+    ``(step_path, vector_outer_index, vector_index, retry)`` and carries
+    vector-grain timing and outcome. ``step_retry`` is the enclosing step's
+    outer (item) attempt. Timestamps are serialised here.
     """
     return {
         "index": index,
@@ -1035,6 +1016,7 @@ def vector_entry_dict(
         "step_started_at": step_started_at.isoformat() if step_started_at else None,
         "step_ended_at": step_ended_at.isoformat() if step_ended_at else None,
         "vector_index": vector_index,
+        "vector_outer_index": vector_outer_index,
         "retry": retry,
         "step_retry": step_retry,
         "outcome": outcome,
@@ -1048,106 +1030,6 @@ def vector_entry_dict(
         "measurements": measurements or [],
         "instrument_records": instrument_records or [],
     }
-
-
-def build_step_manifest(
-    test_run: TestRun,
-    ref_saver: Callable[[str, str, Any], str] | None = None,
-) -> list[dict[str, Any]]:
-    """Build step manifest entries from all (step, vector) pairs in a TestRun.
-
-    Returns one entry per ``(step_index, vector_index)`` execution so
-    each sweep variant gets its own entry — matches the streaming path
-    (``EventAccumulator._build_step_results_from_events``). Executed
-    entries come first; ``_append_not_started`` follows with entries
-    for collected items / planned vectors that never ran.
-
-    ``ref_saver`` claim-checks blob observations through the same saver
-    the measurement path uses (``build_output_columns``) so a raw blob
-    never reaches the step-record lane structs. Without it, blobs fall back
-    to ``repr()``.
-    """
-    manifest: list[dict[str, Any]] = []
-    executed_node_ids: set[str] = set()
-    executed_vectors: set[tuple[str, int]] = set()
-
-    for index, step in enumerate(test_run.steps):
-        if step.node_id:
-            executed_node_ids.add(step.node_id)
-        # Iterate vectors so each (step, vector) pair becomes its own
-        # manifest entry — non-swept steps still produce one entry
-        # because ``step.vectors`` always contains at least one
-        # ``TestVector`` once the step ran.
-        vectors = step.vectors or [None]
-        # Fall back to the run's timing so step-summary rows always
-        # carry ``step_ended_at IS NOT NULL`` — the daemon's runs view
-        # filters on that to drop in-flight rows, and in-process batch
-        # callers that build a TestRun without populating per-step
-        # timing would otherwise be invisible to queries.
-        step_started = step.started_at or test_run.started_at
-        step_ended = step.ended_at or test_run.ended_at or test_run.started_at
-        for vec_offset, vector in enumerate(vectors):
-            measurement_count = len(vector.measurements) if vector is not None else 0
-            vec_idx = (
-                vector.index if vector is not None and vector.index is not None else vec_offset
-            )
-            inputs = dict(vector.params) if vector is not None else {}
-            # Vector observations ride on the step record's outputs lanes
-            # (Mode-1 fused) — same as the streaming path merges
-            # StepEnded.outputs / observations into its step entry. Routed
-            # through ``build_output_columns`` (same as the measurement
-            # path) so blobs are claim-checked via ``ref_saver`` rather
-            # than reaching the lane structs raw.
-            outputs = (
-                build_output_columns(vector, ref_saver=ref_saver) if vector is not None else {}
-            )
-            if step.node_id:
-                executed_node_ids.add(step.node_id)
-            # ``executed_vectors`` is keyed by (step_path, vector_index) so
-            # _append_not_started can match across parametrize variants that
-            # share one logical step_path but have distinct node_ids.
-            executed_vectors.add((step.step_path or step.name, vec_idx))
-            manifest.append(
-                step_entry_dict(
-                    index=index,
-                    name=step.name,
-                    node_id=step.node_id,
-                    file=step.file,
-                    function=step.function,
-                    class_name=step.class_name,
-                    module=step.module,
-                    step_path=step.step_path or step.name,
-                    description=step.description,
-                    markers=step.markers,
-                    outcome=step.outcome.value if step.outcome else None,
-                    started_at=step_started,
-                    ended_at=step_ended,
-                    vector_index=vec_idx,
-                    inputs=inputs,
-                    outputs=outputs,
-                    input_units=dict(vector.param_units) if vector is not None else {},
-                    output_units=dict(vector.observation_units) if vector is not None else {},
-                    output_pins=dict(vector.observation_pins) if vector is not None else {},
-                    measurements=[
-                        build_measurement_struct(m)
-                        for m in (vector.measurements if vector is not None else [])
-                    ],
-                    measurement_count=measurement_count,
-                    step_retry=step.retry,
-                    instrument_records=list(step.instrument_records or []),
-                )
-            )
-
-    # Append not-started entries for collected items that never executed,
-    # plus unrun-vector entries for partially-run sweeps.
-    _append_not_started(
-        manifest,
-        [ci.model_dump() for ci in test_run.collected_items],
-        executed_node_ids,
-        executed_vectors=executed_vectors,
-    )
-
-    return manifest
 
 
 def step_entry_dict(
@@ -1165,7 +1047,8 @@ def step_entry_dict(
     outcome: str | None,
     started_at: datetime | None,
     ended_at: datetime | None,
-    vector_index: int = 0,
+    vector_index: int | None = None,
+    vector_outer_index: int | None = None,
     inputs: dict[str, Any] | None = None,
     outputs: dict[str, Any] | None = None,
     input_units: dict[str, str] | None = None,
@@ -1178,15 +1061,14 @@ def step_entry_dict(
 ) -> dict[str, Any]:
     """Single source of truth for one step manifest entry's shape.
 
-    Shared by the batch path (:func:`build_step_manifest`) and the
-    streaming path (``the accumulator-to-parquet path``); both
-    pre-compute their values and pass them as kwargs. Timestamps are
+    Shared by the batch path (``ParquetBackend._append_step_rows``) and the
+    streaming path (``EventAccumulator._build_step_results_from_events``);
+    both pre-compute their values and pass them as kwargs. Timestamps are
     serialised here, ``duration_s`` derived from start/end.
 
-    ``vector_index`` / ``inputs`` / ``outputs`` carry the
-    per-vector identity so each (step_path, vector_index) is its own
-    entry — a sweep of N variants produces N entries with the same
-    step_path and vector_index 0..N-1.
+    ``vector_index`` is always NULL at rest (step rows never carry their
+    own sweep index). ``vector_outer_index`` identifies which outer (class-
+    level) vector this step ran inside; NULL for top-level steps.
     """
     duration_s: float | None = None
     if started_at and ended_at:
@@ -1207,6 +1089,7 @@ def step_entry_dict(
         "ended_at": ended_at.isoformat() if ended_at else None,
         "duration_s": duration_s,
         "vector_index": vector_index,
+        "vector_outer_index": vector_outer_index,
         "inputs": inputs or {},
         "outputs": outputs or {},
         "input_units": input_units or {},
@@ -1224,12 +1107,14 @@ def _append_not_started(
     collected_items: list[dict[str, str | int | None]],
     executed_node_ids: set[str],
     *,
-    executed_vectors: set[tuple[str, int]] | None = None,
+    executed_vectors: set[tuple[str, int | None]] | None = None,
 ) -> None:
     """Append ``planned`` entries for collected items that never executed.
 
-    Shared by both the batch path (``build_step_manifest``) and the
-    streaming path (``the accumulator-to-parquet path``).
+    Used by the streaming path
+    (``EventAccumulator._build_step_results_from_events``); the offline
+    batch path (``ParquetBackend._append_step_rows``) writes exactly the
+    steps present on the ``TestRun`` and has no separate not-started notion.
 
     Each collected item maps to ONE execution at its own
     ``(step_path, vector_index)``.  We add a "not-started" entry iff
@@ -1270,7 +1155,10 @@ def _append_not_started(
                 "outcome": None,
                 "started_at": None,
                 "ended_at": None,
-                "vector_index": vi,
+                # A never-ran marker is the logical step grain (vector_index
+                # NULL), same as a ran step row — ``vi`` above is only the
+                # dedup key against executed_vectors, not this row's grain.
+                "vector_index": None,
                 "inputs": {},
                 "outputs": {},
                 "measurement_count": 0,

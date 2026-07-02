@@ -204,8 +204,8 @@ but no shared mutex state. The concurrency benchmarks above use
 
 **Production implication:** any code that calls `os.fork()` or
 `multiprocessing.Process()` after the EventStore singleton is alive
-in the parent will deadlock the children. The slot-runner mode is
-safe because each pytest worker is spawned by pytest itself before
+in the parent will deadlock the children. The multi-site subprocess
+mode is safe because each pytest worker is spawned by pytest itself before
 the parent imports Litmus heavily; ad-hoc helpers in test code that
 fork their own subprocesses **after** emitting any events must
 opt in to `spawn` explicitly.

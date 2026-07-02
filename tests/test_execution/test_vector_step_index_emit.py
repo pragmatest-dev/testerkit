@@ -43,10 +43,13 @@ class FakeRunScope:
         self.event_log = event_log
         self.test_run = FakeTestRun(run_id)
         self._current_step_index = step_index
-        self._occurrences: dict[tuple[str, int], int] = {}
+        self._step_enclosing: list[Any] = []
+        self._occurrences: dict[tuple[str, int | None, int], int] = {}
 
-    def next_vector_occurrence(self, step_path: str, vector_index: int) -> int:
-        key = (step_path, vector_index)
+    def next_vector_occurrence(
+        self, step_path: str, vector_outer_index: int | None, vector_index: int
+    ) -> int:
+        key = (step_path, vector_outer_index, vector_index)
         n = self._occurrences.get(key, 0)
         self._occurrences[key] = n + 1
         return n

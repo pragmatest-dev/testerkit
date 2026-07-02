@@ -4,8 +4,8 @@
   step + run land ``terminated`` via ``pytest_keyboard_interrupt``.
   Covers the full handler / cascade / parquet flush chain in one
   process.
-* :class:`TestSlotRunnerPropagateTermination` — the orchestrator's
-  ``SlotRunner._propagate_termination`` sends SIGTERM only to live
+* :class:`TestSiteRunnerPropagateTermination` — the orchestrator's
+  ``SiteRunner._propagate_termination`` sends SIGTERM only to live
   children, idempotent across calls. Pure logic test, no real
   subprocesses.
 """
@@ -22,7 +22,7 @@ from unittest import mock
 from uuid import uuid4
 
 from litmus.analysis.runs_query import RunsQuery
-from litmus.execution.slot_runner import SlotRunner
+from litmus.execution.site_runner import SiteRunner
 
 
 def _wait_for_session_runs(session_id: str, expected: int, *, timeout: float = 3.0) -> list:
@@ -104,8 +104,8 @@ class TestSingleProcessTermination:
         assert runs[0].ended_at is not None
 
 
-class TestSlotRunnerPropagateTermination:
-    """``SlotRunner._propagate_termination`` forwards SIGTERM correctly.
+class TestSiteRunnerPropagateTermination:
+    """``SiteRunner._propagate_termination`` forwards SIGTERM correctly.
 
     Pure-logic test: the live ``_processes`` map is set with mock
     ``Popen`` objects, then ``_propagate_termination`` is invoked and
@@ -113,19 +113,19 @@ class TestSlotRunnerPropagateTermination:
     """
 
     @staticmethod
-    def _make_runner() -> SlotRunner:
+    def _make_runner() -> SiteRunner:
         from litmus.data.models import UUT
-        from litmus.execution.slots import ResolvedSlot
+        from litmus.execution.sites import ResolvedSite
 
-        slots = {
-            "slot_1": ResolvedSlot(slot_id="slot_1", connections={}),
-            "slot_2": ResolvedSlot(slot_id="slot_2", connections={}),
-        }
+        sites = [
+            ResolvedSite(site_index=0),
+            ResolvedSite(site_index=1),
+        ]
         uuts = {
-            "slot_1": UUT(serial="A"),
-            "slot_2": UUT(serial="B"),
+            0: UUT(serial="A"),
+            1: UUT(serial="B"),
         }
-        return SlotRunner(slots=slots, uuts=uuts)
+        return SiteRunner(sites=sites, uuts=uuts)
 
     def test_terminates_only_live_children(self):
         runner = self._make_runner()
@@ -133,7 +133,7 @@ class TestSlotRunnerPropagateTermination:
         live.poll.return_value = None  # still running
         dead = mock.Mock(spec=subprocess.Popen)
         dead.poll.return_value = 0  # already exited
-        runner._processes = {"slot_1": live, "slot_2": dead}
+        runner._processes = {0: live, 1: dead}
 
         runner._propagate_termination()
 
@@ -150,7 +150,7 @@ class TestSlotRunnerPropagateTermination:
         runner = self._make_runner()
         proc = mock.Mock(spec=subprocess.Popen)
         proc.poll.side_effect = [None, 0]  # alive then dead
-        runner._processes = {"slot_1": proc}
+        runner._processes = {0: proc}
 
         runner._propagate_termination()
         runner._propagate_termination()
@@ -163,7 +163,7 @@ class TestSlotRunnerPropagateTermination:
         proc = mock.Mock(spec=subprocess.Popen)
         proc.poll.return_value = None
         proc.terminate.side_effect = ProcessLookupError
-        runner._processes = {"slot_1": proc}
+        runner._processes = {0: proc}
 
         # Must not raise.
         runner._propagate_termination()

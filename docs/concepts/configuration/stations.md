@@ -36,7 +36,7 @@ Each instrument has:
 | `mock_config` | Canned return values used in `--mock-instruments` mode |
 | `mock` | Force mock mode for this instrument |
 
-Instruments can be shared across multiple UUT slots in a multi-UUT fixture. Litmus connects a shared instrument once and lets each UUT's test use it one at a time, so two tests never drive the same instrument at the same moment. Sharing is detected automatically — no extra flags. See [Configuring Stations](../../how-to/configuration/configuring-stations.md#shared-instruments-multi-uut) for details.
+Instruments can be shared across multiple UUT sites in a multi-UUT fixture. Litmus connects a shared instrument once and lets each UUT's test use it one at a time, so two tests never drive the same instrument at the same moment. Sharing is detected automatically — no extra flags. See [Configuring Stations](../../how-to/configuration/configuring-stations.md#shared-instruments-multi-uut) for details.
 
 ### Common Instrument Types
 

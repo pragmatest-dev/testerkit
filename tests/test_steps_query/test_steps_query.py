@@ -33,7 +33,8 @@ def _step(
     measurement_count: int = 1,
     uut_serial: str = "SN001",
     station_id: str = "STA-01",
-    slot_id: str | None = None,
+    site_index: int | None = None,
+    site_name: str | None = None,
 ) -> dict:
     """Build one ``record_type='step'`` row in unified RUN_ROW_SCHEMA shape."""
     ended = started.replace(microsecond=0)
@@ -47,13 +48,17 @@ def _step(
             "step_started_at": started,
             "step_ended_at": ended,
             "step_outcome": outcome,
-            "vector_index": 0,
+            # step.vector_index is always NULL at rest — a step-summary row
+            # never carries its own sweep index (see fix #2 in the grain
+            # reshape design contract).
+            "vector_index": None,
             # measurement_name None → step-summary row (no measurement);
             # measurement_count is computed from row count downstream.
             "measurement_name": None,
             "run_id": run_id,
             "session_id": session_id,
-            "slot_id": slot_id,
+            "site_index": site_index,
+            "site_name": site_name,
             "run_started_at": started,
             "run_ended_at": ended,
             "run_outcome": outcome,
@@ -195,13 +200,49 @@ class TestTreeForRun:
             "power/current",
         }
 
+    def test_swept_step_no_duplicate_children(
+        self, fixture_data: dict[str, str], monkeypatch: pytest.MonkeyPatch
+    ):
+        """A swept step's condition points nest under ONE node, not siblings.
+
+        The logical step (from the ``steps`` grain, ``vector_index=NULL``)
+        is one node; its condition points (from the ``step_vectors`` grain,
+        ``vector_index`` 0..N, same ``step_path``) attach to
+        ``StepNode.vectors`` — never as extra same-named tree nodes. Both
+        grains are stubbed here so this exercises only the tree-nesting logic
+        (the real daemon path is covered end-to-end in
+        ``test_grain_reshape_e2e_acceptance.test_swept_vectors_visible_through_stepsquery``).
+        """
+        step_rows = [
+            StepRow(step_path="sweep_step", step_name="sweep_step", step_index=0, step_retry=0),
+        ]
+        vector_rows = [
+            StepRow(
+                step_path="sweep_step",
+                step_name="sweep_step",
+                step_index=0,
+                step_retry=0,
+                vector_index=vi,
+            )
+            for vi in range(3)
+        ]
+        with StepsQuery() as q:
+            monkeypatch.setattr(q, "list_for_run", lambda run_id: step_rows)
+            monkeypatch.setattr(q, "list_vectors_for_run", lambda run_id: vector_rows)
+            tree = q.tree_for_run(fixture_data["run_flat"])
+        assert len(tree) == 1
+        node = tree[0]
+        assert node.step.step_path == "sweep_step"
+        assert node.children == []
+        assert [v.vector_index for v in node.vectors] == [0, 1, 2]
+
 
 class TestListForSession:
-    """Multi-slot session: two sibling runs sharing one ``session_id``."""
+    """Multi-site session: two sibling runs sharing one ``session_id``."""
 
     @pytest.fixture(scope="class")
-    def multi_slot_data(self) -> dict[str, str]:
-        """Two runs (different slots) sharing one unique session."""
+    def multi_site_data(self) -> dict[str, str]:
+        """Two runs (different sites) sharing one unique session."""
         session_id = str(uuid4())
         run_a = str(uuid4())
         run_b = str(uuid4())
@@ -209,11 +250,11 @@ class TestListForSession:
         canonical_runs = resolve_data_dir() / "runs" / "test-steps-query-multi"
         base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
 
-        slot_a_steps = [
+        site_0_steps = [
             _step(
                 run_id=run_a,
                 session_id=session_id,
-                slot_id="slot-A",
+                site_index=0,
                 started=base,
                 step_index=0,
                 step_name="warmup",
@@ -221,25 +262,25 @@ class TestListForSession:
             _step(
                 run_id=run_a,
                 session_id=session_id,
-                slot_id="slot-A",
+                site_index=0,
                 started=base,
                 step_index=1,
                 step_name="measure",
             ),
         ]
-        slot_b_steps = [
+        site_1_steps = [
             _step(
                 run_id=run_b,
                 session_id=session_id,
-                slot_id="slot-B",
+                site_index=1,
                 started=base,
                 step_index=0,
                 step_name="warmup",
                 uut_serial="SN002",
             ),
         ]
-        path_a = _write_run_parquet(canonical_runs, run_a, slot_a_steps)
-        path_b = _write_run_parquet(canonical_runs, run_b, slot_b_steps)
+        path_a = _write_run_parquet(canonical_runs, run_a, site_0_steps)
+        path_b = _write_run_parquet(canonical_runs, run_b, site_1_steps)
 
         notifier = RunStore()
         try:
@@ -254,13 +295,13 @@ class TestListForSession:
             "run_b": run_b,
         }
 
-    def test_returns_steps_across_session_siblings(self, multi_slot_data: dict[str, str]):
+    def test_returns_steps_across_session_siblings(self, multi_site_data: dict[str, str]):
         with StepsQuery() as q:
-            rows = q.list_for_session(multi_slot_data["session_id"])
+            rows = q.list_for_session(multi_site_data["session_id"])
         assert len(rows) == 3
-        assert {r.slot_id for r in rows} == {"slot-A", "slot-B"}
-        slot_a_rows = [r for r in rows if r.slot_id == "slot-A"]
-        assert [r.step_index for r in slot_a_rows] == [0, 1]
+        assert {r.site_index for r in rows} == {0, 1}
+        site_0_rows = [r for r in rows if r.site_index == 0]
+        assert [r.step_index for r in site_0_rows] == [0, 1]
 
 
 class TestDescribeColumns:

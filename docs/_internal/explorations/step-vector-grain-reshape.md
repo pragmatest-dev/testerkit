@@ -4,6 +4,12 @@
 at-rest fields** — this is a *semantic + data-placement* reshape of existing columns, carried by
 the `schema_version` scheme (so it's reversible if we get it wrong).
 
+> **Addendum (superseded):** "No new at-rest fields" did not survive implementation. A follow-up
+> fix locked 2026-06-30 adds one new coordinate, `vector_outer_index`, and makes `step.vector_index
+> ≡ NULL` an unconditional invariant (no more null-vs-0 hack) — see "Follow-up fix:
+> `vector_outer_index` (nested-vector identity + correct retry) — LOCKED 2026-06-30" in
+> `step-vector-grain-reshape-execution.md`.
+
 **Origin:** the #24 "de-fuse / configure robustness" follow-ons
 (`runs-execution-model.md` §"Deferred to before 0.3.0"). Walking **#2** (scope-vs-iteration
 aliasing) and **#3** (data-dependent Mode classification) collapsed both into one model. Shared

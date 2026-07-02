@@ -351,6 +351,10 @@ class TestStep(BaseModel):
     # inner retry; the de-fuse keys each execution by both axes.
     retry: int = 0
     vectors: list[TestVector] = Field(default_factory=list)
+    # Step-scope data: measurements/inputs/outputs latched when no vector is active.
+    measurements: list[Measurement] = Field(default_factory=list)
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    outputs: dict[str, Any] = Field(default_factory=dict)
     error_message: str | None = None
     instrument_records: list[dict[str, Any]] | None = None
 
@@ -412,7 +416,11 @@ class RunSummary(BaseModel):
 
     test_run_id: str
     session_id: str | None = None
-    slot_id: str | None = None
+    # Optional to tolerate the pre-RunStarted-correlation in-flight row
+    # (see ``_row_helpers.py``'s placeholder branch); persisted/correlated
+    # rows always carry 0+.
+    site_index: int | None = None
+    site_name: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
     uut_serial_number: str | None = None
@@ -441,6 +449,15 @@ class TestRun(BaseModel):
     session_id: UUID = Field(default_factory=uuid4)  # Cross-store join key; set by logger
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
+
+    # Execution lane — always present, 0-based, default 0. Stamped in
+    # RunScope.__init__ from the resolved site ContextVars (see
+    # execution._state.get_current_site_index/get_current_site_name)
+    # so every identity-field reader (build_run_metadata, RunStarted)
+    # sources it uniformly from TestRun instead of reaching into the
+    # ContextVar directly.
+    site_index: int = 0
+    site_name: str | None = None
 
     # UUT identification
     uut: UUT

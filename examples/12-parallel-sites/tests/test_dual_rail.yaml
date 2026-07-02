@@ -1,0 +1,11 @@
+# Raw band (no part spec in this example — see examples/05-part-spec /
+# 06-station-catalog for characteristic-driven limits). `connections:
+# [vout]` binds by fixture-connection name (no characteristics/part
+# needed — the "pure litmus_connections bringup" path); it resolves
+# against THIS site's flattened connections dict, so the same sidecar
+# works for both `left` and `right`.
+tests:
+  test_vout_within_spec:
+    connections: [vout]
+    limits:
+      vout: {low: 3.2, high: 3.4, unit: V}

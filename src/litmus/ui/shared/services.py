@@ -1336,7 +1336,8 @@ def _run_row_to_summary(row: Any) -> RunSummary:
     return RunSummary(
         test_run_id=row.run_id or "",
         session_id=row.session_id,
-        slot_id=row.slot_id,
+        site_index=row.site_index,
+        site_name=row.site_name,
         started_at=row.started_at,
         ended_at=row.ended_at,
         uut_serial_number=row.uut_serial_number,
@@ -1357,7 +1358,7 @@ def _run_row_to_summary(row: Any) -> RunSummary:
 
 
 def get_run_detail(run_id: str):
-    """Return ``(run, steps, measurements)`` for a run.
+    """Return ``(run, steps, measurements, is_multi_site)`` for a run.
 
     Resolves the run through the daemon's typed ``RunsQuery`` rather
     than the parquet backend. The backend's ``get_run`` walks the
@@ -1370,7 +1371,12 @@ def get_run_detail(run_id: str):
     detail page expects). ``steps`` is the typed ``list[StepRow]``
     from the daemon's ``steps`` table. ``measurements`` is the flat
     measurement rows when the run recorded any, or ``[]`` for runs
-    that produced only step-summary rows.
+    that produced only step-summary rows. ``is_multi_site`` is
+    session→runs fan-out (``len(siblings) > 1``) — the parallel-gantt
+    gate. ``site_index`` is always present now (0-based, default 0),
+    so it can no longer signal "this run has sibling sites" the way a
+    null check once did; a single-UUT run is indistinguishable from a
+    multi-site run by ``site_index`` alone.
     """
     from litmus.analysis.runs_query import RunsQuery
     from litmus.analysis.steps_query import StepsQuery
@@ -1378,17 +1384,22 @@ def get_run_detail(run_id: str):
     backend = _results_backend()
     with RunsQuery(_data_dir=backend.data_dir) as rq:
         run_row = rq.get(run_id)
-    if run_row is None:
-        return None, [], []
+        if run_row is None:
+            return None, [], [], False
 
-    run = _run_row_to_summary(run_row)
+        run = _run_row_to_summary(run_row)
+
+        is_multi_site = False
+        if run.session_id:
+            siblings = rq.list_for_session(str(run.session_id), include_incomplete=True)
+            is_multi_site = len(siblings) > 1
 
     measurements: list[dict] = backend.get_measurements(run_id) if run.file_path else []
 
     with StepsQuery(_data_dir=backend.data_dir) as q:
         steps = q.list_for_run(run_id, include_incomplete=True)
 
-    return run, steps, measurements
+    return run, steps, measurements, is_multi_site
 
 
 def load_artifact_ref(run_id: str, uri: str):

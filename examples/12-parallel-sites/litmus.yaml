@@ -1,0 +1,5 @@
+name: parallel-sites-example
+data_dir: data   # keep example data local — don't pollute global
+default_station: bench_dual
+default_fixture: dual_site_bench
+mock_instruments: true

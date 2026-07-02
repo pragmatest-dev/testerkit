@@ -302,7 +302,7 @@ A missing required field or a type mismatch raises a `pydantic.ValidationError` 
 
 ## Shared Instruments (Multi-UUT)
 
-When a multi-UUT fixture runs slots in parallel and more than one slot uses the same instrument role, Litmus connects that instrument once and shares it across slots — no extra config. See [Multi-UUT testing](../execution/multi-uut-testing.md).
+When a multi-UUT fixture runs sites in parallel and more than one site uses the same instrument role, Litmus connects that instrument once and shares it across sites — no extra config. See [Multi-UUT testing](../execution/multi-uut-testing.md).
 
 ## Best Practices
 

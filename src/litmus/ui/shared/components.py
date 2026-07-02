@@ -959,7 +959,7 @@ def subscribe_with_refresh(
     """Subscribe to ``event_types`` and debounce-call ``refresh`` on each.
 
     Replaces ``ui.timer(seconds, refresh)`` polling on pages where
-    a fresh-state cue is event-driven. Coalesces bursts (a multi-slot
+    a fresh-state cue is event-driven. Coalesces bursts (a multi-site
     session fires N RunStarted events back-to-back) so ``refresh``
     runs at most once per ``debounce_seconds`` instead of per event.
 

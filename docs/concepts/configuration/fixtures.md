@@ -46,7 +46,7 @@ This is also what makes a measurement traceable: every value flows through a nam
 |---|---|
 | One UUT, one bench, you remember which instrument is on which pin | Optional — the `dmm` / `psu` per-role pytest fixtures from your station YAML are enough |
 | Multiple parts on the same bench, or one part across multiple benches | Required — the pin-map is what lets the test code stay portable |
-| Multiple UUTs running in parallel | Required — see [Multi-UUT scaling](#multi-uut-scaling-slots-shared-instruments-switching) |
+| Multiple UUTs running in parallel | Required — see [Multi-UUT scaling](#multi-uut-scaling-sites-shared-instruments-switching) |
 | Production traceability — every measurement records its UUT-side pin | Required — `uut_pin` is the connection field that flows into the parquet row |
 
 For development without any fixture, see [Mock mode](../../how-to/configuration/mock-mode.md) and the per-role auto-fixtures in [Litmus fixtures](../../reference/pytest/fixtures.md#per-role-auto-fixtures).
@@ -56,7 +56,7 @@ For development without any fixture, see [Mock mode](../../how-to/configuration/
 A fixture YAML loads into a `FixtureConfig`. Two top-level shapes:
 
 - **Single-UUT** — fields directly on the fixture
-- **Multi-UUT** — `slots:` with one `FixtureSlot` per UUT position
+- **Multi-UUT** — `sites:` with one `FixtureSite` per UUT position
 
 Both share the same `FixtureConnection` shape underneath.
 
@@ -72,10 +72,10 @@ Both share the same `FixtureConnection` shape underneath.
 | `station_types` | Optional — abstract station-type layouts this fixture can wire against. Validated at session start against the active profile's `station_type`. Empty list = "any station". |
 | `uut_resource` | Optional UUT-side connection string (a COM port, USB serial number, etc.) for tests that talk to the UUT directly |
 | `connections` | UUT-pin ↔ instrument-channel pairings. Single-UUT shape. |
-| `slots` | Per-UUT-position connections for multi-UUT fixtures. Multi-UUT shape. |
+| `sites` | Ordered list of per-UUT-position connections for multi-UUT fixtures. Multi-UUT shape. |
 | `description` | Free-form documentation |
 
-`connections` and `slots` are mutually exclusive — a fixture that sets both is rejected.
+`connections` and `sites` are mutually exclusive — a fixture that sets both is rejected.
 
 ### `FixtureConnection` fields
 
@@ -168,21 +168,21 @@ A test asking for `VOUT` with no function context falls back to first-match by p
 
 When `function` is unset, the first connection for that pin is used.
 
-## Multi-UUT scaling: slots, shared instruments, switching
+## Multi-UUT scaling: sites, shared instruments, switching
 
 Three independent features scale the single-UUT shape to multiple boards:
 
-### Slots — parallel UUT positions
+### Sites — parallel UUT positions
 
-When the bench has multiple identical positions and you test them in parallel, use `slots` instead of `connections`. Each slot has its own `FixtureConnection` map:
+A **site** is one parallel UUT position on the bench — the same concept STDF calls `SITE_NUM` and NI TestStand calls a "test socket." When the bench has multiple identical positions and you test them in parallel, use `sites` instead of `connections`. Sites are an ordered list; each site has its own `FixtureConnection` map and an optional `name`:
 
 ```yaml
 # fixtures/dual_board_fixture.yaml
 id: dual_board_fixture
 part_family: power_board
 
-slots:
-  slot_1:
+sites:
+  - name: left
     description: Left-side board
     uut_resource: /dev/ttyUSB0
     connections:
@@ -191,7 +191,7 @@ slots:
         uut_pin: VOUT
         instrument: dmm
         instrument_channel: "1"
-  slot_2:
+  - name: right
     description: Right-side board
     uut_resource: /dev/ttyUSB1
     connections:
@@ -202,11 +202,15 @@ slots:
         instrument_channel: "2"
 ```
 
-Litmus runs each slot in parallel; each slot's test sees only its own connections. Per-slot `uut_resource` overrides the fixture-level value. See [Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) for the operational guide.
+Litmus runs each site in parallel; each site's test sees only its own connections. A site's 0-based position in the list is its `site_index` — **never authored**, always the list position, so there's no field to typo or get out of sync with the actual order. This is the same shape as a bare single-UUT fixture: `connections:` directly on the fixture is site_index 0 with no list around it. `connections` and `sites` are two views of one model, not two separate features — the list is what makes a fixture multi-site, and its length is the site count. There's no way to declare a gap in the list; a site exists because it has an entry.
+
+`name:` is an optional human label ("left", "right") for a site that otherwise has no identity beyond its index — it's frozen onto every row that site produces, so renaming a site in the fixture YAML later doesn't change what a historical run's rows say. Fixture loading rejects a bare-integer name (`name: "1"`) with a clear error: `--site` and `--uut-serials` resolve a token as an index first and a name second, so a numeric name would be unreachable (shadowed by the index it looks like) rather than silently wrong. Use a non-numeric label (`"S1"`, `"pos1"`) if you need a silkscreen-style number.
+
+Per-site `uut_resource` overrides the fixture-level value. See [Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) for the operational guide — CLI serial assignment, per-site parquet columns, and the events that carry `site_index` / `site_name`.
 
 ### Shared instruments
 
-When multiple slots reference the same instrument role (e.g. both slots' `dmm` connections point at the bench's single DMM), Litmus treats it as a **shared** instrument. It connects once and shares it across the parallel slot workers — each one calls it as if it owned it.
+When multiple sites reference the same instrument role (e.g. both sites' `dmm` connections point at the bench's single DMM), Litmus treats it as a **shared** instrument. It connects once and shares it across the parallel site workers — each one calls it as if it owned it.
 
 Locking is per **resource** (the VISA address, COM port, or other connection identifier), so roles sharing one physical connection take turns, while roles on separate connections run at the same time.
 
@@ -215,7 +219,7 @@ Locking is per **resource** (the VISA address, COM port, or other connection ide
 For a single instrument fanned out to multiple UUT positions through a relay matrix, add a `SwitchRoute` to the connection. The platform closes the listed switch channels before activating the instrument, waits the settling time, then runs the measurement:
 
 ```yaml
-slot_1:
+- name: left
   connections:
     vout_measure:
       name: vout_measure
@@ -227,7 +231,7 @@ slot_1:
         settling_ms: 10
 ```
 
-Switch routes activate on demand — the first time a test touches that instrument, Litmus closes the listed switch channels, waits the settling time, then takes the measurement. Multiple slots can share one instrument through different routes. Switches (instruments with `type: switch`) are exempt from the take-turns locking — closing channels in parallel is the point of the matrix.
+Switch routes activate on demand — the first time a test touches that instrument, Litmus closes the listed switch channels, waits the settling time, then takes the measurement. Multiple sites can share one instrument through different routes. Switches (instruments with `type: switch`) are exempt from the take-turns locking — closing channels in parallel is the point of the matrix.
 
 ## Selecting a fixture at run time
 
@@ -326,6 +330,6 @@ The recorded measurement row carries `uut_pin=VOUT`, `instrument_name=dmm`, `cha
 - [Capabilities](capabilities.md) — the function / direction / signal model that drives matching (and the `function:` field on connections)
 - [Tutorial step 9 — Production ready](../../tutorial/09-production.md) — first hands-on with fixtures + sidecar config
 - [How-to — Configuring stations](../../how-to/configuration/configuring-stations.md) — the station YAML reference
-- [How-to — Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) — slots, shared instruments, parallel workers in practice
+- [How-to — Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) — sites, shared instruments, parallel workers in practice
 - [Litmus fixtures](../../reference/pytest/fixtures.md) — the `pins`, `instruments`, `instrument`, `fixture_manager`, `connections` pytest fixtures that read this YAML
 - [Configuration reference](../../reference/configuration.md) — fixture YAML schema field-by-field

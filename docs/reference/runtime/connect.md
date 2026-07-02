@@ -86,7 +86,7 @@ Constructor: `StationConnection(station_config: StationConfig, *, data_dir: Path
 | `events(*, event_type=None, role=None)` | `list[dict]` | Read events from this session's log. Both filters are optional. |
 | `on_event(callback, *, event_type=None, role=None, since=None)` | `Callable[[], None]` (unsubscribe) | Subscribe to events. Replays matching past events first, then pushes new ones as they arrive. |
 | `observe(key, value, *, unit=None, sample_interval=None)` | `str` (`channel://` URI) | Append a sample to the `ChannelStore`. Returns the `channel://` URI other events can reference. |
-| `sync(name, timeout: float \| None = None)` | `None` | Wait at a named sync point. Used for multi-UUT slot coordination. |
+| `sync(name, timeout: float \| None = None)` | `None` | Wait at a named sync point. Used for multi-UUT site coordination. |
 
 ### Context-manager protocol
 

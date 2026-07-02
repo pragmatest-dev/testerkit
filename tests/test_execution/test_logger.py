@@ -60,12 +60,12 @@ class TestRunScope:
         m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
         logger.log_measurement(m)
 
-        # Measurements are stored in vectors within the step
+        # Step-scope measurements land on step.measurements (no auto-created vector).
         step = get_current_step()
         assert step is not None
-        assert len(step.vectors) == 1
-        assert len(step.vectors[0].measurements) == 1
-        assert step.vectors[0].measurements[0].name == "voltage"
+        assert step.vectors == []
+        assert len(step.measurements) == 1
+        assert step.measurements[0].name == "voltage"
 
     def test_log_measurement_auto_creates_step(self):
         logger = RunScope(
@@ -224,7 +224,9 @@ class TestRunScope:
 
         logger.start_step("cv_step")
         assert get_current_step() is logger.test_run.steps[0]
-        assert get_current_vector() is logger.test_run.steps[0].vectors[0]
+        # A non-swept step pushes no vector; it carries its own data.
+        assert get_current_vector() is None
+        assert logger.test_run.steps[0].vectors == []
 
         logger.end_step()
         assert get_current_step() is None
@@ -272,22 +274,24 @@ class TestRunScope:
         assert idx2 == 1
 
     def test_log_measurement_no_double_append(self):
-        """log_measurement() doesn't double-append if measurement already in vector."""
+        """log_measurement() doesn't double-append if measurement already in step."""
         logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
         logger.start_step("test_step")
-        vector = get_current_vector()
-        assert vector is not None
+        # Non-swept step has no auto-created vector.
+        assert get_current_vector() is None
 
+        step = get_current_step()
+        assert step is not None
         m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
         # Pre-append (simulating what harness.measure() does)
-        vector.measurements.append(m)
+        step.measurements.append(m)
         # Now call log_measurement — should NOT double-append
         logger.log_measurement(m)
 
-        assert len(vector.measurements) == 1
+        assert len(step.measurements) == 1
 
 
 class TestEventLogIntegration:

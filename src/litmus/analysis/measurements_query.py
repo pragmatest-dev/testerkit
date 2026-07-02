@@ -50,13 +50,17 @@ def _safe_ident(name: str) -> str:
     return name
 
 
-# The natural vector identity shared by the core ``measurements`` view (aliased
-# ``m``) and the EAV ``measurements_dynamic`` table. ``vector_retry`` is
-# NULL-bearing so the join uses IS NOT DISTINCT FROM.
+# Join key; IS NOT DISTINCT FROM on nullable columns because NULL = NULL is FALSE in SQL.
+# step_path is part of the key because step_index resets per parent bucket
+# (_collection_indices.assign_indices) — two unswept steps can share
+# step_index=0 with identical NULL vector coords, so step_index alone would
+# cross-join their dynamic in_*/out_* values onto each other.
 _VECTOR_KEY = (
     "{a}.run_id = m.run_id"
     " AND {a}.step_index = m.step_index"
-    " AND {a}.vector_index = m.vector_index"
+    " AND {a}.step_path IS NOT DISTINCT FROM m.step_path"
+    " AND {a}.vector_index IS NOT DISTINCT FROM m.vector_index"
+    " AND {a}.vector_outer_index IS NOT DISTINCT FROM m.vector_outer_index"
     " AND {a}.vector_retry IS NOT DISTINCT FROM m.vector_retry"
 )
 

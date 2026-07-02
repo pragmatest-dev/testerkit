@@ -5,6 +5,7 @@ import os
 import pytest
 
 from litmus.data.models import UUT
+from litmus.execution.sites import ResolvedSite
 from litmus.execution.uut_provider import (
     CLIUUTProvider,
     EnvironmentUUTProvider,
@@ -15,26 +16,26 @@ from litmus.execution.uut_provider import (
 class TestCLIUUTProvider:
     """CLIUUTProvider resolves UUT from CLI-style arguments."""
 
-    def test_single_serial_returns_same_for_all_slots(self):
+    def test_single_serial_returns_same_for_all_sites(self):
         provider = CLIUUTProvider(serial="SN001")
-        uut1 = provider.get_uut("slot_1")
-        uut2 = provider.get_uut("slot_2")
+        uut0 = provider.get_uut(0)
+        uut1 = provider.get_uut(1)
+        assert uut0.serial == "SN001"
         assert uut1.serial == "SN001"
-        assert uut2.serial == "SN001"
 
-    def test_per_slot_serials(self):
-        provider = CLIUUTProvider(serials={"slot_1": "SN001", "slot_2": "SN002"})
-        assert provider.get_uut("slot_1").serial == "SN001"
-        assert provider.get_uut("slot_2").serial == "SN002"
+    def test_per_site_serials(self):
+        provider = CLIUUTProvider(serials={0: "SN001", 1: "SN002"})
+        assert provider.get_uut(0).serial == "SN001"
+        assert provider.get_uut(1).serial == "SN002"
 
-    def test_per_slot_missing_slot_raises(self):
-        provider = CLIUUTProvider(serials={"slot_1": "SN001"})
-        with pytest.raises(ValueError, match="No UUT serial for slot 'slot_3'"):
-            provider.get_uut("slot_3")
+    def test_per_site_missing_site_raises(self):
+        provider = CLIUUTProvider(serials={0: "SN001"})
+        with pytest.raises(ValueError, match="No UUT serial for site 2"):
+            provider.get_uut(2)
 
     def test_both_serial_and_serials_raises(self):
         with pytest.raises(ValueError, match="not both"):
-            CLIUUTProvider(serial="SN001", serials={"slot_1": "SN002"})
+            CLIUUTProvider(serial="SN001", serials={0: "SN002"})
 
     def test_neither_serial_nor_serials_raises(self):
         with pytest.raises(ValueError, match="must be provided"):
@@ -47,54 +48,73 @@ class TestCLIUUTProvider:
             revision="B",
             lot_number="LOT42",
         )
-        uut = provider.get_uut("any_slot")
+        uut = provider.get_uut(0)
         assert uut.part_number == "PN-100"
         assert uut.revision == "B"
         assert uut.lot_number == "LOT42"
 
     def test_from_cli_args_single(self):
         provider = CLIUUTProvider.from_cli_args(uut_serial="SN999", uut_serials=None)
-        assert provider.get_uut("slot_1").serial == "SN999"
+        assert provider.get_uut(0).serial == "SN999"
+        assert provider.get_uut(1).serial == "SN999"
 
-    def test_from_cli_args_multi(self):
+    def test_from_cli_args_indexed(self):
         provider = CLIUUTProvider.from_cli_args(
             uut_serial=None,
-            uut_serials="slot_1=SN001,slot_2=SN002",
+            uut_serials="0=SN001,1=SN002",
         )
-        assert provider.get_uut("slot_1").serial == "SN001"
-        assert provider.get_uut("slot_2").serial == "SN002"
+        assert provider.get_uut(0).serial == "SN001"
+        assert provider.get_uut(1).serial == "SN002"
+
+    def test_from_cli_args_named(self):
+        sites = [
+            ResolvedSite(site_index=0, site_name="left"),
+            ResolvedSite(site_index=1, site_name="right"),
+        ]
+        provider = CLIUUTProvider.from_cli_args(
+            uut_serial=None,
+            uut_serials="left=SN001,right=SN002",
+            sites=sites,
+        )
+        assert provider.get_uut(0).serial == "SN001"
+        assert provider.get_uut(1).serial == "SN002"
 
     def test_from_cli_args_positional(self):
+        sites = [
+            ResolvedSite(site_index=0),
+            ResolvedSite(site_index=1),
+        ]
         provider = CLIUUTProvider.from_cli_args(
             uut_serial=None,
             uut_serials="SN001,SN002",
-            slot_ids=["slot_1", "slot_2"],
+            sites=sites,
         )
-        assert provider.get_uut("slot_1").serial == "SN001"
-        assert provider.get_uut("slot_2").serial == "SN002"
+        assert provider.get_uut(0).serial == "SN001"
+        assert provider.get_uut(1).serial == "SN002"
 
-    def test_from_cli_args_positional_without_slots_raises(self):
-        with pytest.raises(ValueError, match="requires a multi-slot fixture"):
+    def test_from_cli_args_positional_without_sites_raises(self):
+        with pytest.raises(ValueError, match="multi-site fixture"):
             CLIUUTProvider.from_cli_args(uut_serial=None, uut_serials="SN001,SN002")
 
     def test_from_cli_args_positional_count_mismatch_raises(self):
-        with pytest.raises(ValueError, match="2 serial.*3 slot"):
+        sites = [ResolvedSite(site_index=0), ResolvedSite(site_index=1), ResolvedSite(site_index=2)]
+        with pytest.raises(ValueError, match="2 serial.*3 site"):
             CLIUUTProvider.from_cli_args(
                 uut_serial=None,
                 uut_serials="SN001,SN002",
-                slot_ids=["slot_1", "slot_2", "slot_3"],
+                sites=sites,
             )
 
     def test_from_cli_args_bad_named_format_raises(self):
         with pytest.raises(ValueError, match="Invalid --uut-serials format"):
             CLIUUTProvider.from_cli_args(
                 uut_serial=None,
-                uut_serials="slot_1=SN001,SN002",  # mixed named/positional
+                uut_serials="0=SN001,SN002",  # mixed indexed/positional
             )
 
     def test_from_cli_args_default_serial(self):
         provider = CLIUUTProvider.from_cli_args(uut_serial=None, uut_serials=None)
-        assert provider.get_uut("slot_1").serial == "UUT001"
+        assert provider.get_uut(0).serial == "UUT001"
 
 
 class TestEnvironmentUUTProvider:
@@ -103,29 +123,27 @@ class TestEnvironmentUUTProvider:
     def test_global_serial(self, monkeypatch):
         monkeypatch.setenv("LITMUS_UUT_SERIAL", "ENV_SN001")
         provider = EnvironmentUUTProvider()
-        assert provider.get_uut("slot_1").serial == "ENV_SN001"
+        assert provider.get_uut(0).serial == "ENV_SN001"
 
-    def test_slot_specific_serial(self, monkeypatch):
-        monkeypatch.setenv("LITMUS_UUT_SERIAL_SLOT_1", "SN_A")
-        monkeypatch.setenv("LITMUS_UUT_SERIAL_SLOT_2", "SN_B")
+    def test_site_specific_serial(self, monkeypatch):
+        monkeypatch.setenv("LITMUS_UUT_SERIAL_SITE_0", "SN_A")
+        monkeypatch.setenv("LITMUS_UUT_SERIAL_SITE_1", "SN_B")
         provider = EnvironmentUUTProvider()
-        assert provider.get_uut("slot_1").serial == "SN_A"
-        assert provider.get_uut("slot_2").serial == "SN_B"
+        assert provider.get_uut(0).serial == "SN_A"
+        assert provider.get_uut(1).serial == "SN_B"
 
-    def test_slot_specific_overrides_global(self, monkeypatch):
+    def test_site_specific_overrides_global(self, monkeypatch):
         monkeypatch.setenv("LITMUS_UUT_SERIAL", "GLOBAL")
-        monkeypatch.setenv("LITMUS_UUT_SERIAL_SLOT_1", "SPECIFIC")
+        monkeypatch.setenv("LITMUS_UUT_SERIAL_SITE_0", "SPECIFIC")
         provider = EnvironmentUUTProvider()
-        assert provider.get_uut("slot_1").serial == "SPECIFIC"
+        assert provider.get_uut(0).serial == "SPECIFIC"
 
     def test_no_serial_raises(self):
-        # Ensure vars are not set (monkeypatch not needed if not set)
         provider = EnvironmentUUTProvider()
-        # Remove vars if they happen to exist
-        for key in ["LITMUS_UUT_SERIAL", "LITMUS_UUT_SERIAL_SLOT_1"]:
+        for key in ["LITMUS_UUT_SERIAL", "LITMUS_UUT_SERIAL_SITE_0"]:
             os.environ.pop(key, None)
         with pytest.raises(ValueError, match="No UUT serial"):
-            provider.get_uut("slot_1")
+            provider.get_uut(0)
 
     def test_metadata_from_env(self, monkeypatch):
         monkeypatch.setenv("LITMUS_UUT_SERIAL", "SN001")
@@ -133,43 +151,71 @@ class TestEnvironmentUUTProvider:
         monkeypatch.setenv("LITMUS_UUT_REVISION", "C")
         monkeypatch.setenv("LITMUS_UUT_LOT_NUMBER", "LOT99")
         provider = EnvironmentUUTProvider()
-        uut = provider.get_uut("any")
+        uut = provider.get_uut(0)
         assert uut.part_number == "PN-200"
         assert uut.revision == "C"
         assert uut.lot_number == "LOT99"
 
 
 class TestParseSerials:
-    """CLIUUTProvider.parse_serials handles named and positional formats."""
+    """CLIUUTProvider.parse_serials handles indexed, named, and positional formats."""
 
-    def test_named_format(self):
-        result = CLIUUTProvider.parse_serials("slot_1=SN001,slot_2=SN002")
-        assert result == {"slot_1": "SN001", "slot_2": "SN002"}
+    def test_indexed_format(self):
+        result = CLIUUTProvider.parse_serials("0=SN001,1=SN002")
+        assert result == {0: "SN001", 1: "SN002"}
 
     def test_positional_format(self):
-        result = CLIUUTProvider.parse_serials("SN001,SN002", slot_ids=["slot_1", "slot_2"])
-        assert result == {"slot_1": "SN001", "slot_2": "SN002"}
+        sites = [ResolvedSite(site_index=0), ResolvedSite(site_index=1)]
+        result = CLIUUTProvider.parse_serials("SN001,SN002", sites=sites)
+        assert result == {0: "SN001", 1: "SN002"}
+
+    def test_named_format(self):
+        sites = [
+            ResolvedSite(site_index=0, site_name="left"),
+            ResolvedSite(site_index=1, site_name="right"),
+        ]
+        result = CLIUUTProvider.parse_serials("left=SN001,right=SN002", sites=sites)
+        assert result == {0: "SN001", 1: "SN002"}
 
     def test_positional_preserves_order(self):
-        result = CLIUUTProvider.parse_serials("A,B,C", slot_ids=["x", "y", "z"])
-        assert list(result.keys()) == ["x", "y", "z"]
-        assert list(result.values()) == ["A", "B", "C"]
+        sites = [
+            ResolvedSite(site_index=0),
+            ResolvedSite(site_index=1),
+            ResolvedSite(site_index=2),
+        ]
+        result = CLIUUTProvider.parse_serials("A,B,C", sites=sites)
+        assert result == {0: "A", 1: "B", 2: "C"}
 
-    def test_named_with_spaces(self):
-        result = CLIUUTProvider.parse_serials(" slot_1 = SN001 , slot_2 = SN002 ")
-        assert result == {"slot_1": "SN001", "slot_2": "SN002"}
+    def test_indexed_with_spaces(self):
+        result = CLIUUTProvider.parse_serials(" 0 = SN001 , 1 = SN002 ")
+        assert result == {0: "SN001", 1: "SN002"}
 
-    def test_positional_without_slot_ids_raises(self):
-        with pytest.raises(ValueError, match="requires a multi-slot fixture"):
+    def test_positional_without_sites_raises(self):
+        with pytest.raises(ValueError, match="multi-site fixture"):
             CLIUUTProvider.parse_serials("SN001,SN002")
 
     def test_positional_count_mismatch_raises(self):
-        with pytest.raises(ValueError, match="2 serial.*3 slot"):
-            CLIUUTProvider.parse_serials("SN001,SN002", slot_ids=["a", "b", "c"])
+        sites = [ResolvedSite(site_index=0), ResolvedSite(site_index=1), ResolvedSite(site_index=2)]
+        with pytest.raises(ValueError, match="2 serial.*3 site"):
+            CLIUUTProvider.parse_serials("SN001,SN002", sites=sites)
 
-    def test_mixed_named_positional_raises(self):
+    def test_mixed_indexed_positional_raises(self):
         with pytest.raises(ValueError, match="Invalid"):
-            CLIUUTProvider.parse_serials("slot_1=SN001,SN002")
+            CLIUUTProvider.parse_serials("0=SN001,SN002")
+
+    def test_duplicate_index_key_raises(self):
+        """Two keys resolving to the same site_index must fail fast,
+        not silently overwrite the earlier serial (bijection rule)."""
+        with pytest.raises(ValueError, match="Duplicate|duplicate|already assigned"):
+            CLIUUTProvider.parse_serials("0=SN001,0=SN002")
+
+    def test_duplicate_name_key_resolving_same_index_raises(self):
+        sites = [
+            ResolvedSite(site_index=0, site_name="left"),
+            ResolvedSite(site_index=1, site_name="right"),
+        ]
+        with pytest.raises(ValueError, match="already assigned"):
+            CLIUUTProvider.parse_serials("left=SN001,0=SN002", sites=sites)
 
 
 class TestUUTProviderProtocol:
@@ -185,7 +231,7 @@ class TestUUTProviderProtocol:
 
     def test_custom_provider_satisfies_protocol(self):
         class MyProvider:
-            def get_uut(self, slot_id: str) -> UUT:
-                return UUT(serial=f"CUSTOM_{slot_id}")
+            def get_uut(self, site_index: int) -> UUT:
+                return UUT(serial=f"CUSTOM_{site_index}")
 
         assert isinstance(MyProvider(), UUTProvider)

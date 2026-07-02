@@ -317,6 +317,38 @@ class TestHarnessStep:
 
         assert step.outcome == Outcome.FAILED
 
+    def test_step_outcome_ignores_earlier_failed_retry_attempts(self):
+        """A vector that fails then passes on retry must not drag the step
+        to FAILED.
+
+        Regression test: ``run_with_retry`` appends one ``TestVector`` per
+        retry attempt at the same index onto ``step.vectors``. Naively
+        escalating over every attempt (rather than each point's FINAL
+        attempt) let an earlier FAILED attempt outrank the eventual PASSED
+        verdict.
+        """
+        config = {"retry": {"max_retries": 1, "delay": 0}}
+        harness = TestHarness(config=config)
+        limit = Limit(low=3.0, high=3.6, unit="V")
+
+        call_count = 0
+
+        def test_fn(vector):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                harness.measure("voltage", 4.0, limit=limit)  # Fail
+            else:
+                harness.measure("voltage", 3.3, limit=limit)  # Pass
+
+        with harness.step() as step:
+            tv = harness.run_with_retry(Vector(_index=0), test_fn)
+
+        assert call_count == 2
+        assert len(step.vectors) == 2  # both attempts recorded
+        assert tv.outcome == Outcome.PASSED
+        assert step.outcome == Outcome.PASSED
+
 
 class TestHarnessRunAll:
     """Tests for TestHarness.run_all method."""

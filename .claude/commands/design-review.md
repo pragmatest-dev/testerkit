@@ -25,6 +25,7 @@ Spawn an Explore agent with subagent_type=Explore. Give it the full file list fr
 5. **Separation of concerns** — business logic in wrong layer, god functions mixing multiple responsibilities, models containing service logic
 6. **Consistent patterns** — do similar operations follow the same structure? Are naming conventions, signatures, error handling, and return shapes uniform?
 7. **Plan adherence** — if a plan/spec was found in Phase 1, check: does the code match the plan's stated storage layout, event types, interfaces, and architecture? Flag any deviations, stale references to removed concepts, or unimplemented plan items that should already be done.
+8. **Maintenance & Clean Code** — will this bite the next maintainer? Flag maintenance-hostile shortcuts: a `cast` / `# type: ignore` forcing a mismatched type past the checker, a duck-typed wrapper standing in for a real class, a band-aid patching a symptom instead of the cause, a comment apologizing for the code instead of the code being fixed. Also the core Clean Code principles: **DRY** (is the same logic/knowledge expressed once?), **meaningful names** (does the name carry the intent so a comment isn't needed?), **small, single-purpose functions**, and **least astonishment** (does the code do the obvious thing?). A shortcut that "works now" is a finding — the maintainable design is the fix.
 
 The agent MUST:
 - Read every file in scope thoroughly (not just grep)
@@ -40,7 +41,7 @@ Present the agent's findings as a **numbered table** with these columns:
 |---|----------|----------|-------|--------------|
 | 1 | `[dead code]` | `file.py:42` | One-sentence description | Concrete fix description |
 
-Categories: `[dead code]`, `[duplication]`, `[consistency]`, `[pythonic]`, `[separation]`, `[logical]`, `[plan adherence]`
+Categories: `[dead code]`, `[duplication]`, `[consistency]`, `[pythonic]`, `[separation]`, `[logical]`, `[plan adherence]`, `[maintenance]`
 
 **MANDATORY: You MUST ask the user which findings to fix. NEVER decide on your own which to fix or skip.** Wait for the user to respond (they may say "all", list numbers like "1-5, 7", or skip some). Do NOT proceed to Phase 4 until the user has answered.
 

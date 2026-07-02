@@ -30,11 +30,11 @@
 #                        capabilities (what a make/model can do).
 #     identifies         Asset/Record identifies via InstrumentInfo.
 #     calibrated_per     Asset/Record calibrated_per CalibrationInfo.
-#     wires              FixtureConfig/FixtureSlot wires FixtureConnection.
-#     partitions_into    FixtureConfig partitions_into FixtureSlot (multi-UUT).
+#     wires              FixtureConfig/FixtureSite wires FixtureConnection.
+#     partitions_into    FixtureConfig partitions_into FixtureSite (multi-UUT).
 #     routed_through     FixtureConnection routed_through SwitchRoute.
 #     declares           ProjectConfig declares config blocks (profiles,
-#                        multi_slot, prompts).
+#                        multi_site, prompts).
 #     configures         TestEntry configures marker fields (limits, sweeps,
 #                        mocks, retry, prompts).
 #     nests              TestEntry nests TestEntry (recursive scope).
@@ -106,13 +106,13 @@ concepts:
     category: definition
     summary: >
       Project root config. Names the default station/fixture/profile,
-      data dir, multi-slot knobs, profiles, and required operator inputs.
+      data dir, multi-site knobs, profiles, and required operator inputs.
     model: litmus.models.project.ProjectConfig
     authored_at: litmus.yaml
     docs: docs/reference/configuration.md
     relationships:
       - { kind: declares,   target: profile_config }
-      - { kind: declares,   target: multi_slot_config }
+      - { kind: declares,   target: multi_site_config }
       - { kind: declares,   target: prompt_config }      # required_inputs
       - { kind: references, target: station_config }    # default_station
       - { kind: references, target: fixture_config }    # default_fixture
@@ -133,10 +133,10 @@ concepts:
       - { kind: references,        target: station_type }     # station_type binding
       - { kind: references,        target: fixture_config }   # fixture binding
 
-  - id: multi_slot_config
+  - id: multi_site_config
     category: primitive
-    summary: Multi-slot orchestration knobs (per-child grace seconds, etc.).
-    model: litmus.models.project.MultiSlotConfig
+    summary: Multi-site orchestration knobs (per-child grace seconds, etc.).
+    model: litmus.models.project.MultiSiteConfig
 
   - id: channel_options
     category: primitive
@@ -301,15 +301,15 @@ concepts:
   - id: fixture_config
     category: definition
     summary: >
-      Bench-to-UUT wiring. Either single-UUT connections or multi-slot
-      slots; never both. station_types[] declares which abstract station
+      Bench-to-UUT wiring. Either single-UUT connections or multi-site
+      sites; never both. station_types[] declares which abstract station
       layouts this fixture can wire against.
     model: litmus.models.test_config.FixtureConfig
     authored_at: fixtures/*.yaml
     docs: docs/concepts/configuration/fixtures.md
     relationships:
       - { kind: wires,  target: fixture_connection }
-      - { kind: partitions_into,  target: fixture_slot }
+      - { kind: partitions_into,  target: fixture_site }
       - { kind: references, target: part }         # part_id / part_family
       - { kind: references, target: station_type }    # station_types[]
 
@@ -325,10 +325,10 @@ concepts:
       - { kind: references, target: measurement_function }  # function: MeasurementFunction | None
       - { kind: routed_through,  target: switch_route }
 
-  - id: fixture_slot
+  - id: fixture_site
     category: primitive
-    summary: One UUT slot inside a multi-UUT fixture; has its own connection map.
-    model: litmus.models.test_config.FixtureSlot
+    summary: One UUT site inside a multi-UUT fixture; has its own connection map.
+    model: litmus.models.test_config.FixtureSite
     relationships:
       - { kind: wires,  target: fixture_connection }
 
@@ -547,7 +547,7 @@ concepts:
     model: null
     docs: docs/concepts/data/sessions.md
     relationships:
-      - { kind: contains, target: test_run }    # one or many (single-UUT vs multi-slot)
+      - { kind: contains, target: test_run }    # one or many (single-UUT vs multi-site)
       - { kind: emits,    target: session_started }
       - { kind: emits, target: session_ended }
 
@@ -813,23 +813,23 @@ concepts:
       - { kind: inherits_from, target: event_base }
       - { kind: records,         target: test_run }
 
-  # ---- Slot events (multi-UUT) ----
+  # ---- Site events (multi-UUT) ----
 
-  - id: slot_started
+  - id: site_started
     category: event
-    event_type: slot.started
-    summary: A UUT slot begins execution. Carries slot_id and uut_serial_number.
-    model: litmus.data.events.SlotStarted
+    event_type: site.started
+    summary: A UUT site begins execution. Carries site_index and uut_serial_number.
+    model: litmus.data.events.SiteStarted
     relationships:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }
-      - { kind: paired_with,   target: slot_completed }
+      - { kind: paired_with,   target: site_completed }
 
-  - id: slot_completed
+  - id: site_completed
     category: event
-    event_type: slot.completed
-    summary: A UUT slot finishes execution.
-    model: litmus.data.events.SlotCompleted
+    event_type: site.completed
+    summary: A UUT site finishes execution.
+    model: litmus.data.events.SiteCompleted
     relationships:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }
@@ -1340,13 +1340,13 @@ slices:
       How a UUT pin reaches an instrument channel. FixtureConnection names
       the pairing; SwitchRoute handles intervening matrix/mux switching;
       RouteClosed/RouteOpened events record activation. Multi-UUT fixtures
-      use FixtureSlot to scope per-slot channel maps.
+      use FixtureSite to scope per-site channel maps.
     layout: LR
     highlight: [fixture_connection]
     concepts:
       - fixture_config
       - fixture_connection
-      - fixture_slot
+      - fixture_site
       - switch_route
       - pin
       - station_instrument_config

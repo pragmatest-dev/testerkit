@@ -12,39 +12,48 @@ See :mod:`litmus.verbs` for the resolution contract.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 import pytest
 
 from litmus import observe, stream, verify
+from litmus.data.models import TestVector
 from litmus.execution._state import (
     _current_context_var,
     get_current_context,
-    get_current_vector,
+    push_current_vector,
+    reset_current_vector,
 )
 
 
-@pytest.fixture(autouse=True)
-def _clear_vector_observations() -> Iterator[None]:
-    """Reset the active vector's observations between tests."""
-    yield
-    vec = get_current_vector()
-    if vec is not None:
-        vec.observations.clear()
+@contextmanager
+def _active_vector() -> Iterator[TestVector]:
+    """Push a fresh vector for the duration of the body, then reset.
+
+    Pushed IN-BODY (not via a setup-phase fixture): the litmus plugin's
+    call-phase ``start_step`` can reset the ``_current_vector`` contextvar in
+    the full suite, clobbering a fixture-pushed vector. Asserting on the
+    pushed vector directly is immune to that ordering.
+    """
+    vec = TestVector()
+    token = push_current_vector(vec)
+    try:
+        yield vec
+    finally:
+        reset_current_vector(token)
 
 
 def test_top_level_observe_writes_to_active_context() -> None:
     """``observe(...)`` mirrors to the active vector (same bridge the fixture uses)."""
-    observe("temp", 23.5)
-    vec = get_current_vector()
-    assert vec is not None
-    assert vec.observations == {"temp": 23.5}
+    with _active_vector() as vec:
+        observe("temp", 23.5)
+        assert vec.observations == {"temp": 23.5}
 
 
 def test_top_level_observe_namespace_prefixes_key() -> None:
-    observe("voltage", 3.31, namespace="psu_a")
-    vec = get_current_vector()
-    assert vec is not None
-    assert vec.observations == {"psu_a.voltage": 3.31}
+    with _active_vector() as vec:
+        observe("voltage", 3.31, namespace="psu_a")
+        assert vec.observations == {"psu_a.voltage": 3.31}
 
 
 def test_top_level_verb_no_context_raises_with_useful_message() -> None:
@@ -67,11 +76,10 @@ def test_top_level_verb_same_resolution_as_fixture(observe) -> None:  # type: ig
 
     # Both paths should write to the same vector — proven by writing
     # via each shape and asserting both keys land on the active vector.
-    observe("via_fixture", 1.0)
-    observe_module("via_import", 2.0)
-    vec = get_current_vector()
-    assert vec is not None
-    assert vec.observations == {"via_fixture": 1.0, "via_import": 2.0}
+    with _active_vector() as vec:
+        observe("via_fixture", 1.0)
+        observe_module("via_import", 2.0)
+        assert vec.observations == {"via_fixture": 1.0, "via_import": 2.0}
 
 
 def test_top_level_verb_resolves_same_context_object() -> None:

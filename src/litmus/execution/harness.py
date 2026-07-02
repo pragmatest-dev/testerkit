@@ -34,6 +34,7 @@ from litmus.execution._state import (
     get_active_station_config,
     get_active_test_characteristics,
     get_current_code_identity,
+    get_current_context,
     get_current_run_scope,
     get_current_step,
     get_current_vector,
@@ -561,7 +562,11 @@ class Context:
                 step_name=getattr(step, "name", "") if step else "",
                 step_index=run_scope._current_step_index,
                 step_path=getattr(step, "step_path", "") if step else "",
-                vector_index=getattr(vector, "index", 0) if vector else 0,
+                # Ambient (no active vector) → vector_index NULL, mirroring
+                # measure(): an observation with no owning condition point is
+                # step-scope, NOT a fake vector 0 (which would collide with an
+                # in-body loop's real vector 0 — Bug 3, for observe()).
+                vector_index=vector.index if vector is not None else None,
                 retry=getattr(vector, "retry", 0) if vector else 0,
                 name=key,
                 value=value,
@@ -600,9 +605,20 @@ class Context:
         run_id = getattr(getattr(run_scope, "test_run", None), "id", None)
         step_path = getattr(step, "step_path", "") if step else ""
         vector_index = getattr(vector, "index", 0) if vector else 0
-        occurrence = run_scope.next_vector_occurrence(step_path, vector_index)
+        # The outer (class-level) vector this step's method runs inside.
+        enc = run_scope._step_enclosing[-1] if run_scope._step_enclosing else None
+        vector_outer_index: int | None = enc.index if enc is not None else None
+        occurrence = run_scope.next_vector_occurrence(step_path, vector_outer_index, vector_index)
         if vector is not None:
             vector.retry = occurrence
+        # Inputs from the LIVE context (flattened chain) — the same view the test
+        # holds — not a copy off the vector, so every logged input matches reality.
+        ctx = get_current_context()
+        vs_inputs = (
+            {k: v for k, v in ctx.params.items() if not str(k).startswith("_")}
+            if ctx is not None
+            else (dict(vector.params) if vector is not None else {})
+        )
         event_log.emit(
             VectorStarted(
                 session_id=self._session_id,
@@ -611,9 +627,10 @@ class Context:
                 step_index=run_scope._current_step_index,
                 step_path=step_path,
                 vector_index=vector_index,
+                vector_outer_index=vector_outer_index,
                 retry=occurrence,
                 step_retry=getattr(step, "retry", 0) if step else 0,
-                inputs=dict(vector.params) if vector is not None else {},
+                inputs=vs_inputs,
                 input_units=dict(vector.param_units) if vector is not None else {},
                 node_id=getattr(step, "node_id", None) if step else None,
             )
@@ -637,6 +654,16 @@ class Context:
         vector = get_current_vector()
         run_id = getattr(getattr(run_scope, "test_run", None), "id", None)
         outcome = getattr(vector, "outcome", None) if vector is not None else None
+        enc = run_scope._step_enclosing[-1] if run_scope._step_enclosing else None
+        vector_outer_index: int | None = enc.index if enc is not None else None
+        # Live context (flattened) — captures in-body configure() applied during
+        # this iteration, unlike a stale copy off the vector.
+        ctx = get_current_context()
+        ve_inputs = (
+            {k: v for k, v in ctx.params.items() if not str(k).startswith("_")}
+            if ctx is not None
+            else (dict(vector.params) if vector is not None else {})
+        )
         event_log.emit(
             VectorEnded(
                 session_id=self._session_id,
@@ -645,10 +672,11 @@ class Context:
                 step_index=run_scope._current_step_index,
                 step_path=getattr(step, "step_path", "") if step else "",
                 vector_index=getattr(vector, "index", 0) if vector else 0,
+                vector_outer_index=vector_outer_index,
                 retry=getattr(vector, "retry", 0) if vector else 0,
                 step_retry=getattr(step, "retry", 0) if step else 0,
                 outcome=outcome.value if outcome is not None else None,
-                inputs=dict(vector.params) if vector is not None else {},
+                inputs=ve_inputs,
                 outputs=dict(vector.observations) if vector is not None else {},
                 input_units=dict(vector.param_units) if vector is not None else {},
                 output_units=dict(vector.observation_units) if vector is not None else {},
@@ -1061,6 +1089,47 @@ class Context:
         )
 
 
+class _ScopedContext(Context):
+    """The ``context`` a test holds — a view that always acts on the ACTIVE scope.
+
+    A test holds one ``context`` for its whole body, but the active scope changes
+    underneath it: inside a ``vectors`` loop the iterator pushes a per-iteration
+    child context onto the ContextVar. Every ``context.configure`` / ``observe``
+    / ``get_param`` / ``changed`` must land at whatever scope is current — the
+    base outside a loop, the child inside one — the same way ``measure()``
+    resolves via ``get_current_vector()``. Otherwise per-iteration data written
+    through ``context`` lands on the base and leaks onto the enclosing step.
+
+    Mechanism: this subclass stores NO state of its own — it deliberately does
+    not call ``super().__init__``. Every attribute access therefore misses on the
+    instance and falls through ``__getattr__`` to ``get_current_context()``, so
+    the inherited ``Context`` methods read and write the active context's data
+    through a single forwarding point. It IS-A ``Context`` (honest typing,
+    ``isinstance`` holds — no cast). Internal code never sees this view: the
+    ContextVar and every ``get_current_context()`` result are plain ``Context``
+    objects, so specific-context reads (``owning.configured_params``,
+    ``prev.get_param``) are unaffected.
+
+    NEVER store this view for later comparison (e.g. a ``_prev`` snapshot): it
+    forwards to whatever context is current *at read time*, so a stored view
+    reads a later scope, not the one you meant to capture. Store
+    ``get_current_context()`` (a plain ``Context``) instead.
+    """
+
+    def __init__(self, base: Context) -> None:
+        # No super().__init__(): storing state here would shadow the forwarding.
+        object.__setattr__(self, "_base", base)
+
+    def _scope(self) -> Context:
+        return get_current_context() or self._base
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._scope(), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(self._scope(), name, value)
+
+
 class TestHarness:
     """Harness for executing tests across expanded vectors.
 
@@ -1115,7 +1184,7 @@ class TestHarness:
             mock_instruments: Whether using mock instruments.
             channel_store: Optional ChannelStore for direct writes of numeric data.
             session_id: Session this harness's contexts belong to. Production paths
-                (pytest plugin, connect.py, slot_runner) pass the active session;
+                (pytest plugin, connect.py, site_runner) pass the active session;
                 test paths can leave None when the blob-observation path isn't
                 exercised.
         """
@@ -1816,8 +1885,19 @@ class TestHarness:
         finally:
             step.ended_at = _utcnow()
 
-            # Compute step outcome from vectors
+            # Compute step outcome from vectors — collapse each condition
+            # point (by index) to its FINAL attempt before escalating, so a
+            # vector that failed then passed on retry doesn't drag the step
+            # to FAILED. run_with_retry appends one TestVector per retry
+            # attempt at the same index; a plain dict keyed by index keeps
+            # "last write wins" (== last attempt, since attempts for one
+            # index are appended in order). Mirrors the node_id-based
+            # collapse in retry_aware_rollup (litmus.data.models), which
+            # operates one level up (step containers, not vectors).
+            final_attempt_by_index: dict[int, TestVector] = {}
             for tv in step.vectors:
+                final_attempt_by_index[tv.index] = tv
+            for tv in final_attempt_by_index.values():
                 step.outcome = escalate_outcome(step.outcome, tv.outcome)
 
             # Emit StepEnded event via public API

@@ -176,15 +176,15 @@ A run's outcome rolls up through every measurement and step; it's written to the
 | `SKIPPED` | Cascade rollup where the only contained outcomes were SKIPPED |
 | `None` | Default; a run that ended without any outcome being set. A run killed before it finalizes is recorded as ABORTED instead (see top row). |
 
-### Multi-UUT slot orchestrator
+### Multi-UUT site orchestrator
 
-In a multi-UUT run, each slot (one DUT) gets its own result; the session's overall result is the worst across slots.
+In a multi-UUT run, each site (one DUT) gets its own result; the session's overall result is the worst across sites.
 
-| Slot result | Triggering condition |
+| Site result | Triggering condition |
 |---|---|
-| `errored` | The slot's run never finished cleanly (killed, orphaned) |
-| `failed` | The slot's run finished with a failure |
-| `passed` | The slot's run finished clean |
+| `errored` | The site's run never finished cleanly (killed, orphaned) |
+| `failed` | The site's run finished with a failure |
+| `passed` | The site's run finished clean |
 
 Each DUT still records its own detailed outcome from the per-run tables above. For the operational guide, see [multi-UUT testing](../../how-to/execution/multi-uut-testing.md).
 
@@ -193,7 +193,7 @@ Each DUT still records its own detailed outcome from the per-run tables above. F
 - [Step hierarchy](step-hierarchy.md) — the measurement / vector / step / run levels the cascade walks
 - [Step manifest](step-manifest.md) — how `outcome IS NULL` rows show as "Never Ran" in finalized runs
 - [Event log](../data/event-log.md) — `RunEnded` / `StepEnded` events that carry the cascade-derived outcome
-- [Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) — slot orchestrator outcomes in practice
+- [Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) — site orchestrator outcomes in practice
 - [Limits](../../how-to/execution/limits.md) — how a measurement gets a limit attached (the trigger for measurement-level PASSED/FAILED and for step-level verdict intent)
 - [Models reference](../../reference/data/models.md) — `Outcome` enum source-of-truth and field tables for `Measurement` / `TestVector` / `TestStep` / `TestRun`
 - [Parquet schema](../../reference/data/parquet-schema.md) — column-level definitions of `run_outcome`, `step_outcome`, `measurement_outcome`

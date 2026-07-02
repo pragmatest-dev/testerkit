@@ -61,7 +61,7 @@ when you can — questions for `choice` and `input`, statements for
 
 The first reads like a spec heading. The second tells the operator
 exactly what to do. Include the concrete thing (serial number,
-slot, value) when the test knows it.
+site, value) when the test knows it.
 
 ### 3. One ask per prompt
 
@@ -148,4 +148,4 @@ the production rollout.
 - [Reference → litmus_prompts marker](../../reference/pytest/markers.md#litmus_prompts)
 - [Concepts → Step hierarchy](../../concepts/execution/step-hierarchy.md) — where prompts sit in the run timeline
 - [Tour of the Operator UI](../overview/operator-ui-tour.md) — the ACTIVE TESTS sidebar block, which is your prompt-waiting signal
-- [Multi-UUT testing](multi-uut-testing.md) — prompts in subprocess-per-slot setups
+- [Multi-UUT testing](multi-uut-testing.md) — prompts in subprocess-per-site setups

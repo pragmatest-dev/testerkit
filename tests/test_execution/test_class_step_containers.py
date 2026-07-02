@@ -77,14 +77,22 @@ def _wait_for_run(session_id: str, *, timeout: float = 15.0) -> str:
 
 
 def _read_steps(session_id: str) -> list[StepRow]:
-    """Return all step rows for the session, sorted by (step_index, vector_index)."""
+    """Return all step + vector rows for the session (both grains).
+
+    Sorted by (step_index, vector_index, vector_outer_index). ``steps`` and
+    ``step_vectors`` are now grain-explicit surfaces, so this merges the
+    logical-step rows with their condition-point rows to reproduce the flat
+    step+vector view these assertions expect. ``include_incomplete=True`` so
+    finalized rows aren't filtered by the default ``ended_at IS NOT NULL``.
+    """
     run_id = _wait_for_run(session_id)
     steps_q = StepsQuery()
     try:
-        rows = list(steps_q.list_for_run(run_id))
+        rows = list(steps_q.list_for_run(run_id, include_incomplete=True))
+        rows += list(steps_q.list_vectors_for_run(run_id, include_incomplete=True))
     finally:
         steps_q.close()
-    rows.sort(key=lambda s: (s.step_index or 0, s.vector_index or 0))
+    rows.sort(key=lambda s: (s.step_index or 0, s.vector_index or 0, s.vector_outer_index or 0))
     return rows
 
 
@@ -139,7 +147,8 @@ def test_unswept_class_emits_single_container(tmp_path: Path) -> None:
     ]
     assert len(container_starts) == 1, container_starts
     assert len(container_ends) == 1, container_ends
-    assert container_starts[0].get("vector_index", 0) == 0
+    # A step (incl. a class container) has no own vector_index — canonically NULL.
+    assert container_starts[0].get("vector_index") is None
     assert container_starts[0].get("inputs") in (None, {}), container_starts[0].get("inputs")
     assert "/" not in (container_starts[0].get("step_path") or "")
 
@@ -151,7 +160,8 @@ def test_unswept_class_emits_single_container(tmp_path: Path) -> None:
 
 def test_class_sweep_emits_container_per_iteration(tmp_path: Path) -> None:
     """A class swept over voltage=[1,2,3] emits three container StepStarted
-    events with vector_index 0/1/2 and ``inputs={"voltage": <value>}``.
+    events (vi=0 each — top-level, no enclosing loop) plus three VectorStarted
+    events (vi=0/1/2) carrying the voltage values.
     """
     session_id = str(uuid4())
     test_file = tmp_path / "test_class_sweep.py"
@@ -183,11 +193,28 @@ def test_class_sweep_emits_container_per_iteration(tmp_path: Path) -> None:
     assert len(container_starts) == 3, [e.get("vector_index") for e in container_starts]
     assert len(container_ends) == 3
 
-    vector_indices = [e.get("vector_index") for e in container_starts]
-    assert vector_indices == [0, 1, 2], vector_indices
+    # A step's own vector_index is canonically NULL; the container is top-level
+    # (encl=None) so vector_outer_index is None too. Voltage values land on the
+    # VectorStarted events emitted by begin_outer_vector.
+    assert [e.get("vector_index") for e in container_starts] == [None, None, None]
+    assert [e.get("vector_outer_index") for e in container_starts] == [None, None, None]
 
+    # Containers carry empty inputs on StepStarted (enclosing=None).
     inputs = [e.get("inputs") or {} for e in container_starts]
-    assert inputs == [{"voltage": 1}, {"voltage": 2}, {"voltage": 3}], inputs
+    assert inputs == [{}, {}, {}], inputs
+
+    # VectorStarted events carry the actual sweep params.
+    store = EventStore.get_shared()
+    vec_events = store.events(session_id=UUID(session_id), event_type="test.vector_started")
+    container_vecs = sorted(
+        (e for e in vec_events if e.get("step_name") == "TestSeq"),
+        key=lambda e: e.get("vector_index", 0),
+    )
+    assert len(container_vecs) == 3, container_vecs
+    vec_vis = [e.get("vector_index") for e in container_vecs]
+    assert vec_vis == [0, 1, 2], vec_vis
+    vec_inputs = [e.get("inputs") or {} for e in container_vecs]
+    assert vec_inputs == [{"voltage": 1}, {"voltage": 2}, {"voltage": 3}], vec_inputs
 
 
 # ---------------------------------------------------------------------------
@@ -252,54 +279,83 @@ def test_canonical_composed_sweep_order(tmp_path: Path) -> None:
     actual = [e.get("step_name") for e in started]
     assert actual == expected_step_names, actual
 
-    # vector_index sequence: container 0/1/2; A 0/1/2; B 0..8; C 0/1/2.
-    expected_vector_indices = [
-        0,
-        0,
-        0,
-        1,
-        2,
-        0,
-        1,
-        1,
-        3,
-        4,
-        5,
-        1,
-        2,
-        2,
-        6,
-        7,
-        8,
-        2,
+    # A step has no own vector_index (NULL). The ENCLOSING class-outer condition
+    # rides vector_outer_index: None for the top-level TestSeq container, and the
+    # class-outer index (0/1/2) for the methods running under each iteration.
+    # test_b variants are Mode-1 (separate pytest items); each has encl=c_vec_N
+    # → vector_outer_index = N (NOT their own b_vec index).
+    expected_vector_outer_indices = [
+        None,  # TestSeq iter 0 (encl=None)
+        0,  # test_a (encl=c_vec_0, index=0)
+        0,  # test_b[c=4] (encl=c_vec_0)
+        0,  # test_b[c=5] (encl=c_vec_0)
+        0,  # test_b[c=6] (encl=c_vec_0)
+        0,  # test_c (encl=c_vec_0)
+        None,  # TestSeq iter 1 (encl=None)
+        1,  # test_a (encl=c_vec_1, index=1)
+        1,  # test_b[c=4] (encl=c_vec_1)
+        1,  # test_b[c=5] (encl=c_vec_1)
+        1,  # test_b[c=6] (encl=c_vec_1)
+        1,  # test_c (encl=c_vec_1)
+        None,  # TestSeq iter 2 (encl=None)
+        2,  # test_a (encl=c_vec_2, index=2)
+        2,  # test_b[c=4] (encl=c_vec_2)
+        2,  # test_b[c=5] (encl=c_vec_2)
+        2,  # test_b[c=6] (encl=c_vec_2)
+        2,  # test_c (encl=c_vec_2)
     ]
-    actual_vi = [e.get("vector_index", 0) for e in started]
-    assert actual_vi == expected_vector_indices, actual_vi
+    actual_voi = [e.get("vector_outer_index") for e in started]
+    assert actual_voi == expected_vector_outer_indices, actual_voi
+    # And every step's own vector_index is NULL.
+    assert all(e.get("vector_index") is None for e in started), [
+        e.get("vector_index") for e in started
+    ]
 
-    # inputs sequence: container carries {voltage: N}, A/C carry {voltage: N},
-    # B carries {voltage: N, current: M}.
+    # inputs sequence:
+    # - Container (TestSeq) StepStarted: encl=None → {} (params land on VectorStarted)
+    # - Method StepStarted: encl=c_vec_N → {voltage: N} (latched at start_step)
+    # - test_b: own Mode-1 outer begin_outer_vector fires AFTER StepStarted →
+    #   StepStarted still only carries the enclosing voltage, NOT current.
     expected_inputs: list[dict[str, Any]] = [
-        {"voltage": 1},
-        {"voltage": 1},
-        {"voltage": 1, "current": 4},
-        {"voltage": 1, "current": 5},
-        {"voltage": 1, "current": 6},
-        {"voltage": 1},
+        {},  # TestSeq iter 0
+        {"voltage": 1},  # test_a
+        {"voltage": 1},  # test_b[c=4]
+        {"voltage": 1},  # test_b[c=5]
+        {"voltage": 1},  # test_b[c=6]
+        {"voltage": 1},  # test_c
+        {},  # TestSeq iter 1
         {"voltage": 2},
         {"voltage": 2},
-        {"voltage": 2, "current": 4},
-        {"voltage": 2, "current": 5},
-        {"voltage": 2, "current": 6},
         {"voltage": 2},
+        {"voltage": 2},
+        {"voltage": 2},
+        {},  # TestSeq iter 2
         {"voltage": 3},
         {"voltage": 3},
-        {"voltage": 3, "current": 4},
-        {"voltage": 3, "current": 5},
-        {"voltage": 3, "current": 6},
+        {"voltage": 3},
+        {"voltage": 3},
         {"voltage": 3},
     ]
     actual_inputs = [e.get("inputs") or {} for e in started]
     assert actual_inputs == expected_inputs, actual_inputs
+
+    # Union-at-rest on the Mode-1 (parametrize) VECTOR rows: each test_b variant
+    # is a separate pytest item whose class-outer begin_outer_vector emits a
+    # VectorStarted carrying the merged callspec {voltage, current}. This guards
+    # the parametrize build path — the peer of the vectors-fixture inner path
+    # (test_swept_class_with_vectors_fixture_inner_sweep). Both must carry the
+    # full enclosing+own condition on the vector row, not the inner layer alone.
+    store = EventStore.get_shared()
+    vec_events = store.events(session_id=UUID(session_id), event_type="test.vector_started")
+    b_vecs = [e for e in vec_events if e.get("step_name") == "test_b"]
+    assert len(b_vecs) == 9, b_vecs
+    for e in b_vecs:
+        inputs = e.get("inputs") or {}
+        assert "voltage" in inputs and "current" in inputs, inputs
+    b_pairs = {
+        ((e.get("inputs") or {})["voltage"], (e.get("inputs") or {})["current"]) for e in b_vecs
+    }
+    assert b_pairs == {(v, c) for v in (1, 2, 3) for c in (4, 5, 6)}, b_pairs
 
 
 # ---------------------------------------------------------------------------
@@ -456,15 +512,15 @@ def test_per_iteration_outcome_isolation(tmp_path: Path) -> None:
     result = _run_pytest(test_file, session_id=session_id)
     assert result.returncode != 0
 
-    events = _read_step_events(session_id)
-    container_ends = [
-        e
-        for e in events
-        if e.get("event_type") == "test.step_ended" and e.get("step_name") == "TestSeq"
-    ]
-    assert len(container_ends) == 3, container_ends
+    # Phase 2 shape: container StepEnded all carry vi=0 (top-level, encl=None).
+    # Use VectorEnded events for per-iteration outcome — they carry vi=0/1/2
+    # and the vector's rolled-up outcome.
+    store = EventStore.get_shared()
+    vec_ended = store.events(session_id=UUID(session_id), event_type="test.vector_ended")
+    container_vec_ends = [e for e in vec_ended if e.get("step_name") == "TestSeq"]
+    assert len(container_vec_ends) == 3, container_vec_ends
 
-    by_vi = {e.get("vector_index", 0): e.get("outcome") for e in container_ends}
+    by_vi = {e.get("vector_index"): e.get("outcome") for e in container_vec_ends}
     assert by_vi == {0: "passed", 1: "failed", 2: "passed"}, by_vi
 
 
@@ -483,9 +539,10 @@ def test_swept_class_with_vectors_fixture_inner_sweep(tmp_path: Path) -> None:
     Expected shape:
 
     * 3 ``TestSeq`` container events (voltage 0/1/2)
-    * 3 ``test_b`` ``StepStarted`` events with matching ``vector_index``
-      and ``inputs={voltage: N}`` — the OUTER index, not the last inner.
-    * 3 matching ``StepEnded`` events (vi same as Started; severity-max
+    * 3 ``test_b`` ``StepStarted`` events with NULL own ``vector_index`` and
+      the enclosing outer index on ``vector_outer_index`` (0/1/2), plus
+      ``inputs={voltage: N}``.
+    * 3 matching ``StepEnded`` events (same vector_outer_index; severity-max
       across inner iterations).
     * 9 measurements with full ``inputs={voltage, current}`` so each row
       carries the complete sweep context.
@@ -522,18 +579,20 @@ def test_swept_class_with_vectors_fixture_inner_sweep(tmp_path: Path) -> None:
     assert len(method_starts) == 3, method_starts
     assert len(method_ends) == 3, method_ends
 
-    # Container vector_index matches outer iteration (0/1/2) with voltage in inputs.
-    assert [e.get("vector_index") for e in container_starts] == [0, 1, 2]
-    assert [e.get("inputs") or {} for e in container_starts] == [
-        {"voltage": 1},
-        {"voltage": 2},
-        {"voltage": 3},
-    ]
+    # A step has no own vector_index (canonically NULL); the container is
+    # top-level so vector_outer_index is None too. Voltage values land on
+    # the container's VectorStarted events.
+    assert [e.get("vector_index") for e in container_starts] == [None, None, None]
+    assert [e.get("vector_outer_index") for e in container_starts] == [None, None, None]
+    assert [e.get("inputs") or {} for e in container_starts] == [{}, {}, {}]
 
-    # Method StepStarted and StepEnded share vector_index — the OUTER index —
-    # NOT the inner iteration's last vector index.
-    assert [e.get("vector_index") for e in method_starts] == [0, 1, 2]
-    assert [e.get("vector_index") for e in method_ends] == [0, 1, 2]
+    # Method steps have NULL own vector_index; the enclosing class-outer
+    # condition rides vector_outer_index (0/1/2). test_b is NOT a Mode-1 swept
+    # step here (it uses the vectors fixture, i.e. Mode-2).
+    assert [e.get("vector_index") for e in method_starts] == [None, None, None]
+    assert [e.get("vector_index") for e in method_ends] == [None, None, None]
+    assert [e.get("vector_outer_index") for e in method_starts] == [0, 1, 2]
+    assert [e.get("vector_outer_index") for e in method_ends] == [0, 1, 2]
     assert [e.get("inputs") or {} for e in method_starts] == [
         {"voltage": 1},
         {"voltage": 2},
@@ -556,6 +615,85 @@ def test_swept_class_with_vectors_fixture_inner_sweep(tmp_path: Path) -> None:
     }
     assert pairs == {(v, c) for v in (1, 2, 3) for c in (4, 5, 6)}, pairs
 
+    # Union-at-rest invariant on the INNER VECTOR rows themselves (not just the
+    # measurements): each vectors-fixture iteration under the swept class carries
+    # the merged {voltage, current} — the enclosing class condition overlaid with
+    # the iteration's own — because the plugin builds TestVector.params as the
+    # union at construction. The class-outer vectors carry only their own layer.
+    vec_events = store.events(session_id=UUID(session_id), event_type="test.vector_started")
+    inner_vecs = [e for e in vec_events if e.get("step_name") == "test_b"]
+    assert len(inner_vecs) == 9, inner_vecs
+    for e in inner_vecs:
+        inputs = e.get("inputs") or {}
+        assert "voltage" in inputs and "current" in inputs, inputs
+    inner_pairs = {
+        ((e.get("inputs") or {})["voltage"], (e.get("inputs") or {})["current"]) for e in inner_vecs
+    }
+    assert inner_pairs == {(v, c) for v in (1, 2, 3) for c in (4, 5, 6)}, inner_pairs
+    outer_vecs = [e for e in vec_events if e.get("step_name") == "TestSeq"]
+    assert {(e.get("inputs") or {}).get("voltage") for e in outer_vecs} == {1, 2, 3}
+    for e in outer_vecs:
+        assert "current" not in (e.get("inputs") or {}), e
+
+    # Isolation (union flows outer→inner, NEVER inner→outer): the test_b STEP
+    # rows carry only the enclosing {voltage} — never the per-iteration `current`,
+    # which varies across inner vectors and lives on the vector rows alone. Guards
+    # against the union fix leaking inner context up onto the step.
+    b_steps = [
+        r for r in _read_steps(session_id) if r.step_name == "test_b" and r.vector_index is None
+    ]
+    assert len(b_steps) == 3, [(r.step_path, r.vector_index, r.vector_outer_index) for r in b_steps]
+    for r in b_steps:
+        assert (r.inputs or {}).get("voltage") in (1, 2, 3), r.inputs
+        assert "current" not in (r.inputs or {}), r.inputs
+
+
+def test_inner_loop_configure_is_logged(tmp_path: Path) -> None:
+    """An in-body ``configure()`` inside a Mode-2 ``vectors`` loop reaches the
+    logged measurement AND the ``VectorEnded`` row — because inputs are resolved
+    from the live context the test holds at that instant, not a snapshot copied
+    off the vector. Guards the reconstruction path that silently dropped in-loop
+    configure() (the values existed in the context but never made it to the log).
+    """
+    session_id = str(uuid4())
+    test_file = tmp_path / "test_cfg_loop.py"
+    _write_test(
+        test_file,
+        """\
+        import pytest
+        from litmus.execution._state import get_current_context
+
+        @pytest.mark.litmus_sweeps([{"voltage": [1, 2]}])
+        class TestSeq:
+            @pytest.mark.litmus_sweeps([{"current": [4, 5]}])
+            def test_b(self, voltage, vectors, measure):
+                for v in vectors:
+                    get_current_context().configure("trim", v["current"] * 10)
+                    measure("vout", 1.0)
+        """,
+    )
+    result = _run_pytest(test_file, session_id=session_id)
+    assert result.returncode == 0, result.stderr
+
+    store = EventStore.get_shared()
+    meas = store.events(session_id=UUID(session_id), event_type="test.measurement")
+    assert len(meas) == 4, meas
+    for m in meas:
+        inp = m.get("inputs") or {}
+        assert {"voltage", "current", "trim"} <= set(inp), inp
+        assert inp["trim"] == inp["current"] * 10, inp
+    # VectorEnded (emitted after the iteration body) also carries the configured
+    # trim — the vector row reflects the final context, not the seeded params.
+    ve = [
+        e
+        for e in store.events(session_id=UUID(session_id), event_type="test.vector_ended")
+        if e.get("step_name") == "test_b"
+    ]
+    assert len(ve) == 4, ve
+    for e in ve:
+        inp = e.get("inputs") or {}
+        assert {"voltage", "current", "trim"} <= set(inp), inp
+
 
 def test_vectors_fixture_outcome_rollup(tmp_path: Path) -> None:
     """Vectors-fixture step outcome is the severity-max rollup of its
@@ -564,12 +702,12 @@ def test_vectors_fixture_outcome_rollup(tmp_path: Path) -> None:
     Three inner iterations: two measurements pass their limit, one fails.
     Severity ladder says FAILED beats PASSED — so:
 
-    * ``StepEnded.outcome`` (the step's aggregate verdict) = FAILED
-    * ``StepEnded.vector_outcome`` (aggregated across step.vectors[]) = FAILED
+    * ``StepEnded.outcome`` (the step's aggregate verdict, escalated across
+      ``step.vectors[]`` via :func:`escalate_outcome`) = FAILED
     * Class-container ``StepEnded.outcome`` = FAILED (rolled up from the step)
 
     This locks in the rollup chain for mixed-outcome inner iterations and
-    catches the prior bug where ``vector_outcome`` reflected only the last
+    catches the prior bug where the step's outcome reflected only the last
     inner iteration's verdict (a passing iteration after a failing one
     would have masked the failure).
     """
@@ -613,10 +751,9 @@ def test_vectors_fixture_outcome_rollup(tmp_path: Path) -> None:
         for e in events
         if e.get("event_type") == "test.step_ended" and e.get("step_name") == "test_check"
     )
-    # Step outcome AND vector_outcome both reflect the rollup of inner
-    # measurements: FAILED wins over the two PASSED siblings.
+    # Step outcome reflects the rollup of inner measurements: FAILED wins
+    # over the two PASSED siblings.
     assert method_end.get("outcome") == "failed", method_end.get("outcome")
-    assert method_end.get("vector_outcome") == "failed", method_end.get("vector_outcome")
 
     container_end = next(
         e
@@ -651,9 +788,14 @@ def test_inputs_auto_projected_to_parquet(tmp_path: Path) -> None:
 
     rows = _read_steps(session_id)
     container_rows = [r for r in rows if r.step_name == "TestSeq"]
-    assert len(container_rows) == 3, [(r.step_path, r.vector_index) for r in container_rows]
+    # Phase 2 shape: ONE step row (vi=NULL) + THREE vector rows (vi=0/1/2).
+    assert len(container_rows) == 4, [(r.step_path, r.vector_index) for r in container_rows]
 
-    by_vi = {r.vector_index: r.inputs for r in container_rows}
+    # The 3 vector rows carry the voltage values as inputs; the step row
+    # (vi=NULL) carries no sweep params.
+    vector_rows = [r for r in container_rows if r.vector_index is not None]
+    assert len(vector_rows) == 3, [(r.step_path, r.vector_index) for r in vector_rows]
+    by_vi = {r.vector_index: r.inputs for r in vector_rows}
     assert by_vi == {0: {"voltage": 1}, 1: {"voltage": 2}, 2: {"voltage": 3}}, by_vi
 
 
@@ -679,9 +821,9 @@ def test_configure_overrides_parametrize_in_stored_inputs(tmp_path: Path) -> Non
 
     rows = _read_steps(session_id)
     method_rows = [r for r in rows if r.step_name == "test_one"]
-    assert len(method_rows) == 3, [(r.step_path, r.vector_index) for r in method_rows]
+    assert len(method_rows) == 3, [(r.step_path, r.vector_outer_index) for r in method_rows]
 
-    by_vi = {r.vector_index: r.inputs for r in method_rows}
+    by_vi = {r.vector_outer_index: r.inputs for r in method_rows}
     assert by_vi == {
         0: {"voltage": 101, "trim": 7},
         1: {"voltage": 102, "trim": 7},

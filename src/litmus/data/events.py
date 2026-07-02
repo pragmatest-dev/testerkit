@@ -48,8 +48,8 @@ def _detect_client() -> str:
 # Three groups, by reason:
 #
 # * **Pairing IDs** — an open-event ``file_id`` / ``dialog_id`` /
-#   ``channel_id`` / ``slot_id`` has a matching close-event with the
-#   same value. The pushdown answers "did this open ever close?"
+#   ``channel_id`` has a matching close-event with the same value.
+#   The pushdown answers "did this open ever close?"
 # * **Operator-facing identifiers** — ``uut_serial_number`` /
 #   ``station_hostname`` are how operators name what they're querying
 #   ("everything that happened to SN001 on bench-3").
@@ -65,7 +65,6 @@ TYPED_PAYLOAD_COLUMNS: tuple[str, ...] = (
     "file_id",
     "dialog_id",
     "channel_id",
-    "slot_id",
     # Operator-facing identifiers
     "uut_serial_number",
     "station_hostname",
@@ -164,9 +163,10 @@ class SessionStarted(EventBase):
     operator_id: str | None = None
     operator_name: str | None = None
 
-    # Fixture & slot
+    # Fixture & site
     fixture_id: str | None = None
-    slot_count: int = 1
+    site_count: int = 1
+    site_names: list[str | None] = Field(default_factory=list)
 
     # The will — the owner's liveness policy, read by the reaper off this event
     # (never config). ``process_uuid`` pairs with pid + station_hostname as the
@@ -197,7 +197,8 @@ class SessionStarted(EventBase):
         operator_id: str | None = None,
         operator_name: str | None = None,
         fixture_id: str | None = None,
-        slot_count: int | None = None,
+        site_count: int | None = None,
+        site_names: list[str | None] | None = None,
         session_type: str = "test_run",
         idle_lease_seconds: float | None = None,
         abandon_grace_seconds: float | None = None,
@@ -206,14 +207,14 @@ class SessionStarted(EventBase):
         """Build a SessionStarted with common station fields.
 
         Shared by plugin.py (pytest) and connect.py (interactive).
-        If ``slot_count`` is None, reads ``_LITMUS_SLOT_COUNT`` env var
+        If ``site_count`` is None, reads ``_LITMUS_SITE_COUNT`` env var
         (defaults to 1). The will fields (``idle_lease_seconds`` /
         ``abandon_grace_seconds`` / ``abandon_reason``) are resolved
         producer-side from ``SessionOptions`` by the caller; ``process_uuid``
         is stamped automatically, like ``pid``.
         """
-        if slot_count is None:
-            slot_count = int(os.environ.get("_LITMUS_SLOT_COUNT", "1"))
+        if site_count is None:
+            site_count = int(os.environ.get("_LITMUS_SITE_COUNT", "1"))
 
         return cls(
             session_id=session_id,
@@ -225,7 +226,8 @@ class SessionStarted(EventBase):
             operator_id=operator_id,
             operator_name=operator_name,
             fixture_id=fixture_id,
-            slot_count=slot_count,
+            site_count=site_count,
+            site_names=site_names or [],
             session_type=session_type,
             pid=os.getpid(),
             process_uuid=process_uuid(),
@@ -274,8 +276,8 @@ class RunStarted(EventBase):
     station_type: str | None = None
     station_location: str | None = None
     station_hostname: str | None = None
-    slot_id: str | None = None
-    slot_index: int | None = None
+    site_index: int = 0
+    site_name: str | None = None
 
     # Process
     pid: int | None = None
@@ -351,23 +353,25 @@ class RunMaterialized(EventBase):
 
 
 # ---------------------------------------------------------------------------
-# Slot events (multi-UUT)
+# Site events (multi-UUT)
 # ---------------------------------------------------------------------------
 
 
-class SlotStarted(EventBase):
-    """Emitted when a UUT slot begins execution."""
+class SiteStarted(EventBase):
+    """Emitted when a UUT site begins execution."""
 
-    event_type: Literal["slot.started"] = "slot.started"
-    slot_id: str
+    event_type: Literal["site.started"] = "site.started"
+    site_index: int
+    site_name: str | None = None
     uut_serial_number: str
 
 
-class SlotCompleted(EventBase):
-    """Emitted when a UUT slot finishes execution."""
+class SiteCompleted(EventBase):
+    """Emitted when a UUT site finishes execution."""
 
-    event_type: Literal["slot.completed"] = "slot.completed"
-    slot_id: str
+    event_type: Literal["site.completed"] = "site.completed"
+    site_index: int
+    site_name: str | None = None
     outcome: str  # "passed", "failed", "errored", etc — see Outcome
     error_message: str | None = None
 
@@ -376,12 +380,12 @@ class SyncArrived(EventBase):
     """Emitted by a child process when it reaches a named sync point."""
 
     event_type: Literal["sync.arrived"] = "sync.arrived"
-    slot_id: str
+    site_index: int
     name: str  # Sync point name (e.g., "thermal_soak")
 
 
 class SyncRelease(EventBase):
-    """Emitted by the orchestrator to unblock all slots at a sync point."""
+    """Emitted by the orchestrator to unblock all sites at a sync point."""
 
     event_type: Literal["sync.release"] = "sync.release"
     name: str  # Sync point name
@@ -456,13 +460,16 @@ class StepStarted(EventBase):
     step_path: str = ""
     description: str | None = None
 
-    # Vector context — which sweep condition this execution is.
-    # vector_index 0 (the default) is the natural value for non-swept steps;
-    # for sweep variants it identifies the specific condition. ``inputs``
-    # carries the commanded sweep parameters for this vector — what
-    # subscribers need to disambiguate "test_efficiency starting" from
-    # "test_efficiency starting at vin=2.0V".
-    vector_index: int = 0
+    # A step has NO own vector_index — canonically NULL, matching the at-rest
+    # step row. The ENCLOSING sweep condition (the class-level vector this step
+    # runs under) lives in ``vector_outer_index``, never here. ``inputs`` carries
+    # the enclosing condition's commanded parameters. (A step's own sweep points
+    # are separate ``VectorStarted`` events, which DO carry their own
+    # ``vector_index`` 0..N.)
+    vector_index: int | None = None
+    # The vector_index of the outer (class-level) vector this step runs
+    # inside; NULL when the step is not nested under a sweep.
+    vector_outer_index: int | None = None
     # 0-based retry of this execution. 0 for first run, N for the Nth retry.
     # Meaningful for the Mode-1 fused step-execution≡vector boundary (parametrize
     # item rerun, or class-container re-execution).
@@ -494,7 +501,14 @@ class MeasurementRecorded(EventBase):
     step_name: str
     step_index: int
     step_path: str = ""
-    vector_index: int = 0
+    # NULL ⟺ an ambient / step-scope measurement (no owning condition point);
+    # 0..N ⟺ the owning vector's index. The enclosing outer condition rides
+    # ``vector_outer_index``. Defaults to None (ambient) — a measurement with no
+    # known vector is step-scope, NOT a fake vector 0; defaulting to 0 would let
+    # an un-stamped ambient measurement collide with the in-body loop's real
+    # vector 0. The live path (``run_scope.log_measurement``) sets it explicitly.
+    vector_index: int | None = None
+    vector_outer_index: int | None = None
     step_retry: int = 0  # outer item-attempt axis (de-fuse identity)
     retry: int = 0  # inner vector retry — 0 for first execution, N for Nth
 
@@ -538,11 +552,14 @@ class Observation(EventBase):
 
     event_type: Literal["test.observation"] = "test.observation"
 
-    # Step/vector context (matches MeasurementRecorded shape)
+    # Step/vector context (matches MeasurementRecorded shape). vector_index
+    # defaults to None (ambient / step-scope) — an observation with no owning
+    # condition point must not default to a fake vector 0 (it would key into
+    # ``obs_by_key`` at vector 0 and collide with the loop's real vector 0).
     step_name: str = ""
     step_index: int = 0
     step_path: str = ""
-    vector_index: int = 0
+    vector_index: int | None = None
     retry: int = 0
 
     # Observation
@@ -564,16 +581,14 @@ class StepEnded(EventBase):
     # measurements; step-summary rows fill the gap.
     outcome: str | None = None
 
-    # Vector context for this specific execution.
-    # ``vector_outcome`` is the per-vector verdict (the step-level ``outcome``
-    # is the aggregate across vectors).  ``inputs`` repeat the commanded sweep
-    # parameters for completeness; ``outputs`` carries vector-level
-    # observations not tied to any specific measurement.
-    vector_index: int = 0
+    # A step has NO own vector_index — canonically NULL (see StepStarted). The
+    # enclosing sweep condition lives in ``vector_outer_index``. ``outputs``
+    # carries step-level observations not tied to a specific measurement.
+    vector_index: int | None = None
+    vector_outer_index: int | None = None
     # 0-based retry of this execution (Mode-1 fused boundary). Companion to
     # ``StepStarted.retry``.
     retry: int = 0
-    vector_outcome: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
     # Optional engineering unit / pin per input / output name → the lane fields.
@@ -607,6 +622,9 @@ class VectorStarted(EventBase):
     step_index: int
     step_path: str = ""
     vector_index: int = 0
+    # The vector_index of the outer (class-level) vector this vector's step
+    # runs inside; NULL when the step is at the top level.
+    vector_outer_index: int | None = None
     retry: int = 0
     step_retry: int = 0
     inputs: dict[str, Any] = Field(default_factory=dict)
@@ -624,6 +642,7 @@ class VectorEnded(EventBase):
     step_index: int
     step_path: str = ""
     vector_index: int = 0
+    vector_outer_index: int | None = None
     retry: int = 0
     step_retry: int = 0
     outcome: str | None = None
@@ -911,7 +930,7 @@ class DialogResponded(EventBase):
 
 SESSION_EVENTS = {SessionStarted, SessionEnded}
 RUN_EVENTS = {RunStarted, RunEnded, RunMaterialized}
-SLOT_EVENTS = {SlotStarted, SlotCompleted, SyncArrived, SyncRelease}
+SITE_EVENTS = {SiteStarted, SiteCompleted, SyncArrived, SyncRelease}
 FIXTURE_EVENTS = {
     InstrumentConnected,
     IdentityVerified,
@@ -937,7 +956,7 @@ DIALOG_EVENTS = {DialogOpened, DialogResponded}
 ALL_EVENTS = (
     SESSION_EVENTS
     | RUN_EVENTS
-    | SLOT_EVENTS
+    | SITE_EVENTS
     | FIXTURE_EVENTS
     | TEST_EVENTS
     | ROUTE_EVENTS
@@ -955,8 +974,8 @@ Event = Annotated[
     | RunStarted
     | RunEnded
     | RunMaterialized
-    | SlotStarted
-    | SlotCompleted
+    | SiteStarted
+    | SiteCompleted
     | SyncArrived
     | SyncRelease
     | InstrumentConnected

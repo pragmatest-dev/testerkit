@@ -4,7 +4,7 @@ When a test function takes ``vectors`` in its signature, pytest collects
 a single test case regardless of how many parametrize rows or sidecar
 vectors are declared. The fixture yields an iterator over the
 consolidated matrix; iterating pushes active params + index per row so
-``context.get_param`` / ``.changed`` / ``.last`` and
+``get_current_context().get_param`` / ``.changed`` / ``.last`` and
 ``logger.measure`` / ``verify`` behave identically to normal mode.
 """
 
@@ -34,11 +34,13 @@ def test_vectors_fixture_sidecar_single_case_iterates_matrix(
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
+            from litmus.execution._state import get_current_context
+
             def test_rails(context, vectors):
                 seen = []
                 for v in vectors:
                     seen.append(v["vin"])
-                    assert context.get_param("vin") == v["vin"]
+                    assert get_current_context().get_param("vin") == v["vin"]
                 assert seen == [4.5, 5.0, 5.5]
             """
         )
@@ -81,15 +83,17 @@ def test_vectors_fixture_consumes_native_parametrize(pytester: pytest.Pytester) 
 def test_vectors_fixture_change_tracking_across_iterations(
     pytester: pytest.Pytester,
 ) -> None:
-    """``context.changed()`` flips appropriately inside the self-loop."""
+    """Active child context's ``changed()`` flips appropriately inside the self-loop."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
+            from litmus.execution._state import get_current_context
+
             def test_rails(context, vectors):
                 seen_changed = []
                 for _ in vectors:
-                    seen_changed.append(context.changed("vin"))
+                    seen_changed.append(get_current_context().changed("vin"))
                 # First iteration: no prev row → True.
                 # Subsequent iterations: differs from prior row → True.
                 assert seen_changed == [True, True, True]
@@ -278,6 +282,53 @@ def test_vectors_fixture_crosses_parametrize_and_sidecar(
               test_rails:
                 sweeps:
                     - {vin: [3.3, 5.0]}
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+
+
+def test_vectors_fixture_mode2_child_context_hygiene(
+    pytester: pytest.Pytester,
+) -> None:
+    """Child-context per iteration: step-scope configure() survives; no iteration bleed.
+
+    (a) A configure() on the base before the loop is visible each iteration via
+        the parent chain on the active child context.
+    (b) A per-iteration configure() on the child is not visible at the START of
+        the next iteration (no bleed across iterations).
+    (c) The step base is not left holding the per-iteration key after the loop.
+    """
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            from litmus.execution._state import get_current_context
+
+            def test_hygiene(context, vectors):
+                context.configure("setup_key", 1)
+                for v in vectors:
+                    ctx = get_current_context()
+                    # (b) no bleed from prior iteration
+                    assert ctx.get_param("iter_key", "CLEAN") == "CLEAN"
+                    ctx.configure("iter_key", v["x"])
+                    # (a) step-scope key visible via parent chain each iteration
+                    assert ctx.get_param("setup_key") == 1
+                # (c) base not left holding per-iteration key
+                assert context.get_param("iter_key", "NONE") == "NONE"
+                # (a) step-scope key still on base after loop
+                assert context.get_param("setup_key") == 1
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            tests:
+              test_hygiene:
+                sweeps:
+                    - {x: [10, 20]}
             """
         )
     )

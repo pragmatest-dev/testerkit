@@ -580,11 +580,10 @@ See [Profiles](../how-to/execution/profiles.md) for the profile YAML shape.
 | `LITMUS_MOCK_INSTRUMENTS` | Set to `1` to enable mock mode without passing `--mock-instruments`. |
 | `LITMUS_AUTO_CONFIRM` | Truthy → auto-resolve operator prompts and dialogs in non-tty contexts (CI, subprocess runs). Set to `"confirm"` to auto-confirm, `"cancel"` to auto-cancel; any other truthy value defaults to confirm. |
 | `LITMUS_SERVER_URL` | Server URL the dialog bridge uses to POST operator prompts from subprocess test runs back to the UI host (default: `http://localhost:8000`). |
-| `LITMUS_UUT_SERIAL` | Default UUT serial (shared across slots). For per-slot serials, use `LITMUS_UUT_SERIAL_<SLOT_ID>` (e.g. `LITMUS_UUT_SERIAL_SLOT_1`). |
+| `LITMUS_UUT_SERIAL` | UUT serial. In a multi-UUT run the orchestrator sets this per site-subprocess to that site's resolved serial (see [Multi-UUT testing](../how-to/execution/multi-uut-testing.md#debugging-failures)); assign per-site serials from the CLI with `--uut-serials`. |
 | `LITMUS_UUT_PART_NUMBER` | Default UUT part number (`uut_part_number` on every run). |
 | `LITMUS_UUT_REVISION` | Default UUT hardware revision. |
 | `LITMUS_UUT_LOT_NUMBER` | Default UUT lot / batch number. |
-| `LITMUS_FIXTURE_SLOT` | Set by the multi-UUT orchestrator for per-slot child processes; not operator-configurable. |
 | `LITMUS_DAEMON_IDLE_TIMEOUT` | Seconds a background daemon (events, runs, channels) waits idle before self-shutting-down (default: `300`). |
 | `LITMUS_DAEMON_SPAWN_TIMEOUT` | Seconds to wait for a daemon to report ready after spawning (default: `30`). |
 | `LITMUS_CHANNELS_SYNC_PUSH` | Set to `1` to force channel-sample writes to push synchronously instead of the default async push (determinism / debugging). |

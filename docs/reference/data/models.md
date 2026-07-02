@@ -264,9 +264,9 @@ A named config set applied to a pytest session.
 | `fixture` | `str \| None` | `None` |
 | `verify_requires_limit` | `bool \| None` | `None` |
 
-#### `MultiSlotConfig` {#model-multislotconfig}
+#### `MultiSiteConfig` {#model-multisiteconfig}
 
-Multi-slot orchestration knobs.
+Multi-site orchestration knobs.
 
 | Field | Type | Default |
 |---|---|---|
@@ -291,7 +291,7 @@ Schema for litmus.yaml project config files — all fields at root.
 | `profiles` | `dict[str, ProfileConfig]` | `{}` |
 | `runner` | `dict[str, Any]` | `{}` |
 | `required_inputs` | `dict[str, PromptConfig]` | `{}` |
-| `multi_slot` | `MultiSlotConfig` | *via* `MultiSlotConfig()` |
+| `multi_site` | `MultiSiteConfig` | *via* `MultiSiteConfig()` |
 
 ### Station — `litmus.models.station`
 
@@ -571,12 +571,13 @@ A named connection on a test fixture.
 | `function` | `MeasurementFunction \| None` | `None` |
 | `route` | `SwitchRoute \| None` | `None` |
 
-#### `FixtureSlot` {#model-fixtureslot}
+#### `FixtureSite` {#model-fixturesite}
 
-A UUT slot within a multi-UUT fixture.
+A UUT site within a multi-UUT fixture.
 
 | Field | Type | Default |
 |---|---|---|
+| `name` | `str \| None` | `None` |
 | `connections` | `dict[str, FixtureConnection]` | `{}` |
 | `uut_resource` | `str \| None` | `None` |
 | `description` | `str \| None` | `None` |
@@ -595,7 +596,7 @@ Test fixture definition (UUT interface).
 | `station_types` | `list[str]` | `[]` |
 | `uut_resource` | `str \| None` | `None` |
 | `connections` | `dict[str, FixtureConnection]` | `{}` |
-| `slots` | `dict[str, FixtureSlot]` | `{}` |
+| `sites` | `list[FixtureSite]` | `[]` |
 | `description` | `str \| None` | `None` |
 
 #### `PromptConfig` {#model-promptconfig}
@@ -1035,6 +1036,9 @@ A test step containing test vectors.
 | `outcome` | `Outcome \| None` | `None` |
 | `retry` | `int` | `0` |
 | `vectors` | `list[TestVector]` | `[]` |
+| `measurements` | `list[Measurement]` | `[]` |
+| `inputs` | `dict[str, Any]` | `{}` |
+| `outputs` | `dict[str, Any]` | `{}` |
 | `error_message` | `str \| None` | `None` |
 | `instrument_records` | `list[dict[str, Any]] \| None` | `None` |
 
@@ -1074,7 +1078,8 @@ Lightweight run header read from parquet index (no steps/measurements).
 |---|---|---|
 | `test_run_id` | `str` | *required* |
 | `session_id` | `str \| None` | `None` |
-| `slot_id` | `str \| None` | `None` |
+| `site_index` | `int \| None` | `None` |
+| `site_name` | `str \| None` | `None` |
 | `started_at` | `datetime \| None` | `None` |
 | `ended_at` | `datetime \| None` | `None` |
 | `uut_serial_number` | `str \| None` | `None` |
@@ -1103,6 +1108,8 @@ A complete test run with steps and measurements.
 | `session_id` | `UUID` | *via* `uuid4()` |
 | `started_at` | `datetime` | *via* `_utcnow()` |
 | `ended_at` | `datetime \| None` | `None` |
+| `site_index` | `int` | `0` |
+| `site_name` | `str \| None` | `None` |
 | `uut` | `UUT` | *required* |
 | `part_id` | `str \| None` | `None` |
 | `part_name` | `str \| None` | `None` |
@@ -1462,7 +1469,8 @@ One row from the ``runs`` table — denormalized run-level summary.
 | `file_path` | `str \| None` | `None` |
 | `run_id` | `str \| None` | `None` |
 | `session_id` | `str \| None` | `None` |
-| `slot_id` | `str \| None` | `None` |
+| `site_index` | `int \| None` | `None` |
+| `site_name` | `str \| None` | `None` |
 | `uut_serial_number` | `str \| None` | `None` |
 | `uut_part_number` | `str \| None` | `None` |
 | `uut_lot_number` | `str \| None` | `None` |
@@ -1491,12 +1499,14 @@ One row from the ``steps`` table — full denormalized run + step context.
 | `file_path` | `str \| None` | `None` |
 | `run_id` | `str \| None` | `None` |
 | `session_id` | `str \| None` | `None` |
-| `slot_id` | `str \| None` | `None` |
+| `site_index` | `int \| None` | `None` |
+| `site_name` | `str \| None` | `None` |
 | `step_index` | `int \| None` | `None` |
 | `step_name` | `str \| None` | `None` |
 | `step_path` | `str \| None` | `None` |
 | `parent_path` | `str \| None` | `None` |
 | `vector_index` | `int \| None` | `None` |
+| `vector_outer_index` | `int \| None` | `None` |
 | `outcome` | `str \| None` | `None` |
 | `started_at` | `datetime \| None` | `None` |
 | `ended_at` | `datetime \| None` | `None` |
@@ -1516,6 +1526,7 @@ One node in a hierarchical step tree, built from ``step_path``.
 | Field | Type | Default |
 |---|---|---|
 | `step` | `StepRow` | *required* |
+| `vectors` | `list[StepRow]` | `[]` |
 | `children` | `list[StepNode]` | `[]` |
 
 ### Query API facets & filters — `litmus.analysis.measurement_facets`

@@ -37,11 +37,11 @@ Litmus defines events across 12 categories.
 | `RunEnded` | `run.ended` | Run outcome |
 | `RunMaterialized` | `run.materialized` | Emitted after the run's Parquet file is durably written; signals that the run is ready for downstream consumers |
 
-### Slot (2 events — multi-UUT)
+### Site (2 events — multi-UUT)
 | Event | Type String | Description |
 |-------|-------------|-------------|
-| `SlotStarted` | `slot.started` | A multi-UUT slot subprocess begins |
-| `SlotCompleted` | `slot.completed` | A multi-UUT slot subprocess finishes |
+| `SiteStarted` | `site.started` | A multi-UUT site subprocess begins |
+| `SiteCompleted` | `site.completed` | A multi-UUT site subprocess finishes |
 
 ### Sync (2 events — multi-UUT)
 | Event | Type String | Description |

@@ -88,10 +88,11 @@ def _read_measurement_row(serial: str, measurement_name: str, *, timeout: float 
         time.sleep(0.2)
     assert parquet is not None, f"no measurement parquet for serial={serial!r}"
     table = pq.read_table(parquet)
-    # Measurements are nested on the vector row; return the vector context
-    # merged with the flat ``measurement_*`` keys (the fact shape callers use).
+    # Measurements are nested on their carrier — the step row (step-scope, e.g.
+    # a top-level verify) or the vector row (vector-scope). Return the carrier
+    # context merged with the flat ``measurement_*`` keys (the fact callers use).
     for r in table.to_pylist():
-        if r.get("record_type") != "vector":
+        if r.get("record_type") not in ("step", "vector"):
             continue
         for m in r.get("measurements") or []:
             if m["name"] == measurement_name:

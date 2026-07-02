@@ -206,3 +206,32 @@ class TestStdfSubscriber:
         records = _read_records(result)
         prr = next(r for r in records if r.id == "PRR")
         assert prr.get_value("PART_ID") == "UUT-001"
+
+    def test_site_num_single_uut_is_zero(
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
+        replay_events: Callable[[TestRun, Any], None],
+    ):
+        """A single-UUT run (site_index defaults to 0) emits SITE_NUM 0 on
+        every part record (PIR/PTR/PRR) — 0-based, per the site_index contract."""
+        result = self._write_via_subscriber(
+            realistic_test_run,
+            tmp_path,
+            replay_events,
+        )
+        records = _read_records(result)
+        part_records = [r for r in records if r.id in ("PIR", "PTR", "PRR")]
+        assert part_records  # sanity: the run produced part records
+        for r in part_records:
+            assert r.get_value("SITE_NUM") == 0
+
+
+def test_build_ptr_threads_site_num_for_multi_site():
+    """A multi-site worker's site_index flows straight into PTR SITE_NUM."""
+    from litmus.data.exporters.stdf import _build_ptr
+
+    raw = _build_ptr(1, 3, "step", "meas", 1.0, "passed", None, 0.0, 2.0, "V")
+    ptr = PTR()
+    ptr(endian="<", record=raw)
+    assert ptr.get_value("SITE_NUM") == 3

@@ -34,7 +34,7 @@ from litmus.data.events import TYPED_PAYLOAD_COLUMNS, EventBase
 # Bump this constant (and add a migration entry in
 # ``docs/_internal/event-log-wal-format.md``) whenever the column set or
 # types in ``_IPC_SCHEMA`` change in a backward-incompatible way.
-EVENT_LOG_SCHEMA_VERSION = "1.1"
+EVENT_LOG_SCHEMA_VERSION = "0.1"
 
 # Schema for the index columns stored in IPC files.
 #
@@ -66,7 +66,7 @@ _IPC_SCHEMA = pa.schema(
         # it's immune to the do_put/ingest insert race (#228) and survives a
         # backend swap. event_number (daemon nextval) stays the insert-order
         # resume cursor, never an emit-order key. Provenance (which station /
-        # slot) is the existing typed columns, not this key.
+        # site) is the existing typed columns, not this key.
         ("writer_key", pa.string()),
         ("event_offset", pa.int64()),
         ("json", pa.string()),

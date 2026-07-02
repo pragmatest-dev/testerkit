@@ -40,16 +40,20 @@ class StepRow(BaseModel):
     file_path: str | None = None
     run_id: str | None = None
     session_id: str | None = None
-    slot_id: str | None = None
+    # Optional to tolerate the pre-RunStarted-correlation in-flight row
+    # (see ``_row_helpers.py``'s placeholder branch); persisted/correlated
+    # rows always carry 0+.
+    site_index: int | None = None
+    site_name: str | None = None
     step_index: int | None = None
     step_name: str | None = None
     step_path: str | None = None
     parent_path: str | None = None
-    # vector_index: 0 for non-swept steps; 0..N-1 for sweep variants of the
-    # same logical step. The composite (run_id, step_path, step_retry,
-    # vector_index) is the per-execution identity within a run — step_retry
-    # distinguishes reruns of the same logical step.
+    # vector_index: NULL for step rows; 0..N-1 for vector rows (own position
+    # within the sweep). vector_outer_index: NULL at top level; the enclosing
+    # outer (class) vector index for method steps nested inside a swept class.
     vector_index: int | None = None
+    vector_outer_index: int | None = None
     outcome: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
@@ -77,9 +81,15 @@ class StepNode(BaseModel):
     ``power/output/voltage``) so the tree is constructed client-side
     by splitting on it. Roots are the top-level steps; leaves are the
     actual test steps.
+
+    A node's identity is its step-summary row (``vector_index IS NULL``);
+    its ``vectors`` are that step's own vector rows (``vector_index``
+    0..N — a swept step's condition points, or a single row for a plain
+    step), never siblings/children in the tree.
     """
 
     step: StepRow
+    vectors: list[StepRow] = Field(default_factory=list)
     children: list[StepNode] = Field(default_factory=list)
 
 
@@ -125,19 +135,33 @@ class StepsQuery:
     def __exit__(self, *_: object) -> None:
         self.close()
 
+    def _rows_from(self, sql: str) -> list[StepRow]:
+        """Run ``sql`` and hydrate each dict row into a :class:`StepRow`.
+
+        Shared by the logical-step (``steps``) and condition-point
+        (``step_vectors``) reads — both surfaces share the row shape.
+        """
+        step_rows: list[StepRow] = []
+        for r in self._query_dicts(sql):
+            sr = StepRow(**r)
+            sr.inputs, sr.outputs = _decode_dynamic_attrs_map(r.get("dynamic_attrs"))
+            step_rows.append(sr)
+        return step_rows
+
     def list_for_run(
         self,
         run_id: str,
         *,
         include_incomplete: bool = False,
     ) -> list[StepRow]:
-        """Return every step row for a run, ordered by ``step_index``.
+        """Return the LOGICAL step rows for a run, ordered by ``step_index``.
 
-        Matches the run by id-prefix (8-char) so callers can pass
-        either the full UUID or its short form. Each step row is
-        enriched with per-vector ``inputs`` (in_*) and ``outputs``
-        (out_*) collected from the unified parquet — for swept steps
-        each vector has its own commanded inputs and recorded outputs.
+        Logical steps only (``vector_index IS NULL``) — a swept step is
+        ONE row here; its condition points live in ``step_vectors`` (see
+        :meth:`list_vectors_for_run`) and are nested onto the step by
+        :meth:`tree_for_run`. Matches the run by id-prefix (8-char) so
+        callers can pass either the full UUID or its short form. Each row
+        carries the step's own ``inputs`` (in_*) / ``outputs`` (out_*).
 
         Args:
             run_id: UUID or 8-char prefix.
@@ -147,19 +171,39 @@ class StepsQuery:
         """
         prefix = run_id[:8] if len(run_id) >= 8 else run_id
         ended_clause = "" if include_incomplete else "AND ended_at IS NOT NULL"
-        rows = self._query_dicts(f"""
+        return self._rows_from(f"""
             SELECT *
             FROM steps
             WHERE run_id LIKE '{sql_escape(prefix)}%'
             {ended_clause}
-            ORDER BY step_index, step_retry, vector_index
+            -- Logical-step grain: no vector dimension to order on (a step's own
+            -- vector_index is NULL). Its condition points are ordered in
+            -- list_vectors_for_run, which adds vector_outer_index, vector_index.
+            ORDER BY step_index, step_retry
         """)
-        step_rows: list[StepRow] = []
-        for r in rows:
-            sr = StepRow(**r)
-            sr.inputs, sr.outputs = _decode_dynamic_attrs_map(r.get("dynamic_attrs"))
-            step_rows.append(sr)
-        return step_rows
+
+    def list_vectors_for_run(
+        self,
+        run_id: str,
+        *,
+        include_incomplete: bool = False,
+    ) -> list[StepRow]:
+        """Return the condition-point (vector) rows for a run.
+
+        The sub-grain companion to :meth:`list_for_run`: one row per
+        sweep variant / in-body iteration (``vector_index`` 0..N), each
+        with its own commanded ``inputs`` and recorded ``outputs``.
+        Ordered so each step's vectors read in execution order.
+        """
+        prefix = run_id[:8] if len(run_id) >= 8 else run_id
+        ended_clause = "" if include_incomplete else "AND ended_at IS NOT NULL"
+        return self._rows_from(f"""
+            SELECT *
+            FROM step_vectors
+            WHERE run_id LIKE '{sql_escape(prefix)}%'
+            {ended_clause}
+            ORDER BY step_index, step_retry, vector_outer_index, vector_index
+        """)
 
     def pareto(
         self,
@@ -234,9 +278,9 @@ class StepsQuery:
     ) -> list[StepRow]:
         """Return every step row across every run sharing a ``session_id``.
 
-        Used by multi-slot timeline / Gantt views: a session spans N
-        sibling runs (one per slot), and the timeline needs them all.
-        Ordered by ``slot_id`` then ``step_index`` so each slot's
+        Used by multi-site timeline / Gantt views: a session spans N
+        sibling runs (one per site), and the timeline needs them all.
+        Ordered by ``site_index`` then ``step_index`` so each site's
         lane reads top-to-bottom.
 
         Default excludes in-flight rows; pass ``include_incomplete=True``
@@ -248,7 +292,7 @@ class StepsQuery:
             FROM steps
             WHERE session_id = '{sql_escape(session_id)}'
             {ended_clause}
-            ORDER BY slot_id, step_index, step_retry, vector_index
+            ORDER BY site_index, step_index, step_retry, vector_index
         """)
         step_rows: list[StepRow] = []
         for r in rows:
@@ -263,13 +307,23 @@ class StepsQuery:
         Top-level paths (no ``/``) are roots. Children are appended
         under their parent path prefix. Order within each level
         matches ``step_index``.
+
+        A logical step is one node (from the ``steps`` grain); its
+        condition points (from the ``step_vectors`` grain — ``vector_index``
+        0..N, sharing the step's ``step_path``) are attached onto
+        ``node.vectors`` rather than becoming siblings/children (which would
+        show a swept step as N+1 same-named nodes). A step record is keyed by
+        ``(step_path, step_retry, vector_outer_index)`` so a method run under
+        each outer sweep iteration keeps its own node and gets its own vectors.
         """
-        rows = self.list_for_run(run_id)
         parent_anchor: dict[str, StepNode] = {}
+        node_by_key: dict[tuple[str, int, int | None], StepNode] = {}
         roots: list[StepNode] = []
-        for row in rows:
-            node = StepNode(step=row)
+        for row in self.list_for_run(run_id):
             path = row.step_path or row.step_name or ""
+            key = (path, row.step_retry or 0, row.vector_outer_index)
+            node = StepNode(step=row)
+            node_by_key[key] = node
             # Anchor parent attachment to the first node at a path; every
             # execution (rerun / sweep variant) keeps its own node, so reruns
             # are never overwritten and lost.
@@ -285,6 +339,14 @@ class StepsQuery:
                 # Orphan — parent path didn't appear before child.
                 # Treat as a root so it isn't lost.
                 roots.append(node)
+        # Nest condition points under their step node, matched on the full
+        # step-execution key (a vector's ``vector_outer_index`` routes it to
+        # the right per-outer method record).
+        for vec_row in self.list_vectors_for_run(run_id):
+            path = vec_row.step_path or vec_row.step_name or ""
+            node = node_by_key.get((path, vec_row.step_retry or 0, vec_row.vector_outer_index))
+            if node is not None:
+                node.vectors.append(vec_row)
         return roots
 
     def describe_columns(self) -> ColumnSchema:

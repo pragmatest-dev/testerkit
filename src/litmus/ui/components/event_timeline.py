@@ -22,7 +22,7 @@ _CATEGORIES: dict[str, tuple[str, str, str]] = {
     "run": ("bg-blue-400", "bg-blue-50 text-blue-700", "Run"),
     "fixture": ("bg-purple-500", "bg-purple-100 text-purple-800", "Fixture"),
     "test": ("bg-orange-500", "bg-orange-100 text-orange-800", "Test"),
-    "slot": ("bg-amber-500", "bg-amber-100 text-amber-800", "Slot"),
+    "site": ("bg-amber-500", "bg-amber-100 text-amber-800", "Site"),
     "sync": ("bg-amber-400", "bg-amber-50 text-amber-700", "Sync"),
     "route": ("bg-teal-500", "bg-teal-100 text-teal-800", "Route"),
     "instrument": ("bg-emerald-500", "bg-emerald-100 text-emerald-800", "Instrument"),

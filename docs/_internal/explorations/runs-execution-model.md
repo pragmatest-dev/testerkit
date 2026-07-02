@@ -5,8 +5,10 @@ measurement-storage EAV spike (`measurement-storage-eav.md`), which is now just
 the projection phase of this larger model.
 
 **One-line:** model a run as `run → step → vector → measurement`, where the
-**vector** (one condition set / one execution) is the organizing unit; persist a
-normalized **chronological telling** of the events; project that into DuckDB.
+**step** is the code unit and default data carrier; **vectors** are condition points
+(one row per actual sweep/loop iteration); persist a normalized **chronological
+telling** of the events; project that into DuckDB. (See grain-reshape correction
+below — v2 decisions 1 and 4 are reversed.)
 
 **Progress (2026-06-18):** Phases 1-4 landed on `spike/runs-execution-model`,
 full suite green. P1 events `51cc244`; P2-4 (format + projection) `8f163b6`.
@@ -22,6 +24,13 @@ can't emit Mode-2 `vector` rows (no Mode flag on `TestRun` — event/daemon path
 
 ## v2 model — uniform vectors + vector-as-carrier (branch `spike/runs-execution-model-v2`)
 
+> **GRAIN RESHAPE (2026-06-30, `feat/0.3.0-grain-reshape`):** Decisions 1 and 4 below are
+> **REVERSED**. The synthesized scope vector is **deleted**. Step is the default data carrier;
+> a non-looping step has ZERO vectors. Open A is **RESOLVED** (no new field — `step.vector_index`
+> re-meant to the enclosing iteration). See `step-vector-grain-reshape.md` (contract) and
+> `step-vector-grain-reshape-execution.md` (diary). The current model is in
+> `docs/_internal/runs-architecture-map.md`.
+
 The discussion converged past v1 (the committed fused/Decision-A model) onto a
 cleaner v2. **This branch builds v2.** The rule and the seven decisions:
 
@@ -29,9 +38,11 @@ cleaner v2. **This branch builds v2.** The rule and the seven decisions:
 (`run → step → vector → measurement`, the rollup hierarchy); outcomeless captured
 data are NESTED lanes (`inputs`/`outputs`/`custom`).
 
-1. **Uniform vectors.** Every execution materializes a `vector` row — no Mode-1
-   fusing. A non-looping step has exactly one (its scope vector); a self-loop adds
-   more. The vector is the universal execution unit, always present.
+1. **~~Uniform vectors.~~** ~~Every execution materializes a `vector` row — no Mode-1~~
+   ~~fusing. A non-looping step has exactly one (its scope vector); a self-loop adds~~
+   ~~more. The vector is the universal execution unit, always present.~~
+   **REVERSED (grain reshape):** A non-looping step has ZERO vectors. The step is
+   the default carrier. Vectors exist only for actual sweep/loop points.
 2. **Vector = the canonical data carrier.** `inputs`/`outputs`/`custom` (nested
    lanes) live on the **vector**; measurements are **children of the vector**. The
    `step` carries ONLY code identity + timing + rolled-up outcome — it **sheds
@@ -42,11 +53,14 @@ data are NESTED lanes (`inputs`/`outputs`/`custom`).
    and references its vector by key — NO in/out denormalization (kills the pivot).
    Measurements are a **typed fact table, not an EAV** (numeric value, fixed schema);
    only `inputs`/`outputs`/`custom` get the EAV.
-4. **Step-scope vector.** Data recorded in the step body but outside any inner loop
-   (setup/teardown/between) homes on the step's default **scope vector**; inner-loop
-   `context.vector()` iterations are **nested under** the scope vector (step → scope
-   vector → iteration vectors → measurements). Scope-vs-iteration indices never
-   collide because iterations are children of the scope vector.
+4. **~~Step-scope vector.~~** ~~Data recorded in the step body but outside any inner loop~~
+   ~~(setup/teardown/between) homes on the step's default scope vector; inner-loop~~
+   ~~`context.vector()` iterations are nested under the scope vector.~~
+   **REVERSED (grain reshape):** The synthesized scope vector is **deleted**. Step-scope
+   data (measurements / observations outside any loop) rides on the step row's own
+   `measurements`/`inputs`/`outputs` fields. The accumulator assigns step-scope measurements
+   via `_partition_measurements` — if `(step_path, vector_index)` is not in `_looped_keys()`,
+   the measurement goes to the step row, not a vector row.
 5. **Lineage — enclosing-vector key.** A vectorized class nests: class vector ⊃
    method step ⊃ method vector ⊃ measurement. Each vector/measurement carries its
    **enclosing-vector key** (not just `parent_path`), so the iteration is bound
@@ -94,16 +108,16 @@ STDF/OpenHTF/TestStand all capture nested and query from an unpacked DB):
 - **Query = unpacked typed tables** (the DuckDB projection: a flat measurement
   **fact** + the in/out/custom **EAV**, with the outcome rollup).
 
-**Grain (at-rest):**
+**Grain (at-rest):** *(grain-reshape correction applied — see note above; see
+`runs-architecture-map.md` for the current authoritative model)*
 ```
 run    (row)
-└─ step   (row)   code identity + timing + rolled-up outcome; sheds inputs
-   └─ vector (row, uniform — one per execution; scope vector for non-looping,
-      │              nested iteration vectors for a self-loop)
+└─ step   (row)   code unit — carries its OWN inputs/outputs/measurements (step-scope)
+   └─ vector (row, ONLY for actual sweep/loop points — ZERO vectors for a non-looping step)
       │   inputs / outputs / custom : LIST<STRUCT<name, kind, value lanes, unit, uut_pin>>
       └─ measurements : LIST<STRUCT< name, value, units, limits, outcome,
                                       characteristic, spec, signal-path (uut_pin/…) >>
-                                                    ← NESTED under the vector
+                                                    ← NESTED under their carrier (step or vector)
 ```
 
 **Deltas from the as-built v2 (what still needs doing):**
@@ -336,24 +350,19 @@ the new events are scoped to the Mode-2 in-body loop only.
   logic is **unchanged** — it already computes these correctly; we only *emit* them.
 
 **Open:**
-- **A — outer (container) vs inner (step) vectors. LOAD-BEARING — resolve before
-  Phase 1/2.** NOT hypothetical: `_resolve_sweep_dimensions` (hooks.py:550) already
-  splits sweep dims into **outer** (class-level `litmus_sweeps` → "the sequence
-  iterations a class container splits into") and **inner** (method-level sweeps /
-  `parametrize` / `vectors` fixture). So `class → vector → step → vector` is a real
-  nested structure today: a class container has its own vector dimension, each
-  containing the method's vectors. (Caveat verified: this outer/inner split is for
-  `litmus_sweeps`; a plain class-level `@pytest.mark.parametrize` currently falls
-  into *inner* and merges via `callspec.params`, autouse.py:154.) The model must
-  decide how container/outer vectors are represented — a step hierarchy where
-  intermediate (container) steps carry their own vectors — and `VectorStarted` must
-  be able to attach at the container level, not just the leaf. The flat
-  `run → step → vector → measurement` statement above is the single-level case; the
-  nested case is this decision.
-- **B — container (class) row:** its own record vs. `parent_path`-only (derive in projection).
-- **Condition dimension placement:** modeled at-rest (vector-as-referenced-entity)
-  vs. projection-only dedup. (Leaning: referenced entity.)
-- **Units:** ride on the condition dimension; plumbing deferred (slot reserved).
+- **A — outer (container) vs inner (step) vectors. LOAD-BEARING — RESOLVED (grain reshape).**
+  Resolution: no new field. `step_path` carries the hierarchy (container/method nesting);
+  `step.vector_index` is re-meant to the **enclosing parent iteration** (NULL if not nested
+  under a swept parent). A class-outer `litmus_sweeps` iteration emits `VectorStarted`/
+  `VectorEnded` for the container step; a nested method's `StepStarted.vector_index` is the
+  enclosing iteration index. Null-vs-0 reconstruction in `_event_accumulator._parent_emitted_vectors`
+  distinguishes "no enclosing loop" (→ NULL) from "enclosing loop iteration 0" (→ 0).
+  See `step-vector-grain-reshape.md` §"The key idea — one relative `vector_index`".
+- **B — container (class) row:** resolved — container step emits its own StepStarted/StepEnded
+  (separate from the outer VectorStarted/VectorEnded); both persist as distinct row kinds.
+- **Condition dimension placement:** resolved — merged conditions pre-assembled at capture via
+  child-context-off-base (Phase 4 hygiene); no recursive walk at projection time.
+- **Units:** shipped (`unit=` on `configure`/`observe`/`verify`; lane `unit` field populated).
 
 ## Phased plan
 
@@ -674,13 +683,14 @@ tagging 0.3.0.** Tracked as a task; recorded here so it survives memory.
 1. **Rerun iteration-vector step timing** — an in-body vector in a rerun step reads the
    *lowest-retry* StepStarted/StepEnded timing (`_min_retry_match`), not its own attempt's. Needs
    `step_retry` on `VectorStarted`/`VectorEnded` so the accumulator can resolve per-attempt.
-2. **Scope-vs-iteration aliasing (Scenario A)** — a step-scope measurement recorded *before* an
-   in-body loop in the same step emits `(step_path, vector_index=0, retry=0)`, identical to
-   in-body iteration 0, so the two merge. Needs a producer-side scope coordinate.
-3. **Data-dependent Mode classification** — `_step_ran_inbody_loop` keys on `step_path` alone;
-   if one parametrize variant (or rerun attempt) loops and another doesn't, the non-looping one
-   is misclassified Mode-2 and its `configure()` inputs are skipped. Needs a per-execution loop
-   signal (ties to #1's `step_retry`-on-vector-events).
+2. **~~Scope-vs-iteration aliasing (Scenario A)~~** — **RESOLVED (grain reshape).** The
+   accumulator's `_partition_measurements` distinguishes step-scope from vector-scope by
+   `_looped_keys()`: a measurement with `(path, vector_index)` NOT in `_looped_keys()` goes
+   to the step row; one that IS in `_looped_keys()` goes to its vector. No coordinate clash.
+3. **~~Data-dependent Mode classification~~** — **RESOLVED (grain reshape).** `_step_ran_inbody_loop`
+   is deleted (Phase 4). Per-execution Mode is signaled by whether `VectorStarted` events were
+   emitted for that step; the `_parent_emitted_vectors` check in the accumulator provides the
+   null-vs-0 reconstruction for the step's `vector_index`.
 4. **Ambient-context coupling** — the step-end merge reads `get_current_context()`, which at a
    container/auto-close `StepEnded` may not be the step's owning context. Thread the owning
    `Context` into `_emit_step_event` instead.

@@ -67,7 +67,7 @@ Add / Edit / Delete one at a time via per-row buttons and an Add
 Connection dialog.
 
 Not every YAML field is editable here — `instrument_terminal`,
-`function`, `route`, `station_types`, `uut_resource`, and `slots` are
+`function`, `route`, `station_types`, `uut_resource`, and `sites` are
 YAML-only.
 
 ## New — `/fixtures/new`

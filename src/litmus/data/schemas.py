@@ -31,7 +31,7 @@ __all__ = [
     "table_from_rows",
 ]
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "0.1"
 
 # EAV lane struct — the nested at-rest representation of one input / output
 # entry. ``value_type`` selects which ``value_*`` lane holds the value. Field
@@ -118,12 +118,16 @@ _INSTRUMENT_LIST = pa.list_(_INSTRUMENT_STRUCT)
 #   * ``record_type = 'run'`` — one row per run; run / UUT / station /
 #     environment context. Step / vector columns are NULL.
 #   * ``record_type = 'step'`` — one step-execution, keyed ``(step_path,
-#     vector_index, retry)``; carries code
-#     identity + timing + rolled-up outcome.
-#   * ``record_type = 'vector'`` — one execution carrier (a synthesized scope
-#     vector for non-looping steps, or an in-body iteration vector for a
-#     ``vectors`` loop). Holds the ``inputs``/``outputs`` lanes and the
-#     nested ``measurements`` list for that execution.
+#     step_retry, vector_outer_index)``; carries code identity + timing +
+#     rolled-up outcome, and its OWN ``inputs``/``outputs``/``measurements``
+#     (a non-looping step can have zero vector rows — the step row carries
+#     its own data, no synthesized scope vector). ``vector_index`` is always
+#     NULL on this row kind.
+#   * ``record_type = 'vector'`` — one condition-point execution carrier: a
+#     swept step's own sweep variant, or an in-body ``vectors`` loop
+#     iteration. Holds the ``inputs``/``outputs`` lanes and the nested
+#     ``measurements`` list for that execution; ``vector_index`` is its own
+#     0..N position.
 #
 # ``inputs`` / ``outputs`` are nested ``LIST<STRUCT<lanes>>`` columns (see
 # ``_LANE_STRUCT``), not wide ``in_*``/``out_*`` columns; the DuckDB daemon
@@ -137,7 +141,8 @@ RUN_ROW_SCHEMA = pa.schema(
         # Identity & timing
         ("session_id", pa.string()),
         ("run_id", pa.string()),
-        ("slot_id", pa.string()),
+        ("site_index", pa.int64()),
+        ("site_name", pa.string()),
         ("run_started_at", pa.timestamp("us", tz="UTC")),
         ("run_ended_at", pa.timestamp("us", tz="UTC")),
         ("step_name", pa.string()),
@@ -156,6 +161,7 @@ RUN_ROW_SCHEMA = pa.schema(
         # retry). Both stamp every execution so a rerun is a distinct row.
         ("step_retry", pa.int64()),
         ("vector_index", pa.int64()),
+        ("vector_outer_index", pa.int64()),
         ("vector_retry", pa.int64()),
         ("vector_started_at", pa.timestamp("us", tz="UTC")),
         ("vector_ended_at", pa.timestamp("us", tz="UTC")),

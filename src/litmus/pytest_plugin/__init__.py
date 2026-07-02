@@ -18,6 +18,7 @@ from litmus.execution._state import (
     get_active_profile,
     get_channel_store,
     get_collected_items,
+    get_current_context,
     get_current_step,
     get_event_store,
     get_instrument_records,
@@ -36,7 +37,7 @@ from litmus.execution._state import (
 )
 from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.connections import ConnectionIterator
-from litmus.execution.harness import Context
+from litmus.execution.harness import Context, _ScopedContext
 from litmus.execution.instrument_events import emit_instrument_events
 from litmus.execution.metadata import build_run_metadata
 from litmus.execution.profiles import resolve_test_phase
@@ -81,9 +82,6 @@ from litmus.pytest_plugin.helpers import (
 )
 from litmus.pytest_plugin.helpers import (
     mocks_active as _mocks_active,
-)
-from litmus.pytest_plugin.helpers import (
-    prompt_for_serial,
 )
 from litmus.pytest_plugin.helpers import (
     resolve_station_id as _resolve_station_id,
@@ -134,25 +132,6 @@ __all__ = [
     "pytest_sessionfinish",
     "pytest_sessionstart",
 ]
-
-
-def _prompt_for_slot_serials(
-    slot_ids: list[str],
-    test_phase: str,
-) -> dict[str, str]:
-    """Prompt for UUT serial for each slot.
-
-    Args:
-        slot_ids: Ordered list of slot IDs from fixture config.
-        test_phase: Current test phase (for error message).
-
-    Returns:
-        Dict mapping slot_id → serial.
-    """
-    serials: dict[str, str] = {}
-    for slot_id in slot_ids:
-        serials[slot_id] = prompt_for_serial(test_phase, slot_id)
-    return serials
 
 
 def _require_fixture_and_instruments(
@@ -232,18 +211,12 @@ def _emit_run_start_events(run_scope: RunScope) -> None:
     if event_log is None:
         return
 
-    from litmus.execution._state import get_current_slot_id
-
-    slot_id = get_current_slot_id()
-    env_slot_index_str = os.environ.get("_LITMUS_SLOT_INDEX")
-    env_slot_index = int(env_slot_index_str) if env_slot_index_str else None
-
     event_log.emit(
         RunStarted(
             session_id=run_scope._session_id,
             run_id=run_scope.test_run.id,
-            slot_id=slot_id,
-            slot_index=env_slot_index,
+            site_index=run_scope.test_run.site_index,
+            site_name=run_scope.test_run.site_name,
             station_id=run_scope.test_run.station_id,
             station_name=run_scope.test_run.station_name,
             station_type=run_scope.test_run.station_type,
@@ -558,9 +531,15 @@ def station_config(request) -> StationConfig | None:
 def fixture_config(request) -> FixtureConfig | None:
     """Load fixture configuration resolved from ``--fixture``.
 
-    In worker mode (``_LITMUS_SLOT_ID`` set), extracts this slot's points
-    from a multi-slot fixture config so downstream fixtures (pins,
-    FixtureManager) see a flat ``points`` dict.
+    Flattens ``sites[site_index]`` into a flat ``connections`` dict
+    using the RESOLVED site_index (``get_current_site_index()`` — fed
+    by either a worker's ``_LITMUS_SITE_INDEX`` env var or a
+    single-process ``--site`` flag; see
+    ``hooks._resolve_and_install_site``, which runs in
+    ``pytest_sessionstart`` and so always installs the ContextVar
+    before this session-scoped fixture is first resolved). So a
+    single-process ``--site 2`` run wires ``sites[2]`` exactly like a
+    worker child does.
 
     Returns:
         FixtureConfig instance, or None if not specified.
@@ -574,12 +553,13 @@ def fixture_config(request) -> FixtureConfig | None:
 
     fc = load_fixture(Path(config_path))
 
-    # Worker mode: extract this slot's points from multi-slot fixture
-    slot_id = os.environ.get("_LITMUS_SLOT_ID")
-    if slot_id and fc.is_multi_slot and fc.slots:
-        slot = fc.slots.get(slot_id)
-        if slot is not None:
-            # Return a flat fixture config with just this slot's connections
+    if fc.is_multi_site and fc.sites:
+        from litmus.execution._state import get_current_site_index
+
+        site_index = get_current_site_index()
+        if site_index < len(fc.sites):
+            site = fc.sites[site_index]
+            # Return a flat fixture config with just this site's connections
             fc = FixtureConfig(
                 id=fc.id,
                 name=fc.name,
@@ -587,8 +567,8 @@ def fixture_config(request) -> FixtureConfig | None:
                 part_id=fc.part_id,
                 part_family=fc.part_family,
                 part_revision=fc.part_revision,
-                connections=slot.connections,
-                uut_resource=slot.uut_resource,
+                connections=site.connections,
+                uut_resource=site.uut_resource,
             )
 
     return fc
@@ -896,8 +876,8 @@ def fixture_manager(instruments, fixture_config, _route_manager) -> FixtureManag
 def sync(_run_scope):
     """Provide sync point for multi-UUT test coordination.
 
-    In worker mode (_LITMUS_SLOT_ID set), returns a SyncPoint that
-    blocks until all slots arrive. In single-slot mode, returns None.
+    In worker mode (_LITMUS_SITE_INDEX set), returns a SyncPoint that
+    blocks until all sites arrive. In single-site mode, returns None.
 
     Usage:
         def test_measure_hot(dmm, sync):
@@ -907,7 +887,7 @@ def sync(_run_scope):
             assert v > 3.0
     """
     del _run_scope  # dependency-only: forces the session EventStore to exist
-    from litmus.execution.slot_runner import is_worker_mode
+    from litmus.execution.site_runner import is_worker_mode  # checks _LITMUS_SITE_INDEX
 
     if not is_worker_mode():
         yield None
@@ -959,7 +939,9 @@ def context(_run_scope: RunScope | None) -> Generator[Context, None, None]:
         )
     token = push_current_context(ctx)
     try:
-        yield ctx
+        # The ContextVar holds the plain base; the test holds a scope-aware view
+        # so context.* follows into a vectors-loop iteration (like measure()).
+        yield _ScopedContext(ctx)
     finally:
         reset_current_context(token)
 
@@ -1119,8 +1101,9 @@ class _VectorIterator:
       from active state.
     * A fresh :class:`TestVector` is appended to the current step per
       iteration, so parquet rows land on distinct records.
-    * ``context.get_param``, ``.changed``, ``.last``, and ``.params``
-      reflect the current row; ``_prev`` chains to the prior iteration.
+    * The active context (``get_current_context()``) reflects the current
+      row's params plus any step-scope configures on the base; ``_prev``
+      chains to the prior iteration's snapshot.
 
     On cleanup the ContextVars restore; if the matrix is non-empty and
     the test body iterated zero times, the fixture fails the test.
@@ -1147,15 +1130,18 @@ class _VectorIterator:
             set_active_vector_params(dict(params))
             set_active_vector_index(i)
 
-            # Chain prev-context for ``context.changed()`` / ``.last()``.
+            # A per-iteration child keeps step-scope configure() on the base
+            # unpolluted and stops params bleeding across iterations.
+            child_ctx = self._ctx.child()
+            child_ctx._params.update(params)
             if prev_snapshot is not None:
-                self._ctx._prev = prev_snapshot
-            self._ctx._params.clear()
-            self._ctx._params.update(params)
+                child_ctx._prev = prev_snapshot
 
             snapshot = Context(channel_store=self._ctx._channel_store)
-            snapshot._params = dict(params)
+            snapshot._params = dict(child_ctx.params)
             prev_snapshot = snapshot
+
+            ctx_token = push_current_context(child_ctx)
 
             # Fresh TestVector per iteration so vector_index / params
             # stamp distinctly. Only push when a step already exists
@@ -1163,7 +1149,7 @@ class _VectorIterator:
             # measure).
             step = get_current_step()
             if step is not None:
-                new_vector = TestVector(index=i, params=dict(params))
+                new_vector = TestVector(index=i, params={**dict(step.inputs), **dict(params)})
                 step.vectors.append(new_vector)
                 token = push_current_vector(new_vector)
                 self._consumed += 1
@@ -1171,15 +1157,19 @@ class _VectorIterator:
                 # itself so data-less vectors stay visible and offline/streaming
                 # don't drift. Emitted after the push so step/vector context
                 # resolves to this iteration.
-                self._ctx._emit_vector_started()
+                child_ctx._emit_vector_started()
                 try:
                     yield vec
                 finally:
-                    self._ctx._emit_vector_ended()
+                    child_ctx._emit_vector_ended()
                     reset_current_vector(token)
+                    reset_current_context(ctx_token)
             else:
                 self._consumed += 1
-                yield vec
+                try:
+                    yield vec
+                finally:
+                    reset_current_context(ctx_token)
 
     @property
     def consumed(self) -> int:
@@ -1212,8 +1202,13 @@ def vectors(request: pytest.FixtureRequest) -> Iterator[_VectorIterator]:
     parent = request.node.parent
     matrix_map = parent.stash.get(VECTORS_MATRIX_KEY, {}) if parent is not None else {}
     matrix = matrix_map.get(request.node.originalname, [])
-    ctx: Context = request.getfixturevalue("context")
-    it = _VectorIterator(matrix=matrix, ctx=ctx)
+    # Depend on the ``context`` fixture (pushes the base) but hand the iterator
+    # the PLAIN base — its per-iteration children parent off the base, never the
+    # scope-aware view the test holds (which would make the parent chain recurse).
+    request.getfixturevalue("context")
+    base = get_current_context()
+    assert base is not None, "the context fixture must have pushed a base context"
+    it = _VectorIterator(matrix=matrix, ctx=base)
     try:
         yield it
     finally:

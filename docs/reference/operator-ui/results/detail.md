@@ -5,7 +5,7 @@
 The detail view is what you land on after clicking a row in the
 [Results list](list.md). It shows everything Litmus recorded for one
 run: a sticky summary header, an Overview with stats, and tabs for
-Steps, Measurements, the Execution Timeline (multi-slot runs only),
+Steps, Measurements, the Execution Timeline (multi-site runs only),
 and UUT History.
 
 You can also leave it open during a run to watch progress live — the
@@ -38,15 +38,15 @@ content. It carries:
 ## Tabs
 
 Below the header, a tab strip switches between five views. The
-Execution Timeline tab only appears for multi-slot runs (sessions
-with at least one measurement that carries a `slot_id`).
+Execution Timeline tab only appears for multi-site runs (sessions
+with at least one measurement that carries a `site_index`).
 
 | Tab | What's there |
 |---|---|
 | Overview | Two stats cards summarising steps and measurements |
 | Steps | The step table — one row per step execution, in execution order |
 | Measurements | The measurement table — one row per recorded measurement |
-| Execution Timeline | (multi-slot only) Gantt-style chart of all slots in the parallel session, with this run's slot highlighted |
+| Execution Timeline | (multi-site only) Gantt-style chart of all sites in the parallel session, with this run's site highlighted |
 | UUT History | A short list of other runs for the same UUT serial |
 
 The active tab is mirrored into the URL (`?tab=Steps`, `?tab=Measurements`,
@@ -121,15 +121,15 @@ you can click to download or view inline.
 Empty measurements render the `No measurements recorded yet.` message
 until the first row arrives.
 
-### Execution Timeline (multi-slot only)
+### Execution Timeline (multi-site only)
 
-The Execution Timeline tab only appears for multi-slot parallel
-sessions — runs where at least one measurement carries a `slot_id`.
+The Execution Timeline tab only appears for multi-site parallel
+sessions — runs where at least one measurement carries a `site_index`.
 It loads on demand: the first time you click the tab, the chart
 fetches the session's full step list and draws a Gantt of every
-slot's activity, with this run's slot highlighted.
+site's activity, with this run's site highlighted.
 
-For single-slot runs (the common case) the tab is hidden entirely.
+For single-site runs (the common case) the tab is hidden entirely.
 
 ### UUT History
 
@@ -198,7 +198,7 @@ The active tab is mirrored into the URL via the `tab` query parameter:
 | `/results/{run_id}` | Overview (default) |
 | `/results/{run_id}?tab=Steps` | Steps |
 | `/results/{run_id}?tab=Measurements` | Measurements |
-| `/results/{run_id}?tab=Execution%20Timeline` | Execution Timeline (multi-slot only) |
+| `/results/{run_id}?tab=Execution%20Timeline` | Execution Timeline (multi-site only) |
 | `/results/{run_id}?tab=UUT%20History` | UUT History |
 
 Bookmarking the URL bookmarks the run + the open tab.

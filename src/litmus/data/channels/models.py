@@ -35,7 +35,7 @@ class SubscribePolicy(StrEnum):
 # surface (DuckDB / pandas / Polars can open them without Litmus), so
 # this is a real consumer-facing version contract. Bump when the durable
 # at-rest column shape changes in a breaking way; add a migration note.
-CHANNEL_SCHEMA_VERSION = "1.0"
+CHANNEL_SCHEMA_VERSION = "0.1"
 
 # Channels rides the shared DuckDBFlightServer under this db name. The do_put
 # descriptor is ``CHANNELS_FLIGHT_DB\0<table>`` — the put-hook reads the

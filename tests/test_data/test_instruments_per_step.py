@@ -143,8 +143,9 @@ class TestInstrumentsPerStep:
         step_names = sorted(r["name"] for r in rows["step"]["instruments"])
         assert step_names == ["dmm"], "step row must carry only the reserved dmm"
 
-        vector_names = sorted(r["name"] for r in rows["vector"]["instruments"])
-        assert vector_names == ["dmm"], "vector row must carry only the reserved dmm"
+        # Non-looping step → no vector row; the reserved instrument rides on
+        # the step record.
+        assert "vector" not in rows
 
     def test_step_with_no_instruments_produces_empty_set(self, tmp_path):
         run_id = uuid4()
@@ -198,7 +199,8 @@ class TestInstrumentsPerStep:
         assert run_names == ["dmm", "psu"], "run row must have full inventory"
 
         assert rows["step"]["instruments"] == [], "step with no reservations must be empty"
-        assert rows["vector"]["instruments"] == [], "vector with no reservations must be empty"
+        # Non-looping step → no vector row.
+        assert "vector" not in rows
 
     def test_mode2_inbody_vectors_inherit_step_instruments(self, tmp_path):
         run_id = uuid4()
@@ -332,7 +334,7 @@ class TestInstrumentsPerStep:
         for vr in vector_rows:
             assert sorted(r["name"] for r in vr["instruments"]) == ["dmm"]
 
-    def test_mock_run_reserved_instruments_populate_step_and_vector_rows(self, tmp_path):
+    def test_mock_run_reserved_instruments_populate_step_row(self, tmp_path):
         run_id = uuid4()
         session_id = uuid4()
         acc = EventAccumulator()
@@ -425,8 +427,6 @@ class TestInstrumentsPerStep:
         assert step_instr[0]["name"] == "dmm"
         assert step_instr[0]["mocked"] is True
 
-        assert len(vector_rows) == 1
-        vec_instr = vector_rows[0]["instruments"]
-        assert len(vec_instr) == 1
-        assert vec_instr[0]["name"] == "dmm"
-        assert vec_instr[0]["mocked"] is True
+        # Non-looping step → the reserved instrument rides on the step record;
+        # no vector row is produced.
+        assert vector_rows == []

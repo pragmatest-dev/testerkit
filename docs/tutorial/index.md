@@ -32,6 +32,7 @@ Start from nothing — a bare `conftest.py` with one mock fixture — and add a 
 | [10. Live Monitoring](10-live-monitoring.md) | Monitor in real time | [sessions](../concepts/data/sessions.md), [events](../concepts/data/event-log.md), [channels](../concepts/data/data-stores.md) |
 | [11. Waveforms and Evidence](11-waveforms-and-evidence.md) | Capture a scope waveform and judge derived scalars | [three verbs](../concepts/data/three-verbs.md), `observe`, ChannelStore |
 | [12. Continuous Monitoring](12-continuous-monitoring.md) | Stream live DMM data from an interactive session into the operator UI | [three verbs](../concepts/data/three-verbs.md), `channels.stream`, interactive `connect` |
+| [13. Parallel Testing](13-parallel-testing.md) | Run one bench against two UUTs at once | multi-UUT [sites](../concepts/configuration/fixtures.md#multi-uut-scaling-sites-shared-instruments-switching), `site_index` / `site_name`, `--uut-serials`, the orchestrator/worker split |
 
 ## Prerequisites
 

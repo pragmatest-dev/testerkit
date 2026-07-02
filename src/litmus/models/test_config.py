@@ -6,6 +6,7 @@ sequences, and all test-runner configuration.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable
 from typing import Any, Literal, Self
 
@@ -439,28 +440,30 @@ class FixtureConnection(BaseModel):
     route: SwitchRoute | None = None
 
 
-class FixtureSlot(BaseModel):
-    """A UUT slot within a multi-UUT fixture.
+class FixtureSite(BaseModel):
+    """A UUT site within a multi-UUT fixture.
 
-    Each slot has its own FixtureConnection mappings that route UUT pins
-    to specific instrument channels. Slots share the same instrument
+    Each site has its own FixtureConnection mappings that route UUT pins
+    to specific instrument channels. Sites share the same instrument
     roles but use different channels (or entirely different instruments).
 
     Example YAML:
-        slot_1:
-          uut_resource: /dev/ttyUSB0
-          connections:
-            vout_measure:
-              name: vout_measure
-              instrument: dmm
-              instrument_channel: "1"
-              uut_pin: VOUT
+        sites:
+          - name: left
+            uut_resource: /dev/ttyUSB0
+            connections:
+              vout_measure:
+                name: vout_measure
+                instrument: dmm
+                instrument_channel: "1"
+                uut_pin: VOUT
     """
 
     model_config = {"extra": "forbid"}
 
+    name: str | None = None  # Optional human label; omit → site is just "site N"
     connections: dict[str, FixtureConnection] = Field(default_factory=dict)
-    uut_resource: str | None = None  # Per-slot UUT connection string
+    uut_resource: str | None = None  # Per-site UUT connection string
     description: str | None = None
 
 
@@ -474,7 +477,7 @@ class FixtureConfig(BaseModel):
     - A specific revision (part_revision) - optional refinement
 
     Single-UUT fixtures use ``connections`` directly. Multi-UUT fixtures
-    use ``slots``, where each slot has its own ``connections`` dict mapping
+    use ``sites``, where each site has its own ``connections`` dict mapping
     UUT pins to instrument channels. The two are mutually exclusive.
 
     For simple setups without formal fixtures, tests can use:
@@ -503,32 +506,45 @@ class FixtureConfig(BaseModel):
 
     # UUT-pin ↔ instrument-channel pairings (single-UUT)
     connections: dict[str, FixtureConnection] = Field(default_factory=dict)
-    # Multi-UUT slot mappings
-    slots: dict[str, FixtureSlot] = Field(default_factory=dict)
+    # Multi-UUT site list (ordered; site_index = list position, never authored)
+    sites: list[FixtureSite] = Field(default_factory=list)
 
     description: str | None = None
 
     @model_validator(mode="after")
-    def _validate_connections_or_slots(self) -> Self:
-        if self.connections and self.slots:
+    def _validate_connections_or_sites(self) -> Self:
+        if self.connections and self.sites:
             raise ValueError(
-                "FixtureConfig cannot have both 'connections' and 'slots'. "
-                "Use 'connections' for single-UUT fixtures or 'slots' for multi-UUT."
+                "FixtureConfig cannot have both 'connections' and 'sites'. "
+                "Use 'connections' for single-UUT fixtures or 'sites' for multi-UUT."
             )
-        for slot_id in self.slots:
-            if not slot_id or not slot_id.strip():
-                raise ValueError(f"Slot ID must be a non-empty string, got {slot_id!r}")
+        names: list[str] = []
+        for site in self.sites:
+            if site.name is not None and site.name.strip().lstrip("-").isdigit():
+                raise ValueError(
+                    f"site name {site.name!r} is numeric; names must be non-numeric so "
+                    f"--site / --uut-serials resolve index-vs-name unambiguously"
+                )
+            if site.name is not None:
+                names.append(site.name)
+        duplicates = sorted({name for name, count in Counter(names).items() if count >= 2})
+        if duplicates:
+            raise ValueError(
+                f"FixtureConfig has duplicate site name(s): {duplicates}. "
+                "Site names must be unique within a fixture so --site / "
+                "--uut-serials resolve unambiguously."
+            )
         return self
 
     @property
-    def slot_count(self) -> int:
-        """Number of UUT slots (1 for single-UUT fixtures)."""
-        return len(self.slots) if self.slots else 1
+    def site_count(self) -> int:
+        """Number of UUT sites (1 for single-UUT fixtures)."""
+        return len(self.sites) if self.sites else 1
 
     @property
-    def is_multi_slot(self) -> bool:
-        """True if this fixture has multiple UUT slots."""
-        return len(self.slots) > 1
+    def is_multi_site(self) -> bool:
+        """True if this fixture has multiple UUT sites."""
+        return len(self.sites) > 1
 
 
 class PromptConfig(BaseModel):

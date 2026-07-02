@@ -8,15 +8,15 @@ Schema versioning
 -----------------
 
 ``CATALOG_SCHEMA_VERSION`` pins the on-disk shape that catalog YAML
-files must conform to. The schema is **frozen at "1.0"** for the
-0.1.0 release: field renames, removals, and type narrowing in the
-models below would break every catalog YAML in user repos and are
-not allowed in additive 0.x evolution. New optional fields are fine
-(consumers ignore unknown values via Pydantic's ``extra="ignore"``
-default for additive cases). A real reshape requires bumping
-``CATALOG_SCHEMA_VERSION`` and shipping a migration tool — likely a
-1.0+ event. Mirrors ``litmus.data.schemas.SCHEMA_VERSION`` for the
-parquet artifact.
+files must conform to. The schema is **pre-stable at "0.1"** ahead of
+the 1.0 release: while on 0.x it carries no backward-compatibility
+promise, so field renames, removals, and type narrowing are still
+permitted, and additive changes (new optional fields) are absorbed
+for free — consumers ignore unknown values via Pydantic's
+``extra="ignore"`` default. At the 1.0 freeze this bumps to "1.0"
+and becomes a contract: a real reshape then requires bumping
+``CATALOG_SCHEMA_VERSION`` and shipping a migration tool. Mirrors
+``litmus.data.schemas.SCHEMA_VERSION`` for the parquet artifact.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from litmus.models.enums import (
 )
 from litmus.utils.ranges import expand_range
 
-CATALOG_SCHEMA_VERSION = "1.0"
+CATALOG_SCHEMA_VERSION = "0.1"
 
 # =============================================================================
 # Spec-level models

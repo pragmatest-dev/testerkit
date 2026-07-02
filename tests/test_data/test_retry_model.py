@@ -160,9 +160,9 @@ def _run_inner_loop(plan):
 
 
 # ---------------------------------------------------------------------------
-# S1 — 1:1 step, fails then reruns. Scope vector (no VectorStarted): its
-#   (step_path, vector_index) occurrence ordinal IS step_retry, so the two
-#   scope vectors carry vector_retry = step_retry = 0, 1.
+# S1 — 1:1 non-looping step, fails then reruns. A non-looping step carries its
+#   OWN data with ZERO vectors; the rerun is a distinct step row keyed by
+#   step_retry. The old scope-vector (vector_retry == step_retry) fact is gone.
 # ---------------------------------------------------------------------------
 
 
@@ -173,12 +173,11 @@ def test_s1_one_to_one_step_rerun(tmp_path):
         _step_end(acc, sid, rid, sr, outcome)
 
     rows = _materialize(acc, tmp_path)
+    # The rerun is a distinct step row (de-fused by step_retry); no vectors.
     assert _step_retries(rows) == [0, 1]
-    assert _vectors(rows) == [(0, 0), (0, 1)]
-    # The decisive 1:1 fact: scope vector vector_retry == step_retry.
-    for r in rows:
-        if r["record_type"] == "vector":
-            assert r["vector_retry"] == r["step_retry"]
+    assert _vectors(rows) == []
+    # Top-level non-looping step → enclosing vector_index is NULL on both rows.
+    assert all(r["vector_index"] is None for r in rows if r["record_type"] == "step")
 
 
 # ---------------------------------------------------------------------------
@@ -349,9 +348,9 @@ def test_runscope_next_vector_occurrence_counts_per_point():
     from litmus.execution.run_scope import RunScope
 
     rs = RunScope(uut_serial="SN1", station_id="st1")
-    assert rs.next_vector_occurrence("s", 0) == 0
-    assert rs.next_vector_occurrence("s", 1) == 0
-    assert rs.next_vector_occurrence("s", 0) == 1  # step rerun re-runs point 0
-    assert rs.next_vector_occurrence("s", 1) == 1  # step rerun re-runs point 1
-    assert rs.next_vector_occurrence("s", 1) == 2  # in-body retry of point 1
-    assert rs.next_vector_occurrence("s", 2) == 0  # a point first seen later
+    assert rs.next_vector_occurrence("s", None, 0) == 0
+    assert rs.next_vector_occurrence("s", None, 1) == 0
+    assert rs.next_vector_occurrence("s", None, 0) == 1  # step rerun re-runs point 0
+    assert rs.next_vector_occurrence("s", None, 1) == 1  # step rerun re-runs point 1
+    assert rs.next_vector_occurrence("s", None, 1) == 2  # in-body retry of point 1
+    assert rs.next_vector_occurrence("s", None, 2) == 0  # a point first seen later

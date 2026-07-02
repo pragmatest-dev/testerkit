@@ -15,20 +15,26 @@ import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
 from pydantic import ValidationError
 
 from litmus.data._collection_indices import StepKey, assign_indices
-from litmus.data.models import CollectedItem, Outcome, escalate_outcome, retry_aware_rollup
+from litmus.data.models import (
+    CollectedItem,
+    Outcome,
+    TestVector,
+    escalate_outcome,
+    retry_aware_rollup,
+)
 from litmus.execution._state import (
     get_active_instruments,
     get_active_part_context,
     get_active_profile,
     get_active_profile_name,
-    get_active_slot_runner,
+    get_active_site_runner,
     get_channel_store,
     get_current_run_scope,
     get_instrument_pool,
@@ -37,7 +43,8 @@ from litmus.execution._state import (
     set_active_profile,
     set_collected_items,
     set_current_code_identity,
-    set_current_slot_id,
+    set_current_site_index,
+    set_current_site_name,
     set_current_step_aliases,
     set_current_step_config,
     set_instrument_records,
@@ -81,6 +88,9 @@ from litmus.pytest_plugin.sweeps import (
     parametrize_calls_for_entry,
     sweep_to_parametrize_args,
 )
+
+if TYPE_CHECKING:
+    from litmus.execution.sites import ResolvedSite
 
 # Step ids (UUIDs as strings) that have shown verdict intent during
 # their execution — either pytest's rewritten assert hit and passed,
@@ -333,7 +343,7 @@ def _open_session_for_pytest(session) -> None:
     from litmus.execution.session_scope import build_session_started, open_session
     from litmus.pytest_plugin.helpers import (
         find_station_file,
-        is_multi_slot_worker,
+        is_multi_site_worker,
         resolve_station_id,
     )
     from litmus.store import load_project_config, load_station
@@ -364,7 +374,7 @@ def _open_session_for_pytest(session) -> None:
         session_id=session_id,
         data_dir=data_dir,
         reuse_existing=True,
-        emit_lifecycle=not is_multi_slot_worker(),
+        emit_lifecycle=not is_multi_site_worker(),
     )
     channel_store = ChannelStore(
         data_dir,
@@ -392,7 +402,7 @@ def pytest_sessionstart(session):
         register_as_prompt_handler(server_url=server_url)
 
     config = session.config
-    _resolve_and_install_slot_id(config)
+    _resolve_and_install_site(config)
 
     # Open the correlation-root session here (not in the run fixture). Collect-only
     # runs produce no data, so they open no session.
@@ -416,63 +426,84 @@ def pytest_sessionstart(session):
         config.option.uut_serial = serial
 
 
-def _resolve_and_install_slot_id(config) -> None:
-    """Resolve which slot this process is running against, install on ContextVar.
+def _resolve_and_install_site(config) -> None:
+    """Resolve which site this process is running against, install on ContextVars.
 
     Resolution chain:
 
-    1. **Worker child** (``_LITMUS_SLOT_ID`` env var set by orchestrator)
-       — env wins. ``--slot`` on the worker's invocation is a usage
+    1. **Worker child** (``_LITMUS_SITE_INDEX`` env var set by orchestrator)
+       — env wins. ``--site`` on the worker's invocation is a usage
        error (operator confusion: orchestrator already chose).
-    2. **Operator-set** ``--slot=N`` — validated against the resolved
-       fixture's slot list when one exists; an unknown slot is a usage
+    2. **Operator-set** ``--site=N`` — validated against the resolved
+       fixture's site list when one exists; an unknown site is a usage
        error so typos surface immediately.
-    3. **Orchestrator parent** (multi-slot fixture, no ``--slot``,
-       this process is *about to* dispatch per-slot children) —
-       leave the ContextVar at ``None``. The orchestrator parent
-       never runs tests itself; each child carries its own slot_id
-       via ``_LITMUS_SLOT_ID`` env var.
-    4. **No fixture / single-slot fixture** — leave the ContextVar at
-       ``None``; the run row's ``slot_id`` column reads as null.
+    3. **Orchestrator parent** (multi-site fixture, no ``--site``,
+       this process is *about to* dispatch per-site children) —
+       leave the ContextVars unset. The orchestrator parent never runs
+       a test itself (``pytest_runtestloop`` short-circuits before any
+       fixture executes — see ``site_runner.is_orchestrator_mode``),
+       so it never emits a RunStarted; whatever the getter's default
+       resolves to is never observed for this process.
+    4. **No fixture / single-site fixture** — leave the ContextVars
+       unset too. Unlike case 3, this process DOES run tests, so
+       ``get_current_site_index()`` matters here — its ``0`` default
+       (see ``execution._state``) is what makes a bare single-UUT run
+       record ``site_index=0`` rather than a null we can no longer
+       represent.
     """
-    env_slot_id = os.environ.get("_LITMUS_SLOT_ID")
-    cli_slot = config.getoption("--slot")
+    env_site_index_str = os.environ.get("_LITMUS_SITE_INDEX")
+    cli_site = config.getoption("--site")
 
-    if env_slot_id:
-        if cli_slot:
+    if env_site_index_str is not None:
+        if cli_site:
             raise pytest.UsageError(
-                "--slot is for single-process runs; this process was spawned "
-                "by the multi-slot orchestrator (saw _LITMUS_SLOT_ID env var). "
+                "--site is for single-process runs; this process was spawned "
+                "by the multi-site orchestrator (saw _LITMUS_SITE_INDEX env var). "
                 "Use --uut-serials at the orchestrator level instead."
             )
-        set_current_slot_id(env_slot_id)
+        site_index = int(env_site_index_str)
+        set_current_site_index(site_index)
+        # Look up site_name from fixture config if available
+        fixture_sites = _resolved_fixture_sites(config)
+        site_name = next((s.site_name for s in fixture_sites if s.site_index == site_index), None)
+        set_current_site_name(site_name)
         return
 
-    fixture_slots = _resolved_fixture_slot_ids(config)
+    fixture_sites = _resolved_fixture_sites(config)
 
-    if cli_slot:
-        if fixture_slots and cli_slot not in fixture_slots:
-            raise pytest.UsageError(
-                f"--slot={cli_slot!r} not in fixture's slot list "
-                f"(known: {', '.join(fixture_slots)})."
-            )
-        set_current_slot_id(cli_slot)
+    if cli_site:
+        from litmus.execution.sites import resolve_site_token
+
+        try:
+            resolved_index = resolve_site_token(cli_site, fixture_sites)
+        except ValueError as exc:
+            raise pytest.UsageError(f"--site={exc}") from exc
+        cli_site_name = next(
+            (s.site_name for s in fixture_sites if s.site_index == resolved_index), None
+        )
+        set_current_site_index(resolved_index)
+        set_current_site_name(cli_site_name)
         return
-    # Multi-slot fixture without --slot: this is the orchestrator
-    # parent. It dispatches per-slot children that each carry their
-    # own slot_id via env var; the parent never emits a RunStarted
-    # of its own, so leaving the ContextVar at None is correct.
+    # Multi-site fixture without --site: this is the orchestrator
+    # parent. It dispatches per-site children that each carry their
+    # own site_index via env var; the parent never emits a RunStarted
+    # of its own, so leaving the ContextVars unset is correct.
+    #
+    # No fixture / single-site fixture without --site: a real
+    # single-process run. Leaving the ContextVars unset here is also
+    # correct — get_current_site_index() resolves the unset case to 0.
 
 
-def _resolved_fixture_slot_ids(config) -> list[str]:
-    """Return ordered slot ids from the resolved fixture, or ``[]``.
+def _resolved_fixture_sites(config) -> list[ResolvedSite]:
+    """Return resolved sites from the fixture config, or ``[]``.
 
-    Returns ``[]`` for single-slot fixtures, missing fixtures, or load
-    errors — callers treat any of those as "no slot validation
+    Returns ``[]`` for single-site fixtures, missing fixtures, or load
+    errors — callers treat any of those as "no site validation
     available," matching the pre-fixture / bringup-tier flow. Errors
     here must not block test collection; the normal config-loading
     path will surface a real error if one exists.
     """
+    from litmus.execution.sites import resolve_fixture_sites
     from litmus.store import load_fixture
 
     fixture_path = find_fixture_file(config)
@@ -482,9 +513,9 @@ def _resolved_fixture_slot_ids(config) -> list[str]:
         fixture_config = load_fixture(fixture_path)
     except (ValidationError, yaml.YAMLError, OSError, ValueError):
         return []
-    if not fixture_config.is_multi_slot or not fixture_config.slots:
+    if not fixture_config.is_multi_site or not fixture_config.sites:
         return []
-    return list(fixture_config.slots.keys())
+    return resolve_fixture_sites(fixture_config)
 
 
 def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
@@ -1003,16 +1034,16 @@ def pytest_addoption(parser):
     group.addoption(
         "--uut-serials",
         default=None,
-        help="Per-slot UUT serials: slot_1=SN1,slot_2=SN2",
+        help="Per-site UUT serials: 0=SN1,1=SN2 (by index) or left=SN1,right=SN2 (by name)",
     )
     group.addoption(
-        "--slot",
+        "--site",
         default=None,
-        help="Physical fixture slot for this single-process run "
-        "(e.g. ``slot_1``, ``slot_2``). Use this when running a single "
-        "UUT against a specific position in a multi-slot fixture so the "
-        "run records which slot was exercised. Multi-slot orchestration "
-        "uses ``--uut-serials`` instead — supplying both is an error.",
+        help="Physical fixture site for this single-process run "
+        "(e.g. ``0``, ``1``, or a named site like ``left``). Use this when "
+        "running a single UUT against a specific position in a multi-site "
+        "fixture so the run records which site was exercised. Multi-site "
+        "orchestration uses ``--uut-serials`` instead — supplying both is an error.",
     )
     group.addoption("--uut-part-number", default=None, help="UUT part number")
     group.addoption("--uut-revision", default=None, help="UUT revision")
@@ -1251,6 +1282,9 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
         # Cascade child step outcomes into the container before we close it
         # so the container row reflects "did anything in this iteration fail".
         _stamp_container_outcome(logger_inst, open_state)
+        open_vec = open_state.get("vector")
+        if open_vec is not None:
+            logger_inst.end_outer_vector(open_vec)
         logger_inst.end_step()
         setattr(logger_inst, _OPEN_CLASS_ATTR, None)
 
@@ -1270,10 +1304,20 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
             cls.__name__,
             class_name=cls.__name__,
             module=getattr(cls, "__module__", None),
-            inputs=dict(outer_values),
-            vector_index=vi,
             step_retry=getattr(item, "execution_count", 1) - 1,
         )
+        # A class-outer vector is a real condition point ONLY when the class
+        # carries a ``litmus_sweeps`` marker (``outer_values`` non-empty). For
+        # an unswept container there is no condition point: pushing one would
+        # (a) write a spurious empty vector row and (b) install a bogus
+        # enclosing vector for the methods, mis-routing their measurements off
+        # their own vectors and onto the step row. So open the outer vector
+        # only when the class actually sweeps — otherwise the container is a
+        # pure structural step and the methods' context stays un-shadowed.
+        c_vec: TestVector | None = None
+        if outer_values:
+            c_vec = TestVector(index=vi, params=dict(outer_values))
+            logger_inst.begin_outer_vector(c_vec)
         setattr(
             logger_inst,
             _OPEN_CLASS_ATTR,
@@ -1282,6 +1326,7 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
                 "outer_values": outer_values,
                 "vector_index": vi,
                 "first_step_index": first_step_index,
+                "vector": c_vec,
             },
         )
 
@@ -1293,6 +1338,9 @@ def _close_open_class_container(logger_inst: Any) -> None:
         return
     try:
         _stamp_container_outcome(logger_inst, open_state)
+        vec = open_state.get("vector")
+        if vec is not None:
+            logger_inst.end_outer_vector(vec)
         logger_inst.end_step()
     finally:
         setattr(logger_inst, _OPEN_CLASS_ATTR, None)
@@ -1405,16 +1453,22 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
             class_name=cls.__name__ if cls is not None else None,
             node_id=item.nodeid,
             step_index=step_idx,
-            vector_index=vec_idx,
             step_retry=step_retry,
-            inputs=inputs,
         )
+        outer_keys = frozenset(k for k, _ in _outer_values_for(item))
+        inner_inputs = {k: v for k, v in inputs.items() if k not in outer_keys}
+        outer_vec: TestVector | None = None
+        if inner_inputs:
+            outer_vec = TestVector(index=vec_idx if vec_idx is not None else 0, params=dict(inputs))
+            logger_inst.begin_outer_vector(outer_vec)
         try:
             outcome_obj = yield
             _stamp_step_from_call_outcome(logger_inst, outcome_obj)
             if outcome_obj.excinfo is None:
                 _audit_traceability(logger_inst, strict=strict)
         finally:
+            if outer_vec is not None:
+                logger_inst.end_outer_vector(outer_vec)
             logger_inst.end_step()
             logger_inst._step_seen_names.clear()
             logger_inst._step_seen_repeatable.clear()
@@ -1568,11 +1622,11 @@ def pytest_keyboard_interrupt(excinfo: Any) -> None:
     semantics: Terminated = stopped with cleanup; Aborted is reserved
     for the no-cleanup case.
 
-    In orchestrator mode (the active :class:`SlotRunner` is exposed
+    In orchestrator mode (the active :class:`SiteRunner` is exposed
     via ContextVar) the orchestrator forwards SIGTERM to every live
     child *before* its own teardown unwinds. Each child's installed
     SIGTERM-to-KeyboardInterrupt converter then drives the same
-    cleanup chain, landing every per-slot run as ``Terminated``
+    cleanup chain, landing every per-site run as ``Terminated``
     instead of orphan ``Aborted`` fallbacks.
     """
     _ = excinfo
@@ -1582,7 +1636,7 @@ def pytest_keyboard_interrupt(excinfo: Any) -> None:
 
         _escalate_step_and_run(logger_inst, get_current_step(), Outcome.TERMINATED)
 
-    runner = get_active_slot_runner()
+    runner = get_active_site_runner()
     if runner is not None:
         runner._propagate_termination()
 
@@ -1598,14 +1652,14 @@ def _audit_traceability(logger_inst: Any, *, strict: bool) -> None:
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtestloop(session):
-    """Take over the test loop when this process is the multi-slot orchestrator.
+    """Take over the test loop when this process is the multi-site orchestrator.
 
-    In orchestrator mode, delegates to :func:`run_multi_slot_session`, which
-    spawns per-slot pytest children and reports aggregate results. In worker
-    or single-slot mode, returns ``None`` to fall through to pytest's default
+    In orchestrator mode, delegates to :func:`run_multi_site_session`, which
+    spawns per-site pytest children and reports aggregate results. In worker
+    or single-site mode, returns ``None`` to fall through to pytest's default
     loop.
     """
-    from litmus.execution.slot_runner import is_orchestrator_mode, run_multi_slot_session
+    from litmus.execution.site_runner import is_orchestrator_mode, run_multi_site_session
     from litmus.store import load_station
 
     if not is_orchestrator_mode(session.config):
@@ -1613,7 +1667,7 @@ def pytest_runtestloop(session):
 
     station_path = find_station_file(session.config)
     station_config_obj = load_station(station_path) if station_path else None
-    return run_multi_slot_session(session, station_config=station_config_obj)
+    return run_multi_site_session(session, station_config=station_config_obj)
 
 
 # StashKey for the self-loop vectors matrix. Populated by
