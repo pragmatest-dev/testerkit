@@ -460,13 +460,13 @@ class StepStarted(EventBase):
     step_path: str = ""
     description: str | None = None
 
-    # Vector context — which sweep condition this execution is.
-    # vector_index 0 (the default) is the natural value for non-swept steps;
-    # for sweep variants it identifies the specific condition. ``inputs``
-    # carries the commanded sweep parameters for this vector — what
-    # subscribers need to disambiguate "test_efficiency starting" from
-    # "test_efficiency starting at vin=2.0V".
-    vector_index: int = 0
+    # A step has NO own vector_index — canonically NULL, matching the at-rest
+    # step row. The ENCLOSING sweep condition (the class-level vector this step
+    # runs under) lives in ``vector_outer_index``, never here. ``inputs`` carries
+    # the enclosing condition's commanded parameters. (A step's own sweep points
+    # are separate ``VectorStarted`` events, which DO carry their own
+    # ``vector_index`` 0..N.)
+    vector_index: int | None = None
     # The vector_index of the outer (class-level) vector this step runs
     # inside; NULL when the step is not nested under a sweep.
     vector_outer_index: int | None = None
@@ -503,11 +503,11 @@ class MeasurementRecorded(EventBase):
     step_path: str = ""
     # NULL ⟺ an ambient / step-scope measurement (no owning condition point);
     # 0..N ⟺ the owning vector's index. The enclosing outer condition rides
-    # ``vector_outer_index``. Default 0 kept for construction sites that omit
-    # it; the live capture path (``run_scope.log_measurement``) always sets it
-    # explicitly (None for ambient) so a pre-loop measure never collides with
-    # the in-body loop's real vector 0.
-    vector_index: int | None = 0
+    # ``vector_outer_index``. Defaults to None (ambient) — a measurement with no
+    # known vector is step-scope, NOT a fake vector 0; defaulting to 0 would let
+    # an un-stamped ambient measurement collide with the in-body loop's real
+    # vector 0. The live path (``run_scope.log_measurement``) sets it explicitly.
+    vector_index: int | None = None
     vector_outer_index: int | None = None
     step_retry: int = 0  # outer item-attempt axis (de-fuse identity)
     retry: int = 0  # inner vector retry — 0 for first execution, N for Nth
@@ -552,11 +552,14 @@ class Observation(EventBase):
 
     event_type: Literal["test.observation"] = "test.observation"
 
-    # Step/vector context (matches MeasurementRecorded shape)
+    # Step/vector context (matches MeasurementRecorded shape). vector_index
+    # defaults to None (ambient / step-scope) — an observation with no owning
+    # condition point must not default to a fake vector 0 (it would key into
+    # ``obs_by_key`` at vector 0 and collide with the loop's real vector 0).
     step_name: str = ""
     step_index: int = 0
     step_path: str = ""
-    vector_index: int = 0
+    vector_index: int | None = None
     retry: int = 0
 
     # Observation
@@ -578,10 +581,10 @@ class StepEnded(EventBase):
     # measurements; step-summary rows fill the gap.
     outcome: str | None = None
 
-    # Vector context for this specific execution. ``inputs`` repeat the
-    # commanded sweep parameters for completeness; ``outputs`` carries
-    # vector-level observations not tied to any specific measurement.
-    vector_index: int = 0
+    # A step has NO own vector_index — canonically NULL (see StepStarted). The
+    # enclosing sweep condition lives in ``vector_outer_index``. ``outputs``
+    # carries step-level observations not tied to a specific measurement.
+    vector_index: int | None = None
     vector_outer_index: int | None = None
     # 0-based retry of this execution (Mode-1 fused boundary). Companion to
     # ``StepStarted.retry``.

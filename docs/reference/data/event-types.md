@@ -222,7 +222,7 @@ Emitted when an instrument is disconnected during teardown.
 | `step_index` | `int` | *required* |
 | `step_path` | `str` | `''` |
 | `description` | `str \| None` | `None` |
-| `vector_index` | `int` | `0` |
+| `vector_index` | `int \| None` | `None` |
 | `vector_outer_index` | `int \| None` | `None` |
 | `retry` | `int` | `0` |
 | `inputs` | `dict[str, Any]` | `{}` |
@@ -241,7 +241,7 @@ Emitted when an instrument is disconnected during teardown.
 | `step_index` | `int` | *required* |
 | `step_path` | `str` | `''` |
 | `outcome` | `str \| None` | `None` |
-| `vector_index` | `int` | `0` |
+| `vector_index` | `int \| None` | `None` |
 | `vector_outer_index` | `int \| None` | `None` |
 | `retry` | `int` | `0` |
 | `inputs` | `dict[str, Any]` | `{}` |
@@ -302,7 +302,7 @@ A single measurement. Normalized: carries only measurement-specific fields.
 | `step_name` | `str` | *required* |
 | `step_index` | `int` | *required* |
 | `step_path` | `str` | `''` |
-| `vector_index` | `int \| None` | `0` |
+| `vector_index` | `int \| None` | `None` |
 | `vector_outer_index` | `int \| None` | `None` |
 | `step_retry` | `int` | `0` |
 | `retry` | `int` | `0` |
@@ -334,7 +334,7 @@ Emitted by ``Context.observe(key, value)``.
 | `step_name` | `str` | `''` |
 | `step_index` | `int` | `0` |
 | `step_path` | `str` | `''` |
-| `vector_index` | `int` | `0` |
+| `vector_index` | `int \| None` | `None` |
 | `retry` | `int` | `0` |
 | `name` | `str` | *required* |
 | `value` | `Any` | `None` |

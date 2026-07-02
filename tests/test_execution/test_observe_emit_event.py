@@ -290,7 +290,8 @@ def test_observe_outside_step_vector_emits_with_defaults(
     assert ev.step_name == ""
     assert ev.step_index == 0
     assert ev.step_path == ""
-    assert ev.vector_index == 0
+    # Ambient (no active vector) → vector_index is NULL, not a fake vector 0.
+    assert ev.vector_index is None
     assert ev.retry == 0
 
 

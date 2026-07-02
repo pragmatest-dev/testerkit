@@ -724,7 +724,8 @@ def test_scenario_7_outside_loop_step_scope_data(tmp_path):
             inputs={"vin": 3.3},
         )
     )
-    # An observation recorded in the step body, outside any inner loop.
+    # An observation recorded in the step body, outside any inner loop —
+    # ambient/step-scope, so vector_index is NULL (not a fake vector 0).
     acc.on_event(
         Observation(
             session_id=sid,
@@ -732,7 +733,7 @@ def test_scenario_7_outside_loop_step_scope_data(tmp_path):
             step_name="test_setup",
             step_index=0,
             step_path="test_setup",
-            vector_index=0,
+            vector_index=None,
             name="ambient_temp",
             value=22.5,
         )
@@ -791,7 +792,8 @@ def test_scenario_8_vector_with_unit(tmp_path):
             step_name="test_u",
             step_index=0,
             step_path="test_u",
-            vector_index=0,
+            # Step-scope observation → vector_index NULL (not a fake vector 0).
+            vector_index=None,
             name="temp",
             value=24.8,
             unit="°C",
@@ -1044,7 +1046,7 @@ def test_row_j_parametrize_method_in_plain_class(tmp_path):
         )
     )
     # Mode-1 parametrize: each variant is a separate pytest item sharing step_path.
-    # Both variants carry StepStarted.vector_index=0 (enclosing=None for top-level C).
+    # A step has no own vector_index (NULL); top-level C → vector_outer_index None.
     for vi, v in ((0, "a"), (1, "b")):
         node_id = f"test_file.py::TestC::test_m[{v}]"
         acc.on_event(
@@ -1054,7 +1056,7 @@ def test_row_j_parametrize_method_in_plain_class(tmp_path):
                 step_name="test_m",
                 step_index=0,
                 step_path="TestC/test_m",
-                vector_index=0,
+                vector_index=None,
                 class_name="TestC",
                 function="test_m",
                 node_id=node_id,

@@ -6,9 +6,11 @@ permutation table.
 
 Row A  -- non-swept step: StepStarted + StepEnded, zero VectorStarted.
 Row B  -- Mode-1 (@parametrize): two VectorStarted (vi=0,1); both
-          StepStarted carry vector_index=0 (enclosing = null/0 at top level).
+          StepStarted carry vector_index=None (a step has no own index) and
+          vector_outer_index=None (no enclosing loop at top level).
 Row H  -- class-outer (litmus_sweeps): C emits VectorStarted per outer point;
-          m.StepStarted.vector_index = enclosing outer vi (0 then 1).
+          m.StepStarted.vector_index=None, vector_outer_index = enclosing
+          outer index (0 then 1).
 Pre-merge -- inner vector's inputs already contain enclosing condition.
 """
 
@@ -53,7 +55,9 @@ def test_non_swept_step_zero_vector_started() -> None:
     assert len(log.of_type(VectorStarted)) == 0
     assert len(log.of_type(VectorEnded)) == 0
     assert len(log.of_type(StepEnded)) == 1
-    assert log.of_type(StepStarted)[0].vector_index == 0
+    # A step has no own vector_index (canonically NULL); no enclosing at top.
+    assert log.of_type(StepStarted)[0].vector_index is None
+    assert log.of_type(StepStarted)[0].vector_outer_index is None
 
 
 # ---------------------------------------------------------------------------
@@ -85,9 +89,12 @@ def test_mode1_two_variants_emit_two_vector_started() -> None:
     assert len(vec_starts) == 2
     assert len(vec_ends) == 2
 
-    # Both StepStarted carry enclosing vi = 0 (no enclosing loop at top level)
-    assert step_starts[0].vector_index == 0
-    assert step_starts[1].vector_index == 0
+    # A step's own vector_index is canonically NULL; no enclosing at top level
+    # so vector_outer_index is None too.
+    assert step_starts[0].vector_index is None
+    assert step_starts[1].vector_index is None
+    assert step_starts[0].vector_outer_index is None
+    assert step_starts[1].vector_outer_index is None
 
     # VectorStarted carry the variant's own index
     assert vec_starts[0].vector_index == 0
@@ -132,10 +139,12 @@ def test_class_outer_method_gets_enclosing_vector_index() -> None:
 
     m_starts = [e for e in step_starts if e.step_name == "m"]
     assert len(m_starts) == 2
-    # m under temp=25 (c_vec_0.index=0) → StepStarted.vector_index=0
-    assert m_starts[0].vector_index == 0
-    # m under temp=85 (c_vec_1.index=1) → StepStarted.vector_index=1
-    assert m_starts[1].vector_index == 1
+    # m's own vector_index is NULL; the enclosing class-outer condition rides
+    # vector_outer_index (0 under temp=25, 1 under temp=85).
+    assert m_starts[0].vector_index is None
+    assert m_starts[1].vector_index is None
+    assert m_starts[0].vector_outer_index == 0
+    assert m_starts[1].vector_outer_index == 1
 
 
 # ---------------------------------------------------------------------------

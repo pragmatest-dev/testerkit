@@ -946,7 +946,10 @@ def build_vector_row(
         step_markers=entry.get("markers"),
         step_outcome=None,
         step_retry=entry.get("step_retry") or 0,
-        vector_index=raw_vi if raw_vi is not None else 0,
+        # A vector row MUST have a concrete index (0..N) — vector_entry_dict
+        # always supplies one; a None here is a real bug, caught loudly by
+        # RunParquetRow._check_grain_invariant rather than masked as vector 0.
+        vector_index=raw_vi,
         vector_outer_index=entry.get("vector_outer_index"),
         vector_retry=raw_retry if raw_retry is not None else 0,
         vector_started_at=_to_datetime(entry.get("started_at")),

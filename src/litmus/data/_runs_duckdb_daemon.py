@@ -1285,82 +1285,77 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
     map_expr = _dynamic_attrs_map_expr()
     conn.execute(f"""
         INSERT INTO steps_materialized BY NAME
+        WITH grain AS (
+            SELECT
+                run_id,
+                step_path,
+                COALESCE(step_retry, 0) AS step_retry,
+                vector_index,
+                COALESCE(vector_index, -1) AS vector_index_key,
+                vector_outer_index,
+                COALESCE(vector_outer_index, -1) AS vector_outer_index_key,
+                step_index,
+                filename AS file_path,
+                session_id,
+                site_index,
+                site_name,
+                step_name,
+                -- Each grain row draws timing/outcome from its own record kind: a
+                -- step-grain group (vector_index NULL) has the 'step' record; each
+                -- vector-grain group (vector_index 0..N) is disjoint and has only
+                -- its 'vector' record, never a 'step' row. So COALESCE the
+                -- step-record columns with the vector-record columns — otherwise
+                -- every vector bucket gets NULL started_at/ended_at and
+                -- list_for_run's ``ended_at IS NOT NULL`` filter drops it, making
+                -- vectors invisible in the steps tree (#24). Computed once here;
+                -- duration_s derives from these aliases in the outer SELECT.
+                COALESCE(
+                    ANY_VALUE(step_outcome) FILTER (WHERE record_type = 'step'),
+                    ANY_VALUE(vector_outcome) FILTER (WHERE record_type = 'vector')
+                ) AS outcome,
+                COALESCE(
+                    ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step'),
+                    ANY_VALUE(vector_started_at) FILTER (WHERE record_type = 'vector')
+                ) AS started_at,
+                COALESCE(
+                    ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step'),
+                    ANY_VALUE(vector_ended_at) FILTER (WHERE record_type = 'vector')
+                ) AS ended_at,
+                CAST(COALESCE(
+                    SUM(len(measurements)) FILTER (WHERE record_type IN ('step', 'vector')), 0
+                ) AS INTEGER) AS measurement_count,
+                ANY_VALUE(step_markers) FILTER (WHERE record_type = 'step') AS markers,
+                uut_serial_number,
+                station_id,
+                ANY_VALUE({map_expr}) FILTER (WHERE record_type IN ('step', 'vector'))
+                    AS dynamic_attrs
+            FROM read_parquet({flist}, filename=true, union_by_name=true)
+            -- Exclude the run record (record_type='run', step_path=''): steps
+            -- are aggregated from 'step' + 'vector' rows only. Without this the
+            -- run record forms a phantom ('', 0) step group. (The at-rest parquet
+            -- has no 'measurement' rows — measurements ride the nested list.)
+            WHERE run_id IS NOT NULL AND record_type <> 'run'
+            GROUP BY
+                filename, run_id,
+                step_path, COALESCE(step_retry, 0), vector_index, vector_outer_index, step_index,
+                session_id, site_index, site_name, step_name,
+                uut_serial_number, station_id
+        )
         SELECT
-            run_id,
-            step_path,
-            COALESCE(step_retry, 0) AS step_retry,
-            vector_index,
-            COALESCE(vector_index, -1) AS vector_index_key,
-            vector_outer_index,
-            COALESCE(vector_outer_index, -1) AS vector_outer_index_key,
-            step_index,
-            filename AS file_path,
-            session_id,
-            site_index,
-            site_name,
-            step_name,
-            -- Each grain row draws timing/outcome from its own record kind: a
-            -- step-grain group (vector_index NULL) has the 'step' record; each
-            -- vector-grain group (vector_index 0..N) is disjoint and has only
-            -- its 'vector' record (+ its measurements), never a 'step' row. So
-            -- COALESCE step-record columns with the vector-record columns —
-            -- otherwise every vector bucket gets NULL started_at/ended_at and
-            -- list_for_run's ``ended_at IS NOT NULL`` filter drops it, making
-            -- vectors invisible in the steps tree (#24).
-            COALESCE(
-                ANY_VALUE(step_outcome) FILTER (WHERE record_type = 'step'),
-                ANY_VALUE(vector_outcome) FILTER (WHERE record_type = 'vector')
-            ) AS outcome,
-            COALESCE(
-                ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step'),
-                ANY_VALUE(vector_started_at) FILTER (WHERE record_type = 'vector')
-            ) AS started_at,
-            COALESCE(
-                ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step'),
-                ANY_VALUE(vector_ended_at) FILTER (WHERE record_type = 'vector')
-            ) AS ended_at,
+            *,
             -- Rounded to microseconds: timestamps are ``timestamp("us")``, so
-            -- duration is only meaningful to 6 decimals. Rounding also erases
-            -- the float64 tail from EPOCH()'s large-double subtraction, so this
-            -- matches the overlay's Python ``total_seconds()`` exactly (the
-            -- inflight↔materialized equivalence guard).
-            ROUND(CASE
-                WHEN COALESCE(
-                        ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step'),
-                        ANY_VALUE(vector_ended_at) FILTER (WHERE record_type = 'vector')
-                     ) IS NOT NULL
-                 AND COALESCE(
-                        ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step'),
-                        ANY_VALUE(vector_started_at) FILTER (WHERE record_type = 'vector')
-                     ) IS NOT NULL
-                THEN EPOCH(COALESCE(
-                        ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step'),
-                        ANY_VALUE(vector_ended_at) FILTER (WHERE record_type = 'vector')
-                     ))
-                   - EPOCH(COALESCE(
-                        ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step'),
-                        ANY_VALUE(vector_started_at) FILTER (WHERE record_type = 'vector')
-                     ))
-                ELSE NULL
-            END, 6) AS duration_s,
-            CAST(COALESCE(
-                SUM(len(measurements)) FILTER (WHERE record_type <> 'measurement'), 0
-            ) AS INTEGER)
-                AS measurement_count,
-            ANY_VALUE(step_markers) FILTER (WHERE record_type = 'step') AS markers,
-            uut_serial_number,
-            station_id,
-            ANY_VALUE({map_expr}) FILTER (WHERE record_type <> 'measurement') AS dynamic_attrs
-        FROM read_parquet({flist}, filename=true, union_by_name=true)
-        -- Exclude the run record (record_type='run', step_path=''): steps
-        -- are aggregated from 'step' + 'vector' + 'measurement' rows only.
-        -- Without this the run record forms a phantom ('', 0) step group.
-        WHERE run_id IS NOT NULL AND record_type <> 'run'
-        GROUP BY
-            filename, run_id,
-            step_path, COALESCE(step_retry, 0), vector_index, vector_outer_index, step_index,
-            session_id, site_index, site_name, step_name,
-            uut_serial_number, station_id
+            -- duration is only meaningful to 6 decimals. Rounding also erases the
+            -- float64 tail from EPOCH()'s large-double subtraction, matching the
+            -- overlay's Python ``total_seconds()`` exactly (the inflight↔
+            -- materialized equivalence guard).
+            ROUND(
+                CASE
+                    WHEN ended_at IS NOT NULL AND started_at IS NOT NULL
+                    THEN EPOCH(ended_at) - EPOCH(started_at)
+                    ELSE NULL
+                END, 6
+            ) AS duration_s
+        FROM grain
         ON CONFLICT (run_id, step_path, step_retry, vector_index_key, vector_outer_index_key)
         DO UPDATE SET
             vector_index = excluded.vector_index,

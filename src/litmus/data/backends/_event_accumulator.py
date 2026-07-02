@@ -263,7 +263,14 @@ class EventAccumulator:
         }
 
     def snapshot_step_rows(self) -> list[dict[str, Any]]:
-        """Return step rows matching the runs daemon's ``steps`` row shape."""
+        """Return BOTH grains as overlay rows for the daemon's steps tables.
+
+        Emits the logical-step rows (``vector_index`` NULL) followed by the
+        condition-point rows (``vector_index`` 0..N) — mirroring the at-rest
+        ``steps_materialized`` table, which the daemon exposes via the grain-
+        split ``steps`` (NULL) and ``step_vectors`` (0..N) views. Callers that
+        want one grain filter on ``vector_index`` (as ``StepsQuery`` does).
+        """
         s = self._run_started
         if not s:
             return []
@@ -689,7 +696,8 @@ class EventAccumulator:
             instruments=self._build_instrument_records(),
         )
         flat = row.to_flat_dict()
-        flat["record_type"] = "measurement"
+        # record_type is already 'measurement' (constructed above); the nested
+        # measurements list has no place on the flat fact row.
         flat.pop("measurements", None)
         return flat
 
@@ -722,9 +730,9 @@ class EventAccumulator:
 
         # Observations per vector key — merged into the step entry's outputs
         # so the step record carries the vector's observations on its lanes.
-        obs_by_key: dict[tuple[str, int], dict[str, Any]] = {}
-        obs_units_by_key: dict[tuple[str, int], dict[str, str]] = {}
-        obs_pins_by_key: dict[tuple[str, int], dict[str, str]] = {}
+        obs_by_key: dict[tuple[str, int | None], dict[str, Any]] = {}
+        obs_units_by_key: dict[tuple[str, int | None], dict[str, str]] = {}
+        obs_pins_by_key: dict[tuple[str, int | None], dict[str, str]] = {}
         for ev in self._observation_events:
             if ev.name.startswith("_"):
                 continue
@@ -759,9 +767,10 @@ class EventAccumulator:
             # so _append_not_started can correctly identify which CIs already
             # ran — pytest parametrize variants share one logical step_path but
             # have distinct node_ids, so keying by node_id misses cross-CI
-            # matches. Top-level steps have vector_outer_index=None; coerce to
-            # 0 so _append_not_started's ``ci.get("vector_index") or 0`` check
-            # finds them.
+            # matches. The ``else 0`` is a DEDUP-ONLY placeholder for a NULL
+            # outer index (top-level step) — it is not a real vector index and
+            # never lands on a row; it only has to agree with
+            # _append_not_started's matching ``ci.get("vector_index") or 0``.
             executed_vectors.add((path, vec if vec is not None else 0))
             emitted_step_keys.add(key)
             step_meas = step_scope_meas.get((path, step_retry, vec), [])
@@ -770,9 +779,14 @@ class EventAccumulator:
                 start,
                 end,
                 len(step_meas),
-                obs_by_key.get((path, vec if vec is not None else 0), {}),
-                obs_units_by_key.get((path, vec if vec is not None else 0), {}),
-                obs_pins_by_key.get((path, vec if vec is not None else 0), {}),
+                # Observations are keyed by their own vector_index (NULL for an
+                # ambient/step-scope observation). A top-level step's ``vec``
+                # (its enclosing vector_outer_index) is NULL too, so match on
+                # ``vec`` directly — coercing to 0 would miss the NULL-keyed
+                # ambient observations (now that observe() stamps NULL ambient).
+                obs_by_key.get((path, vec), {}),
+                obs_units_by_key.get((path, vec), {}),
+                obs_pins_by_key.get((path, vec), {}),
                 step_measurements=step_meas,
             )
             s_idx = entry.get("index", 0)

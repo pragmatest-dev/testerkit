@@ -774,7 +774,10 @@ class RunScope:
         """
         if self._event_log is None:
             return
-        enc_vi = enclosing.index if enclosing is not None else 0
+        # A step has no own vector_index (canonically NULL, mirroring the
+        # at-rest step row). The enclosing sweep condition rides
+        # ``vector_outer_index`` ALONE — it is not duplicated onto
+        # ``vector_index`` (that overload is what vector_outer_index replaced).
         enc_voi: int | None = enclosing.index if enclosing is not None else None
         enc_inputs = coerce_dict(enclosing.params) if enclosing is not None else {}
         enc_units = dict(enclosing.param_units) if enclosing is not None else {}
@@ -786,7 +789,7 @@ class RunScope:
                 step_index=self._current_step_index,
                 step_path=step.step_path,
                 description=step.description,
-                vector_index=enc_vi,
+                vector_index=None,
                 vector_outer_index=enc_voi,
                 retry=step.retry,
                 inputs=enc_inputs,
@@ -814,7 +817,7 @@ class RunScope:
                 step_index=self._current_step_index,
                 step_path=step.step_path,
                 outcome=step.outcome.value if step.outcome else None,
-                vector_index=enc_vi,
+                vector_index=None,
                 vector_outer_index=enc_voi,
                 retry=step.retry,
                 inputs={**enc_inputs, **own_inputs},

@@ -562,7 +562,11 @@ class Context:
                 step_name=getattr(step, "name", "") if step else "",
                 step_index=run_scope._current_step_index,
                 step_path=getattr(step, "step_path", "") if step else "",
-                vector_index=getattr(vector, "index", 0) if vector else 0,
+                # Ambient (no active vector) → vector_index NULL, mirroring
+                # measure(): an observation with no owning condition point is
+                # step-scope, NOT a fake vector 0 (which would collide with an
+                # in-body loop's real vector 0 — Bug 3, for observe()).
+                vector_index=vector.index if vector is not None else None,
                 retry=getattr(vector, "retry", 0) if vector else 0,
                 name=key,
                 value=value,

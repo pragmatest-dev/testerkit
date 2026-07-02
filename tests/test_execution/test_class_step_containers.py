@@ -147,7 +147,8 @@ def test_unswept_class_emits_single_container(tmp_path: Path) -> None:
     ]
     assert len(container_starts) == 1, container_starts
     assert len(container_ends) == 1, container_ends
-    assert container_starts[0].get("vector_index", 0) == 0
+    # A step (incl. a class container) has no own vector_index — canonically NULL.
+    assert container_starts[0].get("vector_index") is None
     assert container_starts[0].get("inputs") in (None, {}), container_starts[0].get("inputs")
     assert "/" not in (container_starts[0].get("step_path") or "")
 
@@ -192,10 +193,11 @@ def test_class_sweep_emits_container_per_iteration(tmp_path: Path) -> None:
     assert len(container_starts) == 3, [e.get("vector_index") for e in container_starts]
     assert len(container_ends) == 3
 
-    # Phase 2 shape: container StepStarted is top-level (encl=None → vi=0).
-    # Voltage values land on VectorStarted events emitted by begin_outer_vector.
-    vector_indices = [e.get("vector_index") for e in container_starts]
-    assert vector_indices == [0, 0, 0], vector_indices
+    # A step's own vector_index is canonically NULL; the container is top-level
+    # (encl=None) so vector_outer_index is None too. Voltage values land on the
+    # VectorStarted events emitted by begin_outer_vector.
+    assert [e.get("vector_index") for e in container_starts] == [None, None, None]
+    assert [e.get("vector_outer_index") for e in container_starts] == [None, None, None]
 
     # Containers carry empty inputs on StepStarted (enclosing=None).
     inputs = [e.get("inputs") or {} for e in container_starts]
@@ -277,33 +279,37 @@ def test_canonical_composed_sweep_order(tmp_path: Path) -> None:
     actual = [e.get("step_name") for e in started]
     assert actual == expected_step_names, actual
 
-    # Phase 2 shape:
-    # - Container StepStarted (TestSeq) vi = encl=None → 0 (all three)
-    # - Method StepStarted vi = enclosing class-outer vector index (0/1/2)
-    # - test_b variants are Mode-1 (separate pytest items); each has encl=c_vec_N
-    #   → vi = N (NOT their own b_vec index).
-    expected_vector_indices = [
-        0,  # TestSeq iter 0 (encl=None)
+    # A step has no own vector_index (NULL). The ENCLOSING class-outer condition
+    # rides vector_outer_index: None for the top-level TestSeq container, and the
+    # class-outer index (0/1/2) for the methods running under each iteration.
+    # test_b variants are Mode-1 (separate pytest items); each has encl=c_vec_N
+    # → vector_outer_index = N (NOT their own b_vec index).
+    expected_vector_outer_indices = [
+        None,  # TestSeq iter 0 (encl=None)
         0,  # test_a (encl=c_vec_0, index=0)
         0,  # test_b[c=4] (encl=c_vec_0)
         0,  # test_b[c=5] (encl=c_vec_0)
         0,  # test_b[c=6] (encl=c_vec_0)
         0,  # test_c (encl=c_vec_0)
-        0,  # TestSeq iter 1 (encl=None)
+        None,  # TestSeq iter 1 (encl=None)
         1,  # test_a (encl=c_vec_1, index=1)
         1,  # test_b[c=4] (encl=c_vec_1)
         1,  # test_b[c=5] (encl=c_vec_1)
         1,  # test_b[c=6] (encl=c_vec_1)
         1,  # test_c (encl=c_vec_1)
-        0,  # TestSeq iter 2 (encl=None)
+        None,  # TestSeq iter 2 (encl=None)
         2,  # test_a (encl=c_vec_2, index=2)
         2,  # test_b[c=4] (encl=c_vec_2)
         2,  # test_b[c=5] (encl=c_vec_2)
         2,  # test_b[c=6] (encl=c_vec_2)
         2,  # test_c (encl=c_vec_2)
     ]
-    actual_vi = [e.get("vector_index", 0) for e in started]
-    assert actual_vi == expected_vector_indices, actual_vi
+    actual_voi = [e.get("vector_outer_index") for e in started]
+    assert actual_voi == expected_vector_outer_indices, actual_voi
+    # And every step's own vector_index is NULL.
+    assert all(e.get("vector_index") is None for e in started), [
+        e.get("vector_index") for e in started
+    ]
 
     # inputs sequence:
     # - Container (TestSeq) StepStarted: encl=None → {} (params land on VectorStarted)
@@ -533,9 +539,10 @@ def test_swept_class_with_vectors_fixture_inner_sweep(tmp_path: Path) -> None:
     Expected shape:
 
     * 3 ``TestSeq`` container events (voltage 0/1/2)
-    * 3 ``test_b`` ``StepStarted`` events with matching ``vector_index``
-      and ``inputs={voltage: N}`` — the OUTER index, not the last inner.
-    * 3 matching ``StepEnded`` events (vi same as Started; severity-max
+    * 3 ``test_b`` ``StepStarted`` events with NULL own ``vector_index`` and
+      the enclosing outer index on ``vector_outer_index`` (0/1/2), plus
+      ``inputs={voltage: N}``.
+    * 3 matching ``StepEnded`` events (same vector_outer_index; severity-max
       across inner iterations).
     * 9 measurements with full ``inputs={voltage, current}`` so each row
       carries the complete sweep context.
@@ -572,16 +579,20 @@ def test_swept_class_with_vectors_fixture_inner_sweep(tmp_path: Path) -> None:
     assert len(method_starts) == 3, method_starts
     assert len(method_ends) == 3, method_ends
 
-    # Phase 2 shape: container StepStarted vi=0 (top-level, encl=None).
-    # Voltage values land on VectorStarted events.
-    assert [e.get("vector_index") for e in container_starts] == [0, 0, 0]
+    # A step has no own vector_index (canonically NULL); the container is
+    # top-level so vector_outer_index is None too. Voltage values land on
+    # the container's VectorStarted events.
+    assert [e.get("vector_index") for e in container_starts] == [None, None, None]
+    assert [e.get("vector_outer_index") for e in container_starts] == [None, None, None]
     assert [e.get("inputs") or {} for e in container_starts] == [{}, {}, {}]
 
-    # Method StepStarted vector_index = enclosing class-outer vi (0/1/2).
-    # test_b is NOT a Mode-1 swept step here (it uses the vectors fixture,
-    # i.e. Mode-2). So method_starts have vi from encl=c_vec_0/1/2.
-    assert [e.get("vector_index") for e in method_starts] == [0, 1, 2]
-    assert [e.get("vector_index") for e in method_ends] == [0, 1, 2]
+    # Method steps have NULL own vector_index; the enclosing class-outer
+    # condition rides vector_outer_index (0/1/2). test_b is NOT a Mode-1 swept
+    # step here (it uses the vectors fixture, i.e. Mode-2).
+    assert [e.get("vector_index") for e in method_starts] == [None, None, None]
+    assert [e.get("vector_index") for e in method_ends] == [None, None, None]
+    assert [e.get("vector_outer_index") for e in method_starts] == [0, 1, 2]
+    assert [e.get("vector_outer_index") for e in method_ends] == [0, 1, 2]
     assert [e.get("inputs") or {} for e in method_starts] == [
         {"voltage": 1},
         {"voltage": 2},

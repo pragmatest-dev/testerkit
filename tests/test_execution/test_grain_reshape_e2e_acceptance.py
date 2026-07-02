@@ -293,6 +293,57 @@ def test_p3_mode2_inbody_loop_with_preloop_ambient(tmp_path: Path) -> None:
         assert [m["name"] for m in v["measurements"]] == ["vout"]
 
 
+def test_p3_mode2_inbody_loop_with_preloop_observe_ambient(tmp_path: Path) -> None:
+    """observe() analog of the pre-loop-ambient case (Bug 3 for observe).
+
+    A pre-loop observe() is ambient (no active vector) → its output must land
+    on the STEP row, not fold into the in-body loop's real vector 0. The
+    per-iteration observe()s land on their own vector rows.
+    """
+    session_id = str(uuid4())
+    test_file = tmp_path / "test_p3m2_obs.py"
+    _write_test(
+        test_file,
+        """\
+        import pytest
+
+        @pytest.mark.litmus_sweeps([{"vin": [1, 2, 3]}])
+        def test_x(vectors, observe, context):
+            observe("ambient_temp", 22.5)
+            for v in vectors:
+                observe("vout", v["vin"] * 10)
+        """,
+    )
+    result = _run_pytest(test_file, session_id=session_id)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    rows = _read_raw_rows(session_id)
+    _print_rows("P3-Mode2 in-body loop (pre-loop observe() ambient)", rows)
+    kinds = _by_kind(rows)
+
+    steps = kinds["step"]
+    assert len(steps) == 1
+    step = steps[0]
+    assert step["vector_index"] is None
+    # Bug-3-for-observe: the pre-loop (ambient) observe() lands on the STEP row's
+    # outputs and does NOT fold into the loop's real vector 0.
+    step_out = decode_lane_structs(step["outputs"])
+    assert step_out.get("ambient_temp") == 22.5, step_out
+    # NOTE: the step also currently carries the loop's `vout` here — a SEPARATE,
+    # pre-existing leak (StepEnded.outputs reads the base context, which the bare
+    # observe fixture writes to; the output analog of the #30 configure scoping).
+    # Tracked as its own task; not asserted here (this test covers the ambient
+    # index/scope fix only).
+
+    vecs = sorted(kinds["vector"], key=lambda v: v["vector_index"])
+    assert [v["vector_index"] for v in vecs] == [0, 1, 2]
+    for v, expected_vin in zip(vecs, (1, 2, 3), strict=True):
+        v_out = decode_lane_structs(v["outputs"])
+        assert v_out.get("vout") == expected_vin * 10, v_out
+        # The ambient observe did NOT leak into any vector row (the Bug-3 check).
+        assert "ambient_temp" not in v_out, v_out
+
+
 # ---------------------------------------------------------------------------
 # P4-Mode1 — plain class + parametrized method.
 # ---------------------------------------------------------------------------

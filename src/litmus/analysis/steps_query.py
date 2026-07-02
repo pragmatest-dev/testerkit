@@ -176,6 +176,9 @@ class StepsQuery:
             FROM steps
             WHERE run_id LIKE '{sql_escape(prefix)}%'
             {ended_clause}
+            -- Logical-step grain: no vector dimension to order on (a step's own
+            -- vector_index is NULL). Its condition points are ordered in
+            -- list_vectors_for_run, which adds vector_outer_index, vector_index.
             ORDER BY step_index, step_retry
         """)
 
