@@ -138,8 +138,8 @@ See [Data stores](../concepts/data/data-stores.md) for the full on-disk layout a
 
 ## What's next
 
-Step 13 covers byte-stream artifacts — video, audio, and vendor capture formats — using `litmus.files.stream`.
+Step 13 scales one bench to multiple UUTs tested in parallel.
 
 For the full model behind discrete vs continuous capture, and when to reach for `observe` vs `stream`, see [The Three Test-Author Verbs](../concepts/data/three-verbs.md).
 
-← [Step 11: Waveforms and Evidence](11-waveforms-and-evidence.md)  |  [Tutorial index](index.md)
+← [Step 11: Waveforms and Evidence](11-waveforms-and-evidence.md)  |  [Tutorial index](index.md)  |  [Step 13: Parallel Testing →](13-parallel-testing.md)
