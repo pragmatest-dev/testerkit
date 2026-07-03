@@ -446,3 +446,110 @@ Apache Kafka protocol + magic byte (kafka.apache.org); Fowler, *Parallel Change*
 majors; `1.0` (not `0.1`) is mandated by the scheme's own definition of `0.x`; read-time adapt is
 Avro+upcasting; the index epoch is Postgres's catversion done one better (rebuild, not refuse); the
 wire fix is Kafka's magic-byte + ApiVersions. Nothing here is invented — it is assembled.
+
+## §11. Versioning is a BACKEND CONTRACT, not a DuckDB feature (2026-07-02)
+
+**Invariant:** Litmus retains the ability to swap the serving backend (req-6). Therefore
+"read every stored version in harmony" is a **required attribute of any backend** — shared across
+all of them — even though the *mechanism* is stack-specific. Do not couple versioning to DuckDB.
+
+**The shared, backend-neutral core** (zero serving-backend coupling — this IS the attribute):
+- `litmus.data.schema_versions` — the registry (`CURRENT_SCHEMA_VERSION`, `KNOWN_SCHEMA_VERSIONS`,
+  `SchemaStore`).
+- `litmus.data.schema_dispatch` — the decision (stamp → known adapt / newer **defer** / absent or
+  older refuse) + the adapter registry.
+
+Every backend imports and calls these at its own durable→rows boundary. The DuckDB daemon is *one*
+implementation; the call sites (`_ingest_one_file`, `scan_sidecars`, …) are the DuckDB-specific
+part, not the contract.
+
+**The contract every backend must satisfy** (attribute shared, mechanism per-stack):
+
+| Capability | DuckDB daemon (today) | Snowflake | Iceberg + any engine |
+|---|---|---|---|
+| Stamp on write | Parquet/Arrow file metadata | file metadata | table schema + payload-version column |
+| Dispatch on read (known→adapt / newer→defer / absent→refuse) | `dispatch()` in ingest hooks | `dispatch()` in the Snowpipe/COPY pipeline | `dispatch()` in the reader/ETL |
+| Coexist (many versions → one current shape) | `union_by_name` + adapters | `MATCH_BY_COLUMN_NAME` + dbt transform | column-IDs + transform |
+| Migrate (opt-in old→current) | `schema_migrate` (parquet/sidecar rewrite) | CTAS / dbt rebuild | rewrite snapshot |
+| Version the DERIVED cache | index epoch `_index.e{N}` (#47) | Snowflake table versions / Time Travel | Iceberg snapshots |
+
+**The line to hold:** the **durable-layer** versioning (`schema_versions` + `schema_dispatch` + the
+adapter registry) is the **shared contract** every backend calls. The **derived-layer** versioning
+(the index epoch, #47) is **legitimately per-stack** — how DuckDB versions *its* cache; a warehouse
+versions its own (snapshots / Time Travel). Do NOT force the derived-cache versioning into the
+shared contract.
+
+**Code discipline now / at the swap:**
+- Now: every backend calls `schema_dispatch` at its boundary; never inline a version check into a
+  stack-specific module. `schema_migrate` is the *local* migrate mechanism — another backend brings
+  its own (a CTAS) but reuses the *same adapters* from the registry.
+- At the second backend (req-6): formalize a `VersionedBackend` Protocol with the five capabilities
+  above as methods; the DuckDB daemon becomes one implementation. **Do not build the abstraction
+  before the second implementation** (additive-later) — but keep the logic neutral so it drops in,
+  which it does today (`schema_versions` / `schema_dispatch` import nothing stack-specific).
+
+## §12. The concrete cloud (and unified local) backend: DuckLake (2026-07-02)
+
+**Litmus stands on the same primitives DuckLake does — DuckDB + Parquet — so DuckLake is a future
+*adoption*, not a reinvention to reconcile.** (Integrate, don't reinvent.) Litmus did NOT build a
+lakehouse or a table format: it uses DuckDB (an existing engine whose job is querying Parquet) over
+Parquet (an existing format) — the standard way to query columnar data. The `_index.duckdb` is
+DuckDB caching/indexing Parquet, NOT a hand-built catalog. DuckLake's actual innovation — metadata
+as a SQL-catalog *table format* with snapshots + ACID — Litmus does **not** have (it has a
+rebuildable derived cache). The fit exists because both stand on the same existing foundation, which
+is precisely why DuckLake is clean to adopt: point DuckDB at a DuckLake catalog (Postgres in cloud /
+SQLite local) + object store, and it REPLACES the one genuinely-custom piece — the thin daemon /
+file-lock coordination glue. That is "integrate, don't reinvent" getting *deeper*, not correcting a
+violation of it. DuckLake (DuckDB team; v1.0 Apr 2026) is **Parquet data files + all metadata in a
+SQL catalog DB** (Postgres / DuckDB / SQLite), with snapshots, time-travel, arbitrary schema
+evolution, and **ACID multi-writer transactions** — the most natural realization of §9–§11 because
+it is the *same engine and format* Litmus already integrates.
+
+What it does to this session's open work:
+- **Coordination (#41/#42)** → delegated to the transactional catalog DB (ACID multi-writer); the
+  singleton-daemon file-lock dance retires.
+- **Index epoch (#47)** → schema evolution is a catalog transaction; old/new coexist via snapshots
+  (rows in catalog tables) — no per-machine index rebuild/epoch.
+- **Defer-and-heal (#43)** → moot: one shared consistent catalog; a "newer file" is a newer
+  snapshot it already knows.
+- **req-6 swap** → minimal: same DuckDB SQL, same Parquet; point DuckDB at a catalog DB + object
+  store instead of a local index + local files. **Unifies local (SQLite/DuckDB catalog) and cloud
+  (Postgres catalog + S3)** into one architecture differing only in the catalog host.
+
+Slots into the §11 contract as a `VersionedBackend`: stamp→catalog schema; coexist→schema evolution
++ snapshots; derived-cache versioning→snapshots (no separate epoch). **Keep the Parquet
+`schema_version` stamp even under DuckLake** — the catalog tracks schema, but the stamp keeps files
+self-describing outside the catalog (§0 portability: cold storage, a customer's own tools).
+
+Caveats to own: catalog round-trip perf (benchmarks show tradeoffs vs file-based formats; fine at
+test-data scale); v1.0 maturity (~3 months); the catalog becomes *semi-authoritative* metadata
+(snapshot history isn't fully reconstructable from Parquet alone — hence keep the file stamp).
+
+**Signal:** because Litmus is built on the *same existing primitives* DuckLake is (DuckDB + Parquet
+— integration, not reinvention), DuckLake is the least-swap cloud path: adopt it, don't rebuild
+anything. That makes it the frontrunner over generic ClickStack / Delta+Iceberg for a cloud-hosted
+Litmus — precisely because it's the DuckDB-native *integration*, and integrating beats reinventing.
+
+## §13. Normalization / compaction service — the Contract phase (2026-07-02)
+
+The migrate sink (V3, `schema_migrate`) is the per-file primitive: read a below-current file through
+its adapter, rewrite it current-stamped, atomic-swap. Scaled to a batch **"normalize the store to
+current"** pass, it becomes the operational capability that:
+
+- **Reduces downstream version sprawl.** Litmus owns the adapters, so it is uniquely positioned to
+  do the BREAKING-change normalization. Pre-normalizing before a hand-off means Snowflake / Iceberg
+  / DuckLake see ONE shape + only additive evolution (which they handle natively) — instead of
+  reinventing Litmus's adapters (they can't; they don't have them) or maintaining per-version views.
+  Normalize once at the source; the whole downstream simplifies (fewer schemas → simpler ingest,
+  stats, planning).
+- **Enables adapter retirement.** Once every `vN` file is rewritten to current, nothing reads `vN`
+  → delete the `vN → current` adapter. Completes Fowler's Contract phase and BOUNDS the adapter set:
+  "support every version forever" ≠ "carry every adapter forever."
+
+Reuses the SAME adapters as the read path (§4, one adapter two sinks) — the read capability turned
+toward rewrite. Caveats (per §4): migration is STRUCTURAL not informational (NULL-fills, never
+recovers lost info); files in the wild are unreachable (§0), so retirement is a POLICY decision
+(like the package-yank), accepting a returning old file would be refused; ALWAYS opt-in (read-time
+adapt is the floor). Shape: a batch `normalize_store(store)` + a `litmus data migrate|compact` CLI,
+idempotent (current = no-op). Post-0.3.0 (nothing to normalize until a real v2 exists). Under
+DuckLake (§12) it is a catalog compaction / rewrite; the primitive is the same. Tracked as #48.
