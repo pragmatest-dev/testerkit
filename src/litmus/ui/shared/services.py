@@ -1525,9 +1525,12 @@ def aggregate_run_stats(steps: list, measurements: list[dict]) -> dict[str, Any]
     Returned keys: total_measurements, passed_measurements,
     failed_measurements, total_steps, failed_steps.
     """
+    # Measurement rows key their outcome as ``measurement_outcome`` (the
+    # ``measurements`` view column) — the same key the flat Measurements tab reads.
+    # ``outcome`` is not a column on a measurement row, so it always missed → 0/0.
     total_measurements = len(measurements)
-    failed_measurements = sum(1 for m in measurements if m.get("outcome") == "failed")
-    passed_measurements = sum(1 for m in measurements if m.get("outcome") == "passed")
+    failed_measurements = sum(1 for m in measurements if m.get("measurement_outcome") == "failed")
+    passed_measurements = sum(1 for m in measurements if m.get("measurement_outcome") == "passed")
 
     total_steps = len(steps)
     failed_steps = sum(1 for s in steps if s.outcome == "failed")

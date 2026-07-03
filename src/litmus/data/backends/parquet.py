@@ -276,27 +276,11 @@ class ParquetBackend:
             # own sweep index, swept or not; vectors are separate rows).
             at_rest_vi: int | None = None
 
-            step_meas = [
-                {
-                    "name": m.name,
-                    "value": m.value,
-                    "unit": m.unit,
-                    "outcome": m.outcome.value if m.outcome else None,
-                    "timestamp": m.timestamp.isoformat() if m.timestamp else None,
-                    "limit_low": m.limit_low,
-                    "limit_high": m.limit_high,
-                    "limit_nominal": m.limit_nominal,
-                    "limit_comparator": m.limit_comparator,
-                    "characteristic_id": m.characteristic_id,
-                    "spec_ref": m.spec_ref,
-                    "uut_pin": m.uut_pin,
-                    "fixture_connection": m.fixture_connection,
-                    "instrument_name": m.instrument_name,
-                    "instrument_resource": m.instrument_resource,
-                    "instrument_channel": m.instrument_channel,
-                }
-                for m in (step.measurements or [])
-            ]
+            # Same canonical struct builder the vector rows use below — an inline
+            # copy here had drifted (it isoformat'd the timestamp to a string, but
+            # the struct type is a TIMESTAMP), which only surfaced once a caller
+            # actually populated step-scope measurements.
+            step_meas = [build_measurement_struct(m) for m in (step.measurements or [])]
 
             step_entry = step_entry_dict(
                 index=index,

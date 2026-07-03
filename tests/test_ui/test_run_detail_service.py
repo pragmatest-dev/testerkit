@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pyarrow as pa
@@ -21,7 +22,27 @@ import pytest
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.run_store import RunStore
 from litmus.data.schemas import RUN_ROW_SCHEMA
-from litmus.ui.shared.services import get_run_detail
+from litmus.ui.shared.services import aggregate_run_stats, get_run_detail
+
+
+def test_aggregate_run_stats_counts_measurement_outcome() -> None:
+    # Measurement rows key their outcome as ``measurement_outcome`` (the
+    # ``measurements`` view column), not a bare ``outcome`` — regression guard for
+    # the Overview tab reporting 0 passed / 0 failed on runs that had measurements.
+    measurements = [
+        {"measurement_outcome": "passed"},
+        {"measurement_outcome": "passed"},
+        {"measurement_outcome": "failed"},
+    ]
+    steps = [SimpleNamespace(outcome="passed"), SimpleNamespace(outcome="failed")]
+
+    stats = aggregate_run_stats(steps, measurements)
+
+    assert stats["total_measurements"] == 3
+    assert stats["passed_measurements"] == 2
+    assert stats["failed_measurements"] == 1
+    assert stats["total_steps"] == 2
+    assert stats["failed_steps"] == 1
 
 
 def _run_row(*, run_id: str, session_id: str, uut_serial: str, site_index: int) -> dict:

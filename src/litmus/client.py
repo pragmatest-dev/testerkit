@@ -68,6 +68,42 @@ def _to_float(value: float | int | str | None) -> float | None:
     return float(value)
 
 
+def _build_measurement(
+    name: str,
+    value: float | int | None,
+    *,
+    unit: str | None,
+    low: float | int | None,
+    high: float | int | None,
+    nominal: float | int | None,
+    comparator: str,
+    spec_ref: str | None,
+) -> Measurement:
+    """Build a Measurement and evaluate its outcome.
+
+    Shared by step-scope (``StepBuilder.measure``) and vector-scope
+    (``VectorBuilder.measure``) so both record identical limit/outcome
+    semantics: judged against limits when any are set, else ``DONE``
+    ("ran, no judgment" — matches ``logger.measure``).
+    """
+    m = Measurement(
+        name=name,
+        value=_to_float(value),
+        unit=unit,
+        limit_low=_to_float(low),
+        limit_high=_to_float(high),
+        limit_nominal=_to_float(nominal),
+        limit_comparator=comparator,
+        spec_ref=spec_ref,
+    )
+    has_limits = m.limit_low is not None or m.limit_high is not None or m.limit_nominal is not None
+    if m.value is not None and has_limits:
+        m.check_limit()
+    elif m.value is not None:
+        m.outcome = Outcome.DONE
+    return m
+
+
 class VectorBuilder:
     """Builder for a single test vector within a step.
 
@@ -110,28 +146,16 @@ class VectorBuilder:
         Returns:
             The created Measurement object with outcome evaluated.
         """
-        m = Measurement(
-            name=name,
-            value=_to_float(value),
+        m = _build_measurement(
+            name,
+            value,
             unit=unit,
-            limit_low=_to_float(low),
-            limit_high=_to_float(high),
-            limit_nominal=_to_float(nominal),
-            limit_comparator=comparator,
+            low=low,
+            high=high,
+            nominal=nominal,
+            comparator=comparator,
             spec_ref=spec_ref,
         )
-
-        # Evaluate limits
-        has_limits = (
-            m.limit_low is not None or m.limit_high is not None or m.limit_nominal is not None
-        )
-        if m.value is not None and has_limits:
-            m.check_limit()
-        elif m.value is not None:
-            # No limit configured → recorder semantic ("ran, no judgment").
-            # Matches ``logger.measure``'s default outcome.
-            m.outcome = Outcome.DONE
-
         self._vector.measurements.append(m)
         self._vector.outcome = escalate_outcome(self._vector.outcome, m.outcome)
         return m
@@ -164,7 +188,6 @@ class StepBuilder:
         self._run = run
         self._test_step = TestStep(name=name, description=description)
         self._vector_index = 0
-        self._default_vector: VectorBuilder | None = None
 
     @contextmanager
     def vector(self, **params: Any) -> Generator[VectorBuilder, None, None]:
@@ -199,10 +222,12 @@ class StepBuilder:
         comparator: str = "GELE",
         spec_ref: str | None = None,
     ) -> Measurement:
-        """Record a measurement (creates default vector if needed).
+        """Record a step-scope measurement.
 
-        For simple tests without explicit vectors, measurements are
-        collected into a single default vector.
+        For a non-swept step the measurement rides the step itself — matching
+        the reshaped grain, where vectors exist only for sweeps and inner
+        loops. Use ``step.vector(...)`` to record measurements against explicit
+        sweep points instead.
 
         Args:
             name: Measurement name
@@ -217,14 +242,9 @@ class StepBuilder:
         Returns:
             The created Measurement object.
         """
-        # Create default vector on first measurement
-        if self._default_vector is None:
-            self._default_vector = VectorBuilder(self, {}, self._vector_index)
-            self._vector_index += 1
-
-        return self._default_vector.measure(
-            name=name,
-            value=value,
+        m = _build_measurement(
+            name,
+            value,
             unit=unit,
             low=low,
             high=high,
@@ -232,6 +252,9 @@ class StepBuilder:
             comparator=comparator,
             spec_ref=spec_ref,
         )
+        self._test_step.measurements.append(m)
+        self._test_step.outcome = escalate_outcome(self._test_step.outcome, m.outcome)
+        return m
 
     def fail(self, message: str | None = None) -> None:
         """Mark this step as failed."""
@@ -247,13 +270,6 @@ class StepBuilder:
 
     def _finish(self) -> TestStep:
         """Finalize the step (called by context manager)."""
-        # Finalize default vector if it exists
-        if self._default_vector is not None:
-            self._test_step.vectors.append(self._default_vector._finish())
-            self._test_step.outcome = escalate_outcome(
-                self._test_step.outcome, self._default_vector._vector.outcome
-            )
-
         self._test_step.ended_at = datetime.now(UTC)
         return self._test_step
 
