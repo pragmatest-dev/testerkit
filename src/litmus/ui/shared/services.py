@@ -115,6 +115,7 @@ def discover_parts() -> list[dict]:
                 parts.append(
                     {
                         "id": spec.id,
+                        "part_number": spec.part_number,
                         "name": spec.name,
                         "description": spec.description or "",
                         "revision": spec.revision or "",
@@ -137,6 +138,7 @@ def discover_parts() -> list[dict]:
                 parts.append(
                     {
                         "id": part_id,
+                        "part_number": None,
                         "name": folder.name,
                         "description": folder.manifest.description or "",
                         "revision": "",
@@ -164,6 +166,7 @@ def discover_parts() -> list[dict]:
             parts.append(
                 {
                     "id": p.id,
+                    "part_number": p.part_number,
                     "name": p.name,
                     "description": p.description or "",
                     "revision": p.revision or "",
@@ -205,25 +208,32 @@ class PartRow(BaseModel):
 def parts_with_provenance() -> list[PartRow]:
     """Union of YAML-configured parts and parts observed in runs.
 
-    Two passes: every YAML part becomes a row tagged ``configured``
-    or ``in_use`` depending on whether any runs reference its id; any
-    ``part_id`` present in run history without a matching YAML file
-    becomes an ``observed_only`` row.
+    Observation keys on ``uut_part_number`` — the hardware part number
+    every run carries regardless of runner — not the config-slug
+    ``part_id``. Configured parts join to observed runs by their declared
+    ``part_number``; a ``uut_part_number`` seen in run history that no
+    configured part declares becomes an ``observed_only`` row, identified
+    by that part number (all the global store knows about it).
+
+    See ``docs/_internal/explorations/best-available-identity.md`` (Phase 0).
     """
-    configured = {p["id"]: p for p in discover_parts()}
-    usage = usage_stats_by("part_id")
+    configured = discover_parts()
+    usage = usage_stats_by("uut_part_number")
 
     rows: list[PartRow] = []
-    for part_id, part in configured.items():
-        stats = usage.get(part_id, {})
-        runs = stats.get("runs", 0)
+    claimed: set[str] = set()
+    for part in configured:
+        part_number = part.get("part_number") or ""
+        stats = usage.get(part_number, {}) if part_number else {}
+        if part_number:
+            claimed.add(part_number)
         rows.append(
             PartRow(
-                id=part_id,
+                id=part["id"],
                 name=part.get("name", "") or "",
                 revision=part.get("revision", "") or "",
                 characteristics=len(part.get("characteristics", {}) or {}),
-                runs=runs,
+                runs=stats.get("runs", 0),
                 passed=stats.get("passed", 0),
                 failed=stats.get("failed", 0),
                 last_run=stats.get("last_run"),
@@ -231,12 +241,12 @@ def parts_with_provenance() -> list[PartRow]:
             )
         )
 
-    for part_id, stats in usage.items():
-        if part_id in configured:
+    for part_number, stats in usage.items():
+        if part_number in claimed:
             continue
         rows.append(
             PartRow(
-                id=part_id,
+                id=part_number,
                 runs=stats.get("runs", 0),
                 passed=stats.get("passed", 0),
                 failed=stats.get("failed", 0),
