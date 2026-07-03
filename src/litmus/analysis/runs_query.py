@@ -67,6 +67,7 @@ class RunRow(BaseModel):
     site_name: str | None = None
     uut_serial_number: str | None = None
     uut_part_number: str | None = None
+    uut_revision: str | None = None
     uut_lot_number: str | None = None
     station_id: str | None = None
     station_name: str | None = None
@@ -79,8 +80,19 @@ class RunRow(BaseModel):
     num_steps: int | None = None
     test_phase: str | None = None
     part_id: str | None = None
+    part_name: str | None = None
+    part_revision: str | None = None
     operator_id: str | None = None
+    operator_name: str | None = None
     project_name: str | None = None
+    station_type: str | None = None
+    station_location: str | None = None
+    git_commit: str | None = None
+    git_branch: str | None = None
+    git_remote: str | None = None
+    python_version: str | None = None
+    litmus_version: str | None = None
+    env_fingerprint: str | None = None
 
 
 class RunsQuery:

@@ -363,7 +363,20 @@ def _table_rows(conn: duckdb.DuckDBPyConnection, table: str) -> list[dict[str, A
 # ``file_path`` (no parquet file in-flight) and ``vector_index_key`` (an
 # internal COALESCE(vector_index,-1) dedup key for the PK, not data — the
 # ``steps`` view EXCLUDEs it; the overlay never carries it).
-_MATERIALIZATION_ONLY = {"file_path", "vector_index_key", "vector_outer_index_key"}
+#
+# ``env_fingerprint`` / ``litmus_version`` / ``python_version`` are run
+# provenance stamped at FINALIZATION (build_run_metadata), not on the
+# ``RunStarted`` event, so the live overlay genuinely cannot produce them — they
+# populate once the run materializes. (See _FINALIZATION_ONLY in
+# test_ingestion_drift.py, which pins the same three.)
+_MATERIALIZATION_ONLY = {
+    "file_path",
+    "vector_index_key",
+    "vector_outer_index_key",
+    "env_fingerprint",
+    "litmus_version",
+    "python_version",
+}
 
 # Sentinel: a materialized column with no corresponding inflight key.
 _MISSING = object()

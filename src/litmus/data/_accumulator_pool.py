@@ -317,10 +317,13 @@ INFLIGHT_RUNS_SCHEMA = pa.schema(
         ("site_name", pa.string()),
         ("uut_serial_number", pa.string()),
         ("uut_part_number", pa.string()),
+        ("uut_revision", pa.string()),
         ("uut_lot_number", pa.string()),
         ("station_id", pa.string()),
         ("station_name", pa.string()),
         ("station_hostname", pa.string()),
+        ("station_type", pa.string()),
+        ("station_location", pa.string()),
         ("fixture_id", pa.string()),
         ("outcome", pa.string()),
         ("started_at", pa.timestamp("us", tz="UTC")),
@@ -329,8 +332,14 @@ INFLIGHT_RUNS_SCHEMA = pa.schema(
         ("num_steps", pa.int32()),
         ("test_phase", pa.string()),
         ("part_id", pa.string()),
+        ("part_name", pa.string()),
+        ("part_revision", pa.string()),
         ("operator_id", pa.string()),
+        ("operator_name", pa.string()),
         ("project_name", pa.string()),
+        ("git_commit", pa.string()),
+        ("git_branch", pa.string()),
+        ("git_remote", pa.string()),
     ]
 )
 

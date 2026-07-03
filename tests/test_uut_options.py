@@ -1,62 +1,40 @@
 """Test --uut-part-number, --uut-revision, --uut-lot-number pytest options.
 
-Inner pytest invocations inherit our ``LITMUS_HOME`` (set in
-``conftest.py``) so they write to the canonical singleton
-data_dir — no per-test ``--data-dir`` override. Per-test
-isolation is by unique ``--uut-serial``; we read back the
-parquet by filtering on that.
+Inner pytest subprocesses inherit our ``LITMUS_HOME`` (set in ``conftest.py``)
+so they write to the canonical singleton store. Each run is scoped by a unique
+``_LITMUS_SESSION_ID`` driven into the subprocess, then read back through the
+public ``RunsQuery`` — which resolves the data dir and reads through the daemon
+(in-flight overlay + parquet). No parquet globbing, no mtime/serial guessing.
 """
 
-from pathlib import Path
+from __future__ import annotations
+
+import time
 from uuid import uuid4
 
-import pyarrow.parquet as pq
 import pytest
 
-from litmus.data.data_dir import resolve_data_dir
+from litmus.analysis.runs_query import RunRow, RunsQuery
 
 pytest_plugins = ["pytester"]
 
 
-# Resolved via the repo's ``litmus.yaml`` → project-local store.
-_CANONICAL_RESULTS = resolve_data_dir()
+def _run_for_session(session_id: str, *, timeout: float = 15.0) -> RunRow | None:
+    """Poll ``RunsQuery`` for the run produced under ``session_id``.
 
-
-def _find_parquet_by_serial(uut_serial_number: str, *, timeout: float = 15.0) -> Path | None:
-    """Find the most recent run parquet under canonical for ``uut_serial_number``.
-
-    Polls because the runs daemon writes parquets asynchronously after
-    receiving ``RunEnded`` from the test process. The subprocess exits
-    before the daemon finishes materializing.
+    The runs daemon materializes asynchronously after the subprocess exits;
+    poll until the run appears (or time out).
     """
-    import time
-
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        matches = list(_CANONICAL_RESULTS.glob(f"runs/**/*_{uut_serial_number}.parquet"))
-        if matches:
-            return max(matches, key=lambda p: p.stat().st_mtime)
-        time.sleep(0.2)
-    return None
-
-
-def _find_parquet_since(start_mtime: float, *, timeout: float = 15.0) -> Path | None:
-    """Find the most recent run parquet under canonical written after ``start_mtime``.
-
-    Polls — see :func:`_find_parquet_by_serial`.
-    """
-    import time
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        matches = [
-            p
-            for p in _CANONICAL_RESULTS.glob("runs/**/*.parquet")
-            if p.stat().st_mtime > start_mtime
-        ]
-        if matches:
-            return max(matches, key=lambda p: p.stat().st_mtime)
-        time.sleep(0.2)
+    q = RunsQuery()
+    try:
+        while time.monotonic() < deadline:
+            runs = q.list_for_session(session_id)
+            if runs:
+                return runs[0]
+            time.sleep(0.2)
+    finally:
+        q.close()
     return None
 
 
@@ -87,9 +65,11 @@ def test_dummy(context, measure):
     return pytester
 
 
-def test_uut_options_land_in_parquet(pytester_with_test):
-    """UUT part-number, revision, and lot flow through to Parquet."""
+def test_uut_options_land_in_parquet(pytester_with_test, monkeypatch):
+    """UUT part-number, revision, and lot flow through to the stored run."""
+    session_id = str(uuid4())
     serial = f"SN-{uuid4().hex[:8]}"
+    monkeypatch.setenv("_LITMUS_SESSION_ID", session_id)
     result = pytester_with_test.runpytest_subprocess(
         f"--uut-serial={serial}",
         "--uut-part-number=WIDGET-200",
@@ -100,38 +80,27 @@ def test_uut_options_land_in_parquet(pytester_with_test):
     )
     result.assert_outcomes(passed=1)
 
-    parquet = _find_parquet_by_serial(serial)
-    assert parquet is not None, f"No parquet for {serial}"
-
-    table = pq.read_table(parquet)
-    row = table.to_pylist()[0]
-
-    assert row["uut_serial_number"] == serial
-    assert row["uut_part_number"] == "WIDGET-200"
-    assert row["uut_revision"] == "C"
-    assert row["uut_lot_number"] == "LOT-42"
+    run = _run_for_session(session_id)
+    assert run is not None, f"no run materialized for session {session_id}"
+    assert run.uut_serial_number == serial
+    assert run.uut_part_number == "WIDGET-200"
+    assert run.uut_revision == "C"
+    assert run.uut_lot_number == "LOT-42"
 
 
-def test_uut_options_default_to_none(pytester_with_test):
-    """UUT options default to None when not provided."""
-    import time
-
-    # No ``--uut-serial`` override → exercises the default. Scope the
-    # parquet lookup by mtime since we can't filter on a known serial.
-    start = time.time()
+def test_uut_options_default_to_none(pytester_with_test, monkeypatch):
+    """UUT options default to None (serial itself defaults to UUT001)."""
+    session_id = str(uuid4())
+    monkeypatch.setenv("_LITMUS_SESSION_ID", session_id)
     result = pytester_with_test.runpytest_subprocess(
         "--mock-instruments",
         "-q",
     )
     result.assert_outcomes(passed=1)
 
-    parquet = _find_parquet_since(start)
-    assert parquet is not None
-
-    table = pq.read_table(parquet)
-    row = table.to_pylist()[0]
-
-    assert row["uut_serial_number"] == "UUT001"  # default
-    assert row.get("uut_part_number") is None
-    assert row.get("uut_revision") is None
-    assert row.get("uut_lot_number") is None
+    run = _run_for_session(session_id)
+    assert run is not None, f"no run materialized for session {session_id}"
+    assert run.uut_serial_number == "UUT001"  # default
+    assert run.uut_part_number is None
+    assert run.uut_revision is None
+    assert run.uut_lot_number is None

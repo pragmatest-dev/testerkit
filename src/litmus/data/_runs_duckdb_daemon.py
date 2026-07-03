@@ -268,6 +268,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             site_name VARCHAR,
             uut_serial_number VARCHAR,
             uut_part_number VARCHAR,
+            uut_revision VARCHAR,
             uut_lot_number VARCHAR,
             station_id VARCHAR,
             station_name VARCHAR,
@@ -578,6 +579,7 @@ _RUNS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("site_name", "VARCHAR"),
     ("uut_serial_number", "VARCHAR"),
     ("uut_part_number", "VARCHAR"),
+    ("uut_revision", "VARCHAR"),
     ("uut_lot_number", "VARCHAR"),
     ("station_id", "VARCHAR"),
     ("station_name", "VARCHAR"),
@@ -590,8 +592,19 @@ _RUNS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("num_steps", "INTEGER"),
     ("test_phase", "VARCHAR"),
     ("part_id", "VARCHAR"),
+    ("part_name", "VARCHAR"),
+    ("part_revision", "VARCHAR"),
+    ("station_type", "VARCHAR"),
+    ("station_location", "VARCHAR"),
     ("operator_id", "VARCHAR"),
+    ("operator_name", "VARCHAR"),
     ("project_name", "VARCHAR"),
+    ("git_commit", "VARCHAR"),
+    ("git_branch", "VARCHAR"),
+    ("git_remote", "VARCHAR"),
+    ("python_version", "VARCHAR"),
+    ("litmus_version", "VARCHAR"),
+    ("env_fingerprint", "VARCHAR"),
 )
 _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("run_id", "VARCHAR"),
@@ -1292,7 +1305,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             session_id,
             site_index,
             site_name,
-            uut_serial_number, uut_part_number, uut_lot_number,
+            uut_serial_number, uut_part_number, uut_revision, uut_lot_number,
             station_id, station_name, station_hostname,
             fixture_id,
             run_outcome AS outcome,
@@ -1304,23 +1317,30 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
                 AS num_measurements,
             CAST(COUNT(*) FILTER (WHERE record_type = 'step') AS INTEGER)
                 AS num_steps,
-            test_phase, part_id, operator_id, project_name
-        FROM read_parquet({flist}, filename=true, union_by_name=true)
+            test_phase, part_id, part_name, part_revision,
+            station_type, station_location, operator_id, operator_name, project_name,
+            git_commit, git_branch, git_remote,
+            python_version, litmus_version, env_fingerprint
+FROM read_parquet({flist}, filename=true, union_by_name=true)
         WHERE run_id IS NOT NULL
         GROUP BY
             filename, run_id, session_id, site_index, site_name,
-            uut_serial_number, uut_part_number, uut_lot_number,
+            uut_serial_number, uut_part_number, uut_revision, uut_lot_number,
             station_id, station_name, station_hostname,
             fixture_id,
             run_outcome, run_started_at, run_ended_at,
-            test_phase, part_id, operator_id, project_name
-        ON CONFLICT (run_id) DO UPDATE SET
+            test_phase, part_id, part_name, part_revision,
+            station_type, station_location, operator_id, operator_name, project_name,
+            git_commit, git_branch, git_remote,
+            python_version, litmus_version, env_fingerprint
+ON CONFLICT (run_id) DO UPDATE SET
             file_path = excluded.file_path,
             session_id = excluded.session_id,
             site_index = excluded.site_index,
             site_name = excluded.site_name,
             uut_serial_number = excluded.uut_serial_number,
             uut_part_number = excluded.uut_part_number,
+            uut_revision = excluded.uut_revision,
             uut_lot_number = excluded.uut_lot_number,
             station_id = excluded.station_id,
             station_name = excluded.station_name,
@@ -1334,7 +1354,18 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             test_phase = excluded.test_phase,
             part_id = excluded.part_id,
             operator_id = excluded.operator_id,
-            project_name = excluded.project_name
+            project_name = excluded.project_name,
+            part_name = excluded.part_name,
+            part_revision = excluded.part_revision,
+            station_type = excluded.station_type,
+            station_location = excluded.station_location,
+            operator_name = excluded.operator_name,
+            git_commit = excluded.git_commit,
+            git_branch = excluded.git_branch,
+            git_remote = excluded.git_remote,
+            python_version = excluded.python_version,
+            litmus_version = excluded.litmus_version,
+            env_fingerprint = excluded.env_fingerprint
     """)
 
 
@@ -1831,12 +1862,14 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
         UNION ALL BY NAME
         SELECT
             run_id, file_path, session_id, site_index, site_name,
-            uut_serial_number, uut_part_number, uut_lot_number, station_id, station_name,
-            station_hostname, fixture_id,
+            uut_serial_number, uut_part_number, uut_revision, uut_lot_number,
+            station_id, station_name, station_hostname, station_type, station_location,
+            fixture_id,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
-            num_measurements, num_steps, test_phase, part_id,
-            operator_id, project_name
+            num_measurements, num_steps, test_phase, part_id, part_name, part_revision,
+            operator_id, operator_name, project_name,
+            git_commit, git_branch, git_remote
         FROM overlay.inflight_runs
         WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
     """)
