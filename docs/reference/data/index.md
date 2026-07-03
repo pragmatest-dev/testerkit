@@ -5,6 +5,7 @@ The shapes the system writes. If you're reading parquet, the event log, or any e
 - [Models](models.md) — every public Pydantic model + ERD of how they reference each other. Generated from source.
 - [Event types](event-types.md) — every typed event payload the runtime emits. Generated from source.
 - [Parquet schema](parquet-schema.md) — every column in the run parquet, the `record_type` discriminator, how retries land.
+- [Events schema](events-schema.md) — the Arrow IPC format for the event log: the envelope columns every event carries, segment rotation, and the `schema_version` / `event_catalog_version` stamps.
 - [Channels schema](channels-schema.md) — the Arrow IPC format for streaming numeric channels: per-channel columns, segment rotation, and the `schema_version` stamp.
 - [Files schema](files-schema.md) — the blob + `.meta.json` sidecar format for file artifacts: on-disk layout, the sidecar fields, and the `schema_version` stamp.
 - [Output formats](outputs.md) — what `litmus show -f <fmt>` and `litmus export` produce for HTML / PDF / JSON / CSV / STDF / HDF5 / TDMS / MDF4.
