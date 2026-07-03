@@ -95,6 +95,7 @@ _FIXED_COLUMNS: frozenset[str] = frozenset(
         "step_path",
         "limit_comparator",
         "uut_pin",
+        "index",
     }
 )
 
@@ -125,11 +126,53 @@ _PLOTTABLE_FIXED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("uut_pin", "VARCHAR"),
     ("test_phase", "VARCHAR"),
     ("step_name", "VARCHAR"),
+    ("index", "BIGINT"),
 )
 
 assert all(  # noqa: S101
     name in _FIXED_COLUMNS for name, _ in _PLOTTABLE_FIXED_COLUMNS
 ), "Drift: _PLOTTABLE_FIXED_COLUMNS contains names absent from _FIXED_COLUMNS"
+
+
+# ---------------------------------------------------------------------------
+# Derived occurrence index — the ONE definition of the `index` column
+# ---------------------------------------------------------------------------
+# ``index`` is the 0-based occurrence ordinal of a measurement within its run,
+# per ``measurement_name``, ordered by execution position (step, then vector).
+# Retries are EXCLUDED from the ORDER BY, so the retried attempts of one
+# position share an ``index`` — retry-stability is INHERITED from the
+# step/vector coordinates, which already encode retries correctly.
+#
+# It is a DERIVED projection — no stored field, no counter — a deterministic
+# function of the storage contract. A backend that preserves
+# ``(run_id, measurement_name, step_index, step_path, vector_index)`` preserves
+# ``index`` for free. This expression is the single source; every read path
+# that exposes ``index`` derives it from here.
+_INDEX_EXPR = (
+    "DENSE_RANK() OVER ("
+    "PARTITION BY run_id, measurement_name "
+    "ORDER BY step_index, step_path, COALESCE(vector_index, -1)"
+    ") - 1"
+)
+
+# ``measurements`` wrapped to carry the derived ``index`` column. Used ONLY by
+# read paths that reference ``index`` (see ``_measurements_source``), so
+# queries that don't plot the occurrence index never pay for the window.
+_MEASUREMENTS_WITH_INDEX = (
+    f"(SELECT *, {_INDEX_EXPR} AS index FROM measurements WHERE record_type = 'measurement')"
+)
+
+
+def _measurements_source(*col_exprs: str | None) -> str:
+    """Choose the FROM anchor for the ``measurements`` view.
+
+    Returns the ``index``-bearing subquery when any resolved column
+    expression references ``m.index``; otherwise the bare ``measurements``
+    view (identical cost for queries that don't plot the occurrence index).
+    """
+    if any(c == "m.index" for c in col_exprs):
+        return _MEASUREMENTS_WITH_INDEX
+    return "measurements"
 
 
 def _resolve_selector(selector: str | FieldRef) -> str | FieldRef:
@@ -1228,7 +1271,8 @@ class MeasurementsQuery:
         clauses.extend(joins.meas_name_clauses())
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
-        frm = f"measurements m{joins.join_sql()}"
+        base = _measurements_source(y_col, x_col, group_col)
+        frm = f"{base} m{joins.join_sql()}"
         group_expr = group_col if group_col else "''"
         sql = f"""
         SELECT
@@ -1269,7 +1313,8 @@ class MeasurementsQuery:
         clauses.extend(joins.meas_name_clauses())
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
-        frm = f"measurements m{joins.join_sql()}"
+        base = _measurements_source(field_col, group_col)
+        frm = f"{base} m{joins.join_sql()}"
         group_expr = group_col if group_col else "''"
 
         sql = f"""
@@ -1320,7 +1365,8 @@ class MeasurementsQuery:
         clauses.extend(joins.meas_name_clauses())
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
-        frm = f"measurements m{joins.join_sql()}"
+        base = _measurements_source(x_col)
+        frm = f"{base} m{joins.join_sql()}"
         sql = f"""
         WITH latest AS (
             SELECT m.run_id AS run_id

@@ -293,14 +293,13 @@ def _emit_run(
     with run.step("test_idle_current", "Idle current within spec") as step:
         step.measure("i_idle", vals["i_idle"], unit="A", low=i_low, high=i_high)
 
-    # StepBuilder._finish() only propagates FAILED to the step — passing
-    # steps leave step.outcome as None, so run.outcome also stays None.
-    # Compute the definitive run outcome from the step vector outcomes
-    # and stamp it before saving so the DuckDB index gets a real value.
+    # Roll the run outcome up from each step's OUTCOME. step.outcome already
+    # folds in the step's own step-scope measurements (and any vectors);
+    # iterating step.vectors alone missed the step-scope measurements after the
+    # grain reshape and recorded every failed step as a PASSED run.
     computed: Outcome | None = None
     for step in run._test_run.steps:
-        for vec in step.vectors:
-            computed = escalate_outcome(computed, vec.outcome)
+        computed = escalate_outcome(computed, step.outcome)
     # Any run that completed all steps with no failures is PASSED.
     if computed is None or computed == Outcome.DONE:
         computed = Outcome.PASSED

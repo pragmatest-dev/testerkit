@@ -134,8 +134,14 @@ def _default_y(y_map: dict[str, str | FieldRef]) -> str:
 
 
 def _default_x(x_map: dict[str, str | FieldRef]) -> str:
-    """Default X label — vector_index, then run_started_at."""
-    for candidate in ("vector_index", "run_started_at"):
+    """Default X label — the per-measurement occurrence ``index``, then
+    ``vector_index``, then ``run_started_at``.
+
+    ``index`` is defined for every measurement (0 for a once-per-run
+    measurement, 0..N-1 across a sweep or repeats), so it never leaves the
+    chart blank the way ``vector_index`` does for non-swept measurements.
+    """
+    for candidate in ("index", "vector_index", "run_started_at"):
         if candidate in x_map:
             return candidate
     return next(iter(x_map), "")
@@ -933,6 +939,33 @@ def _x_axis_opt(label: str, x_type: str, *, data: list[Any] | None = None) -> di
     return opt
 
 
+def _center_single_value_x(x_axis: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    """Center the plot when a numeric X spans a single distinct value.
+
+    A value axis with one distinct X (index=0 for a once-per-run measurement,
+    a constant condition, a filtered-to-one-value sweep) otherwise pins the
+    lone column to an edge. Symmetric ``min``/``max`` padding puts it in the
+    middle. General to ANY value-axis X with one distinct value — not specific
+    to ``index``. Mutates ``x_axis`` in place; a no-op when X varies or isn't
+    numeric.
+    """
+    if x_axis.get("type") != "value":
+        return
+    xs = {r.get("x") for r in rows if r.get("x") is not None}
+    if len(xs) != 1:
+        return
+    val = next(iter(xs))
+    if val is None:
+        return
+    try:
+        v = float(val)
+    except (TypeError, ValueError):
+        return
+    # Symmetric unit pad → v sits at the exact midpoint (min+max)/2.
+    x_axis["min"] = v - 1
+    x_axis["max"] = v + 1
+
+
 def _y_axis_opt(label: str) -> dict[str, Any]:
     """Standard Y-axis with rotated centered name."""
     return {
@@ -1059,12 +1092,14 @@ def _build_chart_option(  # noqa: PLR0912
             }
             for grp, items in by_group.items()
         ]
+        x_axis_cfg = _x_axis_opt(x_label, x_type)
+        _center_single_value_x(x_axis_cfg, rows)
         option = {
             "tooltip": {"trigger": "item"},
             "legend": {"data": legend_names, "top": 0},
             "toolbox": _toolbox(allow_y_zoom=True),
             "grid": _GRID,
-            "xAxis": _x_axis_opt(x_label, x_type),
+            "xAxis": x_axis_cfg,
             "yAxis": _y_axis_opt(y_label),
             "series": series,
             "dataZoom": _DATA_ZOOM_XY,
