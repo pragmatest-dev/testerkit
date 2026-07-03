@@ -72,3 +72,19 @@ def test_absent_stamp_sidecar_is_skipped(tmp_path) -> None:
     files_dir = tmp_path / "files"
     _write_sidecar(files_dir, "S", "a.txt", version=None)  # pre-1.0, no stamp
     assert scan_sidecars(conn, files_dir) == 0  # absent stamp → refused, not cataloged
+
+
+def test_newer_stamp_sidecar_defers_then_heals(tmp_path, monkeypatch) -> None:
+    # A sidecar stamped NEWER than this daemon knows is deferred (§1/#43), NOT
+    # permanently skipped like an absent stamp: the presence-only catalog leaves
+    # it un-cataloged, and because it's never mis-adapted through identity, a
+    # newer daemon that knows the version re-reads the SAME sidecar and catalogs
+    # it. The heal (0 → 1) is what distinguishes deferral from a permanent skip.
+    conn = duckdb.connect()
+    ensure_schema(conn)
+    files_dir = tmp_path / "files"
+    _write_sidecar(files_dir, "S", "future.txt", "2.0")
+    assert scan_sidecars(conn, files_dir) == 0  # older daemon: newer stamp deferred
+
+    _register_legacy(monkeypatch, SchemaStore.FILES, "2.0", lambda m: m)  # newer daemon knows 2.0
+    assert scan_sidecars(conn, files_dir) == 1  # healed — same sidecar now catalogs

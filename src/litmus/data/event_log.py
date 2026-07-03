@@ -25,7 +25,12 @@ import pyarrow as pa
 
 from litmus.data._event_filters import event_matches_role
 from litmus.data._ipc_writer import BufferedIPCWriter, read_ipc_batches
-from litmus.data.events import EVENT_CATALOG_VERSION, TYPED_PAYLOAD_COLUMNS, EventBase
+from litmus.data.events import (
+    EVENT_CATALOG_VERSION,
+    EVENT_CATALOG_VERSION_KEY,
+    TYPED_PAYLOAD_COLUMNS,
+    EventBase,
+)
 from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
 
 # Event WAL IPC storage-ENVELOPE version — the first of events' two coordinates
@@ -77,7 +82,7 @@ _IPC_SCHEMA = pa.schema(
     ],
     metadata={
         b"schema_version": EVENT_LOG_SCHEMA_VERSION.encode(),
-        b"event_catalog_version": EVENT_CATALOG_VERSION.encode(),
+        EVENT_CATALOG_VERSION_KEY: EVENT_CATALOG_VERSION.encode(),
     },
 )
 

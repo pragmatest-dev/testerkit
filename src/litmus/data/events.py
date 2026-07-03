@@ -30,6 +30,11 @@ from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
 # ``litmus.data.schema_versions``.
 EVENT_CATALOG_VERSION = CURRENT_SCHEMA_VERSION[SchemaStore.EVENT_CATALOG]
 
+# The Arrow file-metadata key under which the catalog version is stamped (the
+# second events coordinate, parallel to ``schema_version`` for the envelope).
+# One home, used at write (event_log `_IPC_SCHEMA`) and read (daemon ingest).
+EVENT_CATALOG_VERSION_KEY = b"event_catalog_version"
+
 
 def _detect_client() -> str:
     """Derive a human-readable client name from the running process."""

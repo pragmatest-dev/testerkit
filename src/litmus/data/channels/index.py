@@ -37,6 +37,7 @@ from litmus.data.channels.models import (
 from litmus.data.schema_dispatch import (
     SchemaVersionRefused,
     dispatch,
+    report_schema_refusal,
     stamp_from_arrow_metadata,
 )
 from litmus.data.schema_versions import SchemaStore
@@ -311,13 +312,12 @@ class ChannelIndex:
                 adapter = dispatch(
                     SchemaStore.CHANNELS, stamp_from_arrow_metadata(table.schema.metadata)
                 )
-            except SchemaVersionRefused:
-                # Unsupported version — skip WITHOUT ledgering, so the segment is
-                # re-read on the next scan and a newer daemon that knows the
-                # version ingests it instead of losing it (#43). The presence-only
-                # ledger can't mark a permanent quarantine, so this covers
-                # deferrable + absent alike — consistent with runs/events leaving
-                # deferrable refusals un-ledgered.
+            except SchemaVersionRefused as exc:
+                # Surface it (permanent → warn-once; deferrable → debug), then skip
+                # WITHOUT ledgering so a deferrable (newer) segment is re-read next
+                # scan and a newer daemon ingests it (#43). Presence-only ledger →
+                # an absent/pre-1.0 segment is re-read too; the warning is deduped.
+                report_schema_refusal(exc, path_str)
                 continue
             table = adapter(table)
             desc = self.absorb_descriptor(m.group(1), table.schema)

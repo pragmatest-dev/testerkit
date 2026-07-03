@@ -34,10 +34,11 @@ from litmus.data._duckdb_flight_server import (
 from litmus.data._ipc_writer import read_ipc_batches
 from litmus.data._session_reaper import reap_abandoned_sessions
 from litmus.data.duckdb_manager import DuckDBDaemonManager
-from litmus.data.events import TYPED_PAYLOAD_COLUMNS
+from litmus.data.events import EVENT_CATALOG_VERSION_KEY, TYPED_PAYLOAD_COLUMNS
 from litmus.data.schema_dispatch import (
     SchemaVersionRefused,
     dispatch,
+    report_schema_refusal,
     stamp_from_arrow_metadata,
 )
 from litmus.data.schema_versions import SchemaStore
@@ -361,15 +362,14 @@ def _ingest_one_file(
         dispatch(SchemaStore.EVENTS_ENVELOPE, stamp_from_arrow_metadata(meta))
         dispatch(
             SchemaStore.EVENT_CATALOG,
-            stamp_from_arrow_metadata(meta, key=b"event_catalog_version"),
+            stamp_from_arrow_metadata(meta, key=EVENT_CATALOG_VERSION_KEY),
         )
     except SchemaVersionRefused as exc:
+        report_schema_refusal(exc, fpath.name)
         if exc.deferrable:
             # Newer than this daemon — leave UNLEDGERED so the next (newer) daemon
             # re-reads and ingests it, instead of a permanent skip (#43).
-            logger.debug("Deferring newer-version events file %s: %s", fpath.name, exc)
             return
-        warnings.warn(f"Skipping unsupported schema in {fpath.name}: {exc}", stacklevel=2)
         _mark("quarantined", str(exc))
         return
 
