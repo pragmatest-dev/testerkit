@@ -326,8 +326,19 @@ the singleton daemon.** Verified against `_daemon_lifecycle.py`:
   compares the running daemon's `litmus_version` to the client's; older daemon → kill
   (`_kill_daemon` SIGTERM→2s→SIGKILL, `:184`) + respawn the client's version; newer-or-equal →
   attach. An unversioned legacy daemon is treated as `0.0.0` → always upgraded. So after any
-  client acquires, **daemon ≥ client**, and the daemon (being the machine's newest) only ever
-  needs FORWARD adapters.
+  client acquires, **daemon ≥ the acquiring client** — but **NOT** necessarily the machine's
+  newest (CORRECTED 2026-07-02). An old repo cannot launch a newer daemon (it only has old code),
+  so an old daemon runs indefinitely whenever an old repo is the active one. It therefore *does*
+  encounter newer files and cannot backward-adapt them → it **defers** them (its own ingestion
+  skips them). It is saved from total blindness only by the **shared** index: when a newer daemon
+  last ran and upgraded the shared dir, it already ingested those newer files into `_index.duckdb`,
+  so an older *same-major* daemon reading that shared index still sees the rows at its own
+  projection (**piggyback**). Two failure modes remain: a **non-additive** shared-index change
+  crashes the old daemon at view-creation (#47); a **newer-major** file is genuinely unreadable by
+  old code (correct-but-incomplete). The epoch-per-major index (§9, #47) keeps same-major daemons
+  sharing one index (preserving the piggyback) and forks only on a major boundary (where isolation
+  is mandatory anyway). **Floor:** an old daemon can never fully show a newer major's data — the
+  achievable goal is safe (#47) + honest ("N newer artifacts hidden; upgrade") + preserved.
 - **Caveat — it compares PACKAGE version, not schema.** The guarantee we actually need holds
   only if schema versions never *decrease* as package version rises (monotonic). Discipline +
   guard needed (task #41).
