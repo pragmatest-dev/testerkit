@@ -59,6 +59,84 @@ from litmus.models.station import StationConfig
 _FILE_STREAM_CHUNK = 1 << 20  # 1 MiB
 
 
+def warm_data_daemons() -> None:
+    """Eagerly acquire the data daemons and bridge live channel data into the UI.
+
+    Both ``litmus serve`` (via :func:`create_app`) and ``litmus serve
+    --reload`` (via ``litmus.ui._asgi``) call this once at startup so the
+    two entrypoints establish an identical set of daemon refs and the
+    same cross-process channels bridge. Historically only the
+    ``--reload`` path did this (``_hold_serve_level_daemon_refs`` in
+    ``_asgi.py``); the default ``litmus serve`` path went through
+    ``create_app()`` alone and never bridged the channels daemon's
+    Flight stream into NiceGUI's ``ui_channel_data`` signals, so
+    cross-process channel samples (e.g. a producer subprocess streaming
+    to a station's channels) never reached the channel-detail page
+    (#59-3).
+
+    Acquiring here at module-load time (rather than lazily on first
+    query) spawns all four daemons (runs, events, channels, files)
+    eagerly and registers an ``atexit`` + SIGTERM handler that releases
+    them on shutdown. While ``serve`` is alive, refs stay > 0, so
+    per-page idle-shutdown never fires for the duration of the UI
+    session — a first visit to any page feels the same as any other.
+
+    Idempotent: ``bind_flight_location`` no-ops on a location it has
+    already bound, and each daemon's ``acquire()`` is itself
+    ref-counted. Safe to call more than once (e.g. if both entrypoints
+    end up calling it, or from tests).
+    """
+    import logging
+
+    from litmus.data import duckdb_manager as _events_mgr
+    from litmus.data import runs_duckdb_manager as _runs_mgr
+    from litmus.data.channels import flight_manager as _channels_mgr
+    from litmus.data.files import catalog_manager as _files_mgr
+
+    logger = logging.getLogger("litmus.api.app")
+
+    results = Path(resolve_data_dir())
+    runs_dir = results / "runs"
+    events_dir = results / "events"
+    channels_dir = results / "channels"
+    files_dir = results / "files"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    events_dir.mkdir(parents=True, exist_ok=True)
+    channels_dir.mkdir(parents=True, exist_ok=True)
+    files_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        _runs_mgr.acquire(runs_dir)
+    except Exception:  # noqa: BLE001 — best-effort eager acquire
+        logger.exception("runs daemon eager acquire failed")
+    try:
+        _events_mgr.acquire(events_dir)
+    except Exception:  # noqa: BLE001
+        logger.exception("events daemon eager acquire failed")
+    channels_location: str | None = None
+    try:
+        channels_location = _channels_mgr.acquire(channels_dir)
+    except Exception:  # noqa: BLE001
+        logger.exception("channels daemon eager acquire failed")
+    try:
+        _files_mgr.acquire(files_dir)
+    except Exception:  # noqa: BLE001
+        logger.exception("files catalog daemon eager acquire failed")
+
+    # Bridge the channels daemon's Flight server into NiceGUI Event
+    # signals so live-channel pages (channel detail chart, /live
+    # channel-values panel) receive samples push-style. Without this
+    # the per-channel ``ui_channel_data(ch_id)`` signal never fires
+    # from cross-process activity.
+    if channels_location:
+        try:
+            from litmus.ui.shared.event_binding import bind_flight_location
+
+            bind_flight_location(channels_location)
+        except Exception:  # noqa: BLE001
+            logger.exception("channels Flight bridge failed")
+
+
 def _serialize_ref(result: object) -> Response | dict:
     """Pick a wire format for a materialized ``load_ref`` return value.
 
@@ -1080,6 +1158,11 @@ def create_app():
     # auto-confirm. Test subprocesses with ``LITMUS_SERVER_URL`` set
     # install their own bridge in HTTP mode (see pytest plugin).
     register_as_prompt_handler(server_url=None)
+
+    # Eagerly acquire the data daemons and bridge live channel data —
+    # same call ``litmus.ui._asgi`` makes for the ``--reload`` path, so
+    # both entrypoints behave identically (#59-3).
+    warm_data_daemons()
 
     # Diagnostic thread count logger — tracks the slow-leak pattern
     return app

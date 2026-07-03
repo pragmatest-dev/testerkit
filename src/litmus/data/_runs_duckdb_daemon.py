@@ -126,6 +126,36 @@ class _EventSequenceMonitor:
 # ── Schema management ────────────────────────────────────────────────
 
 
+def _index_file_is_the_cause(index_dir: Path) -> bool:
+    """True when DuckDB can open a fresh database in ``index_dir``.
+
+    Distinguishes a corrupt *index file* from an *environmental* fault
+    (disk full, read-only mount, broken install): if a throwaway probe DB
+    opens and writes fine in the same directory, DuckDB and the disk are
+    healthy, so the failure is the index file itself — safe to discard and
+    rebuild. If even the probe fails, the fault is environmental and we must
+    NOT delete the derived index. Gates the self-heal per "only rebuild if
+    the index is the problem."
+    """
+    probe = index_dir / f"._index_probe_{os.getpid()}.duckdb"
+    try:
+        c = duckdb.connect(str(probe))
+        c.execute("CREATE TABLE _probe(x INTEGER)")
+        c.close()
+        return True
+    except duckdb.Error:
+        return False
+    finally:
+        probe.unlink(missing_ok=True)
+        Path(f"{probe}.wal").unlink(missing_ok=True)
+
+
+def _discard_index(index_path: Path) -> None:
+    """Delete the derived index file and its WAL sidecar (rebuildable from parquet)."""
+    index_path.unlink(missing_ok=True)
+    Path(f"{index_path}.wal").unlink(missing_ok=True)
+
+
 def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
     """Open the persistent DuckDB index and ensure schema is current.
 
@@ -134,11 +164,43 @@ def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
     first launch. The schema itself is always idempotently aligned
     with the code via :func:`_ensure_schema` — no version checks,
     no drop-and-recreate.
+
+    Self-heal: the index is a DERIVED cache — every row rebuildable from
+    parquet — so an unreadable on-disk index (a ``kill -9`` mid-write, a bad
+    disk block, a DuckDB storage-format bump on upgrade) must never be a
+    fatal poison-pill that crash-loops the daemon on every respawn. When
+    opening a *pre-existing* index raises a DuckDB error AND a fresh probe
+    confirms the fault is the file (not the environment, see
+    :func:`_index_file_is_the_cause`), the corrupt index is discarded and
+    reopened empty; ``is_fresh=True`` makes the caller's cold-start ingest
+    rebuild it from parquet. An environmental fault re-raises instead — we
+    never delete the derived index on a transient disk error.
     """
     is_fresh = not index_path.exists()
-    conn = duckdb.connect(str(index_path))
-    _ensure_schema(conn)
-    return conn, is_fresh
+    conn: duckdb.DuckDBPyConnection | None = None
+    try:
+        conn = duckdb.connect(str(index_path))
+        _ensure_schema(conn)
+        return conn, is_fresh
+    except duckdb.Error as exc:
+        if is_fresh or not _index_file_is_the_cause(index_path.parent):
+            raise
+        logger.warning(
+            "Runs index at %s is unreadable (%s: %s) — discarding the derived "
+            "index and rebuilding from parquet.",
+            index_path,
+            type(exc).__name__,
+            str(exc).splitlines()[0] if str(exc) else "",
+        )
+        if conn is not None:
+            try:
+                conn.close()
+            except duckdb.Error:
+                pass
+        _discard_index(index_path)
+        conn = duckdb.connect(str(index_path))
+        _ensure_schema(conn)
+        return conn, True
 
 
 def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:

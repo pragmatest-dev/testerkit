@@ -149,64 +149,21 @@ def _hold_serve_level_daemon_refs() -> None:
     and waits for a fresh spawn — visible as ~10s page loads.
 
     The ``litmus serve`` process itself should be the persistent
-    holder. Acquiring here at module-load time spawns all three
-    daemons (runs, events, channels) eagerly and registers an
-    ``atexit`` + SIGTERM handler that releases them on shutdown.
-    While ``serve`` is alive, refs > 0; idle-shutdown never
-    fires for the duration of the UI session.
+    holder. Delegates to ``litmus.api.app.warm_data_daemons()`` — the
+    same call the default (non-``--reload``) entrypoint makes via
+    ``create_app()`` — so both startup paths acquire the daemons and
+    establish the channels Flight→UI bridge identically (#59-3).
 
     Eager (vs. lazy first-acquire) trades ~30MB at startup for
     uniform first-page latency. A first visit to /channels feels
     the same as a first visit to /results.
     """
-    from pathlib import Path
-
-    from litmus.data import duckdb_manager as _events_mgr
-    from litmus.data import runs_duckdb_manager as _runs_mgr
-    from litmus.data.channels import flight_manager as _channels_mgr
-    from litmus.data.data_dir import resolve_data_dir
-    from litmus.data.files import catalog_manager as _files_mgr
-
-    results = Path(resolve_data_dir())
-    runs_dir = results / "runs"
-    events_dir = results / "events"
-    channels_dir = results / "channels"
-    files_dir = results / "files"
-    runs_dir.mkdir(parents=True, exist_ok=True)
-    events_dir.mkdir(parents=True, exist_ok=True)
-    channels_dir.mkdir(parents=True, exist_ok=True)
-    files_dir.mkdir(parents=True, exist_ok=True)
+    from litmus.api.app import warm_data_daemons
 
     try:
-        _runs_mgr.acquire(runs_dir)
+        warm_data_daemons()
     except Exception as exc:  # noqa: BLE001 — best-effort eager acquire
-        _log(f"[ASGI] runs daemon eager acquire failed: {exc}")
-    try:
-        _events_mgr.acquire(events_dir)
-    except Exception as exc:  # noqa: BLE001
-        _log(f"[ASGI] events daemon eager acquire failed: {exc}")
-    channels_location: str | None = None
-    try:
-        channels_location = _channels_mgr.acquire(channels_dir)
-    except Exception as exc:  # noqa: BLE001
-        _log(f"[ASGI] channels daemon eager acquire failed: {exc}")
-    try:
-        _files_mgr.acquire(files_dir)
-    except Exception as exc:  # noqa: BLE001
-        _log(f"[ASGI] files catalog daemon eager acquire failed: {exc}")
-
-    # Bridge the channels daemon's Flight server into NiceGUI Event
-    # signals so live-channel pages (channel detail chart, /live
-    # channel-values panel) receive samples push-style. Without this
-    # the per-channel ``ui_channel_data(ch_id)`` signal never fires
-    # from cross-process activity.
-    if channels_location:
-        try:
-            from litmus.ui.shared.event_binding import bind_flight_location
-
-            bind_flight_location(channels_location)
-        except Exception as exc:  # noqa: BLE001
-            _log(f"[ASGI] channels Flight bridge failed: {exc}")
+        _log(f"[ASGI] warm_data_daemons failed: {exc}")
 
 
 if __name__ != "__mp_main__":

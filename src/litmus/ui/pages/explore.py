@@ -805,7 +805,11 @@ def _build_facet_widget(  # noqa: PLR0913
             .props("use-chips dense outlined")
         )
         if facet.description:
-            sel.tooltip(facet.description)
+            # Nest (not sibling .tooltip()) so it anchors implicitly to a
+            # DOM parent that is guaranteed mounted — avoids the Quasar
+            # "Anchor: target not found" console warning on initial render.
+            with sel:
+                ui.tooltip(facet.description)
         return sel
 
     # FacetKind.STRING
@@ -823,7 +827,11 @@ def _build_facet_widget(  # noqa: PLR0913
         .props("use-chips dense outlined")
     )
     if facet.description:
-        sel.tooltip(facet.description)
+        # Nest (not sibling .tooltip()) so it anchors implicitly to a
+        # DOM parent that is guaranteed mounted — avoids the Quasar
+        # "Anchor: target not found" console warning on initial render.
+        with sel:
+            ui.tooltip(facet.description)
     return sel
 
 
