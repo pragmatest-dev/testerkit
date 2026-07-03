@@ -316,3 +316,133 @@ passing forward-migration test," not "we find out at 2.0."
   whitelist-reader test (known/unknown/absent via doctored fixtures), no-unstamped-write
   convention, a test-only synthetic adapter exercising both re-index + migrate sinks, and a
   committed frozen golden 1.0 corpus as the future `1.0→2.0` adapter's regression input.
+
+## §8. Lifecycle coordination — verified findings (2026-07-02)
+
+The forward-only-adapter design rests on **local clients are never at a newer version than
+the singleton daemon.** Verified against `_daemon_lifecycle.py`:
+
+- **The invariant HOLDS at `acquire()` time.** `acquire()` (`:129–164`), under a file lock,
+  compares the running daemon's `litmus_version` to the client's; older daemon → kill
+  (`_kill_daemon` SIGTERM→2s→SIGKILL, `:184`) + respawn the client's version; newer-or-equal →
+  attach. An unversioned legacy daemon is treated as `0.0.0` → always upgraded. So after any
+  client acquires, **daemon ≥ client**, and the daemon (being the machine's newest) only ever
+  needs FORWARD adapters.
+- **Caveat — it compares PACKAGE version, not schema.** The guarantee we actually need holds
+  only if schema versions never *decrease* as package version rises (monotonic). Discipline +
+  guard needed (task #41).
+- **No wait-state; the kill ignores active refs.** A newer client kills the old daemon even
+  while an older client is mid-test-execution (refs are consulted only by the idle-reaper
+  `monitor_refs`, not the upgrade path). **Impact is bounded:** the running client's test data
+  is written to disk *before* the daemon notify, `notify_new_run` swallows all errors and never
+  raises, and the respawned daemon re-ingests on-disk parquets via its startup `rglob` scan —
+  so no test error, no data loss. What blips: live queries/streams (which self-heal via the
+  query path's reacquire+retry) and the daemon's in-memory inflight projection (rebuilds).
+- **Two refinements parked as tasks:** #41 schema-capability-gated upgrade (only kill on a MAJOR
+  bump the running daemon can't read — advertise `KNOWN_SCHEMA_VERSIONS` in the state file, so
+  MINOR-newer clients just reuse the daemon); #42 the notify path only `reset()`s the pooled
+  client without re-resolving location, so post-respawn writes from a pure-writer client sit
+  un-indexed until the next query/restart — make notify reacquire-on-failure like the query
+  path.
+
+## §9. The coexistence model — three layers (2026-07-02)
+
+**The requirement.** One machine, N repos each pinned to a different Litmus version, **one shared
+global data dir + one singleton daemon per store** (deliberate — it's what lets cross-project data
+be queried together, like remote machines against a central server). Any client can write; any
+daemon can be the one running. **All of it must coexist.**
+
+**The organizing principle.** Every object splits into two layers, versioned differently:
+
+| | **Durable layer** — the files | **Derived layer** — the daemon's index |
+|---|---|---|
+| Role | source of truth | rebuildable cache |
+| Sharing | **shared** across all versions | **per-version**, never shared across incompatible ones |
+| Lifetime | forever | disposable |
+| Versioning | self-describing stamp + forward adapters | epoch-keyed, rebuilt from the durable layer |
+
+Every version-coexistence bug found in this session is the same defect: **a layer wasn't
+version-aware yet.** There are only **three** layers, so this is finite:
+
+1. **Durable files (shared, versioned) — BUILT (V1–V4 + #43).** Each file self-describes via its
+   stamp; any daemon reads forward through adapters; a file too new for today's daemon is
+   *deferred, not lost* (#43), and healed by a newer one. This is where "all data lives together"
+   literally happens — a v1 file and a v9 file sit in one store, and any daemon projects both into
+   one answer. **In harmony already.**
+2. **Derived index (per-version, rebuildable) — DESIGNED (#47), unbuilt.** See below.
+3. **The wire (client ↔ daemon) — DESIGNED (#44), unbuilt.** The `db\0table` / `db\0SQL` Flight
+   envelope + the JSON API are unversioned. Backward-compatible responses + a version byte /
+   capabilities handshake here let old clients ride the newest daemon (so they never spawn an old
+   one); #47 is the safety net for when they do.
+
+**The index-epoch design (corrected).** The persistent `_index.duckdb` is TODAY one shared file,
+additive-`_ensure_schema`, no epoch (`_runs_duckdb_daemon.py:1935`) — which crashes an old daemon
+that opens a **non-additively** newer index (#47). Fix: **epoch the index filename**
+(`_index.e{N}.duckdb`), where **N tracks the index's structural MAJOR shape — not the package or
+schema version.** Consequences:
+
+- **The epoch does nothing within a major.** Minor/additive index changes keep sharing one file,
+  incremental, O(new-files) startup — exactly today. So the count of index files = number of
+  distinct index MAJORS ever run on the machine ≈ a handful, *not* one per release.
+- **Rebuild is once-per-major-per-machine, not constant.** A new-major daemon builds its epoch
+  file once (a full forward-adapting scan of the durable files), then persists + goes incremental.
+  Old-major daemons keep their own persisted epoch file, never rebuilt. Flapping between two majors
+  = each epoch persists and catches up on the small delta since *it* last ran — not a rebuild.
+- **A daemon opens ONLY its own epoch's file**, so it never opens an incompatible DB — the #47
+  crash is structurally impossible, not merely caught.
+- **This is strictly better than Postgres/Lucene** (§10): their index *is* the truth, so they must
+  *refuse* (Postgres catversion) or *reindex-in-place* (Lucene N-1); ours is a cache over the
+  durable files, so we rebuild per epoch instead. The single-file + version-stamp-inside +
+  rebuild-on-mismatch alternative (the SQLite `user_version` shape) is the *constant-rebuild*
+  design under version flapping — per-epoch **files** avoid it.
+- **No aggressive GC.** Keep any major the machine still runs (small files); reap only a
+  truly-dead major, optionally. (An earlier "GC older than current−1" idea was wrong — it
+  reintroduced rebuild-thrash.)
+- **Guard:** a CI test that fails if the index DDL changes without an `_INDEX_EPOCH` bump (extend
+  the existing steps CREATE↔migration-tuple drift guard, commit `11478d9c`) — the one failure mode
+  of a manual epoch is forgetting to bump it.
+
+**Why `major.minor` is load-bearing here.** MINOR = additive → handled by `union_by_name`, **no
+adapter, no epoch**. MAJOR = breaking → **one** adapter + **one** epoch. So adapters *and* index
+epochs both track MAJORS only — which is exactly what bounds them to a handful. The version scheme
+is what makes the coexistence tractable.
+
+## §10. Prior art — this design is assembled from established practice (2026-07-02)
+
+Researched 2026-07-02 (web). The design is the union of five well-trodden bodies of work; the two
+unbuilt pieces (#47, #44) each have a canonical blueprint.
+
+**The two axes** come from Confluent Schema Registry's vocabulary: **BACKWARD** (new code reads old
+data), **FORWARD** (old code reads new data), **FULL**, and **TRANSITIVE** (checked against *every*
+prior version). Our "newest daemon reads every file ever" = **BACKWARD_TRANSITIVE** (the strongest).
+We *avoided* needing FORWARD by making the daemon always ≥ the client (the lifecycle invariant) and
+handling the residual (old daemon, new file) by **deferral** (#43) instead of forcing old code to
+read new data.
+
+| Litmus mechanism | Prior art | Verdict |
+|---|---|---|
+| Read-time adapt (dispatch + adapters) | Avro reader/writer schema resolution; event-sourcing **upcasting** (Young/Axon) | canonical |
+| Additive `union_by_name` / nullable `ALTER ADD` | Avro "match by name, default the additions" | textbook |
+| `major.minor`: MINOR additive, MAJOR needs adapter | SemVer for data; **Arrow/Parquet** format versioning | same model as our file format |
+| Refuse/defer an unknown version | Arrow: read it **or detect that you cannot** | matches |
+| Support every version forever (TRANSITIVE) | Event sourcing ("readable years later"); *vs* Lucene N-1 | deliberate, domain-justified (costlier) |
+| daemon ≥ client ⇒ only need BACKWARD | Confluent: "backward is the natural axis" | elegant reduction |
+| Keep schema `1.0`, not `0.1` | SemVer + Arrow: **pre-1.0 = *no* guarantees** | `0.1` contradicts the scheme |
+| Index epoch, rebuilt-from-files (#47) | Postgres **catalog version** (refuse); Lucene index-version (N-1 + reindex) | *better* — we rebuild; they can't |
+| Wire versioning (#44) | **Kafka** magic-byte + ApiVersions handshake; Protobuf stable field numbers | unbuilt; blueprint proven |
+| Migrate / compaction (contract phase) | Fowler **Parallel Change** (expand → migrate → contract) | shape matches |
+
+Key sources: Kleppmann, *Schema evolution in Avro/Protobuf/Thrift*
+(martin.kleppmann.com/2012/12/05); Apache Avro spec (avro.apache.org/docs); Confluent, *Schema
+Evolution & Compatibility Types* (docs.confluent.io); Axon, *Event Versioning*
+(docs.axoniq.io) + InfoQ, *Versioning in Event Sourced Systems*; pgPedia, *catalog_version_number*
+(pgpedia.info); Apache Lucene upgrade-policy (github.com/apache/lucene/issues/13797);
+Semantic Versioning 2.0 (semver.org); Apache Arrow, *Format Versioning and Stability*
+(arrow.apache.org/docs/format/Versioning.html); Protocol Buffers proto3 guide (protobuf.dev);
+Apache Kafka protocol + magic byte (kafka.apache.org); Fowler, *Parallel Change*
+(martinfowler.com/bliki/ParallelChange.html).
+
+**Takeaway:** `major.minor` is the right scheme *and* the thing that bounds adapters/epochs to
+majors; `1.0` (not `0.1`) is mandated by the scheme's own definition of `0.x`; read-time adapt is
+Avro+upcasting; the index epoch is Postgres's catversion done one better (rebuild, not refuse); the
+wire fix is Kafka's magic-byte + ApiVersions. Nothing here is invented — it is assembled.
