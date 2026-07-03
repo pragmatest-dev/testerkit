@@ -61,13 +61,13 @@ def main() -> None:
             outcome = r.outcome or "in_flight"
             started = r.started_at.isoformat(timespec="seconds") if r.started_at else "?"
             print(
-                f"  {r.uut_serial or '-':<10}  {r.uut_part_number or '-':<18}  "
+                f"  {r.uut_serial_number or '-':<10}  {r.uut_part_number or '-':<18}  "
                 f"{r.station_id or '-':<10}  {outcome:<8}  started {started}"
             )
 
         # 2. Filter by UUT — every run on SN-001
         target_serial = "SN-001"
-        sn_runs = [r for r in runs if r.uut_serial == target_serial]
+        sn_runs = [r for r in runs if r.uut_serial_number == target_serial]
         print(f"\nRuns for UUT {target_serial}: {len(sn_runs)}")
         for r in sn_runs:
             run_short = (r.run_id or "?")[:8]
@@ -87,10 +87,10 @@ def main() -> None:
             yield_rows = m_q.yield_summary()
             print(f"\nYield summary — {len(yield_rows)} (part, station, phase) groupings:")
             for row in yield_rows[:8]:
-                part = row.get("part", "?")
-                station = row.get("station", "?")
-                total = row.get("total_runs", 0)
-                passed = row.get("passed_runs", 0)
+                part = row.part
+                station = row.station
+                total = row.total_runs
+                passed = row.passed
                 pct = (passed / total * 100) if total else 0
                 print(f"  {part:<18}  {station:<10}  {passed:>3}/{total:<3} passed  ({pct:5.1f} %)")
         except Exception as exc:  # noqa: BLE001
@@ -98,11 +98,11 @@ def main() -> None:
 
         # 5. Distinct UUTs seen — pure observability
         try:
-            uuts = m_q.distinct_values("uut_serial")
+            uuts = m_q.distinct_values("uut_serial_number")
             values = sorted(d.value for d in uuts if d.value is not None)
-            print(f"\nDistinct uut_serial values: {values}")
+            print(f"\nDistinct uut_serial_number values: {values}")
         except Exception as exc:  # noqa: BLE001
-            print(f"distinct_values('uut_serial') unavailable: {exc}")
+            print(f"distinct_values('uut_serial_number') unavailable: {exc}")
 
     # 6. EventStore — timeline replay
     _hr()
