@@ -339,6 +339,19 @@ the singleton daemon.** Verified against `_daemon_lifecycle.py`:
   sharing one index (preserving the piggyback) and forks only on a major boundary (where isolation
   is mandatory anyway). **Floor:** an old daemon can never fully show a newer major's data — the
   achievable goal is safe (#47) + honest ("N newer artifacts hidden; upgrade") + preserved.
+- **The version ratchet: an old client NEVER kills/downgrades a newer daemon.** `acquire()` kills
+  only when `daemon_version < my_version` (daemon older); an older client hits the `else` branch and
+  **attaches**. So while daemons stay alive the version only ratchets *up*; the old daemon reappears
+  only after all daemons idle out (300s) and an old repo is the next to spawn a fresh one — not a
+  downgrade of a live daemon. Corollary: *while a newer daemon is alive, every client (old included)
+  attaches to it and gets complete results*; old-daemon incompleteness opens only after the newer
+  daemon dies and an old repo spawns next.
+- **One edge where the ratchet slips: a HUNG newer daemon.** `runs_duckdb_manager.connect()` has a
+  self-heal path — `acquire()` → `probe_sql()`; if the daemon does not respond, it calls
+  `force_restart()` (an **unconditional** kill, no version check) and re-`acquire()`s. An old client
+  on that path against an unresponsive newer daemon kills it and spawns *its own old* daemon — a
+  downgrade, but only when the newer daemon is already dead-in-the-water. The only backward slip in
+  the ratchet, and only under failure.
 - **Caveat — it compares PACKAGE version, not schema.** The guarantee we actually need holds
   only if schema versions never *decrease* as package version rises (monotonic). Discipline +
   guard needed (task #41).
