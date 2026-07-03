@@ -5,12 +5,12 @@ Each Litmus run produces **one Parquet file**. The file has two layers: the at-r
 **At-rest — three row types.** Every row carries an explicit `record_type` discriminator with one of three values:
 
 - `record_type = 'run'` — exactly one row per file. Carries run-level identity, timing, outcome, plus UUT / station / project / git / environment context.
-- `record_type = 'step'` — one row per `(step_path, vector_index)` execution. Step identity, timing, and rolled-up outcome. Conditions and observations are on the paired vector row, not here.
-- `record_type = 'vector'` — one row per execution. Every step execution has at least one vector row: a synthesized scope vector for the step itself. Mode-2 (`vectors`-fixture / `run_vector`) loops add one vector row per iteration. The vector row carries the `inputs` / `outputs` lane columns and a nested `measurements` list (`LIST<STRUCT>`).
+- `record_type = 'step'` — one row per step execution (per `step_path`, per retry). Carries the step's identity, timing, and rolled-up outcome — and, when the step measures directly, its own `inputs` / `outputs` / `measurements`. `vector_index` is always NULL on a step row; if the step is nested inside a parent loop, the iteration it ran under is carried by `vector_outer_index`.
+- `record_type = 'vector'` — a **condition point**: one row per iteration of a sweep or in-body loop (the `vectors` fixture / `run_vector`). Present **only** when a step loops — a step that measures directly emits no vector rows. Each vector row carries that point's own `inputs` / `outputs` / `measurements`, with `vector_index` its 0-based position in the loop.
 
-**Measurements are nested, not rows.** Measurements live inside the vector row's `measurements` column as a typed nested list (`LIST<STRUCT>`). Each struct holds `name`, `value`, `unit`, `outcome`, `timestamp`, `limit_*`, `characteristic_id`, `spec_ref`, and signal-path fields (`uut_pin`, `fixture_connection`, `instrument_*`). There is no at-rest `record_type = 'measurement'` row.
+**Measurements are nested, not rows.** Measurements live in a `measurements` column — a typed nested list (`LIST<STRUCT>`) — on whichever row owns them: the **step row** for a directly-measured step, or the **vector row** for a swept one. Each struct holds `name`, `value`, `unit`, `outcome`, `timestamp`, `limit_*`, `characteristic_id`, `spec_ref`, and signal-path fields (`uut_pin`, `fixture_connection`, `instrument_*`). There is no at-rest `record_type = 'measurement'` row.
 
-**Query projection — four virtual types.** The query projection UNNESTs the nested measurements from each vector row into a flat fact and presents a fourth virtual row type `record_type = 'measurement'` in query results. All `WHERE record_type = 'measurement'` queries target this projected view, not the at-rest file. The `inputs` / `outputs` lanes are also projected into the `measurements_dynamic` EAV table (keyed by `role` and `name`) for query-time access. Query output shape is byte-stable regardless of at-rest format changes.
+**Query projection — four virtual types.** The query projection UNNESTs the nested measurements from **both step and vector rows** into a flat fact and presents a fourth virtual row type `record_type = 'measurement'` in query results. All `WHERE record_type = 'measurement'` queries target this projected view, not the at-rest file. The `inputs` / `outputs` lanes (from either row type) are also projected into the `measurements_dynamic` EAV table (keyed by `role` and `name`) for query-time access. Query output shape is byte-stable regardless of at-rest format changes.
 
 This page mirrors the canonical at-rest schema; the column names and types here match what `read_parquet` returns.
 
@@ -18,7 +18,7 @@ This page mirrors the canonical at-rest schema; the column names and types here 
 
 ```
 <data_dir>/runs/{date}/
-├── {timestamp}_{run_id8}_{serial}.parquet  # Run + step + vector rows; measurements nested in vector rows
+├── {timestamp}_{run_id8}_{serial}.parquet  # Run + step + vector rows; measurements nested in the step or vector row that owns them
 ├── {timestamp}_{run_id8}.parquet           # Same shape, no UUT serial (dev runs)
 └── {timestamp}_{run_id8}_{serial}_ref/     # Reference data (waveforms, images, files)
     ├── {vector_id}_scope_waveform.npz
@@ -36,11 +36,11 @@ Timestamps are UTC and sort naturally. The 8-char `run_id` sits right after the 
 
 **At-rest row types (three):**
 - `run` — one row per run; run-level metadata (start/end timestamps, UUT serial, station, outcome).
-- `step` — one row per `(step_path, vector_index)` execution; code identity, timing, rolled-up outcome.
-- `vector` — one row per execution, keyed `(step_path, vector_index, retry)`. Every step has at least one vector row: its scope vector. Mode-2 (`vectors`-fixture) loops add one iteration vector per pass. The vector row carries `inputs` / `outputs` lane columns and a nested `measurements` list.
+- `step` — one row per step execution, keyed `(step_path, step_retry, vector_outer_index)`; code identity, timing, rolled-up outcome, and the step's own `inputs` / `outputs` / `measurements` when it measures directly.
+- `vector` — a condition point: one row per sweep / in-body-loop iteration, keyed `(step_path, vector_outer_index, vector_index, vector_retry)` (it also carries the enclosing `step_retry`). `vector_outer_index` is NULL for a top-level loop and set only when the loop is nested inside a parent loop. Present only when a step loops. Carries that point's `inputs` / `outputs` lane columns and a nested `measurements` list.
 
 **Query projection (virtual fourth type):**
-- `measurement` — the query projection UNNESTs each vector's nested `measurements` list into a flat fact row stamped `record_type = 'measurement'`. These rows exist in query results but not in the at-rest file.
+- `measurement` — the query projection UNNESTs the nested `measurements` list from **both step and vector rows** into flat fact rows stamped `record_type = 'measurement'`. These rows exist in query results but not in the at-rest file.
 
 To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type = 'vector'`. To list measurements: `WHERE record_type = 'measurement'`. All kinds: omit the filter.
 
@@ -50,7 +50,7 @@ To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type
 |--------|------|-------------|
 | `session_id` | string | Session UUID — groups runs that ran together in one `litmus serve` / `pytest` invocation |
 | `run_id` | string | Run UUID — primary key for the run |
-| `site_index` | int64 | Multi-UUT site index, 0-based (NULL for single-UUT runs) |
+| `site_index` | int64 | Multi-UUT site index, 0-based; always present, default `0` (a single-UUT run stores `0`, never NULL) |
 | `site_name` | string | Optional human label for the site (NULL when unnamed or single-UUT) |
 | `run_started_at` | timestamp[us, UTC] | When the run started |
 | `run_ended_at` | timestamp[us, UTC] | When the run ended |
@@ -65,8 +65,9 @@ To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type
 | `step_class` | string | Class name (NULL for module-level functions) |
 | `step_function` | string | Function name |
 | `step_markers` | string | Marker payload summary |
-| `step_vector_count` | int32 | Total planned vectors for this step (1 for non-swept) |
-| `vector_index` | int64 | 0-based index within the step's sweep matrix |
+| `step_retry` | int64 | 0-based step retry counter (0 = first execution); a step retry makes a new step row |
+| `vector_index` | int64 | Position in the loop; **NULL on run and step rows**, 0..N on vector rows |
+| `vector_outer_index` | int64 | The enclosing parent-loop iteration a nested step/vector ran under; NULL when not nested |
 | `vector_retry` | int64 | 0-based retry counter (0 = first execution) |
 | `vector_started_at` | timestamp[us, UTC] | Vector start |
 | `vector_ended_at` | timestamp[us, UTC] | Vector end |
@@ -169,7 +170,7 @@ WHERE record_type = 'run';
 
 ## Input conditions (`inputs` lane — at-rest format)
 
-At rest, each vector's commanded conditions are stored in the `inputs` column as a typed nested list: `LIST<STRUCT<name, value_type, value_int, value_double, value_bool, value_text, value_timestamp, value_json, unit, uut_pin>>`. One struct per parameter; `value_type` selects which `value_*` field holds the actual value.
+At rest, a step's commanded conditions — or, for a swept iteration, a vector's — are stored in that row's `inputs` column as a typed nested list: `LIST<STRUCT<name, value_type, value_int, value_double, value_bool, value_text, value_timestamp, value_json, unit, uut_pin>>`. One struct per parameter; `value_type` selects which `value_*` field holds the actual value.
 
 The Query API projects these lane structs into the `measurements_dynamic` EAV table (keyed by `role='input'` and `name`) for query-time access. See [Query API](query-api.md) for how to select input fields in analysis.
 
@@ -182,7 +183,7 @@ The Query API projects these lane structs into the `measurements_dynamic` EAV ta
 | `value_int` | int64 | Set when `value_type = 'scalar:int'`; NULL otherwise |
 | `value_double` | float64 | Set when `value_type = 'scalar:float'`; NULL otherwise |
 | `value_bool` | bool | Set when `value_type = 'scalar:bool'`; NULL otherwise |
-| `value_text` | string | Set when `value_type` is `scalar:str` or `uri`; NULL otherwise |
+| `value_text` | string | Set when `value_type` is `scalar:str`, `uri`, or `other:<type>` (the value's `repr`); NULL otherwise |
 | `value_timestamp` | timestamp[us, UTC] | Set when `value_type = 'scalar:datetime'`; NULL otherwise |
 | `value_json` | string | Set when `value_type` is `list` or `dict`; NULL otherwise |
 | `unit` | string | Engineering unit set via `context.configure(key, value, unit="V")` |
@@ -232,7 +233,7 @@ if is_file_reference(column_value):
 
 ## Measurement fields (projected from nested struct)
 
-At rest, measurements live in the vector row's `measurements` column as a `LIST<STRUCT>`. The fields below are exposed as flat columns on the projected `record_type = 'measurement'` rows the Query API surfaces.
+At rest, measurements live in the owning row's `measurements` column — the step row for a direct measurement, the vector row for a swept one — as a `LIST<STRUCT>`. The fields below are exposed as flat columns on the projected `record_type = 'measurement'` rows the Query API surfaces.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -319,7 +320,7 @@ The Query API projects all `inputs` and `outputs` lane entries into a long EAV t
 | `value_int` | int64 | Populated when `value_type = 'scalar:int'` |
 | `value_double` | float64 | Populated when `value_type = 'scalar:float'` |
 | `value_bool` | bool | Populated when `value_type = 'scalar:bool'` |
-| `value_text` | string | Populated when `value_type` is `scalar:str` or `uri` |
+| `value_text` | string | Populated when `value_type` is `scalar:str`, `uri`, or `other:<type>` |
 | `value_timestamp` | timestamp[us, UTC] | Populated when `value_type = 'scalar:datetime'` |
 | `value_json` | string | Populated when `value_type` is `list` or `dict` |
 | `unit` | string | Engineering unit |
@@ -360,26 +361,23 @@ Querying this table directly is rarely needed — use the [Query API](query-api.
 
 ## Retries
 
-All retries are stored. Each retry produces a new step + vector pair at that execution's grain, so measurement-less retries are captured. Measurements stay nested in the paired vector row.
+All retries are stored. Each retry produces a new row at that execution's grain — a fresh `step` row for a directly-measured step, or a fresh `vector` row for a swept iteration — so measurement-less retries are captured too. Measurements stay nested on the retried row.
 
-**Mode-1 (parametrize / single / unswept):** each attempt is a separate `step` row + scope `vector` row. `vector_retry` increments per attempt. In the query projection, the UNNESTed measurement rows carry the same `vector_retry` as their enclosing vector.
+**Mode-1 (parametrize / single / unswept):** each attempt is a separate `step` row carrying its own nested measurements; `step_retry` increments per attempt. There are no vector rows. In the query projection, the UNNESTed measurement rows carry the same `step_retry` as their enclosing step.
 
 ```
-record_type | vector_index | vector_retry | step_outcome   | measurement_name | measurement_value
-step        | 0            | 0            | failed         | —                | —                  ← first attempt (at-rest)
-vector      | 0            | 0            | failed         | —                | —                  ← scope vector with nested measurements
-measurement | 0            | 0            | —              | output_voltage   | 3.50               ← projected (query-time UNNEST)
-step        | 0            | 1            | failed         | —                | —                  ← first retry
-vector      | 0            | 1            | failed         | —                | —
-measurement | 0            | 1            | —              | output_voltage   | 3.48               ← projected
-step        | 0            | 2            | passed         | —                | —                  ← second retry
-vector      | 0            | 2            | passed         | —                | —
-measurement | 0            | 2            | —              | output_voltage   | 3.30               ← projected
+record_type | step_retry | step_outcome | measurement_name | measurement_value
+step        | 0          | failed       | —                | —                  ← first attempt (measurements nested on the step row)
+measurement | 0          | —            | output_voltage   | 3.50               ← projected (query-time UNNEST)
+step        | 1          | failed       | —                | —                  ← first retry
+measurement | 1          | —            | output_voltage   | 3.48               ← projected
+step        | 2          | passed       | —                | —                  ← second retry
+measurement | 2          | —            | output_voltage   | 3.30               ← projected
 ```
 
 **Mode-2 (`vectors` fixture):** each attempt at one in-body iteration is a separate `vector` row with the same `vector_index` and an incremented `vector_retry`.
 
-Filter to the final attempt with `WHERE vector_retry = (SELECT MAX(vector_retry) FROM … WHERE record_type IN ('step','vector') …)`, scoping by `(run_id, step_path, vector_index)`.
+Filter to the final attempt with a window over the retry axis — for step-grained rows, the max `step_retry` per `(run_id, step_path)`; for swept rows, the max `vector_retry` per `(run_id, step_path, vector_index)`.
 
 ## File-level metadata
 
@@ -389,7 +387,7 @@ Beyond columns, each Parquet file carries metadata:
 |-----|-------------|
 | `environment_json` | Full environment snapshot (Python version, OS, Litmus version, top-level deps, lockfile hash) |
 | `custom_metadata` | Run-level custom metadata set via `run_context.set()`, serialized as a JSON object |
-| `schema_version` | Schema version (`"2.0"`) |
+| `schema_version` | At-rest schema version (`"0.1"`) |
 
 ```python
 import pyarrow.parquet as pq
@@ -416,18 +414,20 @@ Run-level `custom_metadata` keys are also exported, each as a `custom_<key>` col
 
 ### Load a run with pandas
 
-Measurements are nested in vector rows at rest. Use DuckDB to UNNEST them first, then load into pandas:
+Measurements are nested in step (and vector) rows at rest. Use DuckDB to UNNEST them first, then load into pandas:
 
 ```python
 import duckdb
 import pandas as pd
 
-# UNNEST the nested measurements from vector rows and join with run context
+# Measurements are nested on step rows (direct) and vector rows (swept).
+# UNNEST from both, joined with each row's run/step context.
 con = duckdb.connect()
 df = con.execute("""
     SELECT
         v.run_id, v.uut_serial_number, v.station_hostname,
-        v.step_name, v.step_path, v.vector_index, v.vector_retry,
+        v.step_name, v.step_path, v.vector_index,
+        v.step_retry, v.vector_retry,
         v.step_outcome, v.vector_outcome, v.run_outcome,
         m.name  AS measurement_name,
         m.value AS measurement_value,
@@ -437,14 +437,8 @@ df = con.execute("""
         m.uut_pin, m.instrument_name
     FROM read_parquet('data/runs/2026-05-16/20260516T143025Z_SN001.parquet') AS v,
          UNNEST(v.measurements) AS t(m)
-    WHERE v.record_type = 'vector'
+    WHERE v.record_type IN ('step', 'vector')
 """).df()
-
-# Step rows (direct — no UNNEST needed)
-steps = pd.read_parquet(
-    "data/runs/2026-05-16/20260516T143025Z_SN001.parquet"
-)
-steps = steps[steps["record_type"] == "step"]
 
 # Failures
 failures = df[df["measurement_outcome"] == "failed"]
@@ -456,7 +450,7 @@ When using Litmus's [Query API](query-api.md), the UNNEST is handled automatical
 
 ### Yield by station with DuckDB (direct file — UNNEST required)
 
-Measurements are nested in vector rows. UNNEST them to get the flat measurement fact:
+Measurements are nested in step (and vector) rows. UNNEST them to get the flat measurement fact:
 
 ```sql
 SELECT
@@ -468,7 +462,7 @@ SELECT
     ROUND(100.0 * SUM(CASE WHEN m.outcome = 'passed' THEN 1 ELSE 0 END) / COUNT(*), 2) AS yield_pct
 FROM read_parquet('data/runs/**/*.parquet') AS v,
      UNNEST(v.measurements) AS t(m)
-WHERE v.record_type = 'vector'
+WHERE v.record_type IN ('step', 'vector')
 GROUP BY 1, 2, 3
 ORDER BY yield_pct ASC;
 ```
