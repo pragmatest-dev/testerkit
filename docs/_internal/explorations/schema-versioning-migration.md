@@ -554,6 +554,29 @@ test-data scale); v1.0 maturity (~3 months); the catalog becomes *semi-authorita
 anything. That makes it the frontrunner over generic ClickStack / Delta+Iceberg for a cloud-hosted
 Litmus — precisely because it's the DuckDB-native *integration*, and integrating beats reinventing.
 
+## §14. Write-path robustness invariant (2026-07-02)
+
+**Invariant — any write path (current stores, a future backend) MUST uphold this:** durable writes
+are **disk-direct**; daemon connections are **best-effort + self-healing in shared infra**;
+**callers never write connection-recovery code.**
+
+- **Durable path = disk-direct.** A write lands as a parquet / Arrow / sidecar file on disk
+  (`atomic_write_table`, the IPC writer) — there is *no daemon connection in the durability path*,
+  so nothing to be "robust" about; data can't be lost to a dead or mid-respawn daemon.
+- **Daemon connection = best-effort notify.** `notify_new_run` swallows all errors and never raises;
+  the daemon's startup/rescan catches any file whose notify didn't land. The caller never sees a
+  connection failure.
+- **Self-healing lives in the shared client, not the caller.** Reads already self-heal
+  (`FlightQueryClient.query` retry + reacquire + respawn). The write notify should mirror it (#42 —
+  reacquire the respawned daemon). #42 changes prompt-vs-eventual *indexing*, NOT whether a caller
+  writes recovery code — which is *never*. A test author hands data to disk; connect / respawn /
+  reconnect / catch-up are all the platform's job, in shared code.
+- **This is what licenses aggressive idle-kill.** Because reconnect/respawn is transparent and cheap
+  (~1–2s), daemons can be reaped aggressively (the tuned 300s / 5-min idle) with bounded resource
+  cost — even with per-major (side-by-side) daemons, since an abandoned major's daemon dies within
+  5 min. Enablers: #42 (write notify self-heals like reads) + #7 (reap refs by *activity*, not just
+  PID-liveness, so a hung client can't pin a daemon forever).
+
 ## §13. Normalization / compaction service — the Contract phase (2026-07-02)
 
 The migrate sink (V3, `schema_migrate`) is the per-file primitive: read a below-current file through
