@@ -139,24 +139,10 @@ _install_global_exception_handler()
 
 
 def _hold_serve_level_daemon_refs() -> None:
-    """Eagerly spawn the data daemons and hold persistent refs.
-
-    Without this, every page navigation that opens a fresh
-    ``RunsQuery`` / ``StepsQuery`` / ``EventStore`` does its own
-    acquire/release. Refs thrash 0→1→0→1, and as soon as no page
-    is querying for ``LITMUS_DAEMON_IDLE_TIMEOUT`` seconds, the
-    daemon idle-shuts-down. The next click finds a dead daemon
-    and waits for a fresh spawn — visible as ~10s page loads.
-
-    The ``litmus serve`` process itself should be the persistent
-    holder. Delegates to ``litmus.api.app.warm_data_daemons()`` — the
-    same call the default (non-``--reload``) entrypoint makes via
-    ``create_app()`` — so both startup paths acquire the daemons and
-    establish the channels Flight→UI bridge identically (#59-3).
-
-    Eager (vs. lazy first-acquire) trades ~30MB at startup for
-    uniform first-page latency. A first visit to /channels feels
-    the same as a first visit to /results.
+    """Delegate to :func:`litmus.api.app.warm_data_daemons` — the same call the
+    default ``create_app()`` entrypoint makes — so ``litmus serve --reload`` and
+    plain ``litmus serve`` acquire the daemons and establish the channels
+    Flight→UI bridge identically (#59-3). See that function for the rationale.
     """
     from litmus.api.app import warm_data_daemons
 

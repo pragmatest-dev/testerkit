@@ -183,8 +183,14 @@ def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
         _ensure_schema(conn)
         return conn, is_fresh
     except duckdb.Error as exc:
-        if is_fresh or not _index_file_is_the_cause(index_path.parent):
-            raise
+        # Self-heal only when BOTH conditions hold; each other case re-raises
+        # for a distinct reason:
+        if is_fresh:
+            raise  # a brand-new file failing isn't corruption — an env/DuckDB fault
+        if not _index_file_is_the_cause(index_path.parent):
+            raise  # a fresh probe also fails → environmental (disk full / read-only)
+        # Pre-existing index + probe confirms the file itself is the fault →
+        # safe to discard and rebuild from parquet.
         logger.warning(
             "Runs index at %s is unreadable (%s: %s) — discarding the derived "
             "index and rebuilding from parquet.",

@@ -1502,14 +1502,15 @@ def usage_stats_by(field: str) -> dict[str, dict[str, Any]]:
     Skips runs where the grouped field is null. Aggregation is pushed
     into SQL so the daemon returns one row per distinct value — safe
     regardless of total run count.
+
+    ``field`` must be a valid ``usage_stats`` group-by column; an invalid
+    name raises ``ValueError`` — a programming error, surfaced rather than
+    silently masked as "no data" (the failure mode that hid the parts bug).
     """
     from litmus.analysis.runs_query import RunsQuery
 
-    try:
-        with RunsQuery() as q:
-            rows = q.usage_stats(field)
-    except ValueError:
-        return {}
+    with RunsQuery() as q:
+        rows = q.usage_stats(field)
 
     return {
         r["value"]: {
