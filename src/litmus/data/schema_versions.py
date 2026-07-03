@@ -11,19 +11,26 @@ version forward to the current shape. See
 strategy (read-time adaptation, coexist-always + optional-migrate).
 
 Versioning is SemVer and **decoupled from the litmus package version** — the
-stores diverge on their own lines, so schema ``1.0`` at package ``0.3.0`` is
-deliberate, not a mismatch:
+stores diverge on their own lines, so schema ``0.1`` at package ``0.3.0`` is
+deliberate, not a mismatch.
 
-- **MINOR** (``1.0 -> 1.1``) — additive only. ``union_by_name`` null-fills old
-  files and ``ALTER TABLE ADD COLUMN IF NOT EXISTS`` extends the projection.
-  No adapter.
-- **MAJOR** (``1.x -> 2.0``) — breaking (rename / reshape / remove). Needs a
-  per-version read-time adapter + a frozen reference doc for the outgoing
-  major.
+The breaking unit is the **epoch = leftmost-significant SemVer component**:
 
-All stores reset to ``"1.0"`` at the 0.3.0 release — the designed baseline the
-"support every shipped version forever" clock starts from. Pre-1.0 / unstamped
-artifacts are unsupported by design (regenerate).
+- **Pre-1.0** — the **MINOR** is the epoch. ``0.1 -> 0.2`` is a breaking
+  reshape (a new epoch); there is no additive tier yet. Each 0.x epoch is a
+  clean break that regenerates or read-time-adapts prior-epoch artifacts —
+  deliberately rehearsing the same epoch -> quarantine/adapter path we'll bet
+  on at the first real ``2.0``, so the apparatus is proven before 1.0.
+- **Post-1.0** — the **MAJOR** is the epoch. ``1.0 -> 1.1`` becomes additive
+  (``union_by_name`` null-fills old files, ``ALTER TABLE ADD COLUMN IF NOT
+  EXISTS`` extends the projection); ``1.x -> 2.0`` is the breaking epoch,
+  needing a per-version read-time adapter + a frozen reference doc for the
+  outgoing epoch.
+
+All stores start at ``"0.1"`` — a distinct pre-1.0 schema line, **not frozen**.
+1.0 is graduated to later, once the schema design and this apparatus have real
+mileage (see ``docs/_internal/explorations/pre-1.0-epoch-strategy.md``).
+Unstamped artifacts are unsupported by design (regenerate).
 """
 
 from __future__ import annotations
@@ -55,15 +62,15 @@ class SchemaStore(StrEnum):
 # home for the current version — every store's public constant aliases the
 # matching entry here (do not hardcode the string at the write site).
 CURRENT_SCHEMA_VERSION: dict[SchemaStore, str] = {
-    SchemaStore.RUNS: "1.0",
-    SchemaStore.EVENTS_ENVELOPE: "1.0",
-    SchemaStore.EVENT_CATALOG: "1.0",
-    SchemaStore.CHANNELS: "1.0",
-    SchemaStore.FILES: "1.0",
+    SchemaStore.RUNS: "0.1",
+    SchemaStore.EVENTS_ENVELOPE: "0.1",
+    SchemaStore.EVENT_CATALOG: "0.1",
+    SchemaStore.CHANNELS: "0.1",
+    SchemaStore.FILES: "0.1",
 }
 
-# Older majors a store still ships a read-time adapter for. Empty today
-# (1.0-only). Add an entry the *same commit* its ``vN -> current`` adapter
+# Older epochs a store still ships a read-time adapter for. Empty today
+# (0.1-only). Add an entry the *same commit* its ``vN -> current`` adapter
 # lands, so the whitelist reader starts accepting that version exactly when it
 # can transform it.
 _LEGACY_READABLE: dict[SchemaStore, frozenset[str]] = {store: frozenset() for store in SchemaStore}
@@ -71,7 +78,7 @@ _LEGACY_READABLE: dict[SchemaStore, frozenset[str]] = {store: frozenset() for st
 # Versions each store's reader will dispatch. Current ∪ legacy-readable, so the
 # current version is always accepted by construction. Anything not in this set
 # is refused at read time ("unsupported schema version"); an absent stamp is
-# refused as pre-1.0 ("regenerate").
+# refused as unstamped/pre-baseline ("regenerate").
 KNOWN_SCHEMA_VERSIONS: dict[SchemaStore, frozenset[str]] = {
     store: frozenset({CURRENT_SCHEMA_VERSION[store]}) | _LEGACY_READABLE[store]
     for store in SchemaStore

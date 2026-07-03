@@ -90,8 +90,8 @@ Each `.arrow` file carries two keys in its Arrow schema metadata:
 
 | Key | Description |
 |-----|-------------|
-| `schema_version` | Version of the envelope — the column layout described above. Current: `"1.0"` |
-| `event_catalog_version` | Version of the event payload catalog — the set of `event_type` values and what each carries inside `json`. Current: `"1.0"` |
+| `schema_version` | Version of the envelope — the column layout described above. Current: `"0.1"` |
+| `event_catalog_version` | Version of the event payload catalog — the set of `event_type` values and what each carries inside `json`. Current: `"0.1"` |
 
 These two version numbers move independently. A new event type, or a new field on an existing event type, is a catalog change — it rides inside `json`, additive — not an envelope change. The envelope only changes when the column layout itself changes.
 
@@ -105,11 +105,11 @@ reader = ipc.open_stream(
     pa.OSFile("3f6b1a2c-0d4e-4f8a-b2c7-1e3d5a7f9b0e-83421.arrow", "rb")
 )
 meta = reader.schema.metadata
-print(meta[b"schema_version"])           # b"1.0"
-print(meta[b"event_catalog_version"])    # b"1.0"
+print(meta[b"schema_version"])           # b"0.1"
+print(meta[b"event_catalog_version"])    # b"0.1"
 ```
 
-A file with no `schema_version` stamp, or a stamp Litmus doesn't recognize, is skipped rather than blocking the rest of the log — one bad or pre-1.0 file never stalls ingestion of the good ones. Regenerate an unstamped file if you need its events read.
+A file with no `schema_version` stamp, or a stamp Litmus doesn't recognize, is skipped rather than blocking the rest of the log — one bad or unstamped file never stalls ingestion of the good ones. Regenerate an unstamped file if you need its events read.
 
 ## See also
 

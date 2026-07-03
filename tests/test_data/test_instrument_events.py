@@ -111,7 +111,7 @@ class TestSerialization:
         assert data["resource"] == "GPIB0::22::INSTR"
 
 
-def test_event_schema_versions_are_1_0():
-    # Events carries two coordinates (§3); both reset to 1.0 at 0.3.0 (§2).
-    assert EVENT_LOG_SCHEMA_VERSION == "1.0"  # storage envelope
-    assert EVENT_CATALOG_VERSION == "1.0"  # payload catalog
+def test_event_schema_versions_are_baseline():
+    # Events carries two coordinates (§3); both start on the 0.1 baseline (§2).
+    assert EVENT_LOG_SCHEMA_VERSION == "0.1"  # storage envelope
+    assert EVENT_CATALOG_VERSION == "0.1"  # payload catalog

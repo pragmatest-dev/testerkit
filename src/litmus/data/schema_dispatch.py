@@ -10,19 +10,19 @@ versioning surface reduces to:
 Three outcomes when a file's stamp is read:
 
 - **present and whitelisted** (in :data:`KNOWN_SCHEMA_VERSIONS`) -> return that
-  version's adapter (identity today: 1.0 == current, no transform).
+  version's adapter (identity today: ``0.1`` == current, no transform).
 - **present but unknown** (a future ``5.0``, or an abandoned version) -> refuse
   with :class:`SchemaVersionRefused` ("unsupported schema version").
-- **absent** (unstamped, i.e. pre-1.0) -> refuse ("regenerate"). 1.0 is always
+- **absent** (unstamped) -> refuse ("regenerate"). The current version is always
   stamped at write, so absence can only mean a pre-stamp file.
 
 Each store's read boundary catches :class:`SchemaVersionRefused` and routes it
 into that store's existing skip/quarantine path, so one bad-version file is
 isolated and the good ones still land.
 
-The adapter registry ships **1.0-identity only** — no speculative transforms.
-A real ``vN -> current`` adapter is registered here the same commit its source
-version joins :data:`KNOWN_SCHEMA_VERSIONS`.
+The adapter registry ships **current-identity only** — no speculative
+transforms. A real ``vN -> current`` adapter is registered here the same commit
+its source version joins :data:`KNOWN_SCHEMA_VERSIONS`.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ class SchemaVersionRefused(Exception):
       daemon knows. The machine's singleton daemon trends newest, so a newer
       daemon WILL read it — the file must stay re-attemptable (never permanently
       ledgered), else it goes invisible forever after the daemon is upgraded.
-    - **deferrable=False** — absent (pre-1.0) or an unparseable / older-unknown
+    - **deferrable=False** — absent (unstamped) or an unparseable / older-unknown
       stamp. No future daemon will read it: permanent skip (regenerate).
     """
 
@@ -81,12 +81,12 @@ class SchemaVersionRefused(Exception):
 # ── Adapter registry ────────────────────────────────────────────────────────
 # One transform per (store, source_version) -> current. Empty today (every
 # known version IS current, so dispatch returns identity). ``register_adapter``
-# is how a future major's transform is added; ``_identity`` is the 1.0 no-op.
+# is how a future epoch's transform is added; ``_identity`` is the current no-op.
 
 
 def _identity(rows: Any) -> Any:
-    """Identity adapter (the 1.0 no-op). Adapter contract for future authors: an
-    adapter MUST NOT mutate its input in place — return the transformed value.
+    """Identity adapter (the current-version no-op). Adapter contract for future
+    authors: an adapter MUST NOT mutate its input in place — return the value.
     Returning the input unchanged is correct for this no-op (Arrow tables are
     immutable anyway; the migrate sink calls ``.replace_schema_metadata()`` on the
     result, which copies). A real transform returns a new table / copied model."""
@@ -113,20 +113,20 @@ def dispatch(store: SchemaStore, version: str | None) -> Adapter:
     """Whitelist-dispatch *version* for *store*; return its adapter or refuse.
 
     Returns the registered adapter, or :func:`_identity` when the version is
-    known but current-shaped (the 1.0 case). Raises
+    known but current-shaped (the current-version case). Raises
     :class:`SchemaVersionRefused` for an unknown or absent version.
     """
     if version is None:
         raise SchemaVersionRefused(
             store,
             None,
-            "unstamped (pre-1.0) artifact — unsupported by design; regenerate",
+            "unstamped artifact — unsupported by design; regenerate",
             deferrable=False,
         )
     if version not in KNOWN_SCHEMA_VERSIONS[store]:
         known = ", ".join(sorted(KNOWN_SCHEMA_VERSIONS[store]))
         # Deferrable iff strictly NEWER than every known version — a newer daemon
-        # will read it. Older / unparseable-unknown is pre-1.0 or garbage: permanent.
+        # will read it. Older / unparseable-unknown is pre-baseline or garbage: permanent.
         vt = _schema_version_tuple(version)
         known_tuples = [
             t for t in (_schema_version_tuple(k) for k in KNOWN_SCHEMA_VERSIONS[store]) if t
@@ -158,7 +158,7 @@ _warned_lock = threading.Lock()
 def report_schema_refusal(exc: SchemaVersionRefused, path: str) -> None:
     """Surface a refusal uniformly across all four store boundaries: a
     *deferrable* (newer) refusal is a transient debug note (a newer daemon will
-    ingest it); a *permanent* (absent / pre-1.0) refusal is warned once per path
+    ingest it); a *permanent* (absent / unstamped) refusal is warned once per path
     so the operator knows the file needs regenerating.
     """
     if exc.deferrable:
@@ -171,7 +171,7 @@ def report_schema_refusal(exc: SchemaVersionRefused, path: str) -> None:
             _warned_permanent_refusals.clear()
         _warned_permanent_refusals.add(path)
     # Log outside the lock (I/O): only the winning thread reaches here per path.
-    _logger.warning("Skipping unsupported (pre-1.0/unknown) schema in %s: %s", path, exc)
+    _logger.warning("Skipping unsupported (unstamped/unknown) schema in %s: %s", path, exc)
 
 
 # ── Stamp extraction ────────────────────────────────────────────────────────
@@ -183,7 +183,7 @@ def stamp_from_arrow_metadata(
     """Read a schema-version stamp from Arrow/parquet file-level metadata.
 
     Returns ``None`` if the metadata is absent or lacks *key* — which
-    :func:`dispatch` treats as a pre-1.0 (unstamped) artifact.
+    :func:`dispatch` treats as an unstamped artifact.
     """
     if not metadata:
         return None

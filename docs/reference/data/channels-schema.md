@@ -99,7 +99,7 @@ Each Arrow file carries two keys in the stream-level schema metadata:
 | Key | Description |
 |-----|-------------|
 | `litmus.channel_descriptor` | JSON-encoded channel descriptor — the full channel identity, including channel ID, value type, unit, instrument role, resource, session ID, hostname, first-seen timestamp, and a user attributes bag. Read this to reconstruct channel identity without scanning rows. |
-| `schema_version` | Channel IPC format version (`"1.0"`). Bump when the at-rest column shape changes in a breaking way. |
+| `schema_version` | Channel IPC format version (`"0.1"`). Bump when the at-rest column shape changes in a breaking way. |
 
 Read metadata in Python:
 
@@ -109,7 +109,7 @@ import pyarrow as pa
 
 reader = ipc.open_stream(pa.OSFile("psu.voltage_a1b2c3d4.arrow", "rb"))
 meta = reader.schema.metadata
-print(meta[b"schema_version"])          # b"1.0"
+print(meta[b"schema_version"])          # b"0.1"
 print(meta[b"litmus.channel_descriptor"])  # JSON blob with channel identity
 ```
 

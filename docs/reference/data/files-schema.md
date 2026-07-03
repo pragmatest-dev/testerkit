@@ -50,7 +50,7 @@ Each artifact's sidecar is a JSON file named `{filename}.meta.json`, written ato
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `schema_version` | string | Format version of this sidecar. Current: `"1.0"`. |
+| `schema_version` | string | Format version of this sidecar. Current: `"0.1"`. |
 | `mime` | string | MIME type of the artifact (see [MIME convention](#mime-convention)). |
 | `extension` | string | File extension on disk, including the dot (e.g. `.npz`, `.bin`, `.json`). |
 | `size_bytes` | integer | Byte size of the artifact after writing. Read back from the backend after the atomic publish so it reflects the actual stored size, not a pre-write estimate. |
@@ -63,7 +63,7 @@ Example sidecar:
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "0.1",
   "mime": "application/x-numpy-npz",
   "extension": ".npz",
   "size_bytes": 4096,
@@ -79,7 +79,7 @@ Example sidecar:
 
 ### `schema_version`
 
-`schema_version` is the first version stamp on the FileStore sidecar. Sidecars written before it was introduced do not carry the field; when `FileArtifactMetadata` validates such a sidecar, it fills in `"1.0"` as the default, so reads are backward-tolerant. Use `schema_version` to detect format changes in downstream pipelines — a value other than `"1.0"` signals a format revision; consult the release notes for that version.
+`schema_version` is the first version stamp on the FileStore sidecar. Sidecars written before it was introduced do not carry the field; when `FileArtifactMetadata` validates such a sidecar, it fills in `"0.1"` as the default, so reads are backward-tolerant. Use `schema_version` to detect format changes in downstream pipelines — a value other than `"0.1"` signals a format revision; consult the release notes for that version.
 
 ## MIME convention
 
@@ -110,7 +110,7 @@ store = FileStore()
 # Read via the store (resolves URI to backend bytes automatically)
 meta: FileArtifactMetadata | None = store.read_attributes(uri)
 if meta is not None:
-    print(meta.schema_version)  # "1.0"
+    print(meta.schema_version)  # "0.1"
     print(meta.mime)
     print(meta.size_bytes)
     print(meta.attributes)
@@ -132,7 +132,7 @@ print(meta.schema_version)
 
 The FileStore sidecar is a published consumer surface. Fields will not be removed or renamed within a `schema_version`. New optional fields may be added in a future `schema_version`; the `schema_version` field itself will change when the format breaks backward compatibility.
 
-Sidecars written before `schema_version` was introduced validate successfully — `FileArtifactMetadata` fills in the `"1.0"` default for the missing field.
+Sidecars written before `schema_version` was introduced validate successfully — `FileArtifactMetadata` fills in the `"0.1"` default for the missing field.
 
 ## See also
 

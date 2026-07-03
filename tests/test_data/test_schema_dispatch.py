@@ -65,7 +65,9 @@ def _scalar_count(conn: duckdb.DuckDBPyConnection, sql: str) -> int:
 
 class TestDispatchClassification:
     def test_known_version_returns_identity(self) -> None:
-        adapter = dispatch(SchemaStore.RUNS, "1.0")
+        adapter = dispatch(
+            SchemaStore.RUNS, schema_versions.CURRENT_SCHEMA_VERSION[SchemaStore.RUNS]
+        )
         sentinel = object()
         assert adapter(sentinel) is sentinel
 
@@ -93,7 +95,7 @@ class TestDispatchClassification:
             dispatch(SchemaStore.RUNS, version)
         assert excinfo.value.deferrable is True
 
-    @pytest.mark.parametrize("version", [None, "0.5", "junk"])
+    @pytest.mark.parametrize("version", [None, "0.0", "junk"])
     def test_absent_older_or_unparseable_is_permanent(self, version: str | None) -> None:
         with pytest.raises(SchemaVersionRefused) as excinfo:
             dispatch(SchemaStore.RUNS, version)
@@ -110,7 +112,7 @@ class TestRunsDeferralAndHealing:
 
     def test_current_version_ingests(self, conn, tmp_path: Path) -> None:
         p = tmp_path / "current.parquet"
-        _write_run_parquet(p, version="1.0")
+        _write_run_parquet(p, version=schema_versions.CURRENT_SCHEMA_VERSION[SchemaStore.RUNS])
         _ingest_one_file(conn, p, os.stat(p))
         assert _runs_count(conn) == 1
         assert _ledger_status(conn, p) == [("ok",)]
@@ -243,7 +245,10 @@ class TestChannelsDeferral:
         channels_dir = tmp_path / "channels"
         seg_dir = channels_dir / "2026-07-02"
         seg_dir.mkdir(parents=True)
-        _write_channel_segment(seg_dir / "temp_abcd1234.arrow", version="1.0")
+        _write_channel_segment(
+            seg_dir / "temp_abcd1234.arrow",
+            version=schema_versions.CURRENT_SCHEMA_VERSION[SchemaStore.CHANNELS],
+        )
         index = ChannelIndex(channels_dir)
         index.open()
         try:

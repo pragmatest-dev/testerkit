@@ -12,26 +12,31 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ## [0.3.0] - 2026-07-03
 
-Execution-grain and schema-freeze release. Steps and vectors get a clean
+Execution-grain and schema-versioning release. Steps and vectors get a clean
 at-rest grain — a step carries its own measurements; vectors exist only as
-condition points (sweeps / inner loops). The at-rest schema is frozen at 1.0
-with read-time version dispatch, `slot` becomes `site` throughout, and
-instruments gain per-step reservations. (The analytics suite moves to 0.4.0.)
+condition points (sweeps / inner loops). The at-rest schema starts a distinct
+pre-1.0 line (baseline `0.1`) with read-time version dispatch, `slot` becomes
+`site` throughout, and instruments gain per-step reservations. (The analytics
+suite moves to 0.4.0.)
 
-Pre-1.0: this release rewrites the at-rest schema. Regenerate `data/` from
-fresh 1.0 artifacts; older parquet is read via version dispatch or quarantined.
+Pre-1.0: this release rewrites the at-rest schema, and the schema stays on a
+0.x line — each minor is a breaking epoch that battle-tests the version
+apparatus, so 1.0 is earned later, not frozen now. Regenerate `data/` from
+fresh `0.1` artifacts; older parquet is read via version dispatch or quarantined.
 
 ### Changed
 
 - **BREAKING** `slot` → `site` everywhere: 0-based `site_index` (always present, default 0) and frozen `site_name`; CLI flags and STDF `SITE_NUM` follow.
 - **BREAKING** step executions de-fused — one row per execution, retries counted as occurrences instead of overwriting the prior attempt.
 - **BREAKING** `uut_serial` → `uut_serial_number` at rest and in the API.
-- **BREAKING** at-rest schema reset to `1.0` and frozen; `parent_path` dropped (derived from `step_path`).
+- **BREAKING** measurement storage reshaped to the step/vector grain — a step carries its own measurements, and per-row values move out of wide per-field columns into three nested `LIST<STRUCT>` columns: `inputs`, `outputs`, `measurements` (one struct per value). Downstream readers of the old flat columns must read the nested columns or query through `MeasurementsQuery`.
+- **BREAKING** dynamic input/output fields drop their `in_`/`out_` name prefixes at rest; discovery is role-based (EAV), so a user's unprefixed field names no longer disrupt the query surface. Reference a field by `(role, name)` (`FieldRef`) instead of a prefixed column name.
+- **BREAKING** at-rest schema reset to a `0.1` baseline — a distinct pre-1.0 line, not frozen; `parent_path` dropped (derived from `step_path`).
 - Timestamps are UTC at every server boundary; clients translate at their own edge (UI / CLI / MCP).
 
 ### Added
 
-- At-rest schema versioning: a 1.0 baseline registry, whitelist-dispatch readers at all four store boundaries, and an opt-in forward-migrate sink. Newer-stamped files are deferred (a newer daemon re-reads them); unreadable ones are quarantined — never a hard crash.
+- At-rest schema versioning: a `0.1` baseline registry, whitelist-dispatch readers at all four store boundaries, and an opt-in forward-migrate sink. Newer-stamped files are deferred (a newer daemon re-reads them); unreadable ones are quarantined — never a hard crash.
 - Instrument reservations: re-entrant, timeout-aware resource locks, per-step reserve/release auto-wrap, step-duration server leases, and `instrument.reserved` / `instrument.released` events. Per-step/vector instrument sets are recorded at rest.
 
 ### Fixed
@@ -40,6 +45,7 @@ fresh 1.0 artifacts; older parquet is read via version dispatch or quarantined.
 - Run-detail measurement counts (Overview + Steps tabs) under the reshaped grain.
 - Channel-detail live refresh under the default `litmus serve` (the channels Flight→UI bridge was previously wired only on `--reload`).
 - The runs daemon self-heals a corrupt `_index.duckdb` at boot (rebuild from parquet) instead of crash-looping to a blank UI.
+- `/explore` defaults its X axis to a per-measurement occurrence `index` and centers a single-valued axis, so non-swept measurements plot instead of showing an empty chart.
 - `/explore` no longer emits Quasar "Anchor: target not found" console errors.
 
 ## [0.2.1] - 2026-06-26

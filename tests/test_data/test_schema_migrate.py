@@ -3,7 +3,7 @@
 Not monkeypatch-of-internals: a genuine reshape adapter is registered for a
 synthetic *older* version, applied to a REAL file on disk, atomically rewritten
 forward, and re-read to confirm the re-stamp AND the transform. The only fiction
-is the version string ("0.9") and the transform — the file I/O, the adapter
+is the version string ("0.0") and the transform — the file I/O, the adapter
 application, the atomic swap, and the re-read are all real. This is the "make
 everything except the version-and-transform real" strategy: when a real 2.0
 lands, only the transform changes.
@@ -51,24 +51,25 @@ class TestMigrateParquet:
     @pytest.fixture
     def legacy_runs_adapter(self, monkeypatch):
         # Real reshape: rewrite run_outcome to a marker so we can prove the
-        # transform ran (stands in for a real 0.9 -> current column reshape).
+        # transform ran (stands in for a real 0.0 -> current column reshape).
         def reshape(table: pa.Table) -> pa.Table:
             idx = table.schema.get_field_index("run_outcome")
             return table.set_column(idx, "run_outcome", pa.array(["MIGRATED"] * table.num_rows))
 
-        _register_legacy(monkeypatch, SchemaStore.RUNS, "0.9", reshape)
+        _register_legacy(monkeypatch, SchemaStore.RUNS, "0.0", reshape)
 
     def test_migrate_reshapes_and_restamps(self, tmp_path, legacy_runs_adapter):
         p = tmp_path / "old.parquet"
-        _write_run_parquet(p, "0.9")
+        _write_run_parquet(p, "0.0")
         assert migrate_parquet_file(SchemaStore.RUNS, p) is True
         pf = pq.ParquetFile(str(p))
-        assert pf.schema_arrow.metadata[b"schema_version"] == b"1.0"  # re-stamped
+        current = schema_versions.CURRENT_SCHEMA_VERSION[SchemaStore.RUNS]
+        assert pf.schema_arrow.metadata[b"schema_version"] == current.encode()  # re-stamped
         assert pf.read().column("run_outcome").to_pylist() == ["MIGRATED"]  # transform applied
 
     def test_migrate_current_version_is_noop(self, tmp_path):
         p = tmp_path / "current.parquet"
-        _write_run_parquet(p, "1.0")
+        _write_run_parquet(p, schema_versions.CURRENT_SCHEMA_VERSION[SchemaStore.RUNS])
         assert migrate_parquet_file(SchemaStore.RUNS, p) is False
 
     def test_migrate_refuses_permanent_version(self, tmp_path):
@@ -83,21 +84,21 @@ class TestMigrateSidecar:
     def legacy_files_adapter(self, monkeypatch):
         def reshape(meta: FileArtifactMetadata) -> FileArtifactMetadata:
             return meta.model_copy(
-                update={"attributes": {**meta.attributes, "migrated_from": "0.9"}}
+                update={"attributes": {**meta.attributes, "migrated_from": "0.0"}}
             )
 
-        _register_legacy(monkeypatch, SchemaStore.FILES, "0.9", reshape)
+        _register_legacy(monkeypatch, SchemaStore.FILES, "0.0", reshape)
 
     def test_migrate_reshapes_and_restamps(self, tmp_path, legacy_files_adapter):
         p = tmp_path / "artifact.txt.meta.json"
         meta = FileArtifactMetadata(
-            mime="text/plain", extension="txt", size_bytes=3, schema_version="0.9"
+            mime="text/plain", extension="txt", size_bytes=3, schema_version="0.0"
         )
         p.write_text(meta.model_dump_json())
         assert migrate_sidecar_file(p) is True
         after = json.loads(p.read_text())
-        assert after["schema_version"] == "1.0"  # re-stamped
-        assert after["attributes"]["migrated_from"] == "0.9"  # transform applied
+        assert after["schema_version"] == schema_versions.CURRENT_SCHEMA_VERSION[SchemaStore.FILES]
+        assert after["attributes"]["migrated_from"] == "0.0"  # transform applied
 
     def test_migrate_current_version_is_noop(self, tmp_path):
         p = tmp_path / "current.txt.meta.json"

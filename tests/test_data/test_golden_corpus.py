@@ -1,18 +1,25 @@
-"""Layer 1 — frozen golden 1.0 corpus.
+"""Layer 1 — frozen golden corpus, one dir per shipped schema epoch.
 
-One real 1.0 artifact per store, committed as bytes under ``golden/schema_v1/``.
-Two jobs:
+One real artifact per store, committed as bytes under ``golden/schema_v0_1/``
+(the 0.1 baseline). A new ``golden/schema_v<epoch>/`` is frozen each time the
+schema epoch bumps; prior-epoch dirs are kept, not regenerated. Two jobs:
 
-- **Drift-pin (today):** the current build reads each golden file and it still
-  carries the 1.0 stamp and projects to the current shape. An accidental
-  breaking change to the 1.0 schema fails HERE, now — before it ships.
-- **Regression input (future):** a *real frozen 1.0 file* — not a synthetic
-  reconstruction — that the first ``1.0 -> 2.0`` adapter is tested against, so
-  "support 1.0 forever" is a passing forward-migration test, not a promise.
+- **Drift-pin (this epoch):** the current build reads each golden file, it still
+  carries this epoch's stamp, and it projects to the current shape. An
+  accidental breaking change to the current schema fails HERE, now — before it
+  ships.
+- **Break-safe apparatus fixture (next epoch):** once the epoch bumps, this
+  frozen prior-epoch artifact is the REAL input — not a synthetic version
+  string — proving a new-epoch daemon meeting old-epoch bytes does the correct
+  thing: a clean quarantine by default (never a crash-loop), or a read-time
+  adapt if that epoch deliberately shipped an adapter. This is the crash-safety
+  the epoch strategy exists to battle-test
+  (``docs/_internal/explorations/pre-1.0-epoch-strategy.md``).
 
-The files are generated from the real 1.0 schemas into the golden dir on first
-run if absent (then committed); thereafter they are read-only fixtures. Channels
-is a follow-on (its per-channel descriptor schema needs the store writer).
+Each epoch's files are generated from that epoch's live schemas into its golden
+dir on first run if absent (then committed); thereafter they are read-only
+fixtures. Channels is a follow-on (its per-channel descriptor schema needs the
+store writer).
 """
 
 from __future__ import annotations
@@ -32,7 +39,7 @@ from litmus.data.schema_dispatch import dispatch, stamp_from_arrow_metadata
 from litmus.data.schema_versions import SchemaStore
 from litmus.data.schemas import RUN_ROW_SCHEMA
 
-GOLDEN = Path(__file__).parent / "golden" / "schema_v1"
+GOLDEN = Path(__file__).parent / "golden" / "schema_v0_1"
 
 
 def _gen_runs(path: Path) -> None:
@@ -45,7 +52,7 @@ def _gen_runs(path: Path) -> None:
         run_ended_at=datetime(2026, 7, 2, tzinfo=UTC),
         run_outcome="passed",
     )
-    # RUN_ROW_SCHEMA carries the 1.0 stamp in its metadata.
+    # RUN_ROW_SCHEMA carries the current (0.1) stamp in its metadata.
     pq.write_table(pa.table({k: [v] for k, v in row.items()}, schema=RUN_ROW_SCHEMA), path)
 
 
@@ -83,8 +90,9 @@ _GENERATORS = {
 
 @pytest.fixture(scope="session", autouse=True)
 def _ensure_golden() -> None:
-    """Materialize any missing golden file from the current 1.0 schema, so the
-    corpus is generated once and committed. Present files are never overwritten."""
+    """Materialize any missing golden file from the current-baseline (0.1)
+    schema, so this epoch's corpus is generated once and committed. Present files
+    are never overwritten."""
     GOLDEN.mkdir(parents=True, exist_ok=True)
     for name, generate in _GENERATORS.items():
         target = GOLDEN / name
@@ -92,28 +100,28 @@ def _ensure_golden() -> None:
             generate(target)
 
 
-def test_runs_golden_is_1_0_and_reads_to_current_shape() -> None:
+def test_runs_golden_is_0_1_and_reads_to_current_shape() -> None:
     pf = pq.ParquetFile(str(GOLDEN / "runs.parquet"))
     stamp = stamp_from_arrow_metadata(pf.schema_arrow.metadata)
-    assert stamp == "1.0"
+    assert stamp == "0.1"  # frozen at the 0.1 epoch
     dispatch(SchemaStore.RUNS, stamp)  # current build accepts it (no raise)
     assert {f.name for f in RUN_ROW_SCHEMA} <= set(pf.schema_arrow.names)
 
 
-def test_events_golden_carries_both_1_0_stamps() -> None:
+def test_events_golden_carries_both_0_1_stamps() -> None:
     reader = ipc.open_stream(pa.OSFile(str(GOLDEN / "events.arrow"), "rb"))
     meta = reader.schema.metadata
     envelope = stamp_from_arrow_metadata(meta)
     catalog = stamp_from_arrow_metadata(meta, key=b"event_catalog_version")
-    assert envelope == "1.0"
-    assert catalog == "1.0"
+    assert envelope == "0.1"  # frozen at the 0.1 epoch
+    assert catalog == "0.1"
     dispatch(SchemaStore.EVENTS_ENVELOPE, envelope)
     dispatch(SchemaStore.EVENT_CATALOG, catalog)
 
 
-def test_files_golden_is_1_0() -> None:
+def test_files_golden_is_0_1() -> None:
     raw = json.loads((GOLDEN / "files.meta.json").read_text())
-    assert raw["schema_version"] == "1.0"
+    assert raw["schema_version"] == "0.1"  # frozen at the 0.1 epoch
     dispatch(SchemaStore.FILES, raw["schema_version"])
     # Re-validates against the current model (shape pin).
-    assert FileArtifactMetadata.model_validate(raw).schema_version == "1.0"
+    assert FileArtifactMetadata.model_validate(raw).schema_version == "0.1"
