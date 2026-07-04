@@ -600,3 +600,12 @@ recovers lost info); files in the wild are unreachable (§0), so retirement is a
 adapt is the floor). Shape: a batch `normalize_store(store)` + a `litmus data migrate|compact` CLI,
 idempotent (current = no-op). Post-0.3.0 (nothing to normalize until a real v2 exists). Under
 DuckLake (§12) it is a catalog compaction / rewrite; the primitive is the same. Tracked as #48.
+
+**Follow-on (2026-07-04) — durable-data stats before pruning.** The `litmus data index list`
+identity/size/age surface (`derived-index-versioning.md` §7) is wanted for the **durable data**
+too: a `litmus data stats` / `ls` view of the parquet corpus by schema version, run/row count,
+size, and age — the observability precursor to **data** pruning (retention). Distinct from index
+GC: the derived index is cattle (rebuildable, reap freely), but the source parquet is the *pet* —
+pruning it deletes truth, so it stays **opt-in with strong guards** (default unlimited; no surprise
+data loss, per the retention decision). Same `litmus data` namespace as `index` / `migrate` /
+`compact`. Parked as a post-0.3.1 follow-on.

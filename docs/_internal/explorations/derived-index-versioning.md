@@ -76,18 +76,48 @@ projection share one file (content-address collides), so the file count tracks d
 
 ## 3. Axis A — content-addressed index filenames
 
-`_index.<schema_epoch>.<projection_fingerprint>.duckdb`
+`_index.<fingerprint>.duckdb` — a **single, widened fingerprint** (short 12-char hex).
 
-- `schema_epoch` = leftmost-significant semver component of the runs `schema_version`
-  (pre-1.0: the minor — `0.1`,`0.2`; post-1.0: the major). Guards the at-rest axis.
-- `projection_fingerprint` = the shipped DDL fingerprint (short hex). Guards the projection
-  axis — the snowflake was a projection-only break with **no** `schema_version` bump, so the
-  filename must key on it too, or that class of change silently crash-loops (the MVP's bug).
+**One key, not two (resolved 2026-07-04).** The earlier `<schema_epoch>.<fingerprint>` form is
+dropped. Everything that decides "can this daemon safely share this index" — the projection DDL,
+the adapter registry, the schema whitelist — is a **deterministic function of the daemon's code**
+(its litmus version), so it all folds into **one** content-address. A separate `schema_epoch`
+component was both *redundant* (an at-rest reshape the projection consumes changes the DDL anyway
+→ the fingerprint already forks) and *incomplete* (it never caught an adapter **bugfix**: same
+DDL, same epoch, different rows produced from the same parquet). The fix is not a second key — it
+is **widening the one fingerprint** to hash the whole ingest→project read-path:
 
-A daemon computes its `(schema_epoch, fingerprint)`, opens **its own** file (builds it if
-absent — §4), and **ignores** every other. This is the Nix property (store paths named by an
-input hash; versions coexist atomically; upgrades never overwrite). Rollback is free (the old
-file was never touched); blue-green is structural (old serves while new builds).
+> `fingerprint = sha256(projection DDL  +  registered adapter keys  +  schema whitelist)`
+
+As built, `_projection_fingerprint()` hashes **only** the projection DDL. **P1 widens it** to fold
+in the adapter-registry identities + the whitelist, so the name is a true read-path content-address
+— not just a projection-shape hash. Then a single key is both *sufficient* (forks on any projection
+break) and *complete* (forks on any read-semantics change), and it auto-shares across litmus
+versions byte-identical on all three axes — the Nix property (store paths named by an input hash;
+versions coexist atomically; upgrades never overwrite).
+
+- **Daemon → exactly one fingerprint**, deterministic (no randomness, no runtime state — it hashes
+  the DDL the code emits on a throwaway `:memory:` DB + the adapter/whitelist constants). The
+  reverse is many-to-one: one fingerprint ← possibly several behaviorally-identical versions (the
+  sharing collapse — putting a raw version string in the name would wrongly *over*-fork it).
+- A daemon computes its fingerprint, opens **its own** `_index.<fp>.duckdb` (builds it if absent —
+  §4), and **ignores** every other. Rollback is free (the old file was never touched); blue-green
+  is structural (old serves while new builds).
+- **In the name: 12-char prefix; inside the file: the full 64-char digest.** 8 hex chars would do
+  (32 bits, birthday-safe past ~77k files); 12 is used so it never needs a thought.
+
+**The filename is the gate; the in-file `_index_meta` is provenance.** Because a daemon opens only
+the file named after its own fingerprint, the shape matches *by construction* — so the MVP's
+in-file dual-gate (comparing `schema_version` + fingerprint on open) **collapses**. What stays
+inside is a different *kind* of record:
+
+| Inside the file | Job |
+|---|---|
+| **build-complete marker** (`built_at`, written last, in-txn) | integrity — a crash mid-build leaves a correctly-named but incomplete file; no marker on open → rebuild |
+| **provenance** — litmus version + schema_version (human-readable) + the full 64-char fingerprint | display/debug for `litmus data index list` (§7); **not** a routing gate |
+
+`last_seen` (the GC signal) lives **not** in each file but in the shared `_epochs` ledger (§6), so
+`gc` and `list` scan access times without opening every DuckDB file.
 
 **Fork granularity, settled:** because §2 isolates fully *and* §4 makes birth cheap, we do
 **not** chase "share one file within a minor" (§9's piggyback, shown unsafe by SQL-coupling).
@@ -165,8 +195,17 @@ Operational half of the epoch design; sibling to the durable-side `litmus data m
   from 12,400 parquet in 44s" — no silent stall). Not redundant with lazy daemon build: it
   **blocks until warm** (a script *knows* it's ready), is **scriptable**, lets you **choose**
   copy-seed vs rescan, and **reports**.
-- **`litmus data index list`** — every epoch file: short fingerprint, schema-epoch, rows, size,
-  `last_seen`, `*` on the current one.
+- **`litmus data index list`** — every epoch file rendered by **human-recognizable identity**, not
+  raw hex: short fingerprint, schema version, **BUILT BY** (the version that created it) + **SEEN
+  BY** (every version that has opened it — a *set*, since behaviorally-identical versions share one
+  file), rows, size, `last_seen`, `*` on the current one, and a total line. Sources the in-file
+  provenance (§3) + the `_epochs` ledger. Example:
+  ```
+    FINGERPRINT   SCHEMA  BUILT BY   SEEN BY         ROWS   SIZE    LAST SEEN
+  * e3b0c44298fc  0.1     0.3.1      0.3.1           1.2M   340 MB  2m ago
+    a17bfe0091c2  0.1     0.3.0      0.3.0, 0.2.4    1.2M   318 MB  6 days ago
+    3 index files · 1.0 GB total · current = e3b0c44298fc (0.3.1)
+  ```
 - **`litmus data index rm <fingerprint>`** — drop one; refuses the current one without `--force`.
 - **`litmus data index gc [--keep-last N] [--older-than 30d] [--dry-run]`** — reap by the ledger.
 
@@ -233,8 +272,12 @@ corpus, synthetic-adapter re-index+migrate tests, mixed-version coexistence test
 **fingerprint** + in-place self-heal (the MVP).
 
 **Remaining (this contract):**
-- **P1 — content-addressed epoch files** (§3): filename `_index.<schema_epoch>.<fp>.duckdb`;
-  daemon opens only its own; old files persist. *Fixes the crash-loop; restores coexistence.*
+- **P1 — content-addressed epoch files** (§3): **widen `_projection_fingerprint()`** to hash the
+  full read-path (DDL + adapter-registry keys + whitelist); filename `_index.<fp>.duckdb` (single
+  12-char key, `schema_epoch` dropped); daemon opens only its own; old files persist; collapse the
+  in-file dual-gate to a build-complete marker + provenance; append `(fp, version, last_seen)` to
+  the `_epochs` ledger on open (the *write* half of §6 — GC *policy* stays P4).
+  *Fixes the crash-loop; restores coexistence.*
 - **P2 — cost-ladder birth** (§4): classifier + copy-seed (rung 1–4). *Makes P1 cheap.*
 - **P3 — per-version daemon binding** (§2): a client binds a daemon of its own projection version;
   never cross a version boundary. *Revises §8 singleton-ratchet.*
@@ -245,17 +288,19 @@ Suggested order: P1 (safety keystone) → P2 → P5 (makes P1/P2 usable) → P4 
 lifecycle). Build on a branch (`feat/0.3.1-index-epoch`) — multi-commit, half-functional
 intermediate states.
 
-## 11. Open decisions to confirm before building
+## 11. Decisions (resolved 2026-07-04) + one precondition
 
-1. **Per-version *daemons* (P3) vs. one daemon serving multiple epoch files.** §2 concluded
-   per-version daemons (only old code can keep an old epoch *current*). This is the biggest
-   revision to §8 — confirm before P3.
-2. **Filename: include `schema_epoch` explicitly, or fingerprint-only?** Recommended:
-   `<schema_epoch>.<fp>` (belt-and-suspenders: a schema bump that doesn't change the DDL text
-   still forks). Cheap to include.
-3. **Add-tolerant-client precondition** — the cheap rungs assume clients reference columns by
-   name and ignore unknowns (not `SELECT *`→fixed struct, not Pydantic `extra="forbid"`).
-   Confirm/ensure when building P2.
+1. **RESOLVED — per-version *daemons* (P3).** §2's conclusion confirmed: each active projection
+   version binds its own daemon + index file + SQL, all moving together, so a cross-version SQL
+   mismatch is structurally impossible; only old code can keep an old epoch *current*. Biggest
+   revision to §8's singleton ratchet; built in P3.
+2. **RESOLVED — single *widened* fingerprint in the name** (`_index.<fp>.duckdb`); `schema_epoch`
+   dropped as a name component (§3). The fingerprint is a deterministic function of the daemon's
+   code, so DDL + adapters + whitelist fold into one content-address; a second key was redundant
+   *and* incomplete (missed adapter bugfixes). P1 widens `_projection_fingerprint()` accordingly.
+3. **Precondition (verify in P2) — add-tolerant clients.** The cheap rungs assume clients reference
+   columns by name and ignore unknowns (not `SELECT *`→fixed struct, not Pydantic `extra="forbid"`).
+   Verify against the Query classes when building P2.
 
 ---
 
@@ -274,6 +319,16 @@ intermediate states.
   workflow. Prior art web-verified (Nix, Lucene IndexUpgrader, pg_upgrade, dbt clone/state:modified,
   blue-green, IVM, Iceberg; DuckLake is the durable-layer future, not this). Ships as #53
   workstream P1–P5 on a branch. No P1–P5 code yet.
+- 2026-07-04 — **Design refined + decisions locked** (this session): (a) the filename is a **single
+  widened fingerprint** — `_index.<fp>.duckdb`, `<fp>` = 12-char prefix of
+  `sha256(projection DDL + adapter-registry keys + whitelist)`; `schema_epoch` dropped as a name
+  component (redundant *and* incomplete — missed adapter bugfixes). (b) **The filename is the gate;
+  the in-file `_index_meta` becomes a build-complete marker + provenance** (litmus version +
+  schema_version + full hash), not a shape gate. (c) `litmus data index list` renders **human
+  identity** — schema version, BUILT BY / SEEN BY version sets, rows, size, last-seen, total. (d)
+  The `_epochs` **ledger write lands in P1** (open = stamp); P4 adds only the GC policy. §11.1
+  (per-version daemons) and §11.2 (single widened fingerprint) resolved; §11.3 remains a P2
+  verification. Still no code.
 
 ---
 
