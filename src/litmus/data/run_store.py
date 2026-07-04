@@ -215,8 +215,8 @@ class RunStore:
         prefix = self._id_prefix(run_id)
         io_join = """
             LEFT JOIN (
-                SELECT run_id, step_index, step_path, vector_index, vector_outer_index,
-                       vector_retry,
+                SELECT run_id, step_index, step_path, step_retry, vector_index,
+                       vector_outer_index, vector_retry,
                        MAP(list(name), list(
                            CASE value_type
                                WHEN 'scalar:bool'
@@ -230,11 +230,12 @@ class RunStore:
                            END
                        )) AS {map_col}
                 FROM {table}
-                GROUP BY run_id, step_index, step_path, vector_index,
+                GROUP BY run_id, step_index, step_path, step_retry, vector_index,
                     vector_outer_index, vector_retry
             ) AS {alias} ON {alias}.run_id = m.run_id
                 AND {alias}.step_index = m.step_index
                 AND {alias}.step_path IS NOT DISTINCT FROM m.step_path
+                AND {alias}.step_retry IS NOT DISTINCT FROM m.step_retry
                 AND {alias}.vector_index IS NOT DISTINCT FROM m.vector_index
                 AND {alias}.vector_outer_index IS NOT DISTINCT FROM m.vector_outer_index
                 AND {alias}.vector_retry IS NOT DISTINCT FROM m.vector_retry

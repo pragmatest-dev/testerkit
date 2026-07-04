@@ -328,10 +328,18 @@ The Query API projects all `inputs` and `outputs` lane entries into two long EAV
 | `uut_pin` | string | UUT pin (for input-side stimulus entries) |
 | `run_id` | string | Links back to the run |
 | `step_index` | int32 | Step position within the run |
-| `vector_index` | int64 | 0-based index within the step's sweep |
-| `vector_retry` | int64 | Retry counter |
+| `step_path` | string | Hierarchical step id (part of the join key) |
+| `step_retry` | int64 | Enclosing-step retry (part of the join key) |
+| `vector_index` | int64 | 0-based index within the step's sweep (NULL for a step-scope entry) |
+| `vector_retry` | int64 | Vector retry (NULL for a step-scope entry) |
+| `ordinal` | int64 | 0-based position within the carrier's entry list — discriminates a name that repeats on one carrier |
+| `index` | int64 | Run-wide, per-name, retry-stable occurrence ordinal (the `/explore` X axis) |
 
 Querying these tables directly is rarely needed — use the [Query API](query-api.md) (`FieldRef.input("vin")`, `FieldRef.output("v_rail")`) which joins the right one for you and handles type coherence (fails loud if a name carries mixed `value_type`s in scope; auto-resolves when unambiguous).
+
+### Projection tables are a normalized snowflake
+
+The query projection is a **snowflake**: each derived table (`runs`, `steps`, `vectors`, `measurements`, `inputs`, `outputs`, `instruments`) stores only its own grain's columns plus the foreign key to its parent. Run identity lives once in `runs`; step code/timing lives once in `steps`; the swept condition points live in `vectors`; the flat measurement fact and the `inputs`/`outputs` lanes carry only their payload plus the coordinate key that reaches their step/vector. The `measurements` / `steps` / `step_vectors` / `instruments` **views** JOIN back up the hierarchy to reconstruct the wide, denormalized row shape — so every query and its results are unchanged; only the storage underneath is normalized (no denormalized copy that can drift). This is a derived cache: it rebuilds from the parquet on boot and carries no `schema_version` of its own.
 
 ## Outcome values
 

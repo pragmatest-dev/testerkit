@@ -361,15 +361,21 @@ def _table_rows(conn: duckdb.DuckDBPyConnection, table: str) -> list[dict[str, A
 
 
 # Columns that exist only on the materialized side, not the overlay:
-# ``file_path`` (no parquet file in-flight) and ``vector_index_key`` (an
-# internal COALESCE(vector_index,-1) dedup key for the PK, not data — the
-# ``steps`` view EXCLUDEs it; the overlay never carries it).
+# ``file_path`` (no parquet file in-flight) and ``vector_index_key`` /
+# ``vector_outer_index_key`` (internal COALESCE(...,-1) PK dedup keys, not data
+# — the views EXCLUDE them; the overlay never carries them).
 #
 # ``env_fingerprint`` / ``litmus_version`` / ``python_version`` are run
 # provenance stamped at FINALIZATION (build_run_metadata), not on the
 # ``RunStarted`` event, so the live overlay genuinely cannot produce them — they
 # populate once the run materializes. (See _FINALIZATION_ONLY in
 # test_ingestion_drift.py, which pins the same three.)
+#
+# ``ordinal`` / ``index`` (full snowflake, 0.3.1 phase 8) are DERIVED at ingest
+# (UNNEST-WITH-ORDINALITY position + a per-name occurrence window); the raw
+# accumulator snapshot rows don't compute them — the ``measurements`` VIEW
+# computes ``index`` for the inflight side at read time (parity is at the VIEW,
+# not the snapshot-row level this test compares).
 _MATERIALIZATION_ONLY = {
     "file_path",
     "vector_index_key",
@@ -377,6 +383,8 @@ _MATERIALIZATION_ONLY = {
     "env_fingerprint",
     "litmus_version",
     "python_version",
+    "ordinal",
+    "index",
 }
 
 # Sentinel: a materialized column with no corresponding inflight key.

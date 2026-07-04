@@ -55,11 +55,14 @@ def _safe_ident(name: str) -> str:
 # step_path is part of the key because step_index resets per parent bucket
 # (_collection_indices.assign_indices) — two unswept steps can share
 # step_index=0 with identical NULL vector coords, so step_index alone would
-# cross-join their dynamic in_*/out_* values onto each other.
+# cross-join their input/output values onto each other. ``step_retry`` is in
+# the key (full snowflake, 0.3.1 — "step_retry all the way down") so two reruns
+# of the same step don't fan their inputs/outputs into each other.
 _VECTOR_KEY = (
     "{a}.run_id = m.run_id"
     " AND {a}.step_index = m.step_index"
     " AND {a}.step_path IS NOT DISTINCT FROM m.step_path"
+    " AND {a}.step_retry IS NOT DISTINCT FROM m.step_retry"
     " AND {a}.vector_index IS NOT DISTINCT FROM m.vector_index"
     " AND {a}.vector_outer_index IS NOT DISTINCT FROM m.vector_outer_index"
     " AND {a}.vector_retry IS NOT DISTINCT FROM m.vector_retry"
@@ -136,44 +139,17 @@ assert all(  # noqa: S101
 
 
 # ---------------------------------------------------------------------------
-# Derived occurrence index — the ONE definition of the `index` column
+# Occurrence index — now a MATERIALIZED column on the ``measurements`` view
 # ---------------------------------------------------------------------------
 # ``index`` is the 0-based occurrence ordinal of a measurement within its run,
-# per ``measurement_name``, ordered by execution position (step, then vector).
-# Retries are EXCLUDED from the ORDER BY, so the retried attempts of one
-# position share an ``index`` — retry-stability is INHERITED from the
-# step/vector coordinates, which already encode retries correctly.
-#
-# It is a DERIVED projection — no stored field, no counter — a deterministic
-# function of the storage contract. A backend that preserves
-# ``(run_id, measurement_name, step_index, step_path, vector_index)`` preserves
-# ``index`` for free. This expression is the single source; every read path
-# that exposes ``index`` derives it from here.
-_INDEX_EXPR = (
-    "DENSE_RANK() OVER ("
-    "PARTITION BY run_id, measurement_name "
-    "ORDER BY step_index, step_path, COALESCE(vector_index, -1)"
-    ") - 1"
-)
-
-# ``measurements`` wrapped to carry the derived ``index`` column. Used ONLY by
-# read paths that reference ``index`` (see ``_measurements_source``), so
-# queries that don't plot the occurrence index never pay for the window.
-_MEASUREMENTS_WITH_INDEX = (
-    f"(SELECT *, {_INDEX_EXPR} AS index FROM measurements WHERE record_type = 'measurement')"
-)
-
-
-def _measurements_source(*col_exprs: str | None) -> str:
-    """Choose the FROM anchor for the ``measurements`` view.
-
-    Returns the ``index``-bearing subquery when any resolved column
-    expression references ``m.index``; otherwise the bare ``measurements``
-    view (identical cost for queries that don't plot the occurrence index).
-    """
-    if any(c == "m.index" for c in col_exprs):
-        return _MEASUREMENTS_WITH_INDEX
-    return "measurements"
+# per ``measurement_name``, ordered by execution position (step, then vector),
+# retries EXCLUDED. Full snowflake (0.3.1 phase 8): it is computed ONCE at
+# ingest (``_runs_duckdb_daemon._occurrence_index_expr``) and stored as a
+# column — the ``measurements`` view exposes it directly (the daemon computes
+# the same window for not-yet-materialized inflight rows). So a read that plots
+# ``index`` just selects ``m.index``; there is no longer a query-time
+# ``DENSE_RANK`` wrap. ``index`` stays DERIVED (rebuilt from parquet on ingest),
+# not an at-rest field.
 
 
 def _resolve_selector(selector: str | FieldRef) -> str | FieldRef:
@@ -455,7 +431,11 @@ def _period_col(period: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# SQL templates — reference the daemon's ``measurements`` VIEW directly
+# SQL templates — pure-aggregate metric paths read the LEAN ``measurement_facts``
+# view (fact + runs identity only); ``pareto`` (needs ``step_name``) reads the
+# full ``measurements`` view. Both are daemon views (see _create_views); the
+# lean one skips the ``steps``/``vectors`` reconstruction joins that DuckDB
+# won't prune for an aggregate that never reads those columns (0.3.1 phase 9).
 # ---------------------------------------------------------------------------
 
 _YIELD_SQL = """
@@ -470,7 +450,7 @@ WITH runs AS (
         run_started_at,
         run_ended_at,
         {period_expr} AS period_day
-    FROM measurements
+    FROM measurement_facts
     ORDER BY run_id
 ),
 runs_filtered AS (
@@ -530,7 +510,7 @@ meas_agg AS (
         rf.period_day,
         COUNT(*) AS total_measurements,
         COUNT(*) FILTER (WHERE m.measurement_outcome = 'failed') AS failed_measurements
-    FROM measurements AS m
+    FROM measurement_facts AS m
     JOIN runs_filtered AS rf USING (run_id)
     WHERE m.record_type = 'measurement'
     GROUP BY rf.part, rf.station, rf.phase, rf.period_day
@@ -612,7 +592,7 @@ WITH runs AS (
         run_started_at,
         run_ended_at,
         CAST(run_started_at AS DATE) AS period_day
-    FROM measurements
+    FROM measurement_facts
     ORDER BY run_id
 ),
 runs_filtered AS (
@@ -655,7 +635,7 @@ meas_agg AS (
     SELECT
         COUNT(*) AS total_measurements,
         COUNT(*) FILTER (WHERE m.measurement_outcome = 'failed') AS failed_measurements
-    FROM measurements AS m
+    FROM measurement_facts AS m
     JOIN runs_filtered AS rf USING (run_id)
     WHERE m.record_type = 'measurement'
 ),
@@ -752,7 +732,7 @@ SELECT
                      / (3 * STDDEV_SAMP(measurement_value)), 1e9)
         ), 3)
     END AS ppk
-FROM measurements
+FROM measurement_facts
 WHERE record_type = 'measurement' AND measurement_value IS NOT NULL
     {and_clauses}
 GROUP BY part, station, measurement_name, characteristic_id, uut_pin, limit_low, limit_high
@@ -769,7 +749,7 @@ WITH runs AS (
         COALESCE(test_phase, 'unknown') AS phase,
         run_outcome,
         {period_expr} AS period_day
-    FROM measurements
+    FROM measurement_facts
     ORDER BY run_id
 )
 SELECT
@@ -796,7 +776,7 @@ WITH runs AS (
         COALESCE(test_phase, 'unknown') AS phase,
         uut_serial_number,
         {period_expr} AS period_day
-    FROM measurements
+    FROM measurement_facts
     ORDER BY run_id
 ),
 serial_counts AS (
@@ -832,7 +812,7 @@ WITH runs AS (
         run_outcome,
         EPOCH(run_ended_at::TIMESTAMP - run_started_at::TIMESTAMP) AS duration_s,
         {period_expr} AS period_day
-    FROM measurements
+    FROM measurement_facts
     WHERE run_started_at IS NOT NULL AND run_ended_at IS NOT NULL
     ORDER BY run_id
 )
@@ -1279,7 +1259,7 @@ class MeasurementsQuery:
         clauses.extend(joins.meas_name_clauses())
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
-        base = _measurements_source(y_col, x_col, group_col)
+        base = "measurements"
         frm = f"{base} m{joins.join_sql()}"
         group_expr = group_col if group_col else "''"
         sql = f"""
@@ -1321,7 +1301,7 @@ class MeasurementsQuery:
         clauses.extend(joins.meas_name_clauses())
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
-        base = _measurements_source(field_col, group_col)
+        base = "measurements"
         frm = f"{base} m{joins.join_sql()}"
         group_expr = group_col if group_col else "''"
 
@@ -1373,7 +1353,7 @@ class MeasurementsQuery:
         clauses.extend(joins.meas_name_clauses())
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
-        base = _measurements_source(x_col)
+        base = "measurements"
         frm = f"{base} m{joins.join_sql()}"
         sql = f"""
         WITH latest AS (
@@ -1467,7 +1447,7 @@ class MeasurementsQuery:
             COUNT(DISTINCT run_id) AS distinct_runs,
             COUNT(DISTINCT measurement_name) AS distinct_measurements,
             COUNT(DISTINCT COALESCE(uut_part_number, 'unknown')) AS distinct_parts
-        FROM measurements{where}
+        FROM measurement_facts{where}
         """
         rows = self._query_dicts(sql)
         if not rows:

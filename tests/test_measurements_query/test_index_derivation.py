@@ -1,7 +1,10 @@
-"""The derived occurrence ``index`` — 0-based, sweep-aware, retry-STABLE.
+"""The occurrence ``index`` — 0-based, sweep-aware, retry-STABLE.
 
-``index`` is a query-layer ``DENSE_RANK`` projection (``_INDEX_EXPR``), not a
-stored field and not a blind increment. Its whole correctness claim is:
+``index`` is a ``DENSE_RANK`` projection, MATERIALIZED at ingest (full
+snowflake, 0.3.1 phase 8) via the daemon's single-source
+``_occurrence_index_expr`` — one SQL builder shared by the measurements fact
+and the inputs/outputs lane tables (and re-computed for not-yet-materialized
+inflight rows by the ``measurements`` view). Its whole correctness claim is:
 
   * it is **0-based** per ``(run_id, measurement_name)``,
   * a **sweep** yields ``0..N-1`` across its condition points,
@@ -10,31 +13,37 @@ stored field and not a blind increment. Its whole correctness claim is:
     correctly), leaving **no gap** in the sequence.
 
 The tests import the single-source expression itself, so any future edit to
-the definition that breaks retry-stability fails right here. The last test is
-the ``get-last`` foundation (task #62): because retries share an index, "keep
-the final attempt per occurrence" is a well-defined collapse.
+the definition that breaks retry-stability fails right here. The retry-share
+property is the ``get-last`` foundation (task #62): because retries share an
+index, "keep the final attempt per occurrence" is a well-defined collapse.
 """
 
 from __future__ import annotations
 
 import duckdb
 
-from litmus.analysis.measurements_query import (
-    _FIXED_COLUMNS,
-    _INDEX_EXPR,
-    _MEASUREMENTS_WITH_INDEX,
-    _PLOTTABLE_FIXED_COLUMNS,
-    _measurements_source,
-)
+from litmus.analysis.measurements_query import _FIXED_COLUMNS, _PLOTTABLE_FIXED_COLUMNS
+from litmus.data._runs_duckdb_daemon import _occurrence_index_expr
 
 # (run_id, measurement_name, step_index, step_path, vector_index,
-#  vector_retry, step_retry) — the columns ``_INDEX_EXPR`` orders/partitions
+#  vector_retry, step_retry) — the columns the index expr orders/partitions
 # on, plus the retry axes that make retried attempts distinct rows.
 _COLS = "run_id, measurement_name, step_index, step_path, vector_index, vector_retry, step_retry"
 
+# The production single-source expression, bound to the hand-built table's
+# bare column names (the daemon binds it to ``v.``/``ctx.``-qualified ones at
+# ingest — same expression, same semantics).
+_INDEX_EXPR = _occurrence_index_expr(
+    run_id="run_id",
+    name="measurement_name",
+    step_index="step_index",
+    step_path="step_path",
+    vector_index="vector_index",
+)
+
 
 def _indices(rows: list[tuple]) -> list[int]:
-    """Apply the production ``_INDEX_EXPR`` to hand-built rows, return the index
+    """Apply the production index expr to hand-built rows, return the index
     per row in stable (execution-position, then retry) order."""
     con = duckdb.connect()
     con.execute(
@@ -100,15 +109,15 @@ def test_index_is_per_name_and_per_run() -> None:
 
 
 def test_index_registered_as_fixed_plottable_column() -> None:
-    # Wiring: index is a bare fixed column (resolves to m.index) and a plottable
-    # axis — so /explore's picker offers it and _default_x can select it.
+    # Wiring: index is a bare fixed column (resolves to m.index — now a stored
+    # view column) and a plottable axis — so /explore's picker offers it and
+    # _default_x can select it.
     assert "index" in _FIXED_COLUMNS
     assert ("index", "BIGINT") in _PLOTTABLE_FIXED_COLUMNS
 
 
-def test_index_source_is_conditional() -> None:
-    # The window-bearing subquery is chosen ONLY when a column references
-    # m.index; ordinary queries keep the bare view (no window tax).
-    assert _measurements_source("m.measurement_value", "m.vector_index") == "measurements"
-    assert _measurements_source("m.index") == _MEASUREMENTS_WITH_INDEX
-    assert "DENSE_RANK" in _MEASUREMENTS_WITH_INDEX
+def test_index_expr_is_the_materialized_window() -> None:
+    # The single-source expr is a 0-based DENSE_RANK over (run, name) — the SQL
+    # the daemon stamps into the ``index`` column at ingest.
+    assert "DENSE_RANK" in _INDEX_EXPR
+    assert "PARTITION BY run_id, measurement_name" in _INDEX_EXPR

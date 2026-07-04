@@ -415,6 +415,10 @@ INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
         ("step_name", pa.string()),
         ("step_index", pa.int32()),
         ("step_path", pa.string()),
+        # Enclosing-step retry — a coordinate on measurements_materialized
+        # (full snowflake, 0.3.1); carried so a live measurement matches its
+        # finalized row and the ``measurements`` view exposes it on both sides.
+        ("step_retry", pa.int64()),
         ("step_outcome", pa.string()),
         ("step_started_at", pa.timestamp("us", tz="UTC")),
         ("step_ended_at", pa.timestamp("us", tz="UTC")),

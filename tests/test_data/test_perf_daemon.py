@@ -310,7 +310,7 @@ def parametric_dataset() -> str:
                 id=uuid4(),
                 started_at=t0,
                 ended_at=t1,
-                uut=UUT(serial=f"PERF-{r:04d}"),
+                uut=UUT(serial=f"PERF-{r:04d}", part_number=part),
                 part_id=part,
                 outcome=Outcome.PASSED,
                 steps=[
@@ -345,7 +345,7 @@ def parametric_dataset() -> str:
         notifier.close()
 
     # Wait for the async daemon ingest to catch up before benchmarking.
-    filters = FilterSet(string_filters={"part_id": [part]})
+    filters = FilterSet(string_filters={"uut_part_number": [part]})
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
         with MeasurementsQuery() as q:
@@ -366,7 +366,7 @@ def parametric_dataset() -> str:
 @pytest.mark.benchmark(group="daemon-parametric", warmup=True, min_rounds=20, disable_gc=True)
 def test_parametric_scatter_by_condition(benchmark, parametric_dataset):
     """Scatter: measurement value vs a dynamic condition axis (one EAV join)."""
-    filters = FilterSet(string_filters={"part_id": [parametric_dataset]})
+    filters = FilterSet(string_filters={"uut_part_number": [parametric_dataset]})
 
     def _q():
         with MeasurementsQuery() as q:
@@ -383,7 +383,7 @@ def test_parametric_scatter_by_condition(benchmark, parametric_dataset):
 @pytest.mark.benchmark(group="daemon-parametric", warmup=True, min_rounds=20, disable_gc=True)
 def test_parametric_group_by_condition(benchmark, parametric_dataset):
     """Scatter split by a second dynamic condition — two EAV joins."""
-    filters = FilterSet(string_filters={"part_id": [parametric_dataset]})
+    filters = FilterSet(string_filters={"uut_part_number": [parametric_dataset]})
 
     def _q():
         with MeasurementsQuery() as q:
@@ -401,7 +401,7 @@ def test_parametric_group_by_condition(benchmark, parametric_dataset):
 @pytest.mark.benchmark(group="daemon-parametric", warmup=True, min_rounds=20, disable_gc=True)
 def test_parametric_histogram(benchmark, parametric_dataset):
     """Histogram of a measurement value distribution."""
-    filters = FilterSet(string_filters={"part_id": [parametric_dataset]})
+    filters = FilterSet(string_filters={"uut_part_number": [parametric_dataset]})
 
     def _q():
         with MeasurementsQuery() as q:
@@ -421,7 +421,7 @@ def test_parametric_histogram(benchmark, parametric_dataset):
 @pytest.mark.benchmark(group="daemon-enumerate", warmup=True, min_rounds=20, disable_gc=True)
 def test_distinct_values_enumeration(benchmark, parametric_dataset):
     """Enumerate one facet's values (GROUP BY over the scoped fact)."""
-    filters = FilterSet(string_filters={"part_id": [parametric_dataset]})
+    filters = FilterSet(string_filters={"uut_part_number": [parametric_dataset]})
 
     def _q():
         with MeasurementsQuery() as q:
@@ -436,7 +436,7 @@ def test_distinct_values_cross_filter(benchmark, parametric_dataset):
     """Cross-filtered enumeration — valid values of one facet given another
     selection (Tableau-style ``exclude_self``)."""
     filters = FilterSet(
-        string_filters={"part_id": [parametric_dataset], "uut_serial_number": ["PERF-0001"]}
+        string_filters={"uut_part_number": [parametric_dataset], "uut_serial_number": ["PERF-0001"]}
     )
 
     def _q():
@@ -511,7 +511,7 @@ def test_ingest_throughput():
     ]
 
     notifier = RunStore()
-    filters = FilterSet(string_filters={"part_id": [part]})
+    filters = FilterSet(string_filters={"uut_part_number": [part]})
     seen = 0
     try:
         t0 = time.perf_counter()

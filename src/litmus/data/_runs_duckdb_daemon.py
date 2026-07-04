@@ -433,32 +433,33 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
     # The daemon's FLAT measurement-fact projection — built at ingest by
-    # UNNESTing the nested ``measurements`` list off each at-rest vector row.
-    # The at-rest parquet has NO ``record_type='measurement'`` rows (only
+    # UNNESTing the nested ``measurements`` list off each at-rest step/vector
+    # row. The at-rest parquet has NO ``record_type='measurement'`` rows (only
     # run/step/vector); the default below stamps the projected fact rows.
-    # Star schema: measurement's OWN fields + step-level context (step_name/
-    # outcome/timing/vector coords — never named as a drift source) + the
-    # run_id FK. NO run identity (uut/station/part/test_phase/project/
-    # operator/git/env/session/site/fixture) — lives once in runs_materialized;
-    # the ``measurements`` VIEW joins it back (see _create_views). NO
-    # ``dynamic_attrs`` — the view derives ``inputs_map``/``outputs_map`` at
-    # query time from the ``inputs``/``outputs`` tables (projection-
-    # normalization, 0.3.1).
+    # Full snowflake (0.3.1 phase 7): measurement's OWN fields ONLY, plus its
+    # grain key. NO run identity, NO step DATA (step_name/outcome/timing), NO
+    # vector_outcome — the ``measurements`` VIEW reconstructs all of those by
+    # joining ``runs`` / ``steps`` / ``vectors`` (see _create_views). The
+    # coordinate columns (step_index / step_path / step_retry / vector coords)
+    # STAY: they ARE the grain key (and the EAV-join key + the index-window
+    # sort key). ``ordinal`` = the UNNEST-WITH-ORDINALITY position within the
+    # carrier's nested measurements list (the true PK discriminator — a name
+    # can repeat on one carrier: two measure("v_rail")). ``index`` = the
+    # run-wide, per-name, retry-stable occurrence ordinal, MATERIALIZED once at
+    # ingest (a window during the UNNEST) instead of a query-time DENSE_RANK.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS measurements_materialized (
             file_path             VARCHAR NOT NULL,
             record_type           VARCHAR NOT NULL DEFAULT 'measurement',
             run_id                VARCHAR,
-            step_name             VARCHAR,
             step_index            INTEGER,
             step_path             VARCHAR,
-            step_outcome          VARCHAR,
-            step_started_at       TIMESTAMPTZ,
-            step_ended_at         TIMESTAMPTZ,
+            step_retry            BIGINT,
             vector_index          BIGINT,
             vector_outer_index    BIGINT,
             vector_retry        BIGINT,
-            vector_outcome        VARCHAR,
+            ordinal               BIGINT,
+            index                 BIGINT,
             measurement_name      VARCHAR,
             measurement_value     DOUBLE,
             measurement_outcome   VARCHAR,
@@ -644,16 +645,14 @@ _VECTORS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
 _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("file_path", "VARCHAR"),
     ("run_id", "VARCHAR"),
-    ("step_name", "VARCHAR"),
     ("step_index", "INTEGER"),
     ("step_path", "VARCHAR"),
-    ("step_outcome", "VARCHAR"),
-    ("step_started_at", "TIMESTAMPTZ"),
-    ("step_ended_at", "TIMESTAMPTZ"),
+    ("step_retry", "BIGINT"),
     ("vector_index", "BIGINT"),
     ("vector_outer_index", "BIGINT"),
     ("vector_retry", "BIGINT"),
-    ("vector_outcome", "VARCHAR"),
+    ("ordinal", "BIGINT"),
+    ("index", "BIGINT"),
     ("measurement_name", "VARCHAR"),
     ("measurement_value", "DOUBLE"),
     ("measurement_outcome", "VARCHAR"),
@@ -705,6 +704,8 @@ _LANE_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("vector_index", "BIGINT"),
     ("vector_outer_index", "BIGINT"),
     ("vector_retry", "BIGINT"),
+    ("ordinal", "BIGINT"),
+    ("index", "BIGINT"),
     ("name", "VARCHAR NOT NULL"),
     ("value_type", "VARCHAR"),
     ("value_int", "BIGINT"),
@@ -940,34 +941,53 @@ def _lane_insert(
     ``_create_views``) can disambiguate two unswept steps sharing a
     ``step_index`` (resets per parent bucket — see
     ``_collection_indices.assign_indices``) and two reruns of the same step
-    (``step_retry`` — pytest-rerunfailures). With ``with_filename`` the context
-    subquery also projects ``filename`` (requires ``source`` to read with
-    ``filename=true``) so a multi-file batch keeps each row's own
-    ``file_path``; single-file callers pass a constant ``file_path_expr`` instead.
+    (``step_retry`` — pytest-rerunfailures). ``ordinal`` (0-based
+    UNNEST-WITH-ORDINALITY position) discriminates repeats of a lane name on
+    one carrier; ``index`` is the materialized per-name occurrence ordinal
+    (see :func:`_occurrence_index_expr`), symmetric with measurements. With
+    ``with_filename`` the context subquery also projects ``filename`` (requires
+    ``source`` to read with ``filename=true``) so a multi-file batch keeps each
+    row's own ``file_path``; single-file callers pass a constant instead.
     """
     prefix = "filename, " if with_filename else ""
+    index_expr = _occurrence_index_expr(
+        run_id="ctx.run_id",
+        name="u.name",
+        step_index="ctx.step_index",
+        step_path="ctx.step_path",
+        vector_index="ctx.vector_index",
+    )
+    # ``BY NAME`` (not positional): an UPGRADED on-disk index has the columns
+    # added since (``ordinal`` / ``index``) ALTER-appended at the END, so a
+    # positional INSERT would misalign them; matching by output-column NAME is
+    # order-independent. ``u.name`` → column ``name``, ``u.value_type`` →
+    # ``value_type``, etc., so ``_LANE_SELECT`` aligns by name unchanged.
+    # ``step_retry`` / ``vector_retry`` are normalized IDENTICALLY to
+    # ``_measurement_unnest_insert`` so a measurement and its inputs/outputs
+    # land on the same join key: ``step_retry`` → 0-based (COALESCE NULL→0, as
+    # a direct ``RunParquetRow`` writer may leave it NULL); ``vector_retry`` →
+    # NULL for a step carrier (vector_index NULL at rest), 0-based for a vector
+    # carrier. Without this, the EAV join compares 0-vs-NULL and misses.
     conn.execute(f"""
-        INSERT INTO {table}
-        SELECT DISTINCT
+        INSERT INTO {table} BY NAME
+        SELECT
             {file_path_expr} AS file_path, ctx.run_id, ctx.step_index, ctx.step_path,
-            ctx.step_retry, ctx.vector_index, ctx.vector_outer_index, ctx.vector_retry,
+            COALESCE(ctx.step_retry, 0) AS step_retry,
+            ctx.vector_index, ctx.vector_outer_index,
+            CASE WHEN ctx.vector_index IS NOT NULL THEN COALESCE(ctx.vector_retry, 0) END
+                AS vector_retry,
+            CAST(ord AS BIGINT) - 1 AS ordinal,
+            {index_expr} AS index,
             {_LANE_SELECT}
         FROM (
             SELECT {prefix}run_id, step_index, step_path, step_retry, vector_index,
                    vector_outer_index, vector_retry, {col}
             FROM {source}
             WHERE record_type IN ('step', 'vector')
-        ) AS ctx, UNNEST(ctx.{col}) AS t(u)
+        ) AS ctx, UNNEST(ctx.{col}) WITH ORDINALITY AS t(u, ord)
     """)
 
 
-# The VARCHAR a lane value collapses to when read back out of the ``inputs``/
-# ``outputs`` tables (flat columns, not a nested struct) — used by the
-# ``steps``/``step_vectors``/``measurements`` views to derive ``inputs_map``/
-# ``outputs_map`` at query time (no stored, prefixed ``dynamic_attrs`` — see
-# _create_views). SQL twin of the accumulator overlay's
-# ``_safe_str(_lane_value(entry))`` so materialized and in-flight render
-# identically for the same value.
 # Empty ``MAP(VARCHAR, VARCHAR)`` literal — the constant the ``steps`` /
 # ``step_vectors`` views emit for ``inputs_map`` / ``outputs_map`` on their
 # MATERIALIZED side. The finalized inputs/outputs live in the ``inputs`` /
@@ -980,70 +1000,9 @@ def _lane_insert(
 _EMPTY_MAP = "MAP([]::VARCHAR[], []::VARCHAR[])"
 
 
-# Fixed column names that go directly into measurements_materialized as named
-# columns (measurement's own fields + step-level context + the run_id FK — NO
-# run identity, see the table's docstring in _ensure_schema). The dynamic
-# ``inputs``/``outputs`` lanes are NOT packed onto this table at all — they
-# land in the honestly-named ``inputs``/``outputs`` tables (see _lane_insert);
-# the ``measurements`` view derives ``inputs_map``/``outputs_map`` from those
-# at query time when a reader needs them (projection-normalization, 0.3.1).
-_MEAS_FIXED_COLS: frozenset[str] = frozenset(
-    {
-        "record_type",
-        "run_id",
-        "step_name",
-        "step_index",
-        "step_path",
-        "step_outcome",
-        "step_started_at",
-        "step_ended_at",
-        "vector_index",
-        "vector_outer_index",
-        "vector_retry",
-        "vector_outcome",
-        "measurement_name",
-        "measurement_value",
-        "measurement_outcome",
-        "measurement_unit",
-        "measurement_timestamp",
-        "limit_low",
-        "limit_high",
-        "limit_nominal",
-        "limit_comparator",
-        "characteristic_id",
-        "spec_ref",
-        "uut_pin",
-        "fixture_connection",
-        "instrument_name",
-        "instrument_resource",
-        "instrument_channel",
-    }
-)
-
-# Fact columns sourced from the nested measurement struct (not from the vector
-# row's context columns) when UNNESTing measurements into the fact.
-_MEAS_MEASUREMENT_COLS: frozenset[str] = frozenset(
-    {
-        "measurement_name",
-        "measurement_value",
-        "measurement_outcome",
-        "measurement_unit",
-        "measurement_timestamp",
-        "limit_low",
-        "limit_high",
-        "limit_nominal",
-        "limit_comparator",
-        "characteristic_id",
-        "spec_ref",
-        "uut_pin",
-        "fixture_connection",
-        "instrument_name",
-        "instrument_resource",
-        "instrument_channel",
-    }
-)
-
-# Nested struct field → fact column for the measurement UNNEST.
+# Nested measurement-struct field → flat fact column for the measurement
+# UNNEST. Sourced from the nested struct ``m`` (not from the carrier row's
+# context columns).
 _MEAS_STRUCT_TO_FACT: tuple[tuple[str, str], ...] = (
     ("name", "measurement_name"),
     ("value", "measurement_value"),
@@ -1064,34 +1023,65 @@ _MEAS_STRUCT_TO_FACT: tuple[tuple[str, str], ...] = (
 )
 
 
+def _occurrence_index_expr(
+    *, run_id: str, name: str, step_index: str, step_path: str, vector_index: str
+) -> str:
+    """SQL for the materialized ``index`` — a measurement/lane's run-wide,
+    per-name, retry-STABLE occurrence ordinal (the ``/explore`` X axis).
+
+    0-based DENSE_RANK partitioned by (run, name), ordered by execution
+    position (step_index, step_path, then the leaf vector_index with NULL —
+    step-scope — sorting first). Retries are EXCLUDED from the ORDER BY, so the
+    retried attempts of one position share an ``index`` (retry-stability is
+    inherited from the coordinates). Computed ONCE at ingest during the UNNEST
+    — the SQL twin of the former query-time ``DENSE_RANK`` (measurements_query
+    ``_INDEX_EXPR``); the ``ORDER BY`` must stay byte-identical to it for parity.
+    """
+    return (
+        f"CAST(DENSE_RANK() OVER (PARTITION BY {run_id}, {name} "
+        f"ORDER BY {step_index}, {step_path}, COALESCE({vector_index}, -1)) - 1 AS BIGINT)"
+    )
+
+
 def _measurement_unnest_insert(src: str, *, file_path_expr: str) -> str:
     """INSERT that UNNESTs nested measurements from step AND vector rows.
 
-    Context columns come from the carrier row ``v`` (a vector row for a
+    Coordinate columns come from the carrier row ``v`` (a vector row for a
     vector-scope measurement, a step row for a step-scope one); measurement
-    columns from the nested struct ``m``. ``INSERT BY NAME`` aligns the SELECT
-    output names with ``measurements_materialized``.
+    payload from the nested struct ``m``. ``INSERT BY NAME`` aligns the SELECT
+    output names with ``measurements_materialized`` (full snowflake, 0.3.1
+    phase 7: no step DATA / vector_outcome — the view joins steps/vectors).
 
     ``vector_index`` carries two roles, kept apart here: a vector row stamps its
     OWN leaf index; a step row stamps NULL (literal — never the step's enclosing
     index, which is a chain-walk selector, not the fact's own coordinate). NULL
-    is the load-bearing "belongs to the step itself" marker the NULL-safe EAV
-    join keys on.
+    is the load-bearing "belongs to the step itself" marker the NULL-safe joins
+    key on. ``ordinal`` (0-based UNNEST-WITH-ORDINALITY position) discriminates
+    repeats of a name on one carrier; ``index`` is the materialized occurrence
+    ordinal (see :func:`_occurrence_index_expr`).
     """
-    _exclude = {"record_type", "vector_index", "vector_outer_index"}
-    ctx_cols = sorted(_MEAS_FIXED_COLS - _MEAS_MEASUREMENT_COLS - _exclude)
-    ctx = ", ".join(f"v.{c}" for c in ctx_cols)
     meas = ", ".join(f"m.{s} AS {f}" for s, f in _MEAS_STRUCT_TO_FACT)
+    proj_vi = "CASE WHEN v.record_type = 'vector' THEN v.vector_index END"
+    index_expr = _occurrence_index_expr(
+        run_id="v.run_id",
+        name="m.name",
+        step_index="v.step_index",
+        step_path="v.step_path",
+        vector_index=proj_vi,
+    )
     return f"""
         INSERT INTO measurements_materialized BY NAME
         SELECT
             {file_path_expr} AS file_path,
             'measurement' AS record_type,
-            {ctx},
-            CASE WHEN v.record_type = 'vector' THEN v.vector_index END AS vector_index,
+            v.run_id, v.step_index, v.step_path, COALESCE(v.step_retry, 0) AS step_retry,
+            {proj_vi} AS vector_index,
             v.vector_outer_index AS vector_outer_index,
+            CASE WHEN v.record_type = 'vector' THEN COALESCE(v.vector_retry, 0) END AS vector_retry,
+            CAST(ord AS BIGINT) - 1 AS ordinal,
+            {index_expr} AS index,
             {meas}
-        FROM {src} AS v, UNNEST(v.measurements) AS t(m)
+        FROM {src} AS v, UNNEST(v.measurements) WITH ORDINALITY AS t(m, ord)
         WHERE v.record_type IN ('step', 'vector')
     """
 
@@ -1743,13 +1733,24 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     still-denormalized inflight side line up without either needing to
     match the other's internal shape.
     """
-    # measurements: persistent (narrow table JOINed with runs for identity)
-    # UNION BY NAME with the inflight live snapshot (already wide). UNION BY
-    # NAME matches columns by name rather than position, so the inflight
-    # schema doesn't need to list columns in exactly the same order.
-    # file_path is the only column absent from the inflight side (no parquet
-    # file yet) — automatically NULL.
-    conn.execute("""
+    # measurements: full snowflake (0.3.1 phase 7). The materialized fact holds
+    # only its own payload + grain key; the view reconstructs the old wide row
+    # by JOINing ``runs`` (identity), ``steps`` (step_name/outcome/timing), and
+    # ``vectors`` (vector_outcome). ``index`` is a STORED column on the fact
+    # (materialized at ingest) — the view exposes it directly, replacing the
+    # former query-time ``DENSE_RANK`` wrap; the inflight side computes the same
+    # window (its rows aren't materialized yet). UNION BY NAME matches columns
+    # by name, so the rejoined fact side and the still-denormalized inflight
+    # side line up. file_path is absent from the inflight side (no parquet yet)
+    # → automatically NULL.
+    inflight_index = _occurrence_index_expr(
+        run_id="run_id",
+        name="measurement_name",
+        step_index="step_index",
+        step_path="step_path",
+        vector_index="vector_index",
+    )
+    conn.execute(f"""
         CREATE OR REPLACE VIEW measurements AS
         SELECT
             m.file_path, m.record_type, m.run_id,
@@ -1762,9 +1763,83 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             r.fixture_id, r.test_phase, r.project_name, r.operator_id, r.operator_name,
             r.git_commit, r.git_branch, r.git_remote,
             r.python_version, r.litmus_version, r.env_fingerprint,
-            m.step_name, m.step_index, m.step_path, m.step_outcome,
-            m.step_started_at, m.step_ended_at,
-            m.vector_index, m.vector_outer_index, m.vector_retry, m.vector_outcome,
+            st.step_name, m.step_index, m.step_path, m.step_retry,
+            CAST(st.outcome AS VARCHAR) AS step_outcome,
+            st.started_at AS step_started_at, st.ended_at AS step_ended_at,
+            m.vector_index, m.vector_outer_index, m.vector_retry,
+            CAST(ve.outcome AS VARCHAR) AS vector_outcome,
+            m.ordinal, m.index,
+            m.measurement_name, m.measurement_value, m.measurement_outcome,
+            m.measurement_unit, m.measurement_timestamp,
+            m.limit_low, m.limit_high, m.limit_nominal, m.limit_comparator,
+            m.characteristic_id, m.spec_ref, m.uut_pin, m.fixture_connection,
+            m.instrument_name, m.instrument_resource, m.instrument_channel
+        FROM measurements_materialized m
+        LEFT JOIN runs_materialized r ON r.run_id = m.run_id
+        LEFT JOIN steps_materialized st
+            ON st.run_id = m.run_id AND st.step_path = m.step_path
+            AND st.step_retry = m.step_retry
+            AND st.vector_outer_index_key = COALESCE(m.vector_outer_index, -1)
+        LEFT JOIN vectors_materialized ve
+            ON ve.run_id = m.run_id AND ve.step_path = m.step_path
+            AND ve.step_retry = m.step_retry
+            AND ve.vector_outer_index_key = COALESCE(m.vector_outer_index, -1)
+            AND ve.vector_index = m.vector_index AND ve.vector_retry = m.vector_retry
+        UNION BY NAME
+        SELECT
+            record_type,
+            run_id, session_id, site_index, site_name,
+            run_started_at, run_ended_at, run_outcome,
+            uut_serial_number, uut_part_number, uut_revision, uut_lot_number,
+            part_id, part_name, part_revision,
+            station_id, station_name, station_hostname, station_type, station_location,
+            fixture_id, test_phase, project_name, operator_id, operator_name,
+            git_commit, git_branch, git_remote,
+            python_version, litmus_version, env_fingerprint,
+            step_name, step_index, step_path, step_retry,
+            step_outcome, step_started_at, step_ended_at,
+            vector_index, vector_outer_index, vector_retry, vector_outcome,
+            CAST(NULL AS BIGINT) AS ordinal,
+            CAST({inflight_index} AS BIGINT) AS index,
+            measurement_name, measurement_value, measurement_outcome,
+            measurement_unit, measurement_timestamp,
+            limit_low, limit_high, limit_nominal, limit_comparator,
+            characteristic_id, spec_ref, uut_pin, fixture_connection,
+            instrument_name, instrument_resource, instrument_channel
+        FROM overlay.inflight_measurements
+        WHERE run_id NOT IN (
+            SELECT DISTINCT run_id FROM measurements_materialized
+            WHERE run_id IS NOT NULL
+        )
+    """)
+
+    # ``measurement_facts`` — the LEAN sibling of ``measurements``: the fact
+    # JOINed with ``runs`` for identity ONLY (no ``steps`` / ``vectors``
+    # reconstruction). TARGETED optimization (0.3.1 phase 9, measured): the
+    # pure-aggregate metric paths (yield / ppk / trend / retest / time_loss /
+    # summary_counts) group by run identity + measurement-own fields and never
+    # read ``step_name`` / ``step_outcome`` / ``vector_outcome`` — DuckDB does
+    # NOT prune the unused LEFT JOINs from ``measurements``, so those two joins
+    # are pure overhead there (~1ms / 3k rows, growing linearly). ``pareto``
+    # (needs ``step_name``), the parametric/explore surfaces, and
+    # ``get_measurements`` keep the full ``measurements`` view. Same
+    # materialized ∪ inflight shape; no step/vector columns, no ordinal/index
+    # (metrics don't select them → the inflight index window is skipped too).
+    conn.execute("""
+        CREATE OR REPLACE VIEW measurement_facts AS
+        SELECT
+            m.file_path, m.record_type, m.run_id,
+            r.session_id, r.site_index, r.site_name,
+            r.started_at AS run_started_at, r.ended_at AS run_ended_at,
+            CAST(r.outcome AS VARCHAR) AS run_outcome,
+            r.uut_serial_number, r.uut_part_number, r.uut_revision, r.uut_lot_number,
+            r.part_id, r.part_name, r.part_revision,
+            r.station_id, r.station_name, r.station_hostname, r.station_type, r.station_location,
+            r.fixture_id, r.test_phase, r.project_name, r.operator_id, r.operator_name,
+            r.git_commit, r.git_branch, r.git_remote,
+            r.python_version, r.litmus_version, r.env_fingerprint,
+            m.step_index, m.step_path, m.step_retry,
+            m.vector_index, m.vector_outer_index, m.vector_retry,
             m.measurement_name, m.measurement_value, m.measurement_outcome,
             m.measurement_unit, m.measurement_timestamp,
             m.limit_low, m.limit_high, m.limit_nominal, m.limit_comparator,
@@ -1783,9 +1858,8 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             fixture_id, test_phase, project_name, operator_id, operator_name,
             git_commit, git_branch, git_remote,
             python_version, litmus_version, env_fingerprint,
-            step_name, step_index, step_path, step_outcome,
-            step_started_at, step_ended_at,
-            vector_index, vector_outer_index, vector_retry, vector_outcome,
+            step_index, step_path, step_retry,
+            vector_index, vector_outer_index, vector_retry,
             measurement_name, measurement_value, measurement_outcome,
             measurement_unit, measurement_timestamp,
             limit_low, limit_high, limit_nominal, limit_comparator,

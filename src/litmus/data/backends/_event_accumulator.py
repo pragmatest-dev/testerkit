@@ -413,6 +413,10 @@ class EventAccumulator:
             row = self._build_row(event)
             row["run_ended_at"] = ended_at
             row["run_outcome"] = outcome
+            # The measurement's enclosing-step retry — a coordinate on
+            # measurements_materialized (full snowflake, 0.3.1), so the overlay
+            # carries it too for 1:1 matching.
+            row["step_retry"] = getattr(event, "step_retry", 0) or 0
             path = event.step_path or event.step_name or ""
             ev_voi = getattr(event, "vector_outer_index", None)
             if (path, ev_voi, event.vector_index) in looped:
