@@ -80,9 +80,9 @@ from litmus.data.schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Suffix patterns that identify signal-path metadata keys in the
-# dynamic_attrs MAP. A key ending in one of these suffixes is metadata,
-# not a stimulus value.
+# Suffix patterns that identify signal-path metadata keys among an
+# inputs/outputs lane name. A key ending in one of these suffixes is
+# metadata, not a stimulus value.
 _STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_uut_pin", "_fixture_connection")
 
 # Outcome priority for deterministic worst-case selection from a set.

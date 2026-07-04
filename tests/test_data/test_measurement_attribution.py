@@ -176,9 +176,9 @@ def test_configure_input_end_overrides_start_at_finalize():
     _step_end(acc, sid, rid, 0, "passed", inputs={"vin": 5.0, "extra": 9.0})
 
     step_rows = acc.snapshot_step_rows()
-    attrs = step_rows[0]["dynamic_attrs"]
-    assert attrs.get("in_vin") == "5.0"
-    assert attrs.get("in_extra") == "9.0"  # honored from the End snapshot
+    attrs = step_rows[0]["inputs_map"]
+    assert attrs.get("vin") == "5.0"
+    assert attrs.get("extra") == "9.0"  # honored from the End snapshot
 
 
 def test_inputs_use_start_while_in_flight():
@@ -187,6 +187,6 @@ def test_inputs_use_start_while_in_flight():
     _step_start(acc, sid, rid, 0, inputs={"vin": 5.0})
 
     step_rows = acc.snapshot_step_rows()
-    attrs = step_rows[0]["dynamic_attrs"]
-    assert attrs.get("in_vin") == "5.0"
-    assert "in_extra" not in attrs
+    attrs = step_rows[0]["inputs_map"]
+    assert attrs.get("vin") == "5.0"
+    assert "extra" not in attrs

@@ -214,14 +214,17 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
 
     Storage layering:
 
-    - ``runs_materialized`` / ``steps_materialized`` — TABLES populated by
-      parquet ingest. ``runs`` / ``steps`` are UNION VIEWS (created
-      in :func:`_create_views`) that splice these tables with the
+    - ``runs_materialized`` / ``steps_materialized`` / ``measurements_materialized``
+      / ``instruments_materialized`` — TABLES populated by parquet ingest,
+      each carrying only its own grain's columns + the ``run_id`` FK (star
+      schema, 0.3.1 — run identity lives once, in ``runs_materialized``).
+      ``runs`` / ``steps`` / ``step_vectors`` / ``measurements`` /
+      ``instruments`` are VIEWS (created in :func:`_create_views`) that JOIN
+      ``runs_materialized`` back in for identity and splice in the
       in-memory ``AccumulatorPool`` snapshot.
-    - ``measurements`` — VIEW over the parquet glob. The
-      ``dynamic_attrs`` MAP (with ``in_``/``out_``-prefixed keys)
-      makes table materialization impractical; aggregates for the
-      hot path live in ``measurement_stats``.
+    - ``inputs`` / ``outputs`` — long/EAV projections of the nested lane
+      lists, one honestly-named table per role. Aggregates for the hot path
+      live in ``measurement_stats``.
     - ``measurement_stats`` — TABLE of per-(file, step, measurement)
       aggregates for cardinality / pareto / Cpk queries.
     - ``measurement_io_schema``, ``measurement_refs`` — secondary
@@ -289,6 +292,13 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         conn.execute(f"ALTER TABLE runs_materialized ADD COLUMN IF NOT EXISTS {col} {sql_type}")
 
     # ── steps_materialized ─────────────────────────────────────────────
+    # Star schema: step's OWN columns + the run_id FK only. NO run identity
+    # (session_id / site_index / site_name / uut_serial_number / station_id) —
+    # that lives once in runs_materialized; the ``steps``/``step_vectors``
+    # VIEWS (see _create_views) reconstruct it via JOIN. Same for the step's
+    # inputs/outputs — no ``dynamic_attrs`` column; the views derive
+    # ``inputs_map``/``outputs_map`` at query time from the ``inputs``/
+    # ``outputs`` tables (projection-normalization, 0.3.1).
     # vector_index_key = COALESCE(vector_index, -1): PK cannot be NULL, -1 is step-own sentinel.
     # vector_outer_index_key = COALESCE(vector_outer_index, -1): same sentinel for outer axis.
     conn.execute("""
@@ -302,9 +312,6 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             vector_outer_index_key BIGINT NOT NULL DEFAULT -1,
             step_index INTEGER,
             file_path VARCHAR,
-            session_id VARCHAR,
-            site_index BIGINT,
-            site_name VARCHAR,
             step_name VARCHAR,
             outcome outcome_kind,
             started_at TIMESTAMPTZ,
@@ -312,9 +319,6 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             duration_s DOUBLE,
             measurement_count INTEGER,
             markers VARCHAR,
-            uut_serial_number VARCHAR,
-            station_id VARCHAR,
-            dynamic_attrs MAP(VARCHAR, VARCHAR),
             PRIMARY KEY (run_id, step_path, step_retry, vector_index_key, vector_outer_index_key)
         )
     """)
@@ -398,28 +402,19 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     # UNNESTing the nested ``measurements`` list off each at-rest vector row.
     # The at-rest parquet has NO ``record_type='measurement'`` rows (only
     # run/step/vector); the default below stamps the projected fact rows.
+    # Star schema: measurement's OWN fields + step-level context (step_name/
+    # outcome/timing/vector coords — never named as a drift source) + the
+    # run_id FK. NO run identity (uut/station/part/test_phase/project/
+    # operator/git/env/session/site/fixture) — lives once in runs_materialized;
+    # the ``measurements`` VIEW joins it back (see _create_views). NO
+    # ``dynamic_attrs`` — the view derives ``inputs_map``/``outputs_map`` at
+    # query time from the ``inputs``/``outputs`` tables (projection-
+    # normalization, 0.3.1).
     conn.execute("""
         CREATE TABLE IF NOT EXISTS measurements_materialized (
             file_path             VARCHAR NOT NULL,
             record_type           VARCHAR NOT NULL DEFAULT 'measurement',
             run_id                VARCHAR,
-            session_id            VARCHAR,
-            site_index            BIGINT,
-            site_name             VARCHAR,
-            run_started_at        TIMESTAMPTZ,
-            run_ended_at          TIMESTAMPTZ,
-            run_outcome           VARCHAR,
-            uut_serial_number     VARCHAR,
-            uut_part_number       VARCHAR,
-            uut_revision          VARCHAR,
-            uut_lot_number        VARCHAR,
-            part_id            VARCHAR,
-            station_id            VARCHAR,
-            station_hostname      VARCHAR,
-            fixture_id            VARCHAR,
-            test_phase            VARCHAR,
-            project_name          VARCHAR,
-            operator_id           VARCHAR,
             step_name             VARCHAR,
             step_index            INTEGER,
             step_path             VARCHAR,
@@ -445,20 +440,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             fixture_connection    VARCHAR,
             instrument_name       VARCHAR,
             instrument_resource   VARCHAR,
-            instrument_channel    VARCHAR,
-            git_commit            VARCHAR,
-            git_branch            VARCHAR,
-            git_remote            VARCHAR,
-            python_version        VARCHAR,
-            litmus_version        VARCHAR,
-            env_fingerprint       VARCHAR,
-            part_name          VARCHAR,
-            part_revision      VARCHAR,
-            station_name          VARCHAR,
-            station_type          VARCHAR,
-            station_location      VARCHAR,
-            operator_name         VARCHAR,
-            dynamic_attrs         MAP(VARCHAR, VARCHAR)
+            instrument_channel    VARCHAR
         )
     """)
     for col, sql_type in _MEASUREMENTS_PERSISTED_COLUMNS:
@@ -466,60 +448,39 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             f"ALTER TABLE measurements_materialized ADD COLUMN IF NOT EXISTS {col} {sql_type}"
         )
 
-    # Long/EAV projection of the nested inputs/outputs lanes — one row
-    # per (vector, role, name), keyed on the natural vector identity
-    # PLUS ``step_path`` (``step_index`` alone resets per parent bucket —
-    # see ``_collection_indices.assign_indices`` — so two unswept steps at
+    # Long/EAV projection of the nested inputs/outputs lanes, split into two
+    # honestly-named tables (the table IS the role — no ``role`` column, no
+    # UNION-able ambiguity a bare query could issue). One row per (vector,
+    # name), keyed on the natural vector identity PLUS ``step_path``
+    # (``step_index`` alone resets per parent bucket — see
+    # ``_collection_indices.assign_indices`` — so two unswept steps at
     # step_index=0 with NULL vector coords would otherwise collide and
-    # cross-join their dynamic values). Queries anchor on the core
-    # measurements table and join here per dynamic column;
+    # cross-join their dynamic values) PLUS ``step_retry`` (needed so the
+    # ``steps``/``step_vectors`` views' query-time inputs_map/outputs_map
+    # join — see _create_views — doesn't fan-out across pytest-rerunfailures
+    # reruns of the same step; the OLD ingest-time ``dynamic_attrs`` computation
+    # scoped by step_retry for free by reading straight off each raw parquet
+    # row, a property the new query-time join must preserve explicitly).
     # ``value_type`` is the value-type tag selecting which value_* lane holds
     # the value (see _row_helpers). Index only ``name`` — high-cardinality ART
     # indexes (the vector key) don't spill and OOM at scale; hash joins don't
     # use them anyway (benched: bench_index_scale.py). file_path pruning is via
     # zonemaps (file-clustered ingest), not an index.
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS measurements_dynamic (
-            file_path       VARCHAR NOT NULL,
-            run_id          VARCHAR,
-            step_index      INTEGER,
-            step_path       VARCHAR,
-            vector_index    BIGINT,
-            vector_outer_index BIGINT,
-            vector_retry    BIGINT,
-            role            VARCHAR NOT NULL,
-            name            VARCHAR NOT NULL,
-            value_type      VARCHAR,
-            value_int       BIGINT,
-            value_double    DOUBLE,
-            value_bool      BOOLEAN,
-            value_text      VARCHAR,
-            value_timestamp TIMESTAMPTZ,
-            value_json      VARCHAR,
-            unit            VARCHAR,
-            uut_pin         VARCHAR
-        )
-    """)
+    lane_cols = ", ".join(f"{col} {sql_type}" for col, sql_type in _LANE_PERSISTED_COLUMNS)
+    conn.execute(f"CREATE TABLE IF NOT EXISTS inputs ({lane_cols})")
+    conn.execute(f"CREATE TABLE IF NOT EXISTS outputs ({lane_cols})")
 
     # ── instruments_materialized ──────────────────────────────────────
     # Grain: one row per instrument per run. UNNESTed from the run row's
     # ``instruments`` LIST<STRUCT> at ingest. Powers the /instruments page
-    # via the Query API instead of ad-hoc parquet array scans.
+    # via the Query API instead of ad-hoc parquet array scans. Star schema:
+    # instrument's OWN struct fields + the run_id FK only — NO run identity
+    # (lives once in runs_materialized; the ``instruments`` VIEW joins it
+    # back — see _create_views).
     conn.execute("""
         CREATE TABLE IF NOT EXISTS instruments_materialized (
             file_path         VARCHAR NOT NULL,
             run_id            VARCHAR,
-            session_id        VARCHAR,
-            run_started_at    TIMESTAMPTZ,
-            run_ended_at      TIMESTAMPTZ,
-            run_outcome       VARCHAR,
-            uut_serial_number VARCHAR,
-            uut_part_number   VARCHAR,
-            part_id           VARCHAR,
-            station_id        VARCHAR,
-            station_hostname  VARCHAR,
-            project_name      VARCHAR,
-            operator_name     VARCHAR,
             role              VARCHAR,
             instrument_id     VARCHAR,
             driver            VARCHAR,
@@ -558,7 +519,8 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_mp_fp   ON measurements_materialized(file_path)",
         "CREATE INDEX IF NOT EXISTS idx_mp_run  ON measurements_materialized(run_id)",
         "CREATE INDEX IF NOT EXISTS idx_mp_name ON measurements_materialized(measurement_name)",
-        "CREATE INDEX IF NOT EXISTS idx_md_name ON measurements_dynamic(name)",
+        "CREATE INDEX IF NOT EXISTS idx_inputs_name ON inputs(name)",
+        "CREATE INDEX IF NOT EXISTS idx_outputs_name ON outputs(name)",
         "CREATE INDEX IF NOT EXISTS idx_instr_run_id ON instruments_materialized(run_id)",
         "CREATE INDEX IF NOT EXISTS idx_instr_fp ON instruments_materialized(file_path)",
         "CREATE INDEX IF NOT EXISTS idx_instr_id ON instruments_materialized(instrument_id)",
@@ -610,9 +572,6 @@ _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("run_id", "VARCHAR"),
     ("step_index", "INTEGER"),
     ("file_path", "VARCHAR"),
-    ("session_id", "VARCHAR"),
-    ("site_index", "BIGINT"),
-    ("site_name", "VARCHAR"),
     ("step_name", "VARCHAR"),
     ("step_path", "VARCHAR"),
     ("outcome", "outcome_kind"),
@@ -627,43 +586,11 @@ _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("vector_outer_index", "BIGINT"),
     ("measurement_count", "INTEGER"),
     ("markers", "VARCHAR"),
-    ("uut_serial_number", "VARCHAR"),
-    ("station_id", "VARCHAR"),
-    ("dynamic_attrs", "MAP(VARCHAR, VARCHAR)"),
 )
 
 _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("file_path", "VARCHAR"),
     ("run_id", "VARCHAR"),
-    ("session_id", "VARCHAR"),
-    ("site_index", "BIGINT"),
-    ("site_name", "VARCHAR"),
-    ("run_started_at", "TIMESTAMPTZ"),
-    ("run_ended_at", "TIMESTAMPTZ"),
-    ("run_outcome", "VARCHAR"),
-    ("uut_serial_number", "VARCHAR"),
-    ("uut_part_number", "VARCHAR"),
-    ("uut_revision", "VARCHAR"),
-    ("uut_lot_number", "VARCHAR"),
-    ("part_id", "VARCHAR"),
-    ("part_name", "VARCHAR"),
-    ("part_revision", "VARCHAR"),
-    ("station_id", "VARCHAR"),
-    ("station_name", "VARCHAR"),
-    ("station_hostname", "VARCHAR"),
-    ("station_type", "VARCHAR"),
-    ("station_location", "VARCHAR"),
-    ("fixture_id", "VARCHAR"),
-    ("test_phase", "VARCHAR"),
-    ("project_name", "VARCHAR"),
-    ("operator_id", "VARCHAR"),
-    ("operator_name", "VARCHAR"),
-    ("git_commit", "VARCHAR"),
-    ("git_branch", "VARCHAR"),
-    ("git_remote", "VARCHAR"),
-    ("python_version", "VARCHAR"),
-    ("litmus_version", "VARCHAR"),
-    ("env_fingerprint", "VARCHAR"),
     ("step_name", "VARCHAR"),
     ("step_index", "INTEGER"),
     ("step_path", "VARCHAR"),
@@ -690,23 +617,11 @@ _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("instrument_name", "VARCHAR"),
     ("instrument_resource", "VARCHAR"),
     ("instrument_channel", "VARCHAR"),
-    ("dynamic_attrs", "MAP(VARCHAR, VARCHAR)"),
 )
 
 _INSTRUMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("file_path", "VARCHAR"),
     ("run_id", "VARCHAR"),
-    ("session_id", "VARCHAR"),
-    ("run_started_at", "TIMESTAMPTZ"),
-    ("run_ended_at", "TIMESTAMPTZ"),
-    ("run_outcome", "VARCHAR"),
-    ("uut_serial_number", "VARCHAR"),
-    ("uut_part_number", "VARCHAR"),
-    ("part_id", "VARCHAR"),
-    ("station_id", "VARCHAR"),
-    ("station_hostname", "VARCHAR"),
-    ("project_name", "VARCHAR"),
-    ("operator_name", "VARCHAR"),
     ("role", "VARCHAR"),
     ("instrument_id", "VARCHAR"),
     ("driver", "VARCHAR"),
@@ -721,6 +636,32 @@ _INSTRUMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("cal_certificate", "VARCHAR"),
     ("cal_lab", "VARCHAR"),
     ("mocked", "BOOLEAN"),
+)
+
+# Canonical column list for ``inputs``/``outputs`` (both tables share this
+# DDL — the table IS the role). FK coordinates + the lane's own fields
+# (``LANE_FIELDS`` from _row_helpers, unaliased — splitting the EAV by role
+# renames nothing). Exposed for test_ingestion_drift's per-nested-struct-
+# table uniform rule.
+_LANE_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("file_path", "VARCHAR NOT NULL"),
+    ("run_id", "VARCHAR"),
+    ("step_index", "INTEGER"),
+    ("step_path", "VARCHAR"),
+    ("step_retry", "BIGINT"),
+    ("vector_index", "BIGINT"),
+    ("vector_outer_index", "BIGINT"),
+    ("vector_retry", "BIGINT"),
+    ("name", "VARCHAR NOT NULL"),
+    ("value_type", "VARCHAR"),
+    ("value_int", "BIGINT"),
+    ("value_double", "DOUBLE"),
+    ("value_bool", "BOOLEAN"),
+    ("value_text", "VARCHAR"),
+    ("value_timestamp", "TIMESTAMPTZ"),
+    ("value_json", "VARCHAR"),
+    ("unit", "VARCHAR"),
+    ("uut_pin", "VARCHAR"),
 )
 
 
@@ -891,7 +832,8 @@ _INDEX_TABLES_BY_FILE_PATH = (
     "measurement_io_schema",
     "measurement_refs",
     "measurements_materialized",
-    "measurements_dynamic",
+    "inputs",
+    "outputs",
     "instruments_materialized",
 )
 
@@ -914,19 +856,12 @@ def _delete_file_rows(conn: duckdb.DuckDBPyConnection, path_str: str) -> None:
 # ── Bulk ingest ─────────────────────────────────────────────────────
 
 
-# The nested lane columns (parquet) → role tag (long EAV projection).
-# role values are full words matching FieldRole: 'input' / 'output'.
-_DYNAMIC_ROLES: tuple[tuple[str, str], ...] = (
-    ("inputs", "input"),
-    ("outputs", "output"),
-)
-# Separate prefix mapping for the dynamic_attrs MAP keys — these stay
-# 'in_'/'out_' so steps_query (k[3:]/k[4:] split) and run_store keep
-# working unchanged. _DYNAMIC_ROLES drives the EAV role column;
-# _DYNAMIC_MAP_PREFIXES drives only the MAP key construction.
-_DYNAMIC_MAP_PREFIXES: tuple[tuple[str, str], ...] = (
-    ("inputs", "in"),
-    ("outputs", "out"),
+# The nested lane columns (parquet) → the honestly-named table each UNNESTs
+# into. No role tag/column — the table IS the role (measurements_dynamic's
+# ``role`` column is gone; a role-scoped query selects the matching table).
+_LANE_TABLES: tuple[tuple[str, str], ...] = (
+    ("inputs", "inputs"),
+    ("outputs", "outputs"),
 )
 _LANE_SELECT = (
     "u.name, u.value_type, u.value_int, u.value_double, u.value_bool, "
@@ -934,108 +869,91 @@ _LANE_SELECT = (
 )
 
 
-def _dynamic_unnest_union(source: str, *, where: str, with_filename: bool = False) -> str:
-    """UNION ALL that UNNESTs the nested inputs/outputs lanes from ``source``.
+def _lane_insert(
+    conn: duckdb.DuckDBPyConnection,
+    table: str,
+    col: str,
+    source: str,
+    *,
+    file_path_expr: str,
+    with_filename: bool = False,
+) -> None:
+    """INSERT one lane column (``inputs`` or ``outputs``) UNNESTed from ``source``.
 
-    ``source`` is a relation expression (a ``read_parquet(...)`` call or a table
-    name). Emits ``(run_id, step_index, step_path, vector_index,
-    vector_outer_index, vector_retry, role, lanes)``. ``step_path`` rides
-    along so the EAV join can disambiguate two unswept steps that share a
-    ``step_index`` (it resets per parent bucket — see
-    ``_collection_indices.assign_indices``). With ``with_filename`` it also
-    projects the ``filename`` column (requires the source to read with
+    ``source`` is a relation expression (a ``read_parquet(...)`` call). Rows come
+    from ``record_type IN ('step', 'vector')`` — the lane carriers. ``step_path``
+    and ``step_retry`` ride along so the read-time EAV join (see
+    ``_create_views``) can disambiguate two unswept steps sharing a
+    ``step_index`` (resets per parent bucket — see
+    ``_collection_indices.assign_indices``) and two reruns of the same step
+    (``step_retry`` — pytest-rerunfailures). With ``with_filename`` the context
+    subquery also projects ``filename`` (requires ``source`` to read with
     ``filename=true``) so a multi-file batch keeps each row's own
-    ``file_path``; single-file callers prepend a constant instead.
+    ``file_path``; single-file callers pass a constant ``file_path_expr`` instead.
     """
     prefix = "filename, " if with_filename else ""
-    return " UNION ALL ".join(
-        f"SELECT {prefix}run_id, step_index, step_path, vector_index, vector_outer_index, "
-        f"vector_retry, '{role}' AS role, {_LANE_SELECT} "
-        f"FROM {source}, UNNEST({col}) AS t(u) WHERE {where}"
-        for col, role in _DYNAMIC_ROLES
-    )
+    conn.execute(f"""
+        INSERT INTO {table}
+        SELECT DISTINCT
+            {file_path_expr} AS file_path, ctx.run_id, ctx.step_index, ctx.step_path,
+            ctx.step_retry, ctx.vector_index, ctx.vector_outer_index, ctx.vector_retry,
+            {_LANE_SELECT}
+        FROM (
+            SELECT {prefix}run_id, step_index, step_path, step_retry, vector_index,
+                   vector_outer_index, vector_retry, {col}
+            FROM {source}
+            WHERE record_type IN ('step', 'vector')
+        ) AS ctx, UNNEST(ctx.{col}) AS t(u)
+    """)
 
 
-# The VARCHAR a lane value collapses to inside the ``dynamic_attrs`` MAP — the
-# SQL twin of the accumulator overlay's ``_safe_str(_lane_value(entry))`` so the
-# materialized MAP and the in-flight MAP are byte-identical for the same value.
-# ``e`` is one lane struct (an element of an ``inputs``/``outputs`` list).
-# ``_safe_str`` renders None/empty as NULL; a NULL MAP value matches.
-_LANE_VALUE_VARCHAR = """CASE e.value_type
-            WHEN 'scalar:bool' THEN CASE WHEN e.value_bool THEN 'true' ELSE 'false' END
-            WHEN 'scalar:int' THEN CAST(e.value_int AS VARCHAR)
-            WHEN 'scalar:float' THEN CAST(e.value_double AS VARCHAR)
-            WHEN 'scalar:datetime' THEN CAST(e.value_timestamp AS VARCHAR)
-            WHEN 'list' THEN e.value_json
-            WHEN 'dict' THEN e.value_json
-            ELSE e.value_text
+# The VARCHAR a lane value collapses to when read back out of the ``inputs``/
+# ``outputs`` tables (flat columns, not a nested struct) — used by the
+# ``steps``/``step_vectors``/``measurements`` views to derive ``inputs_map``/
+# ``outputs_map`` at query time (no stored, prefixed ``dynamic_attrs`` — see
+# _create_views). SQL twin of the accumulator overlay's
+# ``_safe_str(_lane_value(entry))`` so materialized and in-flight render
+# identically for the same value.
+_LANE_VALUE_VARCHAR_COLS = """CASE value_type
+            WHEN 'scalar:bool' THEN CASE WHEN value_bool THEN 'true' ELSE 'false' END
+            WHEN 'scalar:int' THEN CAST(value_int AS VARCHAR)
+            WHEN 'scalar:float' THEN CAST(value_double AS VARCHAR)
+            WHEN 'scalar:datetime' THEN CAST(value_timestamp AS VARCHAR)
+            WHEN 'list' THEN value_json
+            WHEN 'dict' THEN value_json
+            ELSE value_text
         END"""
 
 
-def _dynamic_attrs_map_expr(
-    *, prefixes: tuple[tuple[str, str], ...] = _DYNAMIC_MAP_PREFIXES
-) -> str:
-    """SQL expression that builds the ``dynamic_attrs`` MAP from a row's lanes.
+def _io_map_subquery(table: str, group_cols: tuple[str, ...], map_alias: str) -> str:
+    """Correlated aggregate: pack ``table`` (``inputs``/``outputs``) rows into a
+    ``MAP(VARCHAR, VARCHAR)`` per FK coordinate group.
 
-    For each role (``inputs``/``outputs``) it UNNESTs that row's lane list,
-    prefixes each lane ``name`` with the MAP key prefix (``in_``/``out_``),
-    renders the value to VARCHAR (matching the overlay), and packs every pair
-    into one MAP. References the row's nested columns directly, so it must
-    appear in a SELECT over the parquet relation (where ``inputs`` etc. are in
-    scope). Empty / NULL lane lists contribute nothing → an empty MAP.
-
-    MAP keys are intentionally ``in_``/``out_`` (not ``input_``/``output_``)
-    so steps_query and run_store consumers that split on these prefixes keep
-    working unchanged (out of scope for this cluster).
+    Read-time equivalent of the old ingest-time ``dynamic_attrs`` MAP, but
+    split by role (the caller picks ``inputs`` xor ``outputs`` — never
+    prefixed) and computed at query time instead of stored (projection-
+    normalization, 0.3.1: "derive the inline map at query time... when a view
+    needs it").
     """
-    parts = " UNION ALL ".join(
-        f"SELECT '{prefix}_' || e.name AS k, {_LANE_VALUE_VARCHAR} AS v FROM UNNEST({col}) AS t(e)"
-        for col, prefix in prefixes
-    )
-    return (
-        "COALESCE("
-        f"(SELECT MAP(list(k), list(v)) FROM ({parts}) WHERE k IS NOT NULL), "
-        "MAP(ARRAY[]::VARCHAR[], ARRAY[]::VARCHAR[]))"
-    )
+    cols = ", ".join(group_cols)
+    return f"""
+        SELECT {cols}, MAP(list(name), list({_LANE_VALUE_VARCHAR_COLS})) AS {map_alias}
+        FROM {table}
+        GROUP BY {cols}
+    """
 
 
-# Fixed column names that go directly into measurements_materialized as
-# named columns. The dynamic ``inputs``/``outputs`` lanes are packed into
-# ``dynamic_attrs MAP(VARCHAR,VARCHAR)`` (rebuilt from the lanes); the long
-# ``measurements_dynamic`` EAV table holds the typed lanes for the projection.
+# Fixed column names that go directly into measurements_materialized as named
+# columns (measurement's own fields + step-level context + the run_id FK — NO
+# run identity, see the table's docstring in _ensure_schema). The dynamic
+# ``inputs``/``outputs`` lanes are NOT packed onto this table at all — they
+# land in the honestly-named ``inputs``/``outputs`` tables (see _lane_insert);
+# the ``measurements`` view derives ``inputs_map``/``outputs_map`` from those
+# at query time when a reader needs them (projection-normalization, 0.3.1).
 _MEAS_FIXED_COLS: frozenset[str] = frozenset(
     {
         "record_type",
         "run_id",
-        "session_id",
-        "site_index",
-        "site_name",
-        "run_started_at",
-        "run_ended_at",
-        "run_outcome",
-        "uut_serial_number",
-        "uut_part_number",
-        "uut_revision",
-        "uut_lot_number",
-        "part_id",
-        "part_name",
-        "part_revision",
-        "station_id",
-        "station_name",
-        "station_hostname",
-        "station_type",
-        "station_location",
-        "fixture_id",
-        "test_phase",
-        "project_name",
-        "operator_id",
-        "operator_name",
-        "git_commit",
-        "git_branch",
-        "git_remote",
-        "python_version",
-        "litmus_version",
-        "env_fingerprint",
         "step_name",
         "step_index",
         "step_path",
@@ -1114,9 +1032,7 @@ def _measurement_unnest_insert(src: str, *, file_path_expr: str) -> str:
 
     Context columns come from the carrier row ``v`` (a vector row for a
     vector-scope measurement, a step row for a step-scope one); measurement
-    columns from the nested struct ``m``; ``dynamic_attrs`` from the carrier's
-    own already-merged in/out lanes (each row's inputs already contain every
-    enclosing condition — no chain-walk). ``INSERT BY NAME`` aligns the SELECT
+    columns from the nested struct ``m``. ``INSERT BY NAME`` aligns the SELECT
     output names with ``measurements_materialized``.
 
     ``vector_index`` carries two roles, kept apart here: a vector row stamps its
@@ -1129,28 +1045,17 @@ def _measurement_unnest_insert(src: str, *, file_path_expr: str) -> str:
     ctx_cols = sorted(_MEAS_FIXED_COLS - _MEAS_MEASUREMENT_COLS - _exclude)
     ctx = ", ".join(f"v.{c}" for c in ctx_cols)
     meas = ", ".join(f"m.{s} AS {f}" for s, f in _MEAS_STRUCT_TO_FACT)
-    map_expr = _dynamic_attrs_map_expr()
-    # The dynamic_attrs MAP is carrier-grained — every measurement on a carrier
-    # shares that carrier's in/out lanes — so build it ONCE per carrier in a
-    # materialized CTE and inherit it through the UNNEST, instead of the
-    # correlated map_expr re-running per measurement row (the per-measurement
-    # rebuild was ~25ms of a 5000-measurement ingest). Identical bytes.
     return f"""
         INSERT INTO measurements_materialized BY NAME
-        WITH carrier AS MATERIALIZED (
-            SELECT *, {map_expr} AS dynamic_attrs
-            FROM {src}
-            WHERE record_type IN ('step', 'vector')
-        )
         SELECT
             {file_path_expr} AS file_path,
             'measurement' AS record_type,
             {ctx},
             CASE WHEN v.record_type = 'vector' THEN v.vector_index END AS vector_index,
             v.vector_outer_index AS vector_outer_index,
-            {meas},
-            v.dynamic_attrs AS dynamic_attrs
-        FROM carrier AS v, UNNEST(v.measurements) AS t(m)
+            {meas}
+        FROM {src} AS v, UNNEST(v.measurements) AS t(m)
+        WHERE v.record_type IN ('step', 'vector')
     """
 
 
@@ -1196,15 +1101,14 @@ def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[
 
 
 def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) -> None:
-    """Insert measurement rows from one parquet into the core + dynamic tables.
+    """Insert measurement rows from one parquet into the core + lane tables.
 
     Fixed columns go to ``measurements_materialized`` (``INSERT BY NAME`` aligns
     them with ``RUN_ROW_SCHEMA``). The nested ``inputs``/``outputs`` lanes are
-    (a) packed per-row into ``dynamic_attrs MAP(VARCHAR,VARCHAR)`` — the shape
-    the query layer reads, identical to the in-flight overlay's MAP — and (b)
-    UNNESTed into ``measurements_dynamic`` at vector grain (``DISTINCT`` collapses
-    the per-measurement-row denormalization). One-time cost at ingest; subsequent
-    queries hit native tables instead of re-scanning parquet footers.
+    UNNESTed into the honestly-named ``inputs``/``outputs`` tables at vector
+    grain (``DISTINCT`` collapses the per-measurement-row denormalization).
+    One-time cost at ingest; subsequent queries hit native tables instead of
+    re-scanning parquet footers.
     """
     escaped = _sql_escape(fkey)
     src = f"read_parquet('{escaped}', union_by_name=true)"
@@ -1212,23 +1116,16 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
     # DELETE first so re-ingest is idempotent (file granularity — measurement
     # rows have no single-column unique key across files).
     conn.execute("DELETE FROM measurements_materialized WHERE file_path = ?", [fkey])
-    conn.execute("DELETE FROM measurements_dynamic WHERE file_path = ?", [fkey])
+    conn.execute("DELETE FROM inputs WHERE file_path = ?", [fkey])
+    conn.execute("DELETE FROM outputs WHERE file_path = ?", [fkey])
 
     conn.execute(_measurement_unnest_insert(src, file_path_expr=f"'{escaped}'"))
 
-    # Long EAV projection — vector grain. Drawn from step + vector rows (the
-    # lane carriers); DISTINCT collapses any duplication back to one row per
-    # (vector, role, name).
-    union_sql = _dynamic_unnest_union(src, where="record_type IN ('step', 'vector')")
-    conn.execute(f"""
-        INSERT INTO measurements_dynamic
-        SELECT DISTINCT
-            '{escaped}' AS file_path, run_id, step_index, step_path,
-            vector_index, vector_outer_index, vector_retry,
-            role, name, value_type, value_int, value_double, value_bool, value_text,
-            value_timestamp, value_json, unit, uut_pin
-        FROM ({union_sql})
-    """)
+    # Long EAV projections — vector grain, one honestly-named table per role.
+    # Drawn from step + vector rows (the lane carriers); DISTINCT (inside
+    # _lane_insert) collapses any duplication back to one row per (vector, name).
+    for col, table in _LANE_TABLES:
+        _lane_insert(conn, table, col, src, file_path_expr=f"'{escaped}'")
 
 
 def _instrument_unnest_insert(src: str, *, file_path_expr: str) -> str:
@@ -1238,24 +1135,15 @@ def _instrument_unnest_insert(src: str, *, file_path_expr: str) -> str:
     ``LIST<STRUCT>``; the grain is one row per instrument per run. Struct field
     ``name`` maps to column ``role`` and ``id`` maps to ``instrument_id`` to
     avoid shadowing run-level names; the rest are direct. ``INSERT BY NAME``
-    aligns the SELECT output names with ``instruments_materialized``.
+    aligns the SELECT output names with ``instruments_materialized`` (instrument's
+    own fields + the run_id FK — no run identity; the ``instruments`` view joins
+    ``runs`` for that — see _create_views).
     """
     return f"""
         INSERT INTO instruments_materialized BY NAME
         SELECT
             {file_path_expr} AS file_path,
             r.run_id,
-            r.session_id,
-            r.run_started_at,
-            r.run_ended_at,
-            r.run_outcome,
-            r.uut_serial_number,
-            r.uut_part_number,
-            r.part_id,
-            r.station_id,
-            r.station_hostname,
-            r.project_name,
-            r.operator_name,
             i.name AS role,
             i.id AS instrument_id,
             i.driver,
@@ -1379,17 +1267,12 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
     (``measurement_count``, ``duration_s``).
     """
     flist = _file_list_sql(parquet_paths)
-    # ``dynamic_attrs`` is rebuilt per group from whichever non-measurement
-    # row carries the lanes: a non-looping step carries its own
-    # inputs/outputs directly on its own step row (zero vector rows — no
-    # synthesized scope vector); a swept/looping step's own row
-    # (record_type='step', vector_index=NULL) falls into a separate group
-    # from each of its vector rows (vector_index 0..N), so every group still
-    # has exactly one qualifying row and ANY_VALUE of the per-row MAP is
-    # exact. The step grain is (step_path, step_retry, vector_index).
-    # ``step_retry`` is part of the grain so a rerun is a distinct row, never
-    # fused onto the prior attempt (the de-fuse).
-    map_expr = _dynamic_attrs_map_expr()
+    # The step grain is (step_path, step_retry, vector_index). ``step_retry``
+    # is part of the grain so a rerun is a distinct row, never fused onto the
+    # prior attempt (the de-fuse). No run identity and no ``dynamic_attrs``
+    # here (star schema, 0.3.1) — the ``steps``/``step_vectors`` views join
+    # ``runs`` for identity and derive ``inputs_map``/``outputs_map`` at query
+    # time from the ``inputs``/``outputs`` tables (see _create_views).
     conn.execute(f"""
         INSERT INTO steps_materialized BY NAME
         WITH grain AS (
@@ -1403,9 +1286,6 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 COALESCE(vector_outer_index, -1) AS vector_outer_index_key,
                 step_index,
                 filename AS file_path,
-                session_id,
-                site_index,
-                site_name,
                 step_name,
                 -- Each grain row draws timing/outcome from its own record kind: a
                 -- step-grain group (vector_index NULL) has the 'step' record; each
@@ -1431,11 +1311,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 CAST(COALESCE(
                     SUM(len(measurements)) FILTER (WHERE record_type IN ('step', 'vector')), 0
                 ) AS INTEGER) AS measurement_count,
-                ANY_VALUE(step_markers) FILTER (WHERE record_type = 'step') AS markers,
-                uut_serial_number,
-                station_id,
-                ANY_VALUE({map_expr}) FILTER (WHERE record_type IN ('step', 'vector'))
-                    AS dynamic_attrs
+                ANY_VALUE(step_markers) FILTER (WHERE record_type = 'step') AS markers
             FROM read_parquet({flist}, filename=true, union_by_name=true)
             -- Exclude the run record (record_type='run', step_path=''): steps
             -- are aggregated from 'step' + 'vector' rows only. Without this the
@@ -1445,8 +1321,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             GROUP BY
                 filename, run_id,
                 step_path, COALESCE(step_retry, 0), vector_index, vector_outer_index, step_index,
-                session_id, site_index, site_name, step_name,
-                uut_serial_number, station_id
+                step_name
         )
         SELECT
             *,
@@ -1469,19 +1344,13 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             vector_outer_index = excluded.vector_outer_index,
             step_index = excluded.step_index,
             file_path = excluded.file_path,
-            session_id = excluded.session_id,
-            site_index = excluded.site_index,
-            site_name = excluded.site_name,
             step_name = excluded.step_name,
             outcome = excluded.outcome,
             started_at = excluded.started_at,
             ended_at = excluded.ended_at,
             duration_s = excluded.duration_s,
             measurement_count = excluded.measurement_count,
-            markers = excluded.markers,
-            uut_serial_number = excluded.uut_serial_number,
-            station_id = excluded.station_id,
-            dynamic_attrs = excluded.dynamic_attrs
+            markers = excluded.markers
     """)
 
 
@@ -1657,8 +1526,9 @@ def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | 
         vector_index)``, aggregated; sweep variants get distinct rows.
       * ``measurement_stats`` — per-(file, step, name) rollup over
         rows where ``record_type = 'measurement'``.
-      * ``measurements_materialized`` — raw measurement rows with a
-        ``dynamic_attrs`` MAP (``in_``/``out_``-prefixed keys).
+      * ``measurements_materialized`` — raw measurement rows (measurement's own
+        fields only; no run identity, no ``dynamic_attrs``).
+      * ``inputs`` / ``outputs`` — long/EAV projection of the nested lane lists.
       * ``measurement_io_schema`` / ``measurement_refs`` — IO schema
         cache + ref-path index for the measurement rows in this file.
 
@@ -1802,26 +1672,59 @@ def _create_inflight_tables(conn: duckdb.DuckDBPyConnection) -> None:
 def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     """Create or replace the runtime views over the index tables.
 
-    All three data views follow the same UNION pattern: persistent rows
-    from the on-disk tables UNION ALL in-flight rows from the AccumulatorPool.
+    Star schema (projection-normalization, 0.3.1): the materialized tables
+    each carry only their own grain's columns + the ``run_id`` FK — run
+    identity lives once, in ``runs_materialized``. Every view below JOINs
+    ``runs_materialized`` back in so the view's column set (and every
+    query written against it) is unchanged from before the refactor —
+    "reads JOIN for identity" happens HERE, not duplicated into every
+    caller. ``dynamic_attrs`` is gone entirely (no stored MAP, no ``in_``/
+    ``out_`` prefix anywhere) — a caller that needs a per-row inputs/outputs
+    map derives it at query time from the ``inputs``/``outputs`` tables
+    (see ``run_store.get_measurements`` / ``StepsQuery``), not baked into
+    these shared views (would tax every yield/pareto/ppk query for a need
+    only two call sites have).
 
-    * ``runs`` / ``steps`` / ``measurements``: persisted TABLE rows UNION ALL
-      inflight Arrow snapshots, with finalized rows suppressed from the
-      inflight side so the parquet always wins once ingested.
-    * ``measurements_materialized`` stores raw measurement rows materialized from
-      parquet during ingest (O(1) query instead of O(n_files) parquet glob).
-    * ``inflight_measurements`` carries the current live measurement snapshot
-      so a running test's measurements are visible immediately, completing the
-      Run → Step → Measurements live hierarchy.
+    All data views follow the same UNION pattern: persistent rows from the
+    on-disk tables UNION ALL in-flight rows from the AccumulatorPool
+    (finalized rows suppressed from the inflight side so the parquet
+    always wins once ingested). The inflight overlay tables stay
+    denormalized (identity inline, no join) — they're an ephemeral,
+    replay-rebuilt-on-restart projection, never the drift source the
+    star schema targets; ``UNION ALL/BY NAME`` only needs matching
+    column NAMES, so the rejoined materialized side and the
+    still-denormalized inflight side line up without either needing to
+    match the other's internal shape.
     """
-    # measurements: persistent TABLE + inflight live snapshot.
-    # UNION BY NAME matches columns by name rather than position, so the
-    # inflight schema doesn't need to list columns in exactly the same order
-    # as measurements_materialized. file_path is the only column absent from
-    # the inflight side (no parquet file yet) — automatically NULL.
+    # measurements: persistent (narrow table JOINed with runs for identity)
+    # UNION BY NAME with the inflight live snapshot (already wide). UNION BY
+    # NAME matches columns by name rather than position, so the inflight
+    # schema doesn't need to list columns in exactly the same order.
+    # file_path is the only column absent from the inflight side (no parquet
+    # file yet) — automatically NULL.
     conn.execute("""
         CREATE OR REPLACE VIEW measurements AS
-        SELECT * FROM measurements_materialized
+        SELECT
+            m.file_path, m.record_type, m.run_id,
+            r.session_id, r.site_index, r.site_name,
+            r.started_at AS run_started_at, r.ended_at AS run_ended_at,
+            CAST(r.outcome AS VARCHAR) AS run_outcome,
+            r.uut_serial_number, r.uut_part_number, r.uut_revision, r.uut_lot_number,
+            r.part_id, r.part_name, r.part_revision,
+            r.station_id, r.station_name, r.station_hostname, r.station_type, r.station_location,
+            r.fixture_id, r.test_phase, r.project_name, r.operator_id, r.operator_name,
+            r.git_commit, r.git_branch, r.git_remote,
+            r.python_version, r.litmus_version, r.env_fingerprint,
+            m.step_name, m.step_index, m.step_path, m.step_outcome,
+            m.step_started_at, m.step_ended_at,
+            m.vector_index, m.vector_outer_index, m.vector_retry, m.vector_outcome,
+            m.measurement_name, m.measurement_value, m.measurement_outcome,
+            m.measurement_unit, m.measurement_timestamp,
+            m.limit_low, m.limit_high, m.limit_nominal, m.limit_comparator,
+            m.characteristic_id, m.spec_ref, m.uut_pin, m.fixture_connection,
+            m.instrument_name, m.instrument_resource, m.instrument_channel
+        FROM measurements_materialized m
+        LEFT JOIN runs_materialized r ON r.run_id = m.run_id
         UNION BY NAME
         SELECT
             record_type,
@@ -1840,8 +1743,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             measurement_unit, measurement_timestamp,
             limit_low, limit_high, limit_nominal, limit_comparator,
             characteristic_id, spec_ref, uut_pin, fixture_connection,
-            instrument_name, instrument_resource, instrument_channel,
-            dynamic_attrs
+            instrument_name, instrument_resource, instrument_channel
         FROM overlay.inflight_measurements
         WHERE run_id NOT IN (
             SELECT DISTINCT run_id FROM measurements_materialized
@@ -1849,13 +1751,11 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
 
-    # ``runs`` and ``steps`` are UNION views: persistent rows from
-    # the on-disk tables (parquet ingest) UNION ALL in-flight rows
-    # from the in-memory temp tables (refreshed from the
-    # ``AccumulatorPool`` via the Flight server's pre-query hook).
-    # Suppress in-flight rows whose ``run_id`` already has a
-    # finalized parquet — parquet has won and the in-flight
-    # projection is stale.
+    # ``runs`` is already the identity home — no join needed. Persistent rows
+    # UNION ALL in-flight rows from the in-memory overlay (refreshed from the
+    # ``AccumulatorPool``). Suppress in-flight rows whose ``run_id`` already
+    # has a finalized parquet — parquet has won and the in-flight projection
+    # is stale.
     conn.execute("""
         CREATE OR REPLACE VIEW runs AS
         SELECT * FROM runs_materialized
@@ -1887,9 +1787,20 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     # ``steps`` and ``step_vectors`` are the SAME dual-grain projection
     # (materialized ∪ live overlay) filtered by grain — so the column list lives
     # in ONE place (``_steps_all``); a new inflight_steps column is added once,
-    # not in two view bodies that must stay identical.
+    # not in two view bodies that must stay identical. The materialized side
+    # JOINs ``runs`` for identity (session_id/site_index/site_name/
+    # uut_serial_number/station_id) — the inflight side already carries these
+    # inline (see _accumulator_pool.INFLIGHT_STEPS_SCHEMA).
     _steps_all = """
-        SELECT * EXCLUDE (vector_index_key, vector_outer_index_key) FROM steps_materialized
+        SELECT
+            sm.run_id, sm.step_path, sm.step_retry, sm.vector_index, sm.vector_outer_index,
+            sm.step_index, sm.file_path,
+            r.session_id, r.site_index, r.site_name,
+            sm.step_name, sm.outcome, sm.started_at, sm.ended_at,
+            sm.duration_s, sm.measurement_count, sm.markers,
+            r.uut_serial_number, r.station_id
+        FROM steps_materialized sm
+        LEFT JOIN runs_materialized r ON r.run_id = sm.run_id
         UNION ALL BY NAME
         SELECT
             run_id,
@@ -1902,8 +1813,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
             duration_s, measurement_count,
-            markers, uut_serial_number, station_id,
-            dynamic_attrs
+            markers, uut_serial_number, station_id
         FROM overlay.inflight_steps
         WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
     """
@@ -1916,12 +1826,24 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     )
 
     # ``instruments``: one row per instrument per run, materialized from the
-    # run row's nested ``instruments`` LIST<STRUCT> at ingest. No inflight
-    # side — the inventory is a finalized-run projection (utilization, which
-    # would need the live event stream, is explicitly out of C5 scope).
+    # run row's nested ``instruments`` LIST<STRUCT> at ingest, JOINed with
+    # ``runs`` for identity. No inflight side — the inventory is a
+    # finalized-run projection (utilization, which would need the live event
+    # stream, is explicitly out of C5 scope).
     conn.execute("""
         CREATE OR REPLACE VIEW instruments AS
-        SELECT * FROM instruments_materialized
+        SELECT
+            im.file_path, im.run_id,
+            r.session_id,
+            r.started_at AS run_started_at, r.ended_at AS run_ended_at,
+            CAST(r.outcome AS VARCHAR) AS run_outcome,
+            r.uut_serial_number, r.uut_part_number, r.part_id,
+            r.station_id, r.station_hostname, r.project_name, r.operator_name,
+            im.role, im.instrument_id, im.driver, im.resource, im.protocol,
+            im.manufacturer, im.model, im.serial_number, im.firmware,
+            im.cal_due, im.cal_last, im.cal_certificate, im.cal_lab, im.mocked
+        FROM instruments_materialized im
+        LEFT JOIN runs_materialized r ON r.run_id = im.run_id
     """)
 
 
@@ -1941,10 +1863,9 @@ def _batch_insert_measurement_rows(
     each file before inserting so re-ingest is safe (mirrors ON CONFLICT
     DO UPDATE semantics for runs/steps, at file granularity).
 
-    The nested ``inputs``/``outputs`` lanes are packed per-row into
-    ``dynamic_attrs`` and UNNESTed into ``measurements_dynamic`` at vector grain,
-    each row keeping its own ``filename`` so multiple files coexist in one
-    statement.
+    The nested ``inputs``/``outputs`` lanes are UNNESTed into the
+    honestly-named ``inputs``/``outputs`` tables at vector grain, each row
+    keeping its own ``filename`` so multiple files coexist in one statement.
     """
     flist = "[" + ", ".join(f"'{_sql_escape(p)}'" for p in paths) + "]"
 
@@ -1954,10 +1875,8 @@ def _batch_insert_measurement_rows(
         f"DELETE FROM measurements_materialized WHERE file_path IN ({placeholders})",
         paths,
     )
-    conn.execute(
-        f"DELETE FROM measurements_dynamic WHERE file_path IN ({placeholders})",
-        paths,
-    )
+    conn.execute(f"DELETE FROM inputs WHERE file_path IN ({placeholders})", paths)
+    conn.execute(f"DELETE FROM outputs WHERE file_path IN ({placeholders})", paths)
 
     # ``union_by_name=true`` pads any column missing from the batch with NULL,
     # so we trust RUN_ROW_SCHEMA rather than null-coalescing per-column.
@@ -1967,18 +1886,8 @@ def _batch_insert_measurement_rows(
 
     conn.execute(_measurement_unnest_insert(src, file_path_expr="v.filename"))
 
-    union_sql = _dynamic_unnest_union(
-        src, where="record_type IN ('step', 'vector')", with_filename=True
-    )
-    conn.execute(f"""
-        INSERT INTO measurements_dynamic
-        SELECT DISTINCT
-            filename AS file_path, run_id, step_index, step_path,
-            vector_index, vector_outer_index, vector_retry,
-            role, name, value_type, value_int, value_double, value_bool, value_text,
-            value_timestamp, value_json, unit, uut_pin
-        FROM ({union_sql})
-    """)
+    for col, table in _LANE_TABLES:
+        _lane_insert(conn, table, col, src, file_path_expr="ctx.filename", with_filename=True)
 
 
 def _batch_insert_instrument_rows(

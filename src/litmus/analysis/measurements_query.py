@@ -1,11 +1,12 @@
 """Read-only query client over the runs DuckDB daemon.
 
 Each method sends SQL to the daemon over Arrow Flight against the
-``measurements`` view (the ``measurements_materialized`` table plus the
-in-flight overlay). Dynamic input/output fields are read by anchoring on
-the core ``measurements`` view and LEFT JOINing the typed
-``measurements_dynamic`` EAV table per referenced field. Returns typed
-rows (long-format, aggregated, or schema descriptions).
+``measurements`` view (the ``measurements_materialized`` table, JOINed with
+``runs`` for identity, plus the in-flight overlay). Dynamic input/output
+fields are read by anchoring on the core ``measurements`` view and LEFT
+JOINing the typed ``inputs``/``outputs`` tables (one honestly-named table per
+role — no ``role`` column, projection-normalization 0.3.1) per referenced
+field. Returns typed rows (long-format, aggregated, or schema descriptions).
 """
 
 from __future__ import annotations
@@ -192,9 +193,9 @@ def _resolve_selector(selector: str | FieldRef) -> str | FieldRef:
 def _eav_typed_expr(ref: FieldRef, alias: str) -> str:
     """Typed SQL expression selecting the correct value_* column from an EAV alias.
 
-    When ``value_type`` is ``None`` (field absent from ``measurements_dynamic``),
-    returns a typed-NULL expression so callers' ``IS NOT NULL`` filters yield
-    empty results rather than a SQL type error.
+    When ``value_type`` is ``None`` (field absent from the ``inputs``/
+    ``outputs`` table), returns a typed-NULL expression so callers'
+    ``IS NOT NULL`` filters yield empty results rather than a SQL type error.
     """
     vt = ref.value_type or ""
     if vt == "scalar:bool":
@@ -210,6 +211,16 @@ def _eav_typed_expr(ref: FieldRef, alias: str) -> str:
     if not vt:
         return "CAST(NULL AS DOUBLE)"
     return f"{alias}.value_text"
+
+
+# Which table a role-scoped EAV read hits — the table IS the role
+# (projection-normalization, 0.3.1: ``measurements_dynamic``'s ``role``
+# column is gone; a role-scoped query selects its matching table instead of
+# filtering ``role = 'input'``/``'output'``).
+_ROLE_TABLE: dict[FieldRole, str] = {
+    FieldRole.INPUT: "inputs",
+    FieldRole.OUTPUT: "outputs",
+}
 
 
 class _EAVJoins:
@@ -249,17 +260,14 @@ class _EAVJoins:
         clauses = []
         for alias, ref in self._joins:
             vkey = _VECTOR_KEY.format(a=alias)
-            role_pred = f" AND {alias}.role = '{sql_escape(ref.role.value)}'"
+            table = _ROLE_TABLE[ref.role]
             name_pred = f" AND {alias}.name = '{sql_escape(ref.name)}'"
             vtype_pred = (
                 f" AND {alias}.value_type = '{sql_escape(ref.value_type)}'"
                 if ref.value_type
                 else ""
             )
-            clauses.append(
-                f" LEFT JOIN measurements_dynamic {alias} ON {vkey}"
-                f"{role_pred}{name_pred}{vtype_pred}"
-            )
+            clauses.append(f" LEFT JOIN {table} {alias} ON {vkey}{name_pred}{vtype_pred}")
         return "".join(clauses)
 
 
@@ -1191,34 +1199,34 @@ class MeasurementsQuery:
     ) -> str | None:
         """Resolve the value_type for a (role, name) pair within the active filter scope.
 
-        Returns ``None`` when the field has no rows in ``measurements_dynamic``
-        within the filtered scope (the query will yield empty results — correct
-        absence-as-empty behaviour). Raises ``ValueError`` when multiple
-        value_types are present within the scope (ambiguity requires the caller
-        to supply an explicit ``value_type=`` on ``FieldRef``).
+        Returns ``None`` when the field has no rows in its role's table
+        (``inputs``/``outputs``) within the filtered scope (the query will
+        yield empty results — correct absence-as-empty behaviour). Raises
+        ``ValueError`` when multiple value_types are present within the scope
+        (ambiguity requires the caller to supply an explicit ``value_type=``
+        on ``FieldRef``).
 
         ``filters`` scopes the lookup via a join on ``measurements`` so a field
         that is mixed-type globally but uniform within the user's active filter
         (e.g. a date range or part filter) resolves cleanly without raising.
         """
+        table = _ROLE_TABLE[ref.role]
         filter_clauses = _filter_clauses(filters)
         if filter_clauses:
-            filter_join = f" JOIN measurements m ON {_VECTOR_KEY.format(a='measurements_dynamic')}"
+            filter_join = f" JOIN measurements m ON {_VECTOR_KEY.format(a=table)}"
             filter_where = " AND ".join(filter_clauses)
             sql = (
                 f"SELECT value_type, COUNT(*) AS cnt"
-                f" FROM measurements_dynamic{filter_join}"
-                f" WHERE measurements_dynamic.role = '{sql_escape(ref.role.value)}'"
-                f"   AND measurements_dynamic.name = '{sql_escape(ref.name)}'"
+                f" FROM {table}{filter_join}"
+                f" WHERE {table}.name = '{sql_escape(ref.name)}'"
                 f"   AND {filter_where}"
                 f" GROUP BY value_type"
             )
         else:
             sql = (
                 f"SELECT value_type, COUNT(*) AS cnt"
-                f" FROM measurements_dynamic"
-                f" WHERE role = '{sql_escape(ref.role.value)}'"
-                f"   AND name = '{sql_escape(ref.name)}'"
+                f" FROM {table}"
+                f" WHERE name = '{sql_escape(ref.name)}'"
                 f" GROUP BY value_type"
             )
         rows = self._query_dicts(sql)
@@ -1402,9 +1410,9 @@ class MeasurementsQuery:
         otherwise selecting one value would collapse the option list
         to that one value.
 
-        ``role`` filters the ``measurements_dynamic`` EAV table when
-        ``column`` is ``"name"`` — use it to enumerate only input or
-        output field names.
+        ``role`` selects the ``inputs``/``outputs`` table (the table IS the
+        role — projection-normalization, 0.3.1) when ``column`` is ``"name"``
+        — use it to enumerate only input or output field names.
 
         Counts are aggregated so the UI can show "PN-100 (12,304)" —
         useful for spotting which buckets actually have data.
@@ -1412,21 +1420,19 @@ class MeasurementsQuery:
         col = facet_sql_expr(column) or _safe_ident(column)
         if role is not None:
             role_val = FieldRole(role) if isinstance(role, str) else role
+            table = _ROLE_TABLE[role_val]
             scoped = _filters_excluding(filters, column) if exclude_self else filters
             filter_clauses = _filter_clauses(scoped)
-            role_clause = f" AND role = '{sql_escape(role_val.value)}'"
             clauses = [f"{col} IS NOT NULL", *filter_clauses]
-            # measurements_dynamic has no run-level columns; join measurements
+            # inputs/outputs have no run-level columns; join measurements
             # to apply FilterSet predicates when filters are present.
             join_sql = (
-                f" JOIN measurements m ON {_VECTOR_KEY.format(a='measurements_dynamic')}"
-                if filter_clauses
-                else ""
+                f" JOIN measurements m ON {_VECTOR_KEY.format(a=table)}" if filter_clauses else ""
             )
-            dyn_where = " WHERE " + " AND ".join(clauses) + role_clause
+            dyn_where = " WHERE " + " AND ".join(clauses)
             sql = f"""
             SELECT {col} AS value, COUNT(*) AS count
-            FROM measurements_dynamic{join_sql}{dyn_where}
+            FROM {table}{join_sql}{dyn_where}
             GROUP BY {col}
             ORDER BY count DESC, value ASC
             LIMIT {int(limit)}

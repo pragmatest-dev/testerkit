@@ -10,7 +10,9 @@ Each Litmus run produces **one Parquet file**. The file has two layers: the at-r
 
 **Measurements are nested, not rows.** Measurements live in a `measurements` column — a typed nested list (`LIST<STRUCT>`) — on whichever row owns them: the **step row** for a directly-measured step, or the **vector row** for a swept one. Each struct holds `name`, `value`, `unit`, `outcome`, `timestamp`, `limit_*`, `characteristic_id`, `spec_ref`, and signal-path fields (`uut_pin`, `fixture_connection`, `instrument_*`). There is no at-rest `record_type = 'measurement'` row.
 
-**Query projection — four virtual types.** The query projection UNNESTs the nested measurements from **both step and vector rows** into a flat fact and presents a fourth virtual row type `record_type = 'measurement'` in query results. All `WHERE record_type = 'measurement'` queries target this projected view, not the at-rest file. The `inputs` / `outputs` lanes (from either row type) are also projected into the `measurements_dynamic` EAV table (keyed by `role` and `name`) for query-time access. Query output shape is byte-stable regardless of at-rest format changes.
+**Query projection — four virtual types.** The query projection UNNESTs the nested measurements from **both step and vector rows** into a flat fact and presents a fourth virtual row type `record_type = 'measurement'` in query results. All `WHERE record_type = 'measurement'` queries target this projected view, not the at-rest file. The `inputs` / `outputs` lanes (from either row type) are also projected into two separate EAV tables, `inputs` and `outputs` (the table name IS the role — no `role` column), for query-time access. Query output shape is byte-stable regardless of at-rest format changes.
+
+**Run identity lives once.** The query projection's derived tables each carry only their own grain's columns plus a `run_id` foreign key — run identity (UUT / station / part / project / git / environment context) lives once, in the `runs` table, and every other query view (`steps`, `measurements`, `instruments`) joins it back in. Reads always see the same full column set as before; only the storage underneath is normalized.
 
 This page mirrors the canonical at-rest schema; the column names and types here match what `read_parquet` returns.
 
@@ -172,7 +174,7 @@ WHERE record_type = 'run';
 
 At rest, a step's commanded conditions — or, for a swept iteration, a vector's — are stored in that row's `inputs` column as a typed nested list: `LIST<STRUCT<name, value_type, value_int, value_double, value_bool, value_text, value_timestamp, value_json, unit, uut_pin>>`. One struct per parameter; `value_type` selects which `value_*` field holds the actual value.
 
-The Query API projects these lane structs into the `measurements_dynamic` EAV table (keyed by `role='input'` and `name`) for query-time access. See [Query API](query-api.md) for how to select input fields in analysis.
+The Query API projects these lane structs into the `inputs` EAV table (keyed by `name` — the table IS the role) for query-time access. See [Query API](query-api.md) for how to select input fields in analysis.
 
 **Entry structure** (one item in the `inputs` list):
 
@@ -210,7 +212,7 @@ Stimulus signal-path sub-fields for each param (also stored in the `inputs` lane
 
 ## Observations (`outputs` lane — at-rest format)
 
-Observations are measured context — readings captured during the test, not commanded values. Stored at rest in the `outputs` column with the same `LIST<STRUCT>` shape as `inputs`. The Query API projects these into the `measurements_dynamic` EAV table with `role='output'`.
+Observations are measured context — readings captured during the test, not commanded values. Stored at rest in the `outputs` column with the same `LIST<STRUCT>` shape as `inputs`. The Query API projects these into the `outputs` EAV table.
 
 Each struct entry encodes one observation under `name`. Non-scalar payloads route to the `_ref/` sibling directory and are stored as `file://` URIs with `value_type = 'uri'` in the `value_text` field:
 
@@ -308,13 +310,12 @@ def test_example(run_context, psu, dmm, verify):
 
 At rest, custom metadata is stored as a JSON blob in the Parquet **file-level metadata** under the key `custom_metadata` — not as a column in the row data. It is run-scoped (one blob per file, not one entry per measurement).
 
-## `measurements_dynamic` EAV table (query projection)
+## `inputs` / `outputs` EAV tables (query projection)
 
-The Query API projects all `inputs` and `outputs` lane entries into a long EAV table named `measurements_dynamic`. This is what the [Query API](query-api.md) reads when you select inputs or outputs by name.
+The Query API projects all `inputs` and `outputs` lane entries into two long EAV tables, named `inputs` and `outputs` — the table name IS the role, so there is no `role` column. This is what the [Query API](query-api.md) reads when you select inputs or outputs by name.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `role` | string | `'input'` or `'output'` — which lane the entry came from |
 | `name` | string | Entry name as passed to `configure()` or `observe()` |
 | `value_type` | string | Value type tag (e.g. `scalar:float`, `scalar:int`, `scalar:bool`, `scalar:str`, `scalar:datetime`, `uri`, `list`, `dict`) |
 | `value_int` | int64 | Populated when `value_type = 'scalar:int'` |
@@ -330,7 +331,7 @@ The Query API projects all `inputs` and `outputs` lane entries into a long EAV t
 | `vector_index` | int64 | 0-based index within the step's sweep |
 | `vector_retry` | int64 | Retry counter |
 
-Querying this table directly is rarely needed — use the [Query API](query-api.md) (`FieldRef.input("vin")`, `FieldRef.output("v_rail")`) which joins it for you and handles type coherence (fails loud if a name carries mixed `value_type`s in scope; auto-resolves when unambiguous).
+Querying these tables directly is rarely needed — use the [Query API](query-api.md) (`FieldRef.input("vin")`, `FieldRef.output("v_rail")`) which joins the right one for you and handles type coherence (fails loud if a name carries mixed `value_type`s in scope; auto-resolves when unambiguous).
 
 ## Outcome values
 

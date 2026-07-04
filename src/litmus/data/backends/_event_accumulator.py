@@ -42,12 +42,19 @@ def _safe_str(value: Any) -> str | None:
     return str(value) if value else None
 
 
-def _pack_dynamic_attrs(inputs: dict[str, Any], outputs: dict[str, Any]) -> dict[str, str | None]:
-    """Build the dynamic_attrs MAP from inputs/outputs lane dicts."""
-    return {
-        **{f"in_{k}": _safe_str(v) for k, v in inputs.items()},
-        **{f"out_{k}": _safe_str(v) for k, v in outputs.items()},
-    }
+def _pack_io_maps(
+    inputs: dict[str, Any], outputs: dict[str, Any]
+) -> tuple[dict[str, str | None], dict[str, str | None]]:
+    """Render inputs/outputs lane dicts into two unprefixed VARCHAR maps.
+
+    Replaces the old merged, ``in_``/``out_``-prefixed ``dynamic_attrs`` MAP
+    (projection-normalization, 0.3.1) — the dict IS the role, so no prefix is
+    needed to tell them apart.
+    """
+    return (
+        {k: _safe_str(v) for k, v in inputs.items()},
+        {k: _safe_str(v) for k, v in outputs.items()},
+    )
 
 
 def _step_key(event: Any) -> tuple[str, int, int | None]:
@@ -297,6 +304,10 @@ class EventAccumulator:
                 if started_at and entry_ended_at
                 else None
             )
+            inputs_map, outputs_map = _pack_io_maps(
+                entry.get("inputs") or {},
+                entry.get("outputs") or {},
+            )
             rows.append(
                 {
                     "run_id": _safe_str(s.run_id),
@@ -320,10 +331,8 @@ class EventAccumulator:
                     "file_path": None,
                     "run_outcome": outcome,
                     "run_ended_at": ended_at,
-                    "dynamic_attrs": _pack_dynamic_attrs(
-                        entry.get("inputs") or {},
-                        entry.get("outputs") or {},
-                    ),
+                    "inputs_map": inputs_map,
+                    "outputs_map": outputs_map,
                 }
             )
         for entry in self._build_vector_results_from_events():
@@ -331,6 +340,10 @@ class EventAccumulator:
             v_ended = _to_datetime(entry.get("ended_at"))
             v_duration = (
                 round((v_ended - v_started).total_seconds(), 6) if v_started and v_ended else None
+            )
+            inputs_map, outputs_map = _pack_io_maps(
+                entry.get("inputs") or {},
+                entry.get("outputs") or {},
             )
             rows.append(
                 {
@@ -359,10 +372,8 @@ class EventAccumulator:
                     "file_path": None,
                     "run_outcome": outcome,
                     "run_ended_at": ended_at,
-                    "dynamic_attrs": _pack_dynamic_attrs(
-                        entry.get("inputs") or {},
-                        entry.get("outputs") or {},
-                    ),
+                    "inputs_map": inputs_map,
+                    "outputs_map": outputs_map,
                 }
             )
         return rows
@@ -405,7 +416,7 @@ class EventAccumulator:
                 ) or vectors_by_key.get((path, ev_voi, event.vector_index, 0))
                 in_lanes = (entry.get("inputs") if entry else None) or {}
                 out_lanes = (entry.get("outputs") if entry else None) or {}
-                row["dynamic_attrs"] = _pack_dynamic_attrs(in_lanes, out_lanes)
+                row["inputs_map"], row["outputs_map"] = _pack_io_maps(in_lanes, out_lanes)
                 row["vector_retry"] = entry.get("retry", 0) if entry else 0
                 row["vector_outcome"] = entry.get("outcome") if entry else None
                 row["step_outcome"] = None
@@ -416,7 +427,7 @@ class EventAccumulator:
                 step_entry = steps_by_key.get((path, getattr(event, "step_retry", 0) or 0, ev_voi))
                 in_lanes = (step_entry.get("inputs") if step_entry else None) or {}
                 out_lanes = (step_entry.get("outputs") if step_entry else None) or {}
-                row["dynamic_attrs"] = _pack_dynamic_attrs(in_lanes, out_lanes)
+                row["inputs_map"], row["outputs_map"] = _pack_io_maps(in_lanes, out_lanes)
                 row["vector_index"] = None
                 row["vector_retry"] = None
                 row["vector_outcome"] = None

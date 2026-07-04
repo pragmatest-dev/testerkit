@@ -382,19 +382,6 @@ _MATERIALIZATION_ONLY = {
 _MISSING = object()
 
 
-def _drop_null_map_entries(value: Any) -> Any:
-    """For a ``dynamic_attrs`` MAP, drop keys whose value is None.
-
-    The materialized side packs a file-wide UNION of dynamic columns and
-    pads keys absent from a given row with NULL. A NULL MAP entry is
-    semantically identical to the key being absent, so dropping NULLs on
-    both sides removes that padding noise without hiding a real value
-    (a non-NULL entry present on one side only still shows as drift)."""
-    if isinstance(value, dict):
-        return {k: v for k, v in value.items() if v is not None}
-    return value
-
-
 def _compare(
     label: str,
     inflight: dict[str, Any],
@@ -402,7 +389,16 @@ def _compare(
 ) -> list[tuple[str, Any, Any]]:
     """Return [(column, inflight_value, materialized_value)] for every
     materialized column whose normalized VALUE differs from the inflight
-    row. ``file_path`` is skipped (materialization-only)."""
+    row. ``file_path`` is skipped (materialization-only).
+
+    Only compares columns the MATERIALIZED row actually carries — post
+    projection-normalization (0.3.1), ``steps_materialized``/
+    ``measurements_materialized`` carry only their own grain's columns (no
+    run identity, no ``dynamic_attrs``/``inputs_map``/``outputs_map``), so
+    those keys simply never appear here even though the inflight snapshot
+    (still denormalized — see ``_accumulator_pool``) carries them. Nothing
+    to normalize away; there's no shared MAP-shaped column left to compare.
+    """
     diffs: list[tuple[str, Any, Any]] = []
     for col, mat_val in materialized.items():
         if col in _MATERIALIZATION_ONLY:
@@ -411,12 +407,8 @@ def _compare(
         if in_val is _MISSING:
             diffs.append((col, "<absent from inflight row>", mat_val))
             continue
-        a, b = in_val, mat_val
-        if col == "dynamic_attrs":
-            a = _drop_null_map_entries(a)
-            b = _drop_null_map_entries(b)
-        if _norm(a) != _norm(b):
-            diffs.append((col, a, b))
+        if _norm(in_val) != _norm(mat_val):
+            diffs.append((col, in_val, mat_val))
     return diffs
 
 

@@ -532,10 +532,10 @@ class TestParametric:
 
 @pytest.fixture(scope="module")
 def dynamic_axis_data() -> dict[str, str]:
-    """Two vectors with a swept input ``freq`` (in_*) and recorded ``vout``.
+    """Two vectors with a swept input ``freq`` and recorded ``vout``.
 
-    Exercises the EAV repoint: a dynamic ``in_freq`` axis is resolved by
-    joining ``measurements_dynamic`` on the vector key, not the MAP.
+    Exercises the EAV repoint: a dynamic ``freq`` input axis is resolved by
+    joining the ``inputs`` table on the vector key, not a MAP.
     """
     part = f"DYN-{uuid4().hex[:8]}"
     canonical_runs = resolve_data_dir() / "runs" / "dyn" / "2026-03-01"
@@ -837,8 +837,8 @@ class TestSummaryCounts:
 
 
 class TestResolveValueTypeMissEmpty:
-    """Fix #2: a (role, name) absent from measurements_dynamic yields empty
-    results rather than fabricating 'scalar:float' and returning wrong rows."""
+    """Fix #2: a (role, name) absent from its inputs/outputs table yields
+    empty results rather than fabricating 'scalar:float' and returning wrong rows."""
 
     def test_unknown_output_field_returns_empty_parametric(self):
         store = MeasurementsQuery()

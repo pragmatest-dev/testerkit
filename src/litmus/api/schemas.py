@@ -76,7 +76,7 @@ class MeasurementView(BaseModel):
     instrument_name: str | None = None
     instrument_resource: str | None = None
     instrument_channel: str | None = None
-    # Typed dicts decoded from the dynamic_attrs MAP (role-split into inputs/outputs)
+    # Typed dicts decoded from the query-time inputs_map/outputs_map (one per role)
     inputs: dict[str, Any] = {}
     outputs: dict[str, Any] = {}
 

@@ -1,22 +1,29 @@
 """Schema-consistency guard across the whole run plumbing.
 
-A run field is COLLECTED once (at rest, in ``RUN_ROW_SCHEMA``) but must be
-surfaced by every layer that reads runs back — otherwise it dies silently and
-is invisible to queries, with no error anywhere. The layers each independently
-list run columns and therefore drift apart:
+Two kinds of drift this file guards against, post projection-normalization
+(0.3.1):
 
-    RUN_ROW_SCHEMA (collected, at rest)
-      → INFLIGHT_RUNS_SCHEMA + snapshot_run_row   (live overlay)
-      → runs_materialized / _RUNS_PERSISTED_COLUMNS (ingested)
-      → the ``runs`` view
-      → RunRow                                     (the model consumers read)
+1. **Run identity** — a run field is COLLECTED once (at rest, in
+   ``RUN_ROW_SCHEMA``) and lives in exactly ONE place downstream: ``runs``
+   (``runs_materialized`` / ``RunRow`` / ``INFLIGHT_RUNS_SCHEMA``). That is
+   exactly how ``uut_revision`` — and ``station_type``/``station_location``,
+   ``operator_name``, ``part_name``/``part_revision``, and the git/env/version
+   block — were lost (2026-07-03): present at rest, dropped by every
+   projection. A new run column must be added to ALL THREE of the below (or,
+   for the live overlay only, declared finalization-only) — never left to
+   vanish. There is deliberately no equivalent check against
+   ``steps_materialized``/``measurements_materialized``/``instruments_materialized``
+   any more — those tables carry NO run identity by design (star schema:
+   identity lives once, in ``runs``; the ``steps``/``measurements``/
+   ``instruments`` VIEWS join it back in, see ``_create_views``), so there is
+   nothing to propagate-and-drift there.
 
-That is exactly how ``uut_revision`` — and ``station_type``/``station_location``,
-``operator_name``, ``part_name``/``part_revision``, and the git/env/version block
-— were lost (2026-07-03): present at rest, dropped by every projection. These
-tests assert each read layer surfaces every run-scoped column we collect. A new
-run column must be added to ALL of them (or, for the live overlay only, declared
-finalization-only) — never left to vanish.
+2. **Nested-struct fields** — the uniform rule for every OTHER derived table:
+   it surfaces every field of the at-rest nested struct it was UNNESTed from
+   (``measurements_materialized`` ← ``_MEASUREMENT_STRUCT``,
+   ``instruments_materialized`` ← ``_INSTRUMENT_STRUCT``, ``inputs``/
+   ``outputs`` ← ``_LANE_STRUCT``). No identity-propagation involved — just
+   "did the UNNEST forget a field."
 """
 
 from __future__ import annotations
@@ -24,11 +31,14 @@ from __future__ import annotations
 from litmus.analysis.runs_query import RunRow
 from litmus.data._accumulator_pool import INFLIGHT_RUNS_SCHEMA
 from litmus.data._runs_duckdb_daemon import (
+    _INSTRUMENTS_PERSISTED_COLUMNS,
+    _LANE_PERSISTED_COLUMNS,
     _MEASUREMENTS_PERSISTED_COLUMNS,
     _RUNS_PERSISTED_COLUMNS,
     _STEPS_PERSISTED_COLUMNS,
 )
-from litmus.data.schemas import _MEASUREMENT_STRUCT, RUN_ROW_SCHEMA
+from litmus.data.backends._row_helpers import LANE_FIELDS
+from litmus.data.schemas import _INSTRUMENT_STRUCT, _MEASUREMENT_STRUCT, RUN_ROW_SCHEMA
 
 # Non-run-scoped columns of RUN_ROW_SCHEMA — step / vector / measurement grain
 # and nested lanes. These belong to the step/measurement projections, not runs.
@@ -43,7 +53,7 @@ _NOT_RUN_SCOPED_PREFIXES = (
     "instrument_",
 )
 _NOT_RUN_SCOPED_EXACT = frozenset(
-    {"record_type", "inputs", "outputs", "measurements", "dynamic_attrs", "instruments", "uut_pin"}
+    {"record_type", "inputs", "outputs", "measurements", "instruments", "uut_pin"}
 )
 # The projections surface these three at-rest run columns under an alias.
 _ALIASES = {"run_started_at": "started_at", "run_ended_at": "ended_at", "run_outcome": "outcome"}
@@ -144,4 +154,38 @@ def test_measurements_materialized_surfaces_every_collected_measurement_column()
     missing = _collected_measurement_columns() - meas
     assert not missing, (
         f"measurements projection drops collected measurement-struct fields: {sorted(missing)}"
+    )
+
+
+# --- instruments grain -------------------------------------------------------
+
+# The instruments projection UNNESTs the nested ``_INSTRUMENT_STRUCT``;
+# ``name``/``id`` are renamed to avoid shadowing run-level names.
+_INSTRUMENT_FIELD_ALIASES = {"name": "role", "id": "instrument_id"}
+
+
+def _collected_instrument_columns() -> set[str]:
+    return {_INSTRUMENT_FIELD_ALIASES.get(str(f.name), str(f.name)) for f in _INSTRUMENT_STRUCT}
+
+
+def test_instruments_materialized_surfaces_every_collected_instrument_field() -> None:
+    instr = {c for c, _ in _INSTRUMENTS_PERSISTED_COLUMNS}
+    missing = _collected_instrument_columns() - instr
+    assert not missing, (
+        f"instruments projection drops collected instrument-struct fields: {sorted(missing)}"
+    )
+
+
+# --- inputs / outputs (EAV lane) grain --------------------------------------
+
+# ``inputs``/``outputs`` UNNEST the nested ``_LANE_STRUCT`` verbatim — no
+# aliasing (splitting the EAV by role, projection-normalization 0.3.1,
+# renames nothing).
+
+
+def test_lane_tables_surface_every_collected_lane_field() -> None:
+    lane_cols = {c for c, _ in _LANE_PERSISTED_COLUMNS}
+    missing = set(LANE_FIELDS) - lane_cols
+    assert not missing, (
+        f"inputs/outputs tables drop collected lane-struct fields: {sorted(missing)}"
     )

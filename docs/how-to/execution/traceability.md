@@ -188,7 +188,7 @@ with MeasurementsQuery() as q:
 
 ### Direct DuckDB (advanced)
 
-For ad-hoc queries, the `measurements` view in the DuckDB index carries the full flattened measurement fact (backed by `measurements_materialized` plus the in-flight overlay). Dynamic inputs and outputs are in `measurements_dynamic` — a list of name/value/unit entries per row, one row per (vector, role, name). See the [Parquet schema reference](../../reference/data/parquet-schema.md) for exact column and join-key names.
+For ad-hoc queries, the `measurements` view in the DuckDB index carries the full flattened measurement fact (backed by `measurements_materialized`, joined with `runs` for UUT/station/part identity, plus the in-flight overlay). Dynamic inputs and outputs are in two separate tables, `inputs` and `outputs` (the table name IS the role — no `role` column) — a list of name/value/unit entries per row, one row per (vector, name). See the [Parquet schema reference](../../reference/data/parquet-schema.md) for exact column and join-key names.
 
 ```sql
 -- All failed measurements with their UUT pin and instrument
@@ -207,19 +207,18 @@ SELECT
     m.uut_serial_number,
     m.measurement_name,
     m.measurement_value,
-    d.value_double AS vin
+    i.value_double AS vin
 FROM measurements m
-LEFT JOIN measurements_dynamic d
-    ON  d.run_id       = m.run_id
-    AND d.step_index   = m.step_index
-    AND d.vector_index = m.vector_index
-    AND d.vector_retry IS NOT DISTINCT FROM m.vector_retry
-    AND d.role         = 'input'
-    AND d.name         = 'vin'
+LEFT JOIN inputs i
+    ON  i.run_id       = m.run_id
+    AND i.step_index   = m.step_index
+    AND i.vector_index = m.vector_index
+    AND i.vector_retry IS NOT DISTINCT FROM m.vector_retry
+    AND i.name         = 'vin'
 WHERE m.measurement_outcome = 'failed';
 ```
 
-> **Note:** Direct parquet queries via `read_parquet()` see the nested `inputs` / `outputs` list columns, not flat `input_vin` columns. Use the DuckDB index (`measurements` view + `measurements_dynamic`) for flat access, or use the CSV export for pandas workflows.
+> **Note:** Direct parquet queries via `read_parquet()` see the nested `inputs` / `outputs` list columns, not flat `input_vin` columns. Use the DuckDB index (`measurements` view + the `inputs`/`outputs` tables) for flat access, or use the CSV export for pandas workflows.
 
 ## The traceability chain
 

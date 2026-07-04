@@ -273,7 +273,7 @@ def test_warm_measurements_query_under_200ms():
 # Parametric (dynamic-axis) query benchmarks — the EAV-join path the explore
 # UI uses. Seeded via the REAL write+ingest path (save_test_run ->
 # notify_new_run -> daemon UNNEST), NOT an in-memory store, so the benchmark
-# measures the production measurements_dynamic join under a unique part.
+# measures the production inputs/outputs EAV join under a unique part.
 # ---------------------------------------------------------------------------
 
 _PARAM_RUNS = int(os.environ.get("LITMUS_PERF_RUNS", "30"))
@@ -287,7 +287,7 @@ def parametric_dataset() -> str:
     """Seed a controlled dynamic-axis dataset; return its part_id.
 
     Each vector carries conditions (``temperature`` / ``vin``) so the
-    parametric query exercises the ``measurements_dynamic`` EAV join.
+    parametric query exercises the ``inputs``/``outputs`` EAV join.
     Written through the production path (``save_test_run`` ->
     ``notify_new_run`` -> daemon ingest); scoped to a unique part so
     ambient canonical data doesn't dilute the measurement.
@@ -658,14 +658,22 @@ def _seed_phase_parquet(tmp_path, n_vec: int, n_meas: int, serial: str = "PHASE-
 
 @pytest.mark.benchmark(group="daemon-ingest")
 def test_meas_rows_split(tmp_path):
-    """Split meas_rows into fact-without-MAP / fact-with-MAP / EAV. The MAP
-    build cost is (with - without). Run: -m benchmark -k meas_rows_split -s."""
+    """Split meas_rows ingest into fact insert / inputs+outputs lane inserts.
+
+    Projection-normalization (0.3.1) moved the dynamic_attrs MAP build OFF
+    the ingest path entirely (it's now derived at query time — see
+    ``run_store.get_measurements`` / ``StepsQuery``), so the fact insert no
+    longer pays a per-row MAP-build cost; this benchmark now just tracks the
+    two remaining ingest costs (fact, lane tables) so a future regression
+    that reintroduces per-row work at ingest shows up here.
+    Run: -m benchmark -k meas_rows_split -s.
+    """
     import time as _t
 
     from litmus.data._runs_duckdb_daemon import (
-        _dynamic_attrs_map_expr,
-        _dynamic_unnest_union,
+        _LANE_TABLES,
         _ensure_schema,
+        _lane_insert,
         _measurement_unnest_insert,
         _open_index,
         _sql_escape,
@@ -680,34 +688,25 @@ def test_meas_rows_split(tmp_path):
     conn, _ = _open_index(tmp_path / "idx.duckdb")
     _ensure_schema(conn)
 
-    with_map = _measurement_unnest_insert(src, file_path_expr=f"'{escaped}'")
-    no_map = with_map.replace(
-        _dynamic_attrs_map_expr(), "MAP(ARRAY[]::VARCHAR[], ARRAY[]::VARCHAR[])"
-    )
-    union_sql = _dynamic_unnest_union(src, where="record_type IN ('step', 'vector')")
-    eav = (
-        f"INSERT INTO measurements_dynamic SELECT DISTINCT "
-        f"'{escaped}' AS file_path, run_id, step_index, vector_index, vector_retry, "
-        f"role, name, value_type, value_int, value_double, value_bool, value_text, "
-        f"value_timestamp, value_json, unit, uut_pin FROM ({union_sql})"
-    )
+    fact_sql = _measurement_unnest_insert(src, file_path_expr=f"'{escaped}'")
 
-    def _ms(sql: str) -> float:
+    def _ms(fn: Callable[[], object]) -> float:
         t = _t.perf_counter()
-        conn.execute(sql)
+        fn()
         return (_t.perf_counter() - t) * 1000
 
-    base = _ms(no_map)
-    conn.execute("DELETE FROM measurements_materialized")
-    withmap = _ms(with_map)
-    eav_ms = _ms(eav)
+    fact_ms = _ms(lambda: conn.execute(fact_sql))
+
+    def _insert_lanes() -> None:
+        for col, table in _LANE_TABLES:
+            _lane_insert(conn, table, col, src, file_path_expr=f"'{escaped}'")
+
+    lane_ms = _ms(_insert_lanes)
     conn.close()
 
     print(f"\nMEAS_ROWS SPLIT ({n_vec} vec x {n_meas} meas = {n_vec * n_meas} meas):")
-    print(f"  fact insert (no MAP)       {base:7.1f} ms")
-    print(f"  fact insert (with MAP)     {withmap:7.1f} ms")
-    print(f"  -> MAP build cost (delta)  {withmap - base:7.1f} ms")
-    print(f"  EAV insert (meas_dynamic)  {eav_ms:7.1f} ms")
+    print(f"  fact insert                {fact_ms:7.1f} ms")
+    print(f"  lane inserts (in+out)      {lane_ms:7.1f} ms")
 
 
 def test_batch_io_refs_matches_per_file(tmp_path):

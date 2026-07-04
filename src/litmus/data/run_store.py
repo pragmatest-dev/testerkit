@@ -24,7 +24,7 @@ import pyarrow.parquet as pq
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient, call_options
 from litmus.data._sql_helpers import sql_escape as _sql_escape
-from litmus.data.backends._row_helpers import _decode_dynamic_attrs_map
+from litmus.data.backends._row_helpers import _decode_io_maps
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import RunSummary
 
@@ -202,23 +202,60 @@ class RunStore:
         with ``union_by_name=true``) instead of reading the parquet file
         directly — DuckDB does the multi-file scan in C++ with predicate
         pushdown on ``run_id`` and avoids client-side parquet decoding.
+
+        Per-row ``inputs``/``outputs`` are derived at query time from the
+        ``inputs``/``outputs`` tables (projection-normalization, 0.3.1) —
+        LEFT JOINed and aggregated into a VARCHAR map per (role, vector
+        coordinate), same key the daemon's EAV joins have always used
+        (``run_id, step_index, step_path, vector_index, vector_outer_index,
+        vector_retry`` — no ``step_retry``: this is the measurement's own
+        FK, matching historical behavior exactly). ``None`` when a run has no
+        materialized rows for that (role, coordinate) — decodes to ``{}``.
         """
         prefix = self._id_prefix(run_id)
+        io_join = """
+            LEFT JOIN (
+                SELECT run_id, step_index, step_path, vector_index, vector_outer_index,
+                       vector_retry,
+                       MAP(list(name), list(
+                           CASE value_type
+                               WHEN 'scalar:bool'
+                                   THEN CASE WHEN value_bool THEN 'true' ELSE 'false' END
+                               WHEN 'scalar:int' THEN CAST(value_int AS VARCHAR)
+                               WHEN 'scalar:float' THEN CAST(value_double AS VARCHAR)
+                               WHEN 'scalar:datetime' THEN CAST(value_timestamp AS VARCHAR)
+                               WHEN 'list' THEN value_json
+                               WHEN 'dict' THEN value_json
+                               ELSE value_text
+                           END
+                       )) AS {map_col}
+                FROM {table}
+                GROUP BY run_id, step_index, step_path, vector_index,
+                    vector_outer_index, vector_retry
+            ) AS {alias} ON {alias}.run_id = m.run_id
+                AND {alias}.step_index = m.step_index
+                AND {alias}.step_path IS NOT DISTINCT FROM m.step_path
+                AND {alias}.vector_index IS NOT DISTINCT FROM m.vector_index
+                AND {alias}.vector_outer_index IS NOT DISTINCT FROM m.vector_outer_index
+                AND {alias}.vector_retry IS NOT DISTINCT FROM m.vector_retry
+        """
         try:
             rows = self._flight_query(f"""
-                SELECT *
-                FROM measurements
-                WHERE run_id LIKE '{_sql_escape(prefix)}%'
-                ORDER BY step_index, measurement_name
+                SELECT m.*, inputs_agg.inputs_map, outputs_agg.outputs_map
+                FROM measurements m
+                {io_join.format(alias="inputs_agg", table="inputs", map_col="inputs_map")}
+                {io_join.format(alias="outputs_agg", table="outputs", map_col="outputs_map")}
+                WHERE m.run_id LIKE '{_sql_escape(prefix)}%'
+                ORDER BY m.step_index, m.measurement_name
             """)
         except Exception as exc:
             logger.debug("Failed to query measurements for %s: %s", run_id, exc)
             return []
 
         for row in rows:
-            # pop removes dynamic_attrs from the dict before returning it
-            row["inputs"], row["outputs"] = _decode_dynamic_attrs_map(
-                row.pop("dynamic_attrs", None)
+            # pop removes the raw maps from the dict before returning it
+            row["inputs"], row["outputs"] = _decode_io_maps(
+                row.pop("inputs_map", None), row.pop("outputs_map", None)
             )
         return rows
 

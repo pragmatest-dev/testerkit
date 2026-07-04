@@ -364,7 +364,13 @@ INFLIGHT_STEPS_SCHEMA = pa.schema(
         ("markers", pa.string()),
         ("uut_serial_number", pa.string()),
         ("station_id", pa.string()),
-        ("dynamic_attrs", pa.map_(pa.string(), pa.string())),
+        # Two unprefixed maps — replaces the old merged, ``in_``/``out_``-
+        # prefixed ``dynamic_attrs`` MAP (projection-normalization, 0.3.1).
+        # The overlay has no long-EAV table to join against for live rows, so
+        # it keeps building these directly from the accumulator's in-memory
+        # dicts (cheap, no join) — see ``_event_accumulator._pack_io_maps``.
+        ("inputs_map", pa.map_(pa.string(), pa.string())),
+        ("outputs_map", pa.map_(pa.string(), pa.string())),
     ]
 )
 
@@ -427,7 +433,9 @@ INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
         ("instrument_name", pa.string()),
         ("instrument_resource", pa.string()),
         ("instrument_channel", pa.string()),
-        ("dynamic_attrs", pa.map_(pa.string(), pa.string())),
+        # Two unprefixed maps — see INFLIGHT_STEPS_SCHEMA above.
+        ("inputs_map", pa.map_(pa.string(), pa.string())),
+        ("outputs_map", pa.map_(pa.string(), pa.string())),
     ]
 )
 

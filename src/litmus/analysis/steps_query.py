@@ -22,10 +22,50 @@ from litmus.analysis.measurement_facets import ColumnSchema, FixedColumnDescript
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import multi_filter_clauses, sql_escape
-from litmus.data.backends._row_helpers import _decode_dynamic_attrs_map
+from litmus.data.backends._row_helpers import _decode_io_maps
 from litmus.data.data_dir import resolve_data_dir
 
 logger = logging.getLogger(__name__)
+
+# Read-time inputs/outputs map, LEFT JOINed onto ``steps``/``step_vectors``
+# (aliased ``s``) from the ``inputs``/``outputs`` tables (projection-
+# normalization, 0.3.1 — replaces the stored, prefixed ``dynamic_attrs`` MAP).
+# Grouped by the step's own FK coordinates INCLUDING ``step_retry`` (unlike
+# the measurements-side join in ``run_store.get_measurements`` — a step's own
+# grain has ``step_retry`` as part of its PK, so the join must too or two
+# reruns of the same step fan out into each other's values).
+_STEP_IO_VALUE_EXPR = """CASE value_type
+                WHEN 'scalar:bool' THEN CASE WHEN value_bool THEN 'true' ELSE 'false' END
+                WHEN 'scalar:int' THEN CAST(value_int AS VARCHAR)
+                WHEN 'scalar:float' THEN CAST(value_double AS VARCHAR)
+                WHEN 'scalar:datetime' THEN CAST(value_timestamp AS VARCHAR)
+                WHEN 'list' THEN value_json
+                WHEN 'dict' THEN value_json
+                ELSE value_text
+            END"""
+
+
+def _step_io_join(alias: str, table: str, map_col: str) -> str:
+    """LEFT JOIN clause aggregating ``table`` (``inputs``/``outputs``) into
+    ``map_col`` per (run_id, step_path, step_retry, vector_index,
+    vector_outer_index), joined onto the ``s`` alias."""
+    return f"""
+        LEFT JOIN (
+            SELECT run_id, step_path, step_retry, vector_index, vector_outer_index,
+                   MAP(list(name), list({_STEP_IO_VALUE_EXPR})) AS {map_col}
+            FROM {table}
+            GROUP BY run_id, step_path, step_retry, vector_index, vector_outer_index
+        ) AS {alias} ON {alias}.run_id = s.run_id
+            AND {alias}.step_path = s.step_path
+            AND {alias}.step_retry = s.step_retry
+            AND {alias}.vector_index IS NOT DISTINCT FROM s.vector_index
+            AND {alias}.vector_outer_index IS NOT DISTINCT FROM s.vector_outer_index
+    """
+
+
+_STEP_IO_JOINS = _step_io_join("inputs_agg", "inputs", "inputs_map") + _step_io_join(
+    "outputs_agg", "outputs", "outputs_map"
+)
 
 
 class StepRow(BaseModel):
@@ -66,10 +106,9 @@ class StepRow(BaseModel):
     markers: str | None = None
     uut_serial_number: str | None = None
     station_id: str | None = None
-    # Per-vector commanded inputs (in_*) and recorded outputs (out_*) —
-    # populated by the daemon by aggregating the unified parquet's
-    # in_*/out_* dynamic columns into a single dict per (step, vector).
-    # Empty for steps without any in_*/out_* dynamic columns.
+    # Per-vector commanded inputs and recorded outputs — decoded from the
+    # query-time inputs_map/outputs_map (see _STEP_IO_JOINS) into a dict per
+    # (step, vector). Empty for steps with no inputs/outputs rows.
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
 
@@ -139,12 +178,14 @@ class StepsQuery:
         """Run ``sql`` and hydrate each dict row into a :class:`StepRow`.
 
         Shared by the logical-step (``steps``) and condition-point
-        (``step_vectors``) reads — both surfaces share the row shape.
+        (``step_vectors``) reads — both surfaces share the row shape. ``sql``
+        is expected to select from the table aliased ``s`` plus
+        ``_STEP_IO_JOINS`` (``inputs_map``/``outputs_map``).
         """
         step_rows: list[StepRow] = []
         for r in self._query_dicts(sql):
             sr = StepRow(**r)
-            sr.inputs, sr.outputs = _decode_dynamic_attrs_map(r.get("dynamic_attrs"))
+            sr.inputs, sr.outputs = _decode_io_maps(r.get("inputs_map"), r.get("outputs_map"))
             step_rows.append(sr)
         return step_rows
 
@@ -161,7 +202,7 @@ class StepsQuery:
         :meth:`list_vectors_for_run`) and are nested onto the step by
         :meth:`tree_for_run`. Matches the run by id-prefix (8-char) so
         callers can pass either the full UUID or its short form. Each row
-        carries the step's own ``inputs`` (in_*) / ``outputs`` (out_*).
+        carries the step's own ``inputs``/``outputs``.
 
         Args:
             run_id: UUID or 8-char prefix.
@@ -170,16 +211,17 @@ class StepsQuery:
                 ``True`` to surface in-flight steps.
         """
         prefix = run_id[:8] if len(run_id) >= 8 else run_id
-        ended_clause = "" if include_incomplete else "AND ended_at IS NOT NULL"
+        ended_clause = "" if include_incomplete else "AND s.ended_at IS NOT NULL"
         return self._rows_from(f"""
-            SELECT *
-            FROM steps
-            WHERE run_id LIKE '{sql_escape(prefix)}%'
+            SELECT s.*, inputs_agg.inputs_map, outputs_agg.outputs_map
+            FROM steps AS s
+            {_STEP_IO_JOINS}
+            WHERE s.run_id LIKE '{sql_escape(prefix)}%'
             {ended_clause}
             -- Logical-step grain: no vector dimension to order on (a step's own
             -- vector_index is NULL). Its condition points are ordered in
             -- list_vectors_for_run, which adds vector_outer_index, vector_index.
-            ORDER BY step_index, step_retry
+            ORDER BY s.step_index, s.step_retry
         """)
 
     def list_vectors_for_run(
@@ -196,13 +238,14 @@ class StepsQuery:
         Ordered so each step's vectors read in execution order.
         """
         prefix = run_id[:8] if len(run_id) >= 8 else run_id
-        ended_clause = "" if include_incomplete else "AND ended_at IS NOT NULL"
+        ended_clause = "" if include_incomplete else "AND s.ended_at IS NOT NULL"
         return self._rows_from(f"""
-            SELECT *
-            FROM step_vectors
-            WHERE run_id LIKE '{sql_escape(prefix)}%'
+            SELECT s.*, inputs_agg.inputs_map, outputs_agg.outputs_map
+            FROM step_vectors AS s
+            {_STEP_IO_JOINS}
+            WHERE s.run_id LIKE '{sql_escape(prefix)}%'
             {ended_clause}
-            ORDER BY step_index, step_retry, vector_outer_index, vector_index
+            ORDER BY s.step_index, s.step_retry, s.vector_outer_index, s.vector_index
         """)
 
     def pareto(
@@ -286,20 +329,15 @@ class StepsQuery:
         Default excludes in-flight rows; pass ``include_incomplete=True``
         for the live timeline view.
         """
-        ended_clause = "" if include_incomplete else "AND ended_at IS NOT NULL"
-        rows = self._query_dicts(f"""
-            SELECT *
-            FROM steps
-            WHERE session_id = '{sql_escape(session_id)}'
+        ended_clause = "" if include_incomplete else "AND s.ended_at IS NOT NULL"
+        return self._rows_from(f"""
+            SELECT s.*, inputs_agg.inputs_map, outputs_agg.outputs_map
+            FROM steps AS s
+            {_STEP_IO_JOINS}
+            WHERE s.session_id = '{sql_escape(session_id)}'
             {ended_clause}
-            ORDER BY site_index, step_index, step_retry, vector_index
+            ORDER BY s.site_index, s.step_index, s.step_retry, s.vector_index
         """)
-        step_rows: list[StepRow] = []
-        for r in rows:
-            sr = StepRow(**r)
-            sr.inputs, sr.outputs = _decode_dynamic_attrs_map(r.get("dynamic_attrs"))
-            step_rows.append(sr)
-        return step_rows
 
     def tree_for_run(self, run_id: str) -> list[StepNode]:
         """Return the step tree for a run, built from ``step_path``.

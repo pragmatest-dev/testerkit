@@ -134,9 +134,10 @@ _INSTRUMENT_LIST = pa.list_(_INSTRUMENT_STRUCT)
 #
 # ``inputs`` / ``outputs`` are nested ``LIST<STRUCT<lanes>>`` columns (see
 # ``_LANE_STRUCT``), not wide ``in_*``/``out_*`` columns; the DuckDB daemon
-# projects them into the ``dynamic_attrs`` MAP and ``measurements_dynamic``
-# EAV table for queries. ``measurements`` is a nested ``LIST<STRUCT>`` on the
-# vector row; the daemon UNNESTs it into the flat measurement fact for queries.
+# UNNESTs them into the honestly-named ``inputs``/``outputs`` EAV tables (one
+# per role, no ``role`` column) for queries. ``measurements`` is a nested
+# ``LIST<STRUCT>`` on the vector row; the daemon UNNESTs it into the flat
+# measurement fact for queries.
 RUN_ROW_SCHEMA = pa.schema(
     [
         # Discriminator — 'run', 'step', or 'vector'

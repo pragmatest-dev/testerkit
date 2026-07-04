@@ -594,10 +594,14 @@ def uuts_from_runs() -> list[UUTRow]:
 
 
 def _instrument_id_usage_stats() -> dict[str, dict[str, Any]]:
-    """Run-count stats keyed by instrument id from ``instruments_materialized``.
+    """Run-count stats keyed by instrument id from the ``instruments`` view.
 
-    One row per (run, instrument) in the materialized table — no UNNEST needed.
-    Groups by ``instrument_id`` and counts distinct ``run_id`` per instrument.
+    One row per (run, instrument) — no UNNEST needed. Groups by
+    ``instrument_id`` and counts distinct ``run_id`` per instrument. Reads the
+    ``instruments`` VIEW (not the ``instruments_materialized`` table directly)
+    for ``run_outcome``/``run_started_at`` — those are run identity, joined in
+    from ``runs`` by the view (projection-normalization, 0.3.1); the
+    materialized table itself carries only the instrument's own fields.
     """
     from litmus.analysis.runs_query import RunsQuery
 
@@ -608,7 +612,7 @@ def _instrument_id_usage_stats() -> dict[str, dict[str, Any]]:
             COUNT(DISTINCT run_id) FILTER (WHERE run_outcome = 'passed') AS pass_count,
             COUNT(DISTINCT run_id) FILTER (WHERE run_outcome = 'failed') AS fail_count,
             MAX(run_started_at) AS last_run
-        FROM instruments_materialized
+        FROM instruments
         WHERE instrument_id IS NOT NULL AND instrument_id <> ''
         GROUP BY instrument_id
         ORDER BY runs DESC

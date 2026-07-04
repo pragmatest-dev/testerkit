@@ -1,7 +1,7 @@
 """Tests for observation pinning (#4 / #39).
 
 Verifies that uut_pin flows from _auto_traceability → Observation event →
-vector.observation_pins → at-rest outputs lane uut_pin → measurements_dynamic.uut_pin.
+vector.observation_pins → at-rest outputs lane uut_pin → outputs.uut_pin.
 
 Test plan:
   (a) observe() inside an active connection lands uut_pin on the Observation event
@@ -10,8 +10,8 @@ Test plan:
       observation_pins on the vector.
   (c) encode_lane_structs with pins passes uut_pin into the lane struct; without pins
       uut_pin is None.
-  (d) At-rest parquet written with pinned outputs lands uut_pin in
-      measurements_dynamic after daemon ingest; plain outputs have NULL.
+  (d) At-rest parquet written with pinned outputs lands uut_pin in the
+      outputs table after daemon ingest; plain outputs have NULL.
   (e) output_pins is excluded from the flat row dict (byte-stable output); uut_pin
       rides on the lane struct only.
 """
@@ -211,7 +211,7 @@ def test_flat_dict_no_output_pins_key() -> None:
 
 
 # ---------------------------------------------------------------------------
-# (d) Daemon ingest: uut_pin in measurements_dynamic
+# (d) Daemon ingest: uut_pin in the outputs table
 # ---------------------------------------------------------------------------
 
 
@@ -287,11 +287,13 @@ def _query_eav(run_id: str) -> list[dict]:
     runs_dir = resolve_data_dir() / "runs"
     location = runs_duckdb_manager.acquire(runs_dir)
     client = FlightQueryClient(location, "runs")
+    # outputs IS the role — no ``role`` column/predicate (projection-
+    # normalization, 0.3.1: measurements_dynamic split into inputs/outputs).
     return client.query(
         f"""
         SELECT name, unit, uut_pin
-        FROM measurements_dynamic
-        WHERE run_id = '{run_id}' AND role = 'output'
+        FROM outputs
+        WHERE run_id = '{run_id}'
         ORDER BY name
         """
     )

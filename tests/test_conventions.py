@@ -131,8 +131,8 @@ def test_query_clients_read_daemon_not_parquet():
     A client-side ``read_parquet`` (the old ``StepsQuery._enrich_io``)
     bypasses the daemon's warm index, races the materialize write, and
     breaks the backend swap (a remote backend has no local parquet
-    path). Per-vector inputs/outputs live in the index as
-    ``dynamic_attrs``; clients read them from the daemon, not the files.
+    path). Per-vector inputs/outputs live in the index as the ``inputs``/
+    ``outputs`` tables; clients read them from the daemon, not the files.
     """
     offenders: list[tuple[Path, int, str]] = []
     for path in sorted((_REPO_ROOT / "src" / "litmus" / "analysis").glob("*_query.py")):
@@ -259,12 +259,23 @@ def test_filestore_reads_dont_glob_the_blob_layout():
 
 
 def test_inflight_schemas_carry_materialized_data_columns():
-    """Inflight overlay must carry the same data columns as the materialized
-    tables, so a live run renders identically to a finalized one.
+    """Inflight overlay must carry the columns a live run needs to render
+    identically to a finalized one.
 
-    Removing ``dynamic_attrs`` / ``vector_index`` from
-    either the inflight schema or the materialized table is the #228
-    projection-drift bug — caught here against the real schema.
+    Removing ``vector_index`` from either the inflight schema or the
+    materialized table is the #228 projection-drift bug — caught here
+    against the real schema.
+
+    ``inputs_map``/``outputs_map`` are NOT compared against the materialized
+    tables any more: post projection-normalization (0.3.1),
+    ``steps_materialized``/``measurements_materialized`` carry NO
+    dynamic-value column at all, by design (identity + dynamic values live
+    once, reconstructed at query time — see ``_create_views`` /
+    ``run_store.get_measurements`` / ``StepsQuery``, which derive
+    ``inputs_map``/``outputs_map`` from the ``inputs``/``outputs`` tables
+    instead of a stored column). This test still guards that the INFLIGHT
+    overlay carries them — an accidental removal there would silently blank
+    a live run's inputs/outputs, the equivalent live-vs-finalized drift today.
     """
     import duckdb
 
@@ -280,25 +291,24 @@ def test_inflight_schemas_carry_materialized_data_columns():
     def mat_cols(table: str) -> set[str]:
         return {row[0] for row in conn.execute(f"DESCRIBE {table}").fetchall()}
 
-    checks = (
-        (
-            "steps_materialized",
-            INFLIGHT_STEPS_SCHEMA,
-            ("vector_index", "dynamic_attrs"),
-        ),
-        ("measurements_materialized", INFLIGHT_MEASUREMENTS_SCHEMA, ("dynamic_attrs",)),
-    )
     problems: list[str] = []
-    for table, schema, must_have in checks:
-        mat = mat_cols(table)
-        inflight = set(schema.names)
-        for col in must_have:
-            if col not in mat:
-                problems.append(f"{table} (materialized) is missing {col!r}")
-            if col not in inflight:
-                problems.append(f"{table} inflight schema is missing {col!r} (#228 drift)")
+    if "vector_index" not in mat_cols("steps_materialized"):
+        problems.append("steps_materialized (materialized) is missing 'vector_index'")
+    if "vector_index" not in set(INFLIGHT_STEPS_SCHEMA.names):
+        problems.append("INFLIGHT_STEPS_SCHEMA is missing 'vector_index' (#228 drift)")
+    for schema_name, schema in (
+        ("INFLIGHT_STEPS_SCHEMA", INFLIGHT_STEPS_SCHEMA),
+        ("INFLIGHT_MEASUREMENTS_SCHEMA", INFLIGHT_MEASUREMENTS_SCHEMA),
+    ):
+        names = set(schema.names)
+        for col in ("inputs_map", "outputs_map"):
+            if col not in names:
+                problems.append(
+                    f"{schema_name} is missing {col!r} — a live run's inputs/outputs "
+                    "would render blank"
+                )
     if problems:
         pytest.fail(
-            "Inflight overlay drifted from the materialized tables — a live "
-            "run would render differently from a finalized one:\n  " + "\n  ".join(problems)
+            "Inflight overlay drifted from what a live run needs to render "
+            "correctly:\n  " + "\n  ".join(problems)
         )
