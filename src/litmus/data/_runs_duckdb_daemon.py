@@ -4,9 +4,10 @@ Spawned as a detached process by ``RunsDuckDBManager.acquire()``.
 Maintains a persistent DuckDB index rebuilt incrementally from parquet files.
 Clients push new runs via ``do_put`` and query via ``do_get``.
 
-Startup is O(new files since last run): the daemon opens the existing
-``_index.duckdb``, signals ready immediately, then ingests only files not
-yet recorded in the ``_ingested`` table via a background thread.
+Startup is O(new files since last run): the daemon opens its content-addressed
+``_index.<fp>.duckdb`` (see "Derived-index versioning" below), signals ready
+immediately, then ingests only files not yet recorded in the ``_ingested``
+table via a background thread.
 
 Architectural rule: every storage shape that callers can query is a
 **precomputed TABLE**, not a view. Views over ``read_parquet(glob)``
@@ -48,7 +49,7 @@ from litmus.data._accumulator_pool import (
     INFLIGHT_STEPS_SCHEMA,
     AccumulatorPool,
 )
-from litmus.data._daemon_lifecycle import _pid_alive
+from litmus.data._daemon_lifecycle import _installed_version, _pid_alive
 from litmus.data._duckdb_flight_server import (
     shutdown_flight_server_in_daemon,
     start_flight_server_in_daemon,
@@ -58,12 +59,13 @@ from litmus.data.backends.parquet import materialize_run_to_parquet
 from litmus.data.models import Outcome
 from litmus.data.runs_duckdb_manager import RunsDuckDBManager
 from litmus.data.schema_dispatch import (
+    _ADAPTERS,
     SchemaVersionRefused,
     dispatch,
     report_schema_refusal,
     stamp_from_arrow_metadata,
 )
-from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
+from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, KNOWN_SCHEMA_VERSIONS, SchemaStore
 from litmus.models.data_options import RUN_ORPHAN_TIMEOUT_SECONDS
 from litmus.models.enums import Comparator
 
@@ -157,18 +159,27 @@ def _discard_index(index_path: Path) -> None:
     Path(f"{index_path}.wal").unlink(missing_ok=True)
 
 
-# ── Derived-index versioning (#47) ──────────────────────────────────
+# ── Derived-index versioning (#47, widened by #53 P1) ───────────────
 #
-# The ``_index.duckdb`` is a derived cache versioned by THREE independent axes
-# (see docs/_internal/explorations/derived-index-versioning.md):
-#   * at-rest ``schema_version`` — the parquet format (handled by schema_dispatch);
-#   * projection DEFINITION — the daemon's tables/views DDL shape (THIS);
-#   * engine format — DuckDB unreadable (handled by the corrupt self-heal above).
-# The corrupt self-heal only catches *unreadable* files; a readable-but-
-# wrong-shape stale index (old projection, valid parquet) would silently serve
-# the old shape or error when ``_create_views`` references a column the stale
-# tables lack. This closes that gap: stamp ``(schema_version,
-# projection_fingerprint)`` at build; on boot, rebuild if either differs.
+# See docs/_internal/explorations/derived-index-versioning.md §3/§10/§11.
+# The derived index is versioned by content-addressing the FILENAME, not by
+# comparing an in-file stamp on open:
+#
+#   * the FILENAME (``_index.<fp>.duckdb``) is the coexistence gate — ``fp``
+#     is a single widened fingerprint = sha256(projection DDL + the
+#     registered adapter-registry keys + the schema whitelist) for
+#     ``SchemaStore.RUNS``. A daemon computes its own fingerprint and opens
+#     ONLY the file named after it; every other ``_index.*.duckdb`` in the
+#     dir is left untouched (another version's file, or none yet).
+#   * the in-file ``_index_meta`` is PROVENANCE + a build-complete marker,
+#     not a shape gate — because the filename already encodes the exact
+#     read-path this code produces, a file at this path can only ever be
+#     shaped like this code's projection. What's left to guard is a crash
+#     mid-build (a correctly-named but incomplete file): the build-complete
+#     marker (``built_at``, written last) is absent → discard + rebuild.
+#   * the CORRUPT-FILE self-heal (Path 1 below, gated by
+#     ``_index_file_is_the_cause``) is unchanged — a DuckDB storage-format
+#     problem is orthogonal to fingerprinting.
 
 
 def _shape_ddl_prefixes() -> tuple[str, ...]:
@@ -176,17 +187,32 @@ def _shape_ddl_prefixes() -> tuple[str, ...]:
 
 
 def _projection_fingerprint() -> str:
-    """Deterministic hash of the projection DDL the daemon actually executes.
+    """Deterministic content-address of the daemon's full read-path.
 
     Single-sourced from the SAME strings :func:`_ensure_schema` +
     :func:`_create_views` run — a recording proxy captures every ``execute()``
     SQL as those functions build the schema on a throwaway ``:memory:`` DB, so
-    the fingerprint CANNOT drift from the real schema. Only shape-defining DDL
-    (``CREATE TABLE`` / ``CREATE OR REPLACE VIEW`` / ``ALTER TABLE`` /
-    ``CREATE INDEX`` / ``CREATE TYPE``) is hashed, whitespace-normalized so
-    indentation is irrelevant; nothing volatile (timestamps, paths) appears in
-    that DDL. Stable across re-open of an unchanged daemon; changes iff the DDL
-    changes (e.g. a new column in a CREATE or a ``_*_PERSISTED_COLUMNS`` tuple).
+    the DDL half of the hash CANNOT drift from the real schema. Only
+    shape-defining DDL (``CREATE TABLE`` / ``CREATE OR REPLACE VIEW`` /
+    ``ALTER TABLE`` / ``CREATE INDEX`` / ``CREATE TYPE``) is hashed,
+    whitespace-normalized so indentation is irrelevant; nothing volatile
+    (timestamps, paths) appears in that DDL.
+
+    Widened (#53 P1) beyond DDL to a true read-path content-address: folds in
+    the registered adapter-registry keys and the schema whitelist for
+    ``SchemaStore.RUNS`` (both sorted, so the hash is order-independent and
+    reproducible). This makes the fingerprint — and the index filename it
+    names (:func:`_index_file_name`) — fork on any read-*semantics* change,
+    not just a DDL change: registering a new adapter (which also adds its
+    version to the whitelist, see ``register_adapter``) changes the
+    fingerprint even when the projection DDL is untouched.
+
+    Residual edge (accepted pre-1.0): an adapter *code* change that does NOT
+    change its registered ``source_version`` key (e.g. a bugfix to an
+    existing adapter's transform) is invisible to this hash — the DDL,
+    adapter keys, and whitelist are all unchanged, so the fingerprint (and
+    the file it names) do not fork. A real fix for that case needs an
+    explicit adapter-version bump folded into this hash; out of scope here.
 
     ``_create_inflight_tables`` runs on the raw connection (its DROP/ATTACH and
     Arrow-API table creation are NOT projection shape and NOT recorded) purely
@@ -215,43 +241,68 @@ def _projection_fingerprint() -> str:
 
     prefixes = _shape_ddl_prefixes()
     ddl = [norm for sql in recorded if (norm := " ".join(sql.split())).upper().startswith(prefixes)]
-    return hashlib.sha256("\n".join(ddl).encode()).hexdigest()
+    adapter_keys = sorted(_ADAPTERS[SchemaStore.RUNS])
+    whitelist = sorted(KNOWN_SCHEMA_VERSIONS[SchemaStore.RUNS])
+    payload = "\n".join(
+        ["--ddl--", *ddl, "--adapters--", *adapter_keys, "--whitelist--", *whitelist]
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def _current_index_stamp() -> tuple[str, str]:
-    """The ``(schema_version, projection_fingerprint)`` this code expects."""
-    return CURRENT_SCHEMA_VERSION[SchemaStore.RUNS], _projection_fingerprint()
+def _index_file_name(fingerprint: str) -> str:
+    """The content-addressed index filename for a full 64-char *fingerprint*.
 
-
-def _stamp_index_meta(conn: duckdb.DuckDBPyConnection) -> None:
-    """Write the current ``(schema_version, projection_fingerprint)`` into ``_index_meta``.
-
-    Kept OUT of :func:`_ensure_schema` (it is versioning metadata, not
-    projection shape, so it must not feed its own fingerprint). Idempotent
-    upsert — safe to call on every (re)build.
+    A 12-char hex prefix is used in the name (birthday-safe past ~77k files —
+    8 would already do); the full digest lives inside the file as provenance
+    (:func:`_stamp_index_meta`).
     """
-    schema_version, fingerprint = _current_index_stamp()
-    conn.execute("CREATE TABLE IF NOT EXISTS _index_meta (key VARCHAR PRIMARY KEY, value VARCHAR)")
-    conn.execute(
-        "INSERT INTO _index_meta (key, value) VALUES ('schema_version', ?), "
-        "('projection_fingerprint', ?) "
-        "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-        [schema_version, fingerprint],
+    return f"_index.{fingerprint[:12]}.duckdb"
+
+
+def _current_provenance() -> tuple[str, str, str]:
+    """The ``(litmus_version, schema_version, projection_fingerprint)`` a
+    fresh build of this code would stamp."""
+    return (
+        _installed_version(),
+        CURRENT_SCHEMA_VERSION[SchemaStore.RUNS],
+        _projection_fingerprint(),
     )
 
 
-def _read_index_meta(conn: duckdb.DuckDBPyConnection) -> tuple[str | None, str | None]:
-    """Read the stored stamp; ``(None, None)`` when ``_index_meta`` is absent.
+def _stamp_index_meta(conn: duckdb.DuckDBPyConnection) -> None:
+    """Write this build's provenance into ``_index_meta`` and mark it complete.
 
-    A missing table is a pre-#47 index (no stamp ever written) — treated as a
-    mismatch by the caller, so it rebuilds.
+    Kept OUT of :func:`_ensure_schema` (it is versioning metadata, not
+    projection shape, so it must not feed its own fingerprint). The
+    build-complete marker (``built_at``) is written in a separate, LAST
+    statement — DuckDB autocommits each ``execute()`` — so a crash between
+    the provenance insert and this one leaves ``built_at`` absent, which
+    :func:`_open_index` reads as an incomplete build on the next open.
+    Idempotent upsert — safe to call on every (re)build.
     """
+    litmus_version, schema_version, fingerprint = _current_provenance()
+    conn.execute("CREATE TABLE IF NOT EXISTS _index_meta (key VARCHAR PRIMARY KEY, value VARCHAR)")
+    conn.execute(
+        "INSERT INTO _index_meta (key, value) VALUES "
+        "('litmus_version', ?), ('schema_version', ?), ('projection_fingerprint', ?) "
+        "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        [litmus_version, schema_version, fingerprint],
+    )
+    conn.execute(
+        "INSERT INTO _index_meta (key, value) VALUES ('built_at', ?) "
+        "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        [datetime.now(UTC).isoformat()],
+    )
+
+
+def _read_index_meta(conn: duckdb.DuckDBPyConnection) -> dict[str, str]:
+    """Read the stored provenance as a dict; ``{}`` when ``_index_meta`` is
+    absent (a pre-#53 index, or a build that never reached this table)."""
     try:
         rows = conn.execute("SELECT key, value FROM _index_meta").fetchall()
     except duckdb.Error:
-        return None, None
-    d = {str(k): v for k, v in rows}
-    return d.get("schema_version"), d.get("projection_fingerprint")
+        return {}
+    return {str(k): str(v) for k, v in rows}
 
 
 def _reset_index(index_path: Path) -> duckdb.DuckDBPyConnection:
@@ -263,7 +314,9 @@ def _reset_index(index_path: Path) -> duckdb.DuckDBPyConnection:
 
 
 def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
-    """Open the persistent DuckDB index and ensure schema is current.
+    """Open the content-addressed derived index at *index_path* (named
+    ``_index.<fp>.duckdb`` by the caller, see :func:`_index_file_name`) and
+    ensure its schema is current.
 
     ``is_fresh`` is ``True`` when the caller should treat the index as
     (re)built-from-scratch — either the file didn't exist, or it was discarded
@@ -271,25 +324,27 @@ def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
     repopulates it from parquet (its ``_ingested`` ledger is empty). The schema
     is idempotently aligned with the code via :func:`_ensure_schema`.
 
-    Two self-heal paths, both funnelling into a discard + rebuild (#47):
+    Two self-heal paths, both funnelling into a discard + rebuild:
 
-    1. **Unreadable file** (corrupt): a ``kill -9`` mid-write, a bad disk
+    1. **Unreadable file** (corrupt, #47): a ``kill -9`` mid-write, a bad disk
        block, a DuckDB storage-format bump on upgrade. Opening raises a DuckDB
        error; if a fresh probe confirms the fault is the *file* (not the
        environment — disk full / read-only, see :func:`_index_file_is_the_cause`)
        the index is discarded and reopened empty. An environmental fault
        re-raises — we never delete the derived index on a transient disk error.
-    2. **Readable but WRONG SHAPE** (stale projection): the file opens fine but
-       its stored ``(schema_version, projection_fingerprint)`` stamp differs
-       from what this code expects — the parquet format changed OR the daemon's
-       tables/views DDL changed (e.g. a projection refactor). A partial
-       ``ALTER``-migration by ``_ensure_schema`` can't fix restructured tables /
-       views, so the whole index is discarded and rebuilt from parquet. A
-       missing ``_index_meta`` (pre-#47 index) counts as a mismatch. First
-       version rebuilds the WHOLE index — safe, rare, off the critical path.
+    2. **Readable but BUILD-INCOMPLETE** (#53 P1): *this* path is named after
+       this code's own fingerprint — the projection DDL, adapter registry,
+       and schema whitelist that produced ``index_path``'s name are, by
+       construction, exactly this code's — so there is no shape left to
+       compare against a stored stamp. What CAN still be wrong is a crash
+       mid-build: the file was created but the build-complete marker
+       (``built_at`` in ``_index_meta``) was never written. A missing marker
+       is treated as an interrupted build and the whole index is discarded
+       and rebuilt from parquet.
 
-    Every (re)build re-stamps ``_index_meta``; a matching pre-existing index
-    opens normally with ``is_fresh=False``.
+    Every (re)build re-stamps ``_index_meta`` (provenance + build-complete
+    marker); a complete pre-existing index opens normally with
+    ``is_fresh=False``, rows intact.
     """
     is_fresh = not index_path.exists()
     conn: duckdb.DuckDBPyConnection | None = None
@@ -319,22 +374,16 @@ def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
         _stamp_index_meta(conn)
         return conn, True
 
-    # Path 2 — readable. Check the projection-shape stamp on a pre-existing
-    # index; a fresh one is stamped below without a check.
-    current = _current_index_stamp()
+    # Path 2 — readable. A pre-existing file with no build-complete marker
+    # was interrupted mid-build; a fresh file always needs (and gets) its
+    # first stamp below, unconditionally.
     if not is_fresh:
-        stored = _read_index_meta(conn)
-        if stored == current:
-            return conn, False  # shape current → normal open, keep the existing rows
-        stored_sv, stored_fp = stored
+        if "built_at" in _read_index_meta(conn):
+            return conn, False  # build complete → normal open, keep the existing rows
         logger.warning(
-            "Runs index at %s has a stale projection shape "
-            "(stored schema_version=%s fingerprint=%s; current schema_version=%s) — "
-            "discarding and rebuilding from parquet.",
+            "Runs index at %s has no build-complete marker (an interrupted "
+            "build) — discarding and rebuilding from parquet.",
             index_path,
-            stored_sv,
-            (stored_fp[:12] + "…") if stored_fp else None,
-            current[0],
         )
         try:
             conn.close()
@@ -343,6 +392,42 @@ def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
         conn = _reset_index(index_path)
     _stamp_index_meta(conn)
     return conn, True
+
+
+def _stamp_epochs_ledger(runs_dir: Path, fingerprint: str, litmus_version: str) -> None:
+    """Best-effort upsert of ``(fingerprint, litmus_version, last_seen)`` into
+    the shared ``_epochs.json`` ledger in *runs_dir* on daemon open.
+
+    This is the *write* half of the §6 GC signal (derived-index-versioning.md)
+    — a passive last-access record so a future ``litmus data index gc`` (P4)
+    can reap epochs nobody has opened recently, without opening every index
+    file. GC *policy* is out of scope here; this only stamps.
+
+    Keyed by the same 12-char prefix used in the index filename (matching the
+    file it describes 1:1) — collisions are astronomically unlikely at this
+    length (see :func:`_index_file_name`).
+
+    Deliberately best-effort: a ledger write is bookkeeping, never load-bearing
+    for correctness (the index itself is the source of truth), so any failure
+    (disk full, permissions, concurrent-write race) is logged and swallowed —
+    it must NEVER crash or fail the daemon.
+    """
+    ledger_path = runs_dir / "_epochs.json"
+    try:
+        try:
+            existing = json.loads(ledger_path.read_text())
+            data: dict[str, Any] = existing if isinstance(existing, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        data[fingerprint[:12]] = {
+            "litmus_version": litmus_version,
+            "last_seen": datetime.now(UTC).isoformat(),
+        }
+        tmp_path = ledger_path.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(data, indent=2, sort_keys=True))
+        tmp_path.replace(ledger_path)  # atomic rename — no torn/partial ledger
+    except OSError as exc:
+        logger.warning("Could not update epochs ledger at %s: %s", ledger_path, exc)
 
 
 def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
@@ -376,9 +461,16 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
       DBs gain the missing column with NULL for old rows.
     * Same for indexes: ``CREATE INDEX IF NOT EXISTS``.
 
-    Adding a new column = add it to the DDL below. Existing
-    ``_index.duckdb`` files migrate automatically on next spawn,
-    no re-ingest, no version bump, no special migration code.
+    Adding a new column = add it to the DDL below. This idempotent path keeps
+    a *given* index file self-migrating (no special migration code) across
+    additive DDL changes made before that file's fingerprint was computed
+    from it — e.g. re-running an already-current daemon after an in-place
+    code edit. It does NOT retrofit an already-built file after a real
+    release: a new column changes ``_projection_fingerprint()``, so the next
+    daemon opens a new, distinct ``_index.<fp>.duckdb`` and rebuilds from
+    parquet rather than ``ALTER``-ing the old file in place (content-address
+    isolation, see "Derived-index versioning" above; cheap copy-seed birth
+    instead of a full rescan is P2, not yet built).
     """
     # ENUM types — DuckDB has no CREATE TYPE IF NOT EXISTS. Try
     # to create; treat the "already exists" CatalogException as a
@@ -1566,12 +1658,16 @@ def _ingest_parquet_files(
     if not disk_entries:
         return
 
-    # Read _ingested under the lock — short read, no contention.
+    # Read _ingested under the lock — short read, no contention. This read
+    # also FREEZES the cascade-delete candidate set (used at the bottom of
+    # this function): only rows already in _ingested at sweep start are
+    # deletion candidates, so a run a concurrent notify_new_run/do_put
+    # ingests mid-sweep is never wrongly pruned (it isn't in this frozen set)
+    # and stays live-served. One read; no per-candidate work added.
     with lock:
-        ingested_keys: set[tuple[str, float, int]] = {
-            (row[0], row[1], row[2])
-            for row in conn.execute("SELECT path, mtime, size FROM _ingested").fetchall()
-        }
+        ingested_rows = conn.execute("SELECT path, mtime, size, status FROM _ingested").fetchall()
+    ingested_keys: set[tuple[str, float, int]] = {(r[0], r[1], r[2]) for r in ingested_rows}
+    frozen_ok_paths: set[str] = {r[0] for r in ingested_rows if r[3] == "ok"}
     needs_ingest = sorted(
         (e for e in disk_entries if (e[0], e[1], e[2]) not in ingested_keys),
         key=lambda e: e[1],  # sort by mtime
@@ -1597,14 +1693,15 @@ def _ingest_parquet_files(
         except Exception as exc:  # noqa: BLE001
             logger.debug("on_ingested callback failed: %s", exc)
 
-    # Cascade-delete rows whose source parquet is gone from disk.
+    # Cascade-delete rows whose source parquet is gone from disk. The
+    # candidate set is FROZEN to the sweep-start _ingested snapshot (read
+    # above, before this sweep's own ingest ran), so a run a concurrent
+    # notify ingested mid-sweep is never a candidate — it can't be wrongly
+    # pruned, and live/warm serving is never disrupted. Same cost as a plain
+    # set-difference; no per-candidate stat.
     disk_paths = {e[0] for e in disk_entries}
     with lock:
-        gone = [
-            row[0]
-            for row in conn.execute("SELECT path FROM _ingested WHERE status = 'ok'").fetchall()
-            if row[0] not in disk_paths
-        ]
+        gone = frozen_ok_paths - disk_paths
         for path_str in gone:
             _delete_file_rows(conn, path_str)
             warnings.warn(
@@ -2217,8 +2314,10 @@ def daemon_run(runs_dir: Path) -> None:
     """
     mgr = RunsDuckDBManager(runs_dir)
 
-    index_path = runs_dir / "_index.duckdb"
+    fingerprint = _projection_fingerprint()
+    index_path = runs_dir / _index_file_name(fingerprint)
     conn, _ = _open_index(index_path)
+    _stamp_epochs_ledger(runs_dir, fingerprint, _installed_version())
 
     # Writer lock — serializes the index WRITERS (materialize ingest,
     # do_put, background recovery) against each other on the daemon's
