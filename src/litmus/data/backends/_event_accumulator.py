@@ -725,9 +725,13 @@ class EventAccumulator:
             instruments=self._build_instrument_records(),
         )
         flat = row.to_flat_dict()
-        # record_type is already 'measurement' (constructed above); the nested
-        # measurements list has no place on the flat fact row.
+        # The nested measurements list has no place on the flat fact row. And
+        # record_type — set above only to satisfy the at-rest model and bypass
+        # the grain guard — is a projection vestige (the measurement fact is
+        # all-measurement by construction), so it's dropped from the inflight
+        # projection row too.
         flat.pop("measurements", None)
+        flat.pop("record_type", None)
         return flat
 
     def _build_step_results_from_events(self) -> list[dict[str, Any]]:

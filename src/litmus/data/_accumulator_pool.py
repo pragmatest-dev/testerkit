@@ -381,7 +381,6 @@ INFLIGHT_STEPS_SCHEMA = pa.schema(
 
 INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
     [
-        ("record_type", pa.string()),
         ("run_id", pa.string()),
         ("session_id", pa.string()),
         ("site_index", pa.int64()),

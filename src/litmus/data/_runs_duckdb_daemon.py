@@ -586,7 +586,6 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS measurements_materialized (
             file_path             VARCHAR NOT NULL,
-            record_type           VARCHAR NOT NULL DEFAULT 'measurement',
             run_id                VARCHAR,
             step_index            INTEGER,
             step_path             VARCHAR,
@@ -1209,7 +1208,6 @@ def _measurement_unnest_insert(src: str, *, file_path_expr: str) -> str:
         INSERT INTO measurements_materialized BY NAME
         SELECT
             {file_path_expr} AS file_path,
-            'measurement' AS record_type,
             v.run_id, v.step_index, v.step_path, COALESCE(v.step_retry, 0) AS step_retry,
             {proj_vi} AS vector_index,
             v.vector_outer_index AS vector_outer_index,
@@ -1697,8 +1695,8 @@ def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | 
       * ``runs_materialized`` — one row per ``run_id``, aggregated.
       * ``steps_materialized`` — one row per ``(run_id, step_path,
         vector_index)``, aggregated; sweep variants get distinct rows.
-      * ``measurement_stats`` — per-(file, step, name) rollup over
-        rows where ``record_type = 'measurement'``.
+      * ``measurement_stats`` — per-(file, step, name) rollup over the
+        ``measurements_materialized`` fact rows (all-measurement by construction).
       * ``measurements_materialized`` — raw measurement rows (measurement's own
         fields only; no run identity, no ``dynamic_attrs``).
       * ``inputs`` / ``outputs`` — long/EAV projection of the nested lane lists.
@@ -1889,7 +1887,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(f"""
         CREATE OR REPLACE VIEW measurements AS
         SELECT
-            m.file_path, m.record_type, m.run_id,
+            m.file_path, m.run_id,
             r.session_id, r.site_index, r.site_name,
             r.started_at AS run_started_at, r.ended_at AS run_ended_at,
             CAST(r.outcome AS VARCHAR) AS run_outcome,
@@ -1923,7 +1921,6 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             AND ve.vector_index = m.vector_index AND ve.vector_retry = m.vector_retry
         UNION BY NAME
         SELECT
-            record_type,
             run_id, session_id, site_index, site_name,
             run_started_at, run_ended_at, run_outcome,
             uut_serial_number, uut_part_number, uut_revision, uut_lot_number,
@@ -1964,7 +1961,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("""
         CREATE OR REPLACE VIEW measurement_facts AS
         SELECT
-            m.file_path, m.record_type, m.run_id,
+            m.file_path, m.run_id,
             r.session_id, r.site_index, r.site_name,
             r.started_at AS run_started_at, r.ended_at AS run_ended_at,
             CAST(r.outcome AS VARCHAR) AS run_outcome,
@@ -1985,7 +1982,6 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
         LEFT JOIN runs_materialized r ON r.run_id = m.run_id
         UNION BY NAME
         SELECT
-            record_type,
             run_id, session_id, site_index, site_name,
             run_started_at, run_ended_at, run_outcome,
             uut_serial_number, uut_part_number, uut_revision, uut_lot_number,

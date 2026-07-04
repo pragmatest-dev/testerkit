@@ -502,7 +502,7 @@ step_rty AS (
 ),
 meas_agg AS (
     -- Per-(part, station, phase, period_day) measurement defect counts.
-    -- Predicate mirrors pareto: record_type='measurement', failed=measurement_outcome='failed'.
+    -- Predicate mirrors pareto: failed=measurement_outcome='failed'.
     SELECT
         rf.part,
         rf.station,
@@ -512,7 +512,6 @@ meas_agg AS (
         COUNT(*) FILTER (WHERE m.measurement_outcome = 'failed') AS failed_measurements
     FROM measurement_facts AS m
     JOIN runs_filtered AS rf USING (run_id)
-    WHERE m.record_type = 'measurement'
     GROUP BY rf.part, rf.station, rf.phase, rf.period_day
 ),
 meas_dpmo AS (
@@ -631,13 +630,12 @@ step_rty AS (
 ),
 meas_agg AS (
     -- Measurement defect counts over all filtered runs.
-    -- Predicate mirrors pareto: record_type='measurement', failed=measurement_outcome='failed'.
+    -- Predicate mirrors pareto: failed=measurement_outcome='failed'.
     SELECT
         COUNT(*) AS total_measurements,
         COUNT(*) FILTER (WHERE m.measurement_outcome = 'failed') AS failed_measurements
     FROM measurement_facts AS m
     JOIN runs_filtered AS rf USING (run_id)
-    WHERE m.record_type = 'measurement'
 ),
 meas_dpmo AS (
     -- DPMO = failed measurement opportunities / total measurement opportunities x 1e6.
@@ -698,7 +696,7 @@ SELECT
     ROUND(COUNT(*) FILTER (WHERE measurement_outcome = 'failed') * 100.0
           / NULLIF(COUNT(*), 0), 2) AS fail_rate
 FROM measurements
-WHERE record_type = 'measurement'
+WHERE TRUE
     {and_clauses}
 GROUP BY part, station, step_name, measurement_name
 HAVING COUNT(*) FILTER (WHERE measurement_outcome = 'failed') > 0
@@ -733,7 +731,7 @@ SELECT
         ), 3)
     END AS ppk
 FROM measurement_facts
-WHERE record_type = 'measurement' AND measurement_value IS NOT NULL
+WHERE measurement_value IS NOT NULL
     {and_clauses}
 GROUP BY part, station, measurement_name, characteristic_id, uut_pin, limit_low, limit_high
 HAVING COUNT(*) >= {min_samples}
