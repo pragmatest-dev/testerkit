@@ -279,15 +279,27 @@ schema_version + full hash), not a shape gate; `_epochs` ledger written on open.
 race-fix (SATB freeze of the ingest candidate set — a run notified mid-sweep is no longer wrongly pruned)
 and the CLI `_index*.duckdb` glob. Crash-loop fixed; coexistence restored.
 
+**P4 + P5 — BUILT (`21e98778`, 2026-07-04):** built out of the suggested order (P5
+tooling + P4 retention, ahead of P2/P3) per direct instruction. `_stamp_epochs_ledger` now
+accumulates `seen_by` as a sorted, deduplicated set of every `litmus_version` that opened an epoch
+(was: overwrite with the latest opener's version), tolerating the pre-P5 single-version ledger
+shape on read; a matching `_read_epochs_ledger` reader normalizes both shapes, and
+`_remove_epochs_ledger_entries` cleans up reaped/removed entries. `litmus data index list|build|
+rm|gc` (§7) land in `src/litmus/cli/data_cmd.py`: `list` renders every epoch by
+fingerprint/schema/BUILT BY/SEEN BY/rows/size/last-seen with a `*` current-marker (direct
+read-only `duckdb.connect`, falling back to the daemon's Flight SQL surface only for the current
+epoch's exclusive lock); `build` blocks until warm (full parquet rescan — copy-seed is P2, not
+built) and reports idempotently; `rm` refuses the current epoch without `--force`; `gc` reaps by
+the `_epochs` ledger's `last_seen`, honoring `--keep-last`/`--older-than`, always keeping the
+current epoch and any epoch of unknowable age (no ledger entry).
+
 **Remaining (this contract):**
 - **P2 — cost-ladder birth** (§4): classifier + copy-seed (rung 1–4). *Makes P1 cheap.*
 - **P3 — per-version daemon binding** (§2): a client binds a daemon of its own projection version;
   never cross a version boundary. *Revises §8 singleton-ratchet.*
-- **P4 — retention** (§6): `_epochs` last-access ledger + GC policy.
-- **P5 — tooling** (§7): `litmus data index build|list|rm|gc` + the upgrade-warm workflow.
 
-Suggested order: P1 (safety keystone) → P2 → P5 (makes P1/P2 usable) → P4 → P3 (largest, revises
-lifecycle). Build on a branch (`feat/0.3.1-index-epoch`) — multi-commit, half-functional
+Original suggested order: P1 (safety keystone) → P2 → P5 (makes P1/P2 usable) → P4 → P3 (largest,
+revises lifecycle). Built on a branch (`feat/0.3.1-index-epoch`) — multi-commit, half-functional
 intermediate states.
 
 ## 11. Decisions (resolved 2026-07-04) + one precondition
@@ -338,6 +350,18 @@ intermediate states.
   notified mid-`_ingest_parquet_files` sweep is no longer wrongly cascade-deleted; profiled as a
   runtime non-factor) and a hardened flaky debounce UI test (`f40fa118`). Full pre-commit suite
   green on both commits. P2–P5 remain.
+- 2026-07-04 — **P4 + P5 BUILT** (`21e98778`) on `feat/0.3.1-index-epoch` (built ahead of P2/P3 per
+  direct instruction). Ledger evolved: `_stamp_epochs_ledger` now accumulates `seen_by` as a sorted set
+  (was: overwrite with the latest opener), with a `_read_epochs_ledger` reader tolerating the old
+  single-version shape and a `_remove_epochs_ledger_entries` cleanup helper for `rm`/`gc`.
+  `litmus data index list|build|rm|gc` land in `src/litmus/cli/data_cmd.py`: `list` sources
+  provenance from direct read-only `duckdb.connect` (falling back to the daemon's Flight SQL only
+  for the current epoch's exclusive lock) + the ledger, rendered as fingerprint/schema/BUILT
+  BY/SEEN BY/rows/size/last-seen with a `*` current-marker and a totals footer; `build` blocks
+  until warm via a full parquet rescan (copy-seed is still P2) and reports idempotently (0 new
+  files on an already-warm index); `rm` refuses the current epoch without `--force`; `gc` reaps by
+  the ledger's `last_seen`, honoring `--keep-last`/`--older-than` (reusing `retention.parse_duration`),
+  always keeping the current epoch and any epoch of unknowable age. P2 and P3 remain.
 
 ---
 
