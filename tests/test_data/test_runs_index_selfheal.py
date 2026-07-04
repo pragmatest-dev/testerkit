@@ -229,7 +229,7 @@ def test_epochs_ledger_gets_a_row_on_open(tmp_path: Path) -> None:
     ledger = json.loads((tmp_path / "_epochs.json").read_text())
     assert fp[:12] in ledger
     entry = ledger[fp[:12]]
-    assert entry["litmus_version"] == "0.3.1"
+    assert entry["seen_by"] == ["0.3.1"]
     assert "last_seen" in entry
 
 
@@ -240,8 +240,37 @@ def test_epochs_ledger_upserts_without_losing_other_entries(tmp_path: Path) -> N
 
     ledger = json.loads((tmp_path / "_epochs.json").read_text())
     assert set(ledger) == {fp_a[:12], fp_b[:12]}
-    assert ledger[fp_a[:12]]["litmus_version"] == "0.3.0"
-    assert ledger[fp_b[:12]]["litmus_version"] == "0.3.1"
+    assert ledger[fp_a[:12]]["seen_by"] == ["0.3.0"]
+    assert ledger[fp_b[:12]]["seen_by"] == ["0.3.1"]
+
+
+def test_epochs_ledger_accumulates_seen_by_as_a_set(tmp_path: Path) -> None:
+    """SEEN BY (§7) is a SET of every version that opened this epoch —
+    accumulate across opens (dedup, sorted), never overwrite."""
+    fp = "e" * 64
+    daemon._stamp_epochs_ledger(tmp_path, fp, "0.3.0")
+    daemon._stamp_epochs_ledger(tmp_path, fp, "0.2.4")
+    daemon._stamp_epochs_ledger(tmp_path, fp, "0.3.0")  # re-open by same version: no dup
+
+    ledger = json.loads((tmp_path / "_epochs.json").read_text())
+    entry = ledger[fp[:12]]
+    assert entry["seen_by"] == ["0.2.4", "0.3.0"]
+
+
+def test_epochs_ledger_tolerates_legacy_single_version_shape(tmp_path: Path) -> None:
+    """A pre-P5 ledger entry (``{litmus_version, last_seen}``, no ``seen_by``
+    set yet) must not crash a later stamp — it folds into a 1-element
+    ``seen_by`` before the new version is appended."""
+    ledger_path = tmp_path / "_epochs.json"
+    fp = "f" * 64
+    ledger_path.write_text(
+        json.dumps({fp[:12]: {"litmus_version": "0.3.0", "last_seen": "2026-01-01T00:00:00+00:00"}})
+    )
+
+    daemon._stamp_epochs_ledger(tmp_path, fp, "0.3.1")
+
+    ledger = json.loads(ledger_path.read_text())
+    assert ledger[fp[:12]]["seen_by"] == ["0.3.0", "0.3.1"]
 
 
 def test_epochs_ledger_write_failure_is_swallowed(tmp_path: Path) -> None:
@@ -249,6 +278,48 @@ def test_epochs_ledger_write_failure_is_swallowed(tmp_path: Path) -> None:
     # raise — it is best-effort bookkeeping, not load-bearing.
     missing_dir = tmp_path / "does-not-exist"
     daemon._stamp_epochs_ledger(missing_dir, "d" * 64, "0.3.1")  # must not raise
+
+
+def test_read_epochs_ledger_normalizes_legacy_shape(tmp_path: Path) -> None:
+    ledger_path = tmp_path / "_epochs.json"
+    ledger_path.write_text(
+        json.dumps(
+            {"abc123def456": {"litmus_version": "0.3.0", "last_seen": "2026-01-01T00:00:00+00:00"}}
+        )
+    )
+
+    normalized = daemon._read_epochs_ledger(tmp_path)
+    assert normalized["abc123def456"]["seen_by"] == ["0.3.0"]
+    assert normalized["abc123def456"]["last_seen"] == "2026-01-01T00:00:00+00:00"
+
+
+def test_read_epochs_ledger_reads_current_shape(tmp_path: Path) -> None:
+    fp = "1" * 64
+    daemon._stamp_epochs_ledger(tmp_path, fp, "0.3.1")
+    daemon._stamp_epochs_ledger(tmp_path, fp, "0.2.4")
+
+    normalized = daemon._read_epochs_ledger(tmp_path)
+    assert normalized[fp[:12]]["seen_by"] == ["0.2.4", "0.3.1"]
+
+
+def test_read_epochs_ledger_missing_file_returns_empty(tmp_path: Path) -> None:
+    assert daemon._read_epochs_ledger(tmp_path / "nope") == {}
+
+
+def test_remove_epochs_ledger_entries(tmp_path: Path) -> None:
+    fp_a, fp_b = "a" * 64, "b" * 64
+    daemon._stamp_epochs_ledger(tmp_path, fp_a, "0.3.0")
+    daemon._stamp_epochs_ledger(tmp_path, fp_b, "0.3.1")
+
+    daemon._remove_epochs_ledger_entries(tmp_path, {fp_a[:12]})
+
+    ledger = json.loads((tmp_path / "_epochs.json").read_text())
+    assert set(ledger) == {fp_b[:12]}
+
+
+def test_remove_epochs_ledger_entries_missing_ledger_is_noop(tmp_path: Path) -> None:
+    # No _epochs.json exists yet — must not raise.
+    daemon._remove_epochs_ledger_entries(tmp_path, {"whatever"})
 
 
 def test_fingerprint_is_stable_across_calls() -> None:

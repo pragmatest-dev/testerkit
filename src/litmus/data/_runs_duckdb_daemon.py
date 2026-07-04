@@ -395,13 +395,22 @@ def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
 
 
 def _stamp_epochs_ledger(runs_dir: Path, fingerprint: str, litmus_version: str) -> None:
-    """Best-effort upsert of ``(fingerprint, litmus_version, last_seen)`` into
+    """Best-effort upsert of ``(fingerprint, seen_by, last_seen)`` into
     the shared ``_epochs.json`` ledger in *runs_dir* on daemon open.
 
     This is the *write* half of the §6 GC signal (derived-index-versioning.md)
-    — a passive last-access record so a future ``litmus data index gc`` (P4)
-    can reap epochs nobody has opened recently, without opening every index
-    file. GC *policy* is out of scope here; this only stamps.
+    — a passive last-access record so ``litmus data index gc``/``list`` (P4/P5)
+    can reap/report epochs without opening every index file. GC *policy* is
+    out of scope here; this only stamps.
+
+    ``seen_by`` accumulates every distinct ``litmus_version`` that has ever
+    opened this epoch file (sorted, deduplicated) — human identity for
+    ``litmus data index list`` (§7): a behaviorally-identical projection can
+    be, and often is, opened by several package versions (the sharing
+    collapse, §3). Tolerates a pre-P5 ledger entry shaped
+    ``{litmus_version, last_seen}`` (a single version, not yet a set) by
+    folding it into ``seen_by`` before appending — this ledger is pre-release
+    and best-effort, so no formal migration is needed, just no crash on read.
 
     Keyed by the same 12-char prefix used in the index filename (matching the
     file it describes 1:1) — collisions are astronomically unlikely at this
@@ -419,13 +428,87 @@ def _stamp_epochs_ledger(runs_dir: Path, fingerprint: str, litmus_version: str) 
             data: dict[str, Any] = existing if isinstance(existing, dict) else {}
         except (OSError, json.JSONDecodeError):
             data = {}
-        data[fingerprint[:12]] = {
-            "litmus_version": litmus_version,
+        key = fingerprint[:12]
+        prior = data.get(key)
+        seen_by: list[str] = []
+        if isinstance(prior, dict):
+            prior_seen_by = prior.get("seen_by")
+            if isinstance(prior_seen_by, list):
+                seen_by = [str(v) for v in prior_seen_by if v]
+            else:
+                legacy_version = prior.get("litmus_version")
+                if legacy_version:
+                    seen_by = [str(legacy_version)]
+        seen_by = sorted({*seen_by, litmus_version})
+        data[key] = {
+            "seen_by": seen_by,
             "last_seen": datetime.now(UTC).isoformat(),
         }
         tmp_path = ledger_path.with_suffix(".json.tmp")
         tmp_path.write_text(json.dumps(data, indent=2, sort_keys=True))
         tmp_path.replace(ledger_path)  # atomic rename — no torn/partial ledger
+    except OSError as exc:
+        logger.warning("Could not update epochs ledger at %s: %s", ledger_path, exc)
+
+
+def _read_epochs_ledger(runs_dir: Path) -> dict[str, dict[str, Any]]:
+    """Best-effort read of the shared ``_epochs.json`` ledger, normalized.
+
+    Used by ``litmus data index list``/``gc`` (§7) to source SEEN BY / LAST
+    SEEN without opening every epoch file. Tolerates the pre-P5 ledger shape
+    (``{fp12: {litmus_version, last_seen}}``) by folding a legacy
+    ``litmus_version`` into a single-element ``seen_by`` — mirrors the
+    tolerance :func:`_stamp_epochs_ledger` applies on write. Never raises;
+    an unreadable/corrupt/missing ledger yields ``{}`` (the CLI degrades to
+    showing "unknown" rather than crashing on best-effort bookkeeping).
+    """
+    ledger_path = runs_dir / "_epochs.json"
+    try:
+        raw = json.loads(ledger_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for fp12, entry in raw.items():
+        if not isinstance(entry, dict):
+            continue
+        seen_by = entry.get("seen_by")
+        if not isinstance(seen_by, list):
+            legacy_version = entry.get("litmus_version")
+            seen_by = [legacy_version] if legacy_version else []
+        normalized[fp12] = {
+            "seen_by": sorted({str(v) for v in seen_by if v}),
+            "last_seen": entry.get("last_seen"),
+        }
+    return normalized
+
+
+def _remove_epochs_ledger_entries(runs_dir: Path, fp12s: set[str]) -> None:
+    """Best-effort removal of the given fp12 keys from ``_epochs.json``.
+
+    Used by ``litmus data index rm``/``gc`` (§7) after unlinking an epoch
+    file, so the ledger doesn't keep a stale entry for a file that's gone.
+    Mirrors :func:`_stamp_epochs_ledger`'s atomic tmp-rename write and
+    best-effort ``OSError`` swallow — a ledger cleanup failure must never
+    crash the CLI command that triggered it.
+    """
+    ledger_path = runs_dir / "_epochs.json"
+    if not ledger_path.exists():
+        return
+    try:
+        try:
+            existing = json.loads(ledger_path.read_text())
+            data: dict[str, Any] = existing if isinstance(existing, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return
+        if not any(fp12 in data for fp12 in fp12s):
+            return
+        for fp12 in fp12s:
+            data.pop(fp12, None)
+        tmp_path = ledger_path.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(data, indent=2, sort_keys=True))
+        tmp_path.replace(ledger_path)
     except OSError as exc:
         logger.warning("Could not update epochs ledger at %s: %s", ledger_path, exc)
 
