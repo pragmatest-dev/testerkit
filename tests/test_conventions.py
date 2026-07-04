@@ -262,20 +262,22 @@ def test_inflight_schemas_carry_materialized_data_columns():
     """Inflight overlay must carry the columns a live run needs to render
     identically to a finalized one.
 
-    Removing ``vector_index`` from either the inflight schema or the
-    materialized table is the #228 projection-drift bug — caught here
+    ``vector_index`` is the axis that distinguishes the two step grains. Post
+    full snowflake (0.3.1 phase 6) the swept points live in
+    ``vectors_materialized`` (their own table); ``vector_index`` is its own
+    column there and must stay on the inflight schema (which is dual-grain) —
+    removing it from either is the #228 projection-drift bug, caught here
     against the real schema.
 
     ``inputs_map``/``outputs_map`` are NOT compared against the materialized
-    tables any more: post projection-normalization (0.3.1),
-    ``steps_materialized``/``measurements_materialized`` carry NO
-    dynamic-value column at all, by design (identity + dynamic values live
-    once, reconstructed at query time — see ``_create_views`` /
-    ``run_store.get_measurements`` / ``StepsQuery``, which derive
-    ``inputs_map``/``outputs_map`` from the ``inputs``/``outputs`` tables
-    instead of a stored column). This test still guards that the INFLIGHT
-    overlay carries them — an accidental removal there would silently blank
-    a live run's inputs/outputs, the equivalent live-vs-finalized drift today.
+    tables any more: post projection-normalization (0.3.1), the materialized
+    step/vector/measurement tables carry NO dynamic-value column at all, by
+    design (identity + dynamic values live once, reconstructed at query time —
+    see ``_create_views`` / ``run_store.get_measurements`` / ``StepsQuery``,
+    which derive ``inputs_map``/``outputs_map`` from the ``inputs``/``outputs``
+    tables instead of a stored column). This test still guards that the INFLIGHT
+    overlay carries them — an accidental removal there would silently blank a
+    live run's inputs/outputs, the equivalent live-vs-finalized drift today.
     """
     import duckdb
 
@@ -292,8 +294,8 @@ def test_inflight_schemas_carry_materialized_data_columns():
         return {row[0] for row in conn.execute(f"DESCRIBE {table}").fetchall()}
 
     problems: list[str] = []
-    if "vector_index" not in mat_cols("steps_materialized"):
-        problems.append("steps_materialized (materialized) is missing 'vector_index'")
+    if "vector_index" not in mat_cols("vectors_materialized"):
+        problems.append("vectors_materialized (materialized) is missing 'vector_index'")
     if "vector_index" not in set(INFLIGHT_STEPS_SCHEMA.names):
         problems.append("INFLIGHT_STEPS_SCHEMA is missing 'vector_index' (#228 drift)")
     for schema_name, schema in (

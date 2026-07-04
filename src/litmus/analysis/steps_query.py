@@ -34,6 +34,12 @@ logger = logging.getLogger(__name__)
 # the measurements-side join in ``run_store.get_measurements`` — a step's own
 # grain has ``step_retry`` as part of its PK, so the join must too or two
 # reruns of the same step fan out into each other's values).
+#
+# This join serves FINALIZED rows (whose inputs/outputs are in the tables). A
+# LIVE run's rows aren't in the tables yet — for those the ``steps`` /
+# ``step_vectors`` VIEW carries the inflight ``inputs_map`` / ``outputs_map``
+# inline. ``_STEP_IO_SELECT`` COALESCEs the join (finalized) over the view
+# column (live), so exactly one is non-empty per row.
 _STEP_IO_VALUE_EXPR = """CASE value_type
                 WHEN 'scalar:bool' THEN CASE WHEN value_bool THEN 'true' ELSE 'false' END
                 WHEN 'scalar:int' THEN CAST(value_int AS VARCHAR)
@@ -45,14 +51,14 @@ _STEP_IO_VALUE_EXPR = """CASE value_type
             END"""
 
 
-def _step_io_join(alias: str, table: str, map_col: str) -> str:
+def _step_io_join(alias: str, table: str) -> str:
     """LEFT JOIN clause aggregating ``table`` (``inputs``/``outputs``) into
-    ``map_col`` per (run_id, step_path, step_retry, vector_index,
+    ``{alias}.io_map`` per (run_id, step_path, step_retry, vector_index,
     vector_outer_index), joined onto the ``s`` alias."""
     return f"""
         LEFT JOIN (
             SELECT run_id, step_path, step_retry, vector_index, vector_outer_index,
-                   MAP(list(name), list({_STEP_IO_VALUE_EXPR})) AS {map_col}
+                   MAP(list(name), list({_STEP_IO_VALUE_EXPR})) AS io_map
             FROM {table}
             GROUP BY run_id, step_path, step_retry, vector_index, vector_outer_index
         ) AS {alias} ON {alias}.run_id = s.run_id
@@ -63,8 +69,18 @@ def _step_io_join(alias: str, table: str, map_col: str) -> str:
     """
 
 
-_STEP_IO_JOINS = _step_io_join("inputs_agg", "inputs", "inputs_map") + _step_io_join(
-    "outputs_agg", "outputs", "outputs_map"
+_STEP_IO_JOINS = _step_io_join("inputs_agg", "inputs") + _step_io_join("outputs_agg", "outputs")
+
+# SELECT list for step reads: every ``s`` column except the two view-carried
+# maps (live side), replaced by a COALESCE that prefers the finalized join
+# aggregate. The LEFT JOIN's ``io_map`` is NULL when it misses (finalized rows
+# absent → live run) and a non-empty MAP when it hits (a GROUP BY over ≥1 input
+# row always yields ≥1 entry), so COALESCE picks finalized-when-present, else
+# the view's inflight map.
+_STEP_IO_SELECT = (
+    "s.* EXCLUDE (inputs_map, outputs_map), "
+    "COALESCE(inputs_agg.io_map, s.inputs_map) AS inputs_map, "
+    "COALESCE(outputs_agg.io_map, s.outputs_map) AS outputs_map"
 )
 
 
@@ -213,7 +229,7 @@ class StepsQuery:
         prefix = run_id[:8] if len(run_id) >= 8 else run_id
         ended_clause = "" if include_incomplete else "AND s.ended_at IS NOT NULL"
         return self._rows_from(f"""
-            SELECT s.*, inputs_agg.inputs_map, outputs_agg.outputs_map
+            SELECT {_STEP_IO_SELECT}
             FROM steps AS s
             {_STEP_IO_JOINS}
             WHERE s.run_id LIKE '{sql_escape(prefix)}%'
@@ -240,7 +256,7 @@ class StepsQuery:
         prefix = run_id[:8] if len(run_id) >= 8 else run_id
         ended_clause = "" if include_incomplete else "AND s.ended_at IS NOT NULL"
         return self._rows_from(f"""
-            SELECT s.*, inputs_agg.inputs_map, outputs_agg.outputs_map
+            SELECT {_STEP_IO_SELECT}
             FROM step_vectors AS s
             {_STEP_IO_JOINS}
             WHERE s.run_id LIKE '{sql_escape(prefix)}%'
@@ -331,7 +347,7 @@ class StepsQuery:
         """
         ended_clause = "" if include_incomplete else "AND s.ended_at IS NOT NULL"
         return self._rows_from(f"""
-            SELECT s.*, inputs_agg.inputs_map, outputs_agg.outputs_map
+            SELECT {_STEP_IO_SELECT}
             FROM steps AS s
             {_STEP_IO_JOINS}
             WHERE s.session_id = '{sql_escape(session_id)}'

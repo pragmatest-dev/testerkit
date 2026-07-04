@@ -42,6 +42,7 @@ from litmus.data._runs_duckdb_daemon import (
     _MEASUREMENTS_PERSISTED_COLUMNS,
     _RUNS_PERSISTED_COLUMNS,
     _STEPS_PERSISTED_COLUMNS,
+    _VECTORS_PERSISTED_COLUMNS,
     _bulk_insert_measurement_rows,
     _bulk_insert_runs,
     _bulk_insert_steps,
@@ -449,6 +450,7 @@ def _run_equivalence() -> dict[str, list[tuple[str, Any, Any]]]:
 
             mat_runs = _table_rows(conn, "runs_materialized")
             mat_steps = _table_rows(conn, "steps_materialized")
+            mat_vectors = _table_rows(conn, "vectors_materialized")
             mat_meas = _table_rows(conn, "measurements_materialized")
         finally:
             conn.close()
@@ -457,12 +459,22 @@ def _run_equivalence() -> dict[str, list[tuple[str, Any, Any]]]:
     assert len(mat_runs) == 1
     findings["runs"] = _compare("runs", inflight_run, mat_runs[0])
 
-    # ── steps: match by (step_path, vector_index) ──────────────────────
+    # ── steps / vectors: two disjoint grains (full snowflake, 0.3.1 phase 6).
+    # The overlay's snapshot_step_rows carries BOTH grains in one list; split it
+    # by ``vector_index`` and compare each against its own materialized table.
+    inflight_logical = [r for r in inflight_steps if r["vector_index"] is None]
+    inflight_vectors = [r for r in inflight_steps if r["vector_index"] is not None]
     findings["steps"] = _match_and_compare(
         "steps",
-        inflight_steps,
+        inflight_logical,
         mat_steps,
-        key=lambda r: (r["step_path"], r["vector_index"]),
+        key=lambda r: (r["step_path"], r.get("step_retry"), r.get("vector_outer_index")),
+    )
+    findings["vectors"] = _match_and_compare(
+        "vectors",
+        inflight_vectors,
+        mat_vectors,
+        key=lambda r: (r["step_path"], r["vector_index"], r.get("vector_retry")),
     )
 
     # ── measurements: match by (step_path, vector_index, name) ─────────
@@ -669,6 +681,7 @@ def _table_info(conn: duckdb.DuckDBPyConnection, table: str) -> list[tuple[str, 
     [
         ("runs_materialized", _RUNS_PERSISTED_COLUMNS),
         ("steps_materialized", _STEPS_PERSISTED_COLUMNS),
+        ("vectors_materialized", _VECTORS_PERSISTED_COLUMNS),
         ("measurements_materialized", _MEASUREMENTS_PERSISTED_COLUMNS),
     ],
 )

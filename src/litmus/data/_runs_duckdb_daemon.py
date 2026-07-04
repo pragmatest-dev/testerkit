@@ -291,23 +291,27 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     for col, sql_type in _RUNS_PERSISTED_COLUMNS:
         conn.execute(f"ALTER TABLE runs_materialized ADD COLUMN IF NOT EXISTS {col} {sql_type}")
 
-    # ── steps_materialized ─────────────────────────────────────────────
+    # ── steps_materialized (LOGICAL steps only) ────────────────────────
     # Star schema: step's OWN columns + the run_id FK only. NO run identity
     # (session_id / site_index / site_name / uut_serial_number / station_id) —
-    # that lives once in runs_materialized; the ``steps``/``step_vectors``
-    # VIEWS (see _create_views) reconstruct it via JOIN. Same for the step's
-    # inputs/outputs — no ``dynamic_attrs`` column; the views derive
-    # ``inputs_map``/``outputs_map`` at query time from the ``inputs``/
-    # ``outputs`` tables (projection-normalization, 0.3.1).
-    # vector_index_key = COALESCE(vector_index, -1): PK cannot be NULL, -1 is step-own sentinel.
-    # vector_outer_index_key = COALESCE(vector_outer_index, -1): same sentinel for outer axis.
+    # that lives once in runs_materialized; the ``steps`` VIEW (see
+    # _create_views) reconstructs it via JOIN. Same for the step's
+    # inputs/outputs — no ``dynamic_attrs`` column; the view derives
+    # ``inputs_map``/``outputs_map`` from the ``inputs``/``outputs`` tables.
+    # Full snowflake (0.3.1 phase 6): the swept condition points ('vector'
+    # rows) SPLIT OUT into ``vectors_materialized`` — this table now holds ONE
+    # row per LOGICAL step (record_type='step', vector_index always NULL at
+    # rest), never a vector. PK includes ``vector_outer_index`` because a
+    # method step run under different outer class-sweep iterations is a
+    # distinct execution (its own inputs/outcome) — the contract's stated
+    # 3-col steps PK omits it; see progress log.
+    # vector_outer_index_key = COALESCE(vector_outer_index, -1): PK cannot be
+    # NULL, -1 is the top-level (no enclosing outer sweep) sentinel.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS steps_materialized (
             run_id VARCHAR NOT NULL,
             step_path VARCHAR NOT NULL,
             step_retry BIGINT NOT NULL DEFAULT 0,
-            vector_index BIGINT,
-            vector_index_key BIGINT NOT NULL DEFAULT -1,
             vector_outer_index BIGINT,
             vector_outer_index_key BIGINT NOT NULL DEFAULT -1,
             step_index INTEGER,
@@ -319,11 +323,41 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             duration_s DOUBLE,
             measurement_count INTEGER,
             markers VARCHAR,
-            PRIMARY KEY (run_id, step_path, step_retry, vector_index_key, vector_outer_index_key)
+            PRIMARY KEY (run_id, step_path, step_retry, vector_outer_index_key)
         )
     """)
     for col, sql_type in _STEPS_PERSISTED_COLUMNS:
         conn.execute(f"ALTER TABLE steps_materialized ADD COLUMN IF NOT EXISTS {col} {sql_type}")
+
+    # ── vectors_materialized (swept condition points only) ─────────────
+    # Full snowflake (0.3.1 phase 6): SPLIT OUT of the old dual-grain
+    # steps table. One row per condition point ('vector' at rest — a sweep
+    # variant / in-body loop iteration). PK = the enclosing step's key +
+    # (vector_index, vector_retry), both always concrete on a vector. NO
+    # step-grain data (step_name / step_index) — the ``step_vectors`` VIEW
+    # joins ``steps_materialized`` for those; NO run identity — joined from
+    # ``runs`` in the view.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS vectors_materialized (
+            run_id VARCHAR NOT NULL,
+            step_path VARCHAR NOT NULL,
+            step_retry BIGINT NOT NULL DEFAULT 0,
+            vector_outer_index BIGINT,
+            vector_outer_index_key BIGINT NOT NULL DEFAULT -1,
+            vector_index BIGINT NOT NULL,
+            vector_retry BIGINT NOT NULL DEFAULT 0,
+            file_path VARCHAR,
+            outcome outcome_kind,
+            started_at TIMESTAMPTZ,
+            ended_at TIMESTAMPTZ,
+            duration_s DOUBLE,
+            measurement_count INTEGER,
+            PRIMARY KEY (run_id, step_path, step_retry, vector_outer_index_key,
+                         vector_index, vector_retry)
+        )
+    """)
+    for col, sql_type in _VECTORS_PERSISTED_COLUMNS:
+        conn.execute(f"ALTER TABLE vectors_materialized ADD COLUMN IF NOT EXISTS {col} {sql_type}")
 
     # ── measurement_stats / io_schema / refs ────────────────────────
     conn.execute("""
@@ -510,6 +544,8 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_runs_fp ON runs_materialized(file_path)",
         "CREATE INDEX IF NOT EXISTS idx_steps_run ON steps_materialized(run_id)",
         "CREATE INDEX IF NOT EXISTS idx_steps_fp ON steps_materialized(file_path)",
+        "CREATE INDEX IF NOT EXISTS idx_vectors_run ON vectors_materialized(run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_vectors_fp ON vectors_materialized(file_path)",
         "CREATE INDEX IF NOT EXISTS idx_meas_name ON measurement_stats(measurement_name)",
         "CREATE INDEX IF NOT EXISTS idx_meas_run ON measurement_stats(run_id)",
         "CREATE INDEX IF NOT EXISTS idx_meas_fp ON measurement_stats(file_path)",
@@ -582,10 +618,27 @@ _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     # step. Part of the PK so a rerun is a distinct row (the de-fuse), never
     # overwriting the prior attempt.
     ("step_retry", "BIGINT"),
-    ("vector_index", "BIGINT"),
+    # vector_outer_index: which enclosing outer (class) sweep iteration this
+    # step ran under (part of the PK); vector_index is GONE — logical steps
+    # are always NULL there, and swept points moved to vectors_materialized.
     ("vector_outer_index", "BIGINT"),
     ("measurement_count", "INTEGER"),
     ("markers", "VARCHAR"),
+)
+
+_VECTORS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("run_id", "VARCHAR"),
+    ("step_path", "VARCHAR"),
+    ("step_retry", "BIGINT"),
+    ("vector_outer_index", "BIGINT"),
+    ("vector_index", "BIGINT"),
+    ("vector_retry", "BIGINT"),
+    ("file_path", "VARCHAR"),
+    ("outcome", "outcome_kind"),
+    ("started_at", "TIMESTAMPTZ"),
+    ("ended_at", "TIMESTAMPTZ"),
+    ("duration_s", "DOUBLE"),
+    ("measurement_count", "INTEGER"),
 )
 
 _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -848,6 +901,7 @@ def _delete_file_rows(conn: duckdb.DuckDBPyConnection, path_str: str) -> None:
     """
     conn.execute("DELETE FROM runs_materialized WHERE file_path = ?", [path_str])
     conn.execute("DELETE FROM steps_materialized WHERE file_path = ?", [path_str])
+    conn.execute("DELETE FROM vectors_materialized WHERE file_path = ?", [path_str])
     for table in _INDEX_TABLES_BY_FILE_PATH:
         conn.execute(f"DELETE FROM {table} WHERE file_path = ?", [path_str])
     conn.execute("DELETE FROM _ingested WHERE path = ?", [path_str])
@@ -914,33 +968,16 @@ def _lane_insert(
 # _create_views). SQL twin of the accumulator overlay's
 # ``_safe_str(_lane_value(entry))`` so materialized and in-flight render
 # identically for the same value.
-_LANE_VALUE_VARCHAR_COLS = """CASE value_type
-            WHEN 'scalar:bool' THEN CASE WHEN value_bool THEN 'true' ELSE 'false' END
-            WHEN 'scalar:int' THEN CAST(value_int AS VARCHAR)
-            WHEN 'scalar:float' THEN CAST(value_double AS VARCHAR)
-            WHEN 'scalar:datetime' THEN CAST(value_timestamp AS VARCHAR)
-            WHEN 'list' THEN value_json
-            WHEN 'dict' THEN value_json
-            ELSE value_text
-        END"""
-
-
-def _io_map_subquery(table: str, group_cols: tuple[str, ...], map_alias: str) -> str:
-    """Correlated aggregate: pack ``table`` (``inputs``/``outputs``) rows into a
-    ``MAP(VARCHAR, VARCHAR)`` per FK coordinate group.
-
-    Read-time equivalent of the old ingest-time ``dynamic_attrs`` MAP, but
-    split by role (the caller picks ``inputs`` xor ``outputs`` — never
-    prefixed) and computed at query time instead of stored (projection-
-    normalization, 0.3.1: "derive the inline map at query time... when a view
-    needs it").
-    """
-    cols = ", ".join(group_cols)
-    return f"""
-        SELECT {cols}, MAP(list(name), list({_LANE_VALUE_VARCHAR_COLS})) AS {map_alias}
-        FROM {table}
-        GROUP BY {cols}
-    """
+# Empty ``MAP(VARCHAR, VARCHAR)`` literal — the constant the ``steps`` /
+# ``step_vectors`` views emit for ``inputs_map`` / ``outputs_map`` on their
+# MATERIALIZED side. The finalized inputs/outputs live in the ``inputs`` /
+# ``outputs`` tables and are joined in by the step-detail query
+# (``StepsQuery._STEP_IO_JOINS``) — keeping the shared views free of the
+# aggregation so metrics reads (yield/pareto over ``steps``) aren't taxed.
+# The INFLIGHT side passes its own ``inputs_map`` / ``outputs_map`` through, so
+# a LIVE run's inputs/outputs render before its parquet exists (the finalized
+# join yields nothing until ingest; StepsQuery COALESCEs the two).
+_EMPTY_MAP = "MAP([]::VARCHAR[], []::VARCHAR[])"
 
 
 # Fixed column names that go directly into measurements_materialized as named
@@ -1257,22 +1294,40 @@ ON CONFLICT (run_id) DO UPDATE SET
     """)
 
 
-def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]) -> None:
-    """Populate ``steps_materialized`` from the unified per-run parquets.
+# Rounds EPOCH-difference seconds to microseconds — timestamps are
+# ``timestamp("us")``, so duration is only meaningful to 6 decimals. Rounding
+# also erases the float64 tail from EPOCH()'s large-double subtraction,
+# matching the overlay's Python ``total_seconds()`` exactly (the inflight↔
+# materialized equivalence guard).
+_DURATION_S_EXPR = """ROUND(
+            CASE
+                WHEN ended_at IS NOT NULL AND started_at IS NOT NULL
+                THEN EPOCH(ended_at) - EPOCH(started_at)
+                ELSE NULL
+            END, 6
+        ) AS duration_s"""
 
-    GROUP BY ``(run_id, step_path, step_retry, vector_index)`` plus all the
-    step-level columns that are denormalized onto every row of a
-    given step (step_name, step_outcome, step_started_at, step_ended_at,
-    step_markers, …). Aggregates are only the actual rollups
-    (``measurement_count``, ``duration_s``).
+
+def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]) -> None:
+    """Populate ``steps_materialized`` + ``vectors_materialized`` from the parquets.
+
+    Full snowflake (0.3.1 phase 6): the two grains that used to share the
+    dual-grain steps table are now SPLIT into two disjoint inserts —
+
+      * ``steps_materialized`` — one row per LOGICAL step, drawn ONLY from
+        ``record_type='step'`` rows (vector_index always NULL at rest). Its
+        ``measurement_count`` is the step row's own nested measurements (0 for
+        a swept step, whose measurements ride its vector rows).
+      * ``vectors_materialized`` — one row per condition point, drawn ONLY from
+        ``record_type='vector'`` rows, each carrying its own timing / outcome.
+
+    No run identity, no step-grain data on vectors, no ``dynamic_attrs`` (star
+    schema) — the ``steps``/``step_vectors`` views join ``runs`` for identity,
+    ``steps`` for step_name/step_index (on the vectors side), and the
+    ``inputs``/``outputs`` tables for the inline maps (see _create_views).
+    ``step_retry`` stays in each grain key so a rerun is a distinct row.
     """
     flist = _file_list_sql(parquet_paths)
-    # The step grain is (step_path, step_retry, vector_index). ``step_retry``
-    # is part of the grain so a rerun is a distinct row, never fused onto the
-    # prior attempt (the de-fuse). No run identity and no ``dynamic_attrs``
-    # here (star schema, 0.3.1) — the ``steps``/``step_vectors`` views join
-    # ``runs`` for identity and derive ``inputs_map``/``outputs_map`` at query
-    # time from the ``inputs``/``outputs`` tables (see _create_views).
     conn.execute(f"""
         INSERT INTO steps_materialized BY NAME
         WITH grain AS (
@@ -1280,68 +1335,26 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 run_id,
                 step_path,
                 COALESCE(step_retry, 0) AS step_retry,
-                vector_index,
-                COALESCE(vector_index, -1) AS vector_index_key,
                 vector_outer_index,
                 COALESCE(vector_outer_index, -1) AS vector_outer_index_key,
                 step_index,
                 filename AS file_path,
                 step_name,
-                -- Each grain row draws timing/outcome from its own record kind: a
-                -- step-grain group (vector_index NULL) has the 'step' record; each
-                -- vector-grain group (vector_index 0..N) is disjoint and has only
-                -- its 'vector' record, never a 'step' row. So COALESCE the
-                -- step-record columns with the vector-record columns — otherwise
-                -- every vector bucket gets NULL started_at/ended_at and
-                -- list_for_run's ``ended_at IS NOT NULL`` filter drops it, making
-                -- vectors invisible in the steps tree (#24). Computed once here;
-                -- duration_s derives from these aliases in the outer SELECT.
-                COALESCE(
-                    ANY_VALUE(step_outcome) FILTER (WHERE record_type = 'step'),
-                    ANY_VALUE(vector_outcome) FILTER (WHERE record_type = 'vector')
-                ) AS outcome,
-                COALESCE(
-                    ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step'),
-                    ANY_VALUE(vector_started_at) FILTER (WHERE record_type = 'vector')
-                ) AS started_at,
-                COALESCE(
-                    ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step'),
-                    ANY_VALUE(vector_ended_at) FILTER (WHERE record_type = 'vector')
-                ) AS ended_at,
-                CAST(COALESCE(
-                    SUM(len(measurements)) FILTER (WHERE record_type IN ('step', 'vector')), 0
-                ) AS INTEGER) AS measurement_count,
-                ANY_VALUE(step_markers) FILTER (WHERE record_type = 'step') AS markers
+                ANY_VALUE(step_outcome) AS outcome,
+                ANY_VALUE(step_started_at) AS started_at,
+                ANY_VALUE(step_ended_at) AS ended_at,
+                CAST(COALESCE(SUM(len(measurements)), 0) AS INTEGER) AS measurement_count,
+                ANY_VALUE(step_markers) AS markers
             FROM read_parquet({flist}, filename=true, union_by_name=true)
-            -- Exclude the run record (record_type='run', step_path=''): steps
-            -- are aggregated from 'step' + 'vector' rows only. Without this the
-            -- run record forms a phantom ('', 0) step group. (The at-rest parquet
-            -- has no 'measurement' rows — measurements ride the nested list.)
-            WHERE run_id IS NOT NULL AND record_type <> 'run'
+            WHERE run_id IS NOT NULL AND record_type = 'step'
             GROUP BY
-                filename, run_id,
-                step_path, COALESCE(step_retry, 0), vector_index, vector_outer_index, step_index,
-                step_name
+                filename, run_id, step_path, COALESCE(step_retry, 0),
+                vector_outer_index, step_index, step_name
         )
-        SELECT
-            *,
-            -- Rounded to microseconds: timestamps are ``timestamp("us")``, so
-            -- duration is only meaningful to 6 decimals. Rounding also erases the
-            -- float64 tail from EPOCH()'s large-double subtraction, matching the
-            -- overlay's Python ``total_seconds()`` exactly (the inflight↔
-            -- materialized equivalence guard).
-            ROUND(
-                CASE
-                    WHEN ended_at IS NOT NULL AND started_at IS NOT NULL
-                    THEN EPOCH(ended_at) - EPOCH(started_at)
-                    ELSE NULL
-                END, 6
-            ) AS duration_s
+        SELECT *, {_DURATION_S_EXPR}
         FROM grain
-        ON CONFLICT (run_id, step_path, step_retry, vector_index_key, vector_outer_index_key)
+        ON CONFLICT (run_id, step_path, step_retry, vector_outer_index_key)
         DO UPDATE SET
-            vector_index = excluded.vector_index,
-            vector_outer_index = excluded.vector_outer_index,
             step_index = excluded.step_index,
             file_path = excluded.file_path,
             step_name = excluded.step_name,
@@ -1351,6 +1364,40 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             duration_s = excluded.duration_s,
             measurement_count = excluded.measurement_count,
             markers = excluded.markers
+    """)
+    conn.execute(f"""
+        INSERT INTO vectors_materialized BY NAME
+        WITH grain AS (
+            SELECT
+                run_id,
+                step_path,
+                COALESCE(step_retry, 0) AS step_retry,
+                vector_outer_index,
+                COALESCE(vector_outer_index, -1) AS vector_outer_index_key,
+                vector_index,
+                COALESCE(vector_retry, 0) AS vector_retry,
+                filename AS file_path,
+                ANY_VALUE(vector_outcome) AS outcome,
+                ANY_VALUE(vector_started_at) AS started_at,
+                ANY_VALUE(vector_ended_at) AS ended_at,
+                CAST(COALESCE(SUM(len(measurements)), 0) AS INTEGER) AS measurement_count
+            FROM read_parquet({flist}, filename=true, union_by_name=true)
+            WHERE run_id IS NOT NULL AND record_type = 'vector'
+            GROUP BY
+                filename, run_id, step_path, COALESCE(step_retry, 0),
+                vector_outer_index, vector_index, COALESCE(vector_retry, 0)
+        )
+        SELECT *, {_DURATION_S_EXPR}
+        FROM grain
+        ON CONFLICT (run_id, step_path, step_retry, vector_outer_index_key,
+                     vector_index, vector_retry)
+        DO UPDATE SET
+            file_path = excluded.file_path,
+            outcome = excluded.outcome,
+            started_at = excluded.started_at,
+            ended_at = excluded.ended_at,
+            duration_s = excluded.duration_s,
+            measurement_count = excluded.measurement_count
     """)
 
 
@@ -1773,57 +1820,83 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
         FROM overlay.inflight_runs
         WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
     """)
-    # Grain-explicit surfaces over the dual-grain steps_materialized table:
-    #   * ``steps``        — one row per LOGICAL step (vector_index IS NULL):
-    #                        the code node / ambient carrier. This is what
-    #                        aggregators (yield, pareto, dashboards) and the
-    #                        flat step list want; a swept step is ONE row here.
-    #   * ``step_vectors`` — one row per condition point (vector_index 0..N):
-    #                        a swept step's sweep variants / in-body iterations.
-    #                        The step tree fetches these to nest under a step.
-    # The at-rest table holds both grains with correct timing (COALESCE'd at
-    # ingest); these views just declare which grain a reader wants, so no
-    # consumer has to remember a ``vector_index IS NULL`` filter (#24).
-    # ``steps`` and ``step_vectors`` are the SAME dual-grain projection
-    # (materialized ∪ live overlay) filtered by grain — so the column list lives
-    # in ONE place (``_steps_all``); a new inflight_steps column is added once,
-    # not in two view bodies that must stay identical. The materialized side
-    # JOINs ``runs`` for identity (session_id/site_index/site_name/
-    # uut_serial_number/station_id) — the inflight side already carries these
-    # inline (see _accumulator_pool.INFLIGHT_STEPS_SCHEMA).
-    _steps_all = """
+    # Grain-explicit surfaces, now over TWO disjoint materialized tables
+    # (full snowflake, 0.3.1 phase 6):
+    #   * ``steps``        — one row per LOGICAL step (vector_index always NULL
+    #                        here): the code node / ambient carrier. Over
+    #                        ``steps_materialized``. Aggregators (yield, pareto,
+    #                        dashboards) and the flat step list read this; a
+    #                        swept step is ONE row.
+    #   * ``step_vectors`` — one row per condition point (vector_index 0..N).
+    #                        Over ``vectors_materialized``; JOINs
+    #                        ``steps_materialized`` for the enclosing step's
+    #                        ``step_name`` / ``step_index`` (not stored on the
+    #                        vector grain). The step tree nests these under a step.
+    # Both JOIN ``runs`` for identity (the inflight side carries it inline). The
+    # column NAME set is identical across the two + their inflight branches so
+    # callers see one shape regardless of grain or live/finalized (#24).
+    #
+    # ``inputs_map`` / ``outputs_map``: constant-empty on the materialized side
+    # (the finalized values live in the ``inputs`` / ``outputs`` tables, joined
+    # in by the step-detail query, not by these shared views — see _EMPTY_MAP);
+    # passed through on the inflight side so a LIVE run still renders its
+    # inputs/outputs. StepsQuery COALESCEs the two.
+    conn.execute(f"""
+        CREATE OR REPLACE VIEW steps AS
         SELECT
-            sm.run_id, sm.step_path, sm.step_retry, sm.vector_index, sm.vector_outer_index,
+            sm.run_id, sm.step_path, sm.step_retry,
+            CAST(NULL AS BIGINT) AS vector_index, sm.vector_outer_index,
             sm.step_index, sm.file_path,
             r.session_id, r.site_index, r.site_name,
             sm.step_name, sm.outcome, sm.started_at, sm.ended_at,
             sm.duration_s, sm.measurement_count, sm.markers,
-            r.uut_serial_number, r.station_id
+            r.uut_serial_number, r.station_id,
+            {_EMPTY_MAP} AS inputs_map, {_EMPTY_MAP} AS outputs_map
         FROM steps_materialized sm
         LEFT JOIN runs_materialized r ON r.run_id = sm.run_id
         UNION ALL BY NAME
         SELECT
             run_id,
             COALESCE(step_path, '') AS step_path,
-            step_retry,
-            vector_index,
-            vector_outer_index,
+            step_retry, vector_index, vector_outer_index,
             step_index, file_path, session_id, site_index, site_name,
             step_name,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
-            started_at, ended_at,
-            duration_s, measurement_count,
-            markers, uut_serial_number, station_id
+            started_at, ended_at, duration_s, measurement_count,
+            markers, uut_serial_number, station_id, inputs_map, outputs_map
         FROM overlay.inflight_steps
-        WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
-    """
-    conn.execute(
-        f"CREATE OR REPLACE VIEW steps AS SELECT * FROM ({_steps_all}) WHERE vector_index IS NULL"
-    )
-    conn.execute(
-        f"CREATE OR REPLACE VIEW step_vectors AS "
-        f"SELECT * FROM ({_steps_all}) WHERE vector_index IS NOT NULL"
-    )
+        WHERE vector_index IS NULL AND run_id NOT IN (SELECT run_id FROM runs_materialized)
+    """)
+    conn.execute(f"""
+        CREATE OR REPLACE VIEW step_vectors AS
+        SELECT
+            vm.run_id, vm.step_path, vm.step_retry,
+            vm.vector_index, vm.vector_outer_index,
+            s.step_index, vm.file_path,
+            r.session_id, r.site_index, r.site_name,
+            s.step_name, vm.outcome, vm.started_at, vm.ended_at,
+            vm.duration_s, vm.measurement_count, CAST(NULL AS VARCHAR) AS markers,
+            r.uut_serial_number, r.station_id,
+            {_EMPTY_MAP} AS inputs_map, {_EMPTY_MAP} AS outputs_map
+        FROM vectors_materialized vm
+        LEFT JOIN runs_materialized r ON r.run_id = vm.run_id
+        LEFT JOIN steps_materialized s
+            ON s.run_id = vm.run_id AND s.step_path = vm.step_path
+            AND s.step_retry = vm.step_retry
+            AND s.vector_outer_index_key = vm.vector_outer_index_key
+        UNION ALL BY NAME
+        SELECT
+            run_id,
+            COALESCE(step_path, '') AS step_path,
+            step_retry, vector_index, vector_outer_index,
+            step_index, file_path, session_id, site_index, site_name,
+            step_name,
+            TRY_CAST(outcome AS outcome_kind) AS outcome,
+            started_at, ended_at, duration_s, measurement_count,
+            markers, uut_serial_number, station_id, inputs_map, outputs_map
+        FROM overlay.inflight_steps
+        WHERE vector_index IS NOT NULL AND run_id NOT IN (SELECT run_id FROM runs_materialized)
+    """)
 
     # ``instruments``: one row per instrument per run, materialized from the
     # run row's nested ``instruments`` LIST<STRUCT> at ingest, JOINed with

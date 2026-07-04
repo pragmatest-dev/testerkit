@@ -319,6 +319,9 @@ class EventAccumulator:
                     "step_path": entry.get("step_path"),
                     "vector_index": entry.get("vector_index"),
                     "vector_outer_index": entry.get("vector_outer_index"),
+                    # Logical step: no own vector retry (NULL). Matches
+                    # steps_materialized, which has no vector_retry column.
+                    "vector_retry": None,
                     "outcome": entry.get("outcome"),
                     "started_at": started_at,
                     "ended_at": entry_ended_at,
@@ -356,10 +359,12 @@ class EventAccumulator:
                     "step_path": entry.get("step_path"),
                     "vector_index": entry.get("vector_index"),
                     "vector_outer_index": entry.get("vector_outer_index"),
-                    # A vector row carries its OWN timing/outcome — the daemon's
-                    # materialized aggregation COALESCEs the vector_* columns onto
-                    # these for the vector grain (#24), so the overlay must match
-                    # or the inflight/materialized consistency check diverges.
+                    # A vector row carries its OWN timing/outcome/retry — the
+                    # ``vectors_materialized`` grain keys on ``vector_retry``
+                    # (full snowflake, 0.3.1), so the overlay must carry the
+                    # vector's own ``retry`` or the inflight/materialized
+                    # consistency check can't match it 1:1.
+                    "vector_retry": entry.get("retry", 0),
                     "outcome": entry.get("outcome"),
                     "started_at": v_started,
                     "ended_at": v_ended,

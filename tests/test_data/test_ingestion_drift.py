@@ -36,6 +36,7 @@ from litmus.data._runs_duckdb_daemon import (
     _MEASUREMENTS_PERSISTED_COLUMNS,
     _RUNS_PERSISTED_COLUMNS,
     _STEPS_PERSISTED_COLUMNS,
+    _VECTORS_PERSISTED_COLUMNS,
 )
 from litmus.data.backends._row_helpers import LANE_FIELDS
 from litmus.data.schemas import _INSTRUMENT_STRUCT, _MEASUREMENT_STRUCT, RUN_ROW_SCHEMA
@@ -96,7 +97,7 @@ def test_inflight_runs_surfaces_every_live_knowable_run_column() -> None:
     )
 
 
-# --- steps grain -----------------------------------------------------------
+# --- steps grain (LOGICAL steps only, post vectors split) -------------------
 
 _STEP_ALIASES = {
     "step_outcome": "outcome",
@@ -104,21 +105,18 @@ _STEP_ALIASES = {
     "step_ended_at": "ended_at",
 }
 # Step-grain columns the steps projection does NOT surface — made EXPLICIT so
-# the omission is a decision, not silent drift. Split by reason:
-#   pytest-collection metadata a step summary reasonably omits —
-_STEP_OMITTED_METADATA = frozenset(
+# the omission is a decision, not silent drift. pytest-collection metadata a
+# step summary reasonably omits (``step_markers`` IS carried as ``markers``, so
+# it's not here).
+_STEP_PROJECTION_OMITTED = frozenset(
     {"step_node_id", "step_module", "step_file", "step_class", "step_function", "step_markers"}
 )
-#   vector-execution fields not yet surfaced on the step_vectors grain — a real
-#   gap to close, tracked in #57 —
-_STEP_OMITTED_GAP = frozenset(
-    {"vector_outcome", "vector_retry", "vector_started_at", "vector_ended_at"}
-)
-_STEP_PROJECTION_OMITTED = _STEP_OMITTED_METADATA | _STEP_OMITTED_GAP
 
 
 def _collected_step_columns() -> set[str]:
-    cols = {str(f.name) for f in RUN_ROW_SCHEMA if f.name.startswith(("step_", "vector_"))}
+    # Full snowflake: ``step_*`` fields belong to ``steps_materialized``;
+    # ``vector_*`` fields moved to ``vectors_materialized`` (checked separately).
+    cols = {str(f.name) for f in RUN_ROW_SCHEMA if f.name.startswith("step_")}
     return {_STEP_ALIASES.get(c, c) for c in cols}
 
 
@@ -129,6 +127,29 @@ def test_steps_materialized_surfaces_every_collected_step_column() -> None:
         f"steps projection silently drops collected step columns: {sorted(missing)} — add each to "
         "_STEPS_PERSISTED_COLUMNS (+ the step ingest / inflight schema / view), or to "
         "_STEP_PROJECTION_OMITTED as an explicit decision."
+    )
+
+
+# --- vectors grain (swept condition points, split out 0.3.1 phase 6) --------
+
+_VECTOR_ALIASES = {
+    "vector_outcome": "outcome",
+    "vector_started_at": "started_at",
+    "vector_ended_at": "ended_at",
+}
+
+
+def _collected_vector_columns() -> set[str]:
+    cols = {str(f.name) for f in RUN_ROW_SCHEMA if f.name.startswith("vector_")}
+    return {_VECTOR_ALIASES.get(c, c) for c in cols}
+
+
+def test_vectors_materialized_surfaces_every_collected_vector_column() -> None:
+    vectors = {c for c, _ in _VECTORS_PERSISTED_COLUMNS}
+    missing = _collected_vector_columns() - vectors
+    assert not missing, (
+        f"vectors projection drops collected vector columns: {sorted(missing)} — add each to "
+        "_VECTORS_PERSISTED_COLUMNS (+ the vector ingest / view)."
     )
 
 

@@ -355,6 +355,11 @@ INFLIGHT_STEPS_SCHEMA = pa.schema(
         ("step_path", pa.string()),
         ("vector_index", pa.int64()),
         ("vector_outer_index", pa.int64()),
+        # The vector's OWN 0-based retry (NULL on a logical-step row). Part of
+        # the ``vectors_materialized`` grain key (full snowflake, 0.3.1
+        # phase 6), so the overlay must carry it too or a live retried vector
+        # can't be matched 1:1 against its finalized row.
+        ("vector_retry", pa.int64()),
         ("outcome", pa.string()),
         ("started_at", pa.timestamp("us", tz="UTC")),
         ("ended_at", pa.timestamp("us", tz="UTC")),
