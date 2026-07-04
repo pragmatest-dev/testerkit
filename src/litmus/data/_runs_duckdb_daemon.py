@@ -22,6 +22,7 @@ Usage: python -m litmus.data._runs_duckdb_daemon <runs_dir>
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -62,7 +63,7 @@ from litmus.data.schema_dispatch import (
     report_schema_refusal,
     stamp_from_arrow_metadata,
 )
-from litmus.data.schema_versions import SchemaStore
+from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
 from litmus.models.data_options import RUN_ORPHAN_TIMEOUT_SECONDS
 from litmus.models.enums import Comparator
 
@@ -156,41 +157,152 @@ def _discard_index(index_path: Path) -> None:
     Path(f"{index_path}.wal").unlink(missing_ok=True)
 
 
+# ── Derived-index versioning (#47) ──────────────────────────────────
+#
+# The ``_index.duckdb`` is a derived cache versioned by THREE independent axes
+# (see docs/_internal/explorations/derived-index-versioning.md):
+#   * at-rest ``schema_version`` — the parquet format (handled by schema_dispatch);
+#   * projection DEFINITION — the daemon's tables/views DDL shape (THIS);
+#   * engine format — DuckDB unreadable (handled by the corrupt self-heal above).
+# The corrupt self-heal only catches *unreadable* files; a readable-but-
+# wrong-shape stale index (old projection, valid parquet) would silently serve
+# the old shape or error when ``_create_views`` references a column the stale
+# tables lack. This closes that gap: stamp ``(schema_version,
+# projection_fingerprint)`` at build; on boot, rebuild if either differs.
+
+
+def _shape_ddl_prefixes() -> tuple[str, ...]:
+    return ("CREATE TABLE", "CREATE OR REPLACE VIEW", "ALTER TABLE", "CREATE INDEX", "CREATE TYPE")
+
+
+def _projection_fingerprint() -> str:
+    """Deterministic hash of the projection DDL the daemon actually executes.
+
+    Single-sourced from the SAME strings :func:`_ensure_schema` +
+    :func:`_create_views` run — a recording proxy captures every ``execute()``
+    SQL as those functions build the schema on a throwaway ``:memory:`` DB, so
+    the fingerprint CANNOT drift from the real schema. Only shape-defining DDL
+    (``CREATE TABLE`` / ``CREATE OR REPLACE VIEW`` / ``ALTER TABLE`` /
+    ``CREATE INDEX`` / ``CREATE TYPE``) is hashed, whitespace-normalized so
+    indentation is irrelevant; nothing volatile (timestamps, paths) appears in
+    that DDL. Stable across re-open of an unchanged daemon; changes iff the DDL
+    changes (e.g. a new column in a CREATE or a ``_*_PERSISTED_COLUMNS`` tuple).
+
+    ``_create_inflight_tables`` runs on the raw connection (its DROP/ATTACH and
+    Arrow-API table creation are NOT projection shape and NOT recorded) purely
+    so ``_create_views`` can resolve its ``overlay.*`` references and execute.
+    """
+    recorded: list[str] = []
+
+    class _Recorder:
+        def __init__(self, real: duckdb.DuckDBPyConnection) -> None:
+            self._real = real
+
+        def execute(self, sql: str, *args: Any, **kwargs: Any) -> Any:
+            recorded.append(sql)
+            return self._real.execute(sql, *args, **kwargs)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._real, name)
+
+    scratch = duckdb.connect(":memory:")
+    try:
+        _ensure_schema(_Recorder(scratch))  # type: ignore[arg-type]
+        _create_inflight_tables(scratch)  # raw: attach overlay + inflight tables (not recorded)
+        _create_views(_Recorder(scratch))  # type: ignore[arg-type]
+    finally:
+        scratch.close()
+
+    prefixes = _shape_ddl_prefixes()
+    ddl = [norm for sql in recorded if (norm := " ".join(sql.split())).upper().startswith(prefixes)]
+    return hashlib.sha256("\n".join(ddl).encode()).hexdigest()
+
+
+def _current_index_stamp() -> tuple[str, str]:
+    """The ``(schema_version, projection_fingerprint)`` this code expects."""
+    return CURRENT_SCHEMA_VERSION[SchemaStore.RUNS], _projection_fingerprint()
+
+
+def _stamp_index_meta(conn: duckdb.DuckDBPyConnection) -> None:
+    """Write the current ``(schema_version, projection_fingerprint)`` into ``_index_meta``.
+
+    Kept OUT of :func:`_ensure_schema` (it is versioning metadata, not
+    projection shape, so it must not feed its own fingerprint). Idempotent
+    upsert — safe to call on every (re)build.
+    """
+    schema_version, fingerprint = _current_index_stamp()
+    conn.execute("CREATE TABLE IF NOT EXISTS _index_meta (key VARCHAR PRIMARY KEY, value VARCHAR)")
+    conn.execute(
+        "INSERT INTO _index_meta (key, value) VALUES ('schema_version', ?), "
+        "('projection_fingerprint', ?) "
+        "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        [schema_version, fingerprint],
+    )
+
+
+def _read_index_meta(conn: duckdb.DuckDBPyConnection) -> tuple[str | None, str | None]:
+    """Read the stored stamp; ``(None, None)`` when ``_index_meta`` is absent.
+
+    A missing table is a pre-#47 index (no stamp ever written) — treated as a
+    mismatch by the caller, so it rebuilds.
+    """
+    try:
+        rows = conn.execute("SELECT key, value FROM _index_meta").fetchall()
+    except duckdb.Error:
+        return None, None
+    d = {str(k): v for k, v in rows}
+    return d.get("schema_version"), d.get("projection_fingerprint")
+
+
+def _reset_index(index_path: Path) -> duckdb.DuckDBPyConnection:
+    """Discard the on-disk index and reopen it empty with the current schema."""
+    _discard_index(index_path)
+    conn = duckdb.connect(str(index_path))
+    _ensure_schema(conn)
+    return conn
+
+
 def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
     """Open the persistent DuckDB index and ensure schema is current.
 
-    ``is_fresh`` reflects whether the file already existed; the
-    caller uses it to decide foreground vs background ingest on
-    first launch. The schema itself is always idempotently aligned
-    with the code via :func:`_ensure_schema` — no version checks,
-    no drop-and-recreate.
+    ``is_fresh`` is ``True`` when the caller should treat the index as
+    (re)built-from-scratch — either the file didn't exist, or it was discarded
+    by one of the two self-heal paths below. The cold-start ingest sweep then
+    repopulates it from parquet (its ``_ingested`` ledger is empty). The schema
+    is idempotently aligned with the code via :func:`_ensure_schema`.
 
-    Self-heal: the index is a DERIVED cache — every row rebuildable from
-    parquet — so an unreadable on-disk index (a ``kill -9`` mid-write, a bad
-    disk block, a DuckDB storage-format bump on upgrade) must never be a
-    fatal poison-pill that crash-loops the daemon on every respawn. When
-    opening a *pre-existing* index raises a DuckDB error AND a fresh probe
-    confirms the fault is the file (not the environment, see
-    :func:`_index_file_is_the_cause`), the corrupt index is discarded and
-    reopened empty; ``is_fresh=True`` makes the caller's cold-start ingest
-    rebuild it from parquet. An environmental fault re-raises instead — we
-    never delete the derived index on a transient disk error.
+    Two self-heal paths, both funnelling into a discard + rebuild (#47):
+
+    1. **Unreadable file** (corrupt): a ``kill -9`` mid-write, a bad disk
+       block, a DuckDB storage-format bump on upgrade. Opening raises a DuckDB
+       error; if a fresh probe confirms the fault is the *file* (not the
+       environment — disk full / read-only, see :func:`_index_file_is_the_cause`)
+       the index is discarded and reopened empty. An environmental fault
+       re-raises — we never delete the derived index on a transient disk error.
+    2. **Readable but WRONG SHAPE** (stale projection): the file opens fine but
+       its stored ``(schema_version, projection_fingerprint)`` stamp differs
+       from what this code expects — the parquet format changed OR the daemon's
+       tables/views DDL changed (e.g. a projection refactor). A partial
+       ``ALTER``-migration by ``_ensure_schema`` can't fix restructured tables /
+       views, so the whole index is discarded and rebuilt from parquet. A
+       missing ``_index_meta`` (pre-#47 index) counts as a mismatch. First
+       version rebuilds the WHOLE index — safe, rare, off the critical path.
+
+    Every (re)build re-stamps ``_index_meta``; a matching pre-existing index
+    opens normally with ``is_fresh=False``.
     """
     is_fresh = not index_path.exists()
     conn: duckdb.DuckDBPyConnection | None = None
     try:
         conn = duckdb.connect(str(index_path))
         _ensure_schema(conn)
-        return conn, is_fresh
     except duckdb.Error as exc:
-        # Self-heal only when BOTH conditions hold; each other case re-raises
-        # for a distinct reason:
+        # Path 1 — unreadable file. Self-heal only when BOTH conditions hold;
+        # each other case re-raises for a distinct reason:
         if is_fresh:
             raise  # a brand-new file failing isn't corruption — an env/DuckDB fault
         if not _index_file_is_the_cause(index_path.parent):
             raise  # a fresh probe also fails → environmental (disk full / read-only)
-        # Pre-existing index + probe confirms the file itself is the fault →
-        # safe to discard and rebuild from parquet.
         logger.warning(
             "Runs index at %s is unreadable (%s: %s) — discarding the derived "
             "index and rebuilding from parquet.",
@@ -203,10 +315,34 @@ def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
                 conn.close()
             except duckdb.Error:
                 pass
-        _discard_index(index_path)
-        conn = duckdb.connect(str(index_path))
-        _ensure_schema(conn)
+        conn = _reset_index(index_path)
+        _stamp_index_meta(conn)
         return conn, True
+
+    # Path 2 — readable. Check the projection-shape stamp on a pre-existing
+    # index; a fresh one is stamped below without a check.
+    current = _current_index_stamp()
+    if not is_fresh:
+        stored = _read_index_meta(conn)
+        if stored == current:
+            return conn, False  # shape current → normal open, keep the existing rows
+        stored_sv, stored_fp = stored
+        logger.warning(
+            "Runs index at %s has a stale projection shape "
+            "(stored schema_version=%s fingerprint=%s; current schema_version=%s) — "
+            "discarding and rebuilding from parquet.",
+            index_path,
+            stored_sv,
+            (stored_fp[:12] + "…") if stored_fp else None,
+            current[0],
+        )
+        try:
+            conn.close()
+        except duckdb.Error:
+            pass
+        conn = _reset_index(index_path)
+    _stamp_index_meta(conn)
+    return conn, True
 
 
 def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
