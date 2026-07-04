@@ -271,13 +271,15 @@ reader (known→adapt / newer→defer / absent→quarantine) + `register_adapter
 corpus, synthetic-adapter re-index+migrate tests, mixed-version coexistence test; the projection
 **fingerprint** + in-place self-heal (the MVP).
 
+**P1 — BUILT (`8df7239e`, 2026-07-04):** content-addressed epoch files (§3). `_projection_fingerprint()`
+widened to hash the full read-path (DDL + adapter-registry keys + whitelist); filename `_index.<fp>.duckdb`
+(single 12-char key, `schema_epoch` dropped); daemon opens only its own; old files persist; in-file
+`_index_meta` is now a build-complete marker (`built_at` written last) + provenance (litmus version +
+schema_version + full hash), not a shape gate; `_epochs` ledger written on open. Landed with a sweep
+race-fix (SATB freeze of the ingest candidate set — a run notified mid-sweep is no longer wrongly pruned)
+and the CLI `_index*.duckdb` glob. Crash-loop fixed; coexistence restored.
+
 **Remaining (this contract):**
-- **P1 — content-addressed epoch files** (§3): **widen `_projection_fingerprint()`** to hash the
-  full read-path (DDL + adapter-registry keys + whitelist); filename `_index.<fp>.duckdb` (single
-  12-char key, `schema_epoch` dropped); daemon opens only its own; old files persist; collapse the
-  in-file dual-gate to a build-complete marker + provenance; append `(fp, version, last_seen)` to
-  the `_epochs` ledger on open (the *write* half of §6 — GC *policy* stays P4).
-  *Fixes the crash-loop; restores coexistence.*
 - **P2 — cost-ladder birth** (§4): classifier + copy-seed (rung 1–4). *Makes P1 cheap.*
 - **P3 — per-version daemon binding** (§2): a client binds a daemon of its own projection version;
   never cross a version boundary. *Revises §8 singleton-ratchet.*
@@ -329,6 +331,13 @@ intermediate states.
   The `_epochs` **ledger write lands in P1** (open = stamp); P4 adds only the GC policy. §11.1
   (per-version daemons) and §11.2 (single widened fingerprint) resolved; §11.3 remains a P2
   verification. Still no code.
+- 2026-07-04 — **P1 BUILT + landed** (`8df7239e`) on `feat/0.3.1-index-epoch`. Content-addressed
+  epoch files: `_projection_fingerprint()` widened (DDL + adapter keys + whitelist), filename
+  `_index.<fp>.duckdb`, in-file meta is now build-complete marker + provenance, `_epochs` ledger
+  written on open, CLI `_index*.duckdb` glob. Shipped with the SATB sweep-freeze race fix (a run
+  notified mid-`_ingest_parquet_files` sweep is no longer wrongly cascade-deleted; profiled as a
+  runtime non-factor) and a hardened flaky debounce UI test (`f40fa118`). Full pre-commit suite
+  green on both commits. P2–P5 remain.
 
 ---
 
