@@ -57,6 +57,45 @@ Consequences:
 
 ---
 
+## Full snowflake — REVISED SCOPE (2026-07-03, supersedes the partial above)
+
+The first pass normalized RUN identity only (step-level fields kept on measurements, `vectors` still folded into the dual-grain steps table, `index` still query-time). Decision: go all the way to a consistent snowflake — half-normalization is itself the inconsistency we're removing. **Guiding principle: normalize by default (one copy per fact); denormalize ONLY where a benchmark proves it warranted. Hard gate: "not noticeably slower."**
+
+### Tables — hierarchical natural keys, own grain only
+
+| Table | PK (natural, each a prefix of its descendants') | Own columns |
+|---|---|---|
+| `runs` | `run_id` | run identity |
+| `steps` | `(run_id, step_path, step_retry)` | step code / timing / outcome |
+| `vectors` | `+ (vector_outer_index, vector_index, vector_retry)` | vector timing / outcome (swept points only; SPLIT OUT of the dual-grain steps table) |
+| `measurements` | `+ ordinal` | measurement fields + `name` + materialized `index` |
+| `inputs` | `+ ordinal` | `_LANE_STRUCT` values + `name` + materialized `index` |
+| `outputs` | `+ ordinal` | `_LANE_STRUCT` values + `name` + materialized `index` |
+| `instruments` | `(run_id, instrument_id)` (+ step key if per-step sets exist) | instrument struct fields |
+
+- **No ancestor data on any table** — `steps` has no run identity; `measurements`/`inputs`/`outputs` have neither run NOR step/vector identity, only their grain key + payload. Reach ancestors by joining on the key prefix.
+- **`ordinal`** = the `UNNEST ... WITH ORDINALITY` position within the carrier's nested list — the true PK discriminator (a name repeats at one carrier: two `observe("temp")`, two `measure("v_rail")`). `name` is a column. Identical across measurements/inputs/outputs.
+- **`step_retry` in the grain key all the way down** (it's on every at-rest row) — non-negotiable, else reruns fan out on the join. Fixes the gap the first pass worked around.
+- **Polymorphic carrier (step OR vector):** measurements/inputs/outputs carry the full vector key with vector coords NULL for step-scope, 0..N for vector-scope. Always `JOIN steps`; `LEFT JOIN vectors` (NULL coords → no vector, correct).
+- **`index`** (run-wide, per-name, retry-stable occurrence — the `/explore` axis): materialized ONCE at ingest (a window during UNNEST/INSERT, excluding retry), a column on all three tables. Replaces the query-time `_MEASUREMENTS_WITH_INDEX` `DENSE_RANK`. Still derived (rebuilds from parquet), not at-rest, builder-agnostic.
+- **Views** rebuild the old denormalized column shape by joining up the hierarchy → existing queries + query-parity unchanged.
+
+### Perf is the gate
+
+Expected ~neutral (RLE already hid denormalized storage; hash joins on the tiny `runs` table are cheap; materialized index beats per-query DENSE_RANK) — but that is REASONING, not measurement.
+- **Benchmark before/after** on the branch (`test_perf_daemon.py` / `bench_index_scale.py`) as an explicit phase. If a real query path regresses noticeably, add TARGETED denormalization / a surrogate key on that path only — measured.
+- **DB-index pruning = measure-then-decide:** the ART `name` indexes may not earn their keep under join-by-key (daemon comment: hash joins don't use them). Dropping them is a real index reduction — but confirm the facet / `distinct_values` paths first. Do NOT bake a reduction that quietly hurts name lookups.
+
+### Remaining phases (extend the current branch)
+
+6. Split `vectors` out of the dual-grain `steps_materialized` into its own table + key.
+7. Full-normalize `measurements`: drop step-level fields; add `step_retry` + `ordinal` to its key; the view joins steps/vectors for the old columns.
+8. Add `ordinal` + materialized `index` to `measurements`/`inputs`/`outputs`; remove the query-time DENSE_RANK.
+9. Benchmark before/after (the gate). Prune DB indexes only if measured-safe.
+10. Drift test + docs updated to the final shape; full suite green.
+
+---
+
 ## Progress log
 
 - 2026-07-03 — Design approved after the drift-fix session. Root cause named: denormalization (row-store instinct) in a columnar DB is the drift source; normalize + join kills it structurally. Branch created. Implementation delegated to Sonnet.
