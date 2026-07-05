@@ -173,13 +173,27 @@ needs to know the version set (content-addressing is self-organizing — each da
 own file). And GC is defused by §5: removal is never a data risk.
 
 Policy:
-- **Default keep everything** — epochs are rare + files small; the set is a handful.
-- **Reap by *observed last-access*, never a "is it dead" oracle** (unknowable). A passive
-  `_epochs` ledger in the data dir — each daemon stamps `(fingerprint, last_seen)` on open —
-  gives an LRU signal from the past (the ceiling of what's knowable).
-- **Never reap the current epoch, or one seen in the last N days** (an actively-flapped version).
-- A reaped-then-returning version just rebuilds. `--dry-run` prints the bet, never a data-loss
-  warning, because nothing here is precious.
+- **Default keep, reap by *dormancy*.** Epochs are **cache, not data** (§5) — so unlike the durable
+  stores (whose "keep everything" protects irreplaceable data), keeping every epoch is a
+  *lean-eligible* default, not a sacred one. The reap signal is **observed last-access, never a
+  "is it dead" oracle** (unknowable) and **never a "forward/upgrade" assumption**: a still-*used*
+  older version keeps refreshing its `last_seen`, so LRU self-protects it; only a genuinely
+  *dormant* fingerprint ages out. The passive `_epochs` ledger — each daemon stamps
+  `(fingerprint, seen_by, last_seen)` on open — is that LRU signal (the ceiling of what's knowable).
+- **Never reap the current epoch, or an active/warm one seen in the last N days.**
+- **Files are full index replicas, not "small."** Each epoch is the *whole* index over the corpus
+  (~0.7 GB per 10k runs, §"disk cost"), and a reaped-then-returning version pays a **full rebuild**.
+  The *fundamental* indexing is cheap — DuckDB bulk-reads the whole current corpus sub-second
+  (244 files: raw materialize 0.46 s) — but the current **daemon** rebuild *path* carries heavy
+  overhead (measured ~250× the raw-read floor on WSL2: ~120 s for 244 files, dominated by
+  checkpoint/WAL **fsync**, which WSL2 makes pathologically slow; real-hardware cost unmeasured).
+  So reaping is never a *data* risk (§5) and the raw floor is low, but the rebuild path is a real
+  *latency* cost until the fsync/checkpoint overhead is trimmed: reap the **dormant**, keep the
+  **active**. `--dry-run` prints the disk reclaimed, framed as reclaiming *cache*, never data.
+- **Retracted (2026-07-04):** an earlier "auto-reap superseded epochs on upgrade" idea — it punishes
+  a still-active older version (Project A pinned to v0.3.0) with a repeated full rebuild every time a
+  newer client touches the shared store. Forward motion is not a safe reap trigger; dormancy is.
+  "I'm not going back" stays an **explicit** human action (`gc --keep-last 0`), never an auto-default.
 
 Prior art: Nix `nix-collect-garbage` (gc-roots + reachability), DuckLake `expire_snapshots`,
 OS cache reapers.
@@ -293,21 +307,54 @@ built) and reports idempotently; `rm` refuses the current epoch without `--force
 the `_epochs` ledger's `last_seen`, honoring `--keep-last`/`--older-than`, always keeping the
 current epoch and any epoch of unknowable age (no ledger entry).
 
-**Remaining (this contract):**
-- **P2 — cost-ladder birth** (§4): classifier + copy-seed (rung 1–4). *Makes P1 cheap.*
-- **P3 — per-version daemon binding** (§2): a client binds a daemon of its own projection version;
-  never cross a version boundary. *Revises §8 singleton-ratchet.*
+**0.3.1 index workstream CLOSED at P1 + P4/P5** (2026-07-04). Everything remaining is a **cache
+optimization, not a correctness requirement** (§5 rebuild guarantee) — so it defers with the design
+locked and an explicit **trigger**, not another design pass:
 
-Original suggested order: P1 (safety keystone) → P2 → P5 (makes P1/P2 usable) → P4 → P3 (largest,
-revises lifecycle). Built on a branch (`feat/0.3.1-index-epoch`) — multi-commit, half-functional
-intermediate states.
+- **P2 — cost-ladder copy-seed** (§4): classifier + copy-seed. *Trigger:* a shipped projection change
+  creates a real second fingerprint (the actual delta then tells us the rung; rung-2 NULL-lossiness
+  makes speculative building unsafe). Also the "avoid the version-change rebuild" lever.
+- **P3-b — coexisting per-fingerprint daemons** (§11.1): the real multi-version daemon fix. *Trigger:*
+  concurrent multi-version against one shared store, or disk/latency pressure. Build on Gradle/Bazel's
+  lifecycle playbook. (P3-a not worth building — dev rules cover its only live symptom.)
+- **Cold-rebuild perf tune:** the raw DuckDB index floor is sub-second per corpus; the daemon rebuild
+  *path* carries ~250× fsync/checkpoint overhead on WSL2 (§6). *Trigger:* a *native* measurement
+  confirms a large-corpus rebuild is slow → the fix is checkpoint/commit batching (fewer fsyncs), a
+  targeted tune, not a rewrite. Tracked in tech-debt.
+- **Runtime-dir hygiene:** move socket/pid/port/lock rendezvous out of the data dir into the XDG
+  runtime dir. *Trigger:* the `data import` stale-state scrub becomes a real bug. Tracked in tech-debt.
+
+Original suggested order: P1 (safety keystone) → P2 → P5 (makes P1/P2 usable) → P4 → P3. Actual:
+P1 → P4/P5 (visible, low-risk, exercises P1) → P2/P3 deferred per the triggers above. Built on
+`feat/0.3.1-index-epoch`.
 
 ## 11. Decisions (resolved 2026-07-04) + one precondition
 
-1. **RESOLVED — per-version *daemons* (P3).** §2's conclusion confirmed: each active projection
-   version binds its own daemon + index file + SQL, all moving together, so a cross-version SQL
-   mismatch is structurally impossible; only old code can keep an old epoch *current*. Biggest
-   revision to §8's singleton ratchet; built in P3.
+1. **RESOLVED — singleton keyed by `(data_dir, fingerprint)`, not by directory (P3).** §2's
+   conclusion, sharpened 2026-07-04 and validated against prior art (Gradle daemon, Bazel server +
+   `bazelisk`, Nix daemon + store). The daemon binds to its projection **fingerprint** — the
+   capability key is the exact read-path content-address, deliberately *stricter* than a
+   "compatible-surface" class: it guarantees *same answers*, not merely *bindable columns* (a
+   same-surface-but-different-adapter daemon would bind fine and return silently-wrong rows). The
+   original "one daemon per **directory**" was a singleton on the wrong key — it held the daemon at 1
+   by serving the *wrong model* (Goal 3 violation). The three singleton goals (persistent shared
+   index; one writer per index; clients reach a model-matching daemon) are all satisfied by
+   daemon↔**index** 1:1, which — once P1 made indices-per-dir > 1 — *requires* per-fingerprint
+   daemons. Consequences:
+   - **Routing is a local hash.** A client computes its own fingerprint and resolves/launches only
+     *its* daemon — no probing, no negotiation.
+   - **Launch is inherently per-version.** Spawn is `sys.executable -m litmus.data._runs_duckdb_daemon`
+     — a process can only launch a daemon from *its own* venv, so no central authority can spawn
+     foreign-version workers. A "global daemon" is therefore at most a **discovery registry**, never a
+     **supervisor**; version resolution is a thin `bazelisk`/`gradlew`-style shim, not a service.
+   - **Daemons coexist per active fingerprint**, each on its own port (Gradle's model), self-limited
+     by idle-death (the process-side GC; disk-side GC is the explicit `litmus data index gc`).
+   - **Runtime-state hygiene:** rendezvous files (socket/pid/port/lock) belong in the XDG *runtime*
+     dir, not co-mingled in the data dir (per XDG; it's why `data import` must scrub stale state).
+   - **Splits into P3-a** (fingerprint-keyed reuse, one daemon/dir — NOT worth building; its only live
+     symptom, the dev-loop stale daemon, is covered by dev rules: `reindex` after a projection change)
+     **and P3-b** (coexisting per-fingerprint daemons — the real fix). Both **deferred**, design
+     locked; trigger = concurrent multi-version against one shared store, or disk/latency pressure.
 2. **RESOLVED — single *widened* fingerprint in the name** (`_index.<fp>.duckdb`); `schema_epoch`
    dropped as a name component (§3). The fingerprint is a deterministic function of the daemon's
    code, so DDL + adapters + whitelist fold into one content-address; a second key was redundant
@@ -362,6 +409,24 @@ intermediate states.
   files on an already-warm index); `rm` refuses the current epoch without `--force`; `gc` reaps by
   the ledger's `last_seen`, honoring `--keep-last`/`--older-than` (reusing `retention.parse_duration`),
   always keeping the current epoch and any epoch of unknowable age. P2 and P3 remain.
+- 2026-07-04 — **Design session → decisions locked, workstream CLOSED at P1+P4/P5.** A long convergent
+  discussion (validated against Gradle/Bazel/Nix prior art) settling every deferred question the same
+  way — *cache optimization, not correctness, so defer with a trigger*:
+  (a) the singleton is keyed by `(dir, fingerprint)`, not directory — the original was a singleton on
+  the wrong key (§11.1); the capability key is the *exact* fingerprint (result-equivalence), stricter
+  than surface-compatibility, on purpose (same-surface-different-adapter would return silently-wrong
+  rows). (b) Launch is inherently per-version (`sys.executable -m …` from the client's own venv), so a
+  "global daemon" is a discovery *registry*, not a *supervisor* (the `bazelisk` shim pattern).
+  (c) Retention = LRU-by-**dormancy**; epochs are **cache, not data**; never reap an active/warm epoch;
+  "I'm not going back" is an explicit human action, never an auto-forward default (§6). (d) **Retracted
+  two mid-session missteps:** "auto-reap superseded epochs on upgrade" (punishes a still-active old
+  version with repeated rebuilds) and "global daemon as supervisor" (can't launch foreign versions).
+  (e) **Build-cost reality-check:** the raw DuckDB index floor is sub-second per corpus (244 files
+  materialize in 0.46 s); the *daemon* rebuild path is ~250× that on WSL2, dominated by checkpoint/WAL
+  **fsync** — a tunable overhead (checkpoint-batching), not a fundamental cost, and unmeasured on native
+  hardware. So "indexes are slow to build" is a fsync-overhead artifact, not a rewrite trigger.
+  Everything past P1+P4/P5 (P2 copy-seed, P3-b coexisting daemons, cold-rebuild perf tune, XDG
+  runtime-dir hygiene) is deferred **with triggers** (§10), not re-litigated.
 
 ---
 
