@@ -183,6 +183,19 @@ class TestAutoRegistration:
 
     def test_auto_register_no_station(self, pytester):
         """No station config → no error, no auto-registered fixtures."""
+        # Isolate the inner run's config so it doesn't inherit the repo's
+        # filterwarnings=error: the "station not found" UserWarning is the
+        # expected behavior under test here, so it must show, not error. Load
+        # the plugin explicitly (as the sibling tests do) so its warning-emitting
+        # hook runs after the warnings filter is applied.
+        pytester.makeini(
+            textwrap.dedent("""\
+            [pytest]
+            addopts = -p no:litmus -p litmus.pytest_plugin
+            filterwarnings =
+                default
+        """)
+        )
         pytester.makeconftest(
             textwrap.dedent("""\
             import pytest
@@ -200,7 +213,11 @@ class TestAutoRegistration:
             """),
         )
 
-        result = pytester.runpytest("-v", "--station=nonexistent")
+        # Subprocess run: a fresh process doesn't inherit the outer session's
+        # in-process warnings filters, so the inner ini's filterwarnings=default
+        # actually governs — the expected "station not found" warning shows
+        # instead of being turned into an error.
+        result = pytester.runpytest_subprocess("-v", "--station=nonexistent")
         result.assert_outcomes(passed=1)
 
     def test_conftest_override(self, pytester):

@@ -40,6 +40,7 @@ from uuid import uuid4
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from litmus.analysis.runs_query import RunsQuery
 from litmus.data import runs_duckdb_manager
@@ -247,7 +248,10 @@ def test_cascade_delete_still_prunes_genuinely_removed_files(tmp_path: Path) -> 
 
         path_b.unlink()  # genuinely removed from disk before the sweep runs
 
-        _ingest_parquet_files(conn, runs_dir, lock)
+        # The sweep cascade-deletes the now-gone file and warns about it — that
+        # prune is exactly what this test asserts, so expect the warning.
+        with pytest.warns(UserWarning, match="gone from disk"):
+            _ingest_parquet_files(conn, runs_dir, lock)
 
         assert _materialized_count(conn) == 1  # only A remains
         assert str(path_b) not in _ingested_paths(conn)

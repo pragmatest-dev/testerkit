@@ -146,6 +146,8 @@ class TestMethodMocksWarning:
                 [pytest]
                 addopts = -p no:litmus -p litmus.pytest_plugin
                 asyncio_default_fixture_loop_scope = function
+                filterwarnings =
+                    default
                 """
             )
         )
@@ -196,6 +198,8 @@ class TestMethodMocksWarning:
                 [pytest]
                 addopts = -p no:litmus -p litmus.pytest_plugin
                 asyncio_default_fixture_loop_scope = function
+                filterwarnings =
+                    default
                 """
             )
         )

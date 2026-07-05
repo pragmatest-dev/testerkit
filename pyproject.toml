@@ -229,3 +229,18 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-m 'not benchmark' --ignore=tests/test_e2e --strict-markers"
+# Any warning is an error — a warning must be either expected (wrap the call in
+# ``pytest.warns(...)``) or fixed. Scoped ``ignore`` entries below cover only
+# genuinely-benign noise we cannot silence at the source.
+filterwarnings = [
+    "error",
+    # Daemon subprocesses self-manage (PID-ref + idle-timeout) and INTENTIONALLY
+    # outlive a test's synchronous teardown, so ``Popen.__del__`` emits a benign
+    # "subprocess still running" ResourceWarning at GC — surfaced by pytest as an
+    # unraisable-exception warning. It fires at GC (not a call site, so it can't
+    # be ``pytest.warns``-wrapped) and is GC-timing-dependent (→ would flake the
+    # gate). Scope-ignore just this Popen.__del__ noise; real ResourceWarnings
+    # and other unraisable exceptions still error.
+    'ignore:subprocess \d+ is still running:ResourceWarning',
+    'ignore:Exception ignored in.*Popen\.__del__:pytest.PytestUnraisableExceptionWarning',
+]

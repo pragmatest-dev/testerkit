@@ -247,7 +247,10 @@ def test_put_unrecognized_value_falls_back_to_pickle(store: FileStore) -> None:
     sid = _session_id()
     val = _CustomPickleType(42, "hello")
 
-    uri = store.write("custom", val, session_id=sid)
+    # The custom type has no registered serializer → FileStore falls back to
+    # pickle and warns; that fallback IS what this test asserts, so expect it.
+    with pytest.warns(RuntimeWarning, match="falling back to pickle"):
+        uri = store.write("custom", val, session_id=sid)
 
     _, filename = _parse_uri(uri)
     assert filename.endswith(".pkl")

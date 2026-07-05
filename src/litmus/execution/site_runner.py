@@ -331,11 +331,17 @@ class SiteRunner:
         when a child dies so blocked sync points don't deadlock."""
         # Read stdout line by line
         if proc.stdout is not None:
-            for line in proc.stdout:
-                stripped = line.rstrip("\n")
-                result.output_lines.append(stripped)
-                if on_output is not None:
-                    on_output(result.site_index, line)
+            try:
+                for line in proc.stdout:
+                    stripped = line.rstrip("\n")
+                    result.output_lines.append(stripped)
+                    if on_output is not None:
+                        on_output(result.site_index, line)
+            finally:
+                # Close the pipe this thread owns, so its file handle doesn't
+                # leak (ResourceWarning) when the Popen is later GC'd. Race-free:
+                # the monitor thread is the sole reader of proc.stdout.
+                proc.stdout.close()
 
         # Process has exited (stdout EOF implies exit)
         proc.wait()
