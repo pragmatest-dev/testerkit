@@ -656,27 +656,40 @@ def data_index_build(data_dir: str | None, rebuild: bool, background: bool) -> N
         label="litmus data index build",
     )
 
-    def _ingested_ok_count() -> int:
-        rows = client.query("SELECT count(*) AS n FROM _ingested WHERE status = 'ok'")
-        return int(rows[0]["n"]) if rows else 0
+    def _ingest_counts() -> tuple[int, int]:
+        # (reconciled, ok). ``reconciled`` = every file that reached a TERMINAL
+        # ``_ingested`` state — ``ok`` OR ``quarantined`` (an incompatible schema
+        # version, which never becomes ``ok``). Warmth MUST wait on *reconciled*,
+        # not ``ok``: an ``ok >= disk_count`` gate can never be satisfied when any
+        # file is quarantined, so it would spin the poll to its full deadline and
+        # print a false "still warming" while the daemon sits idle. ``ok`` is
+        # reported separately as the count successfully indexed.
+        rows = client.query(
+            "SELECT count(*) AS reconciled, "
+            "count(*) FILTER (WHERE status = 'ok') AS ok FROM _ingested"
+        )
+        if not rows:
+            return 0, 0
+        return int(rows[0]["reconciled"]), int(rows[0]["ok"])
 
-    initial_ok = _ingested_ok_count()
-    already_warm = initial_ok >= disk_count
+    initial_reconciled, initial_ok = _ingest_counts()
+    already_warm = initial_reconciled >= disk_count
 
     timeout_s = 120.0
     poll_interval_s = 0.5
     deadline = _time.monotonic() + timeout_s
-    ingested_ok = initial_ok
+    reconciled, ingested_ok = initial_reconciled, initial_ok
     timed_out = False
-    while ingested_ok < disk_count:
+    while reconciled < disk_count:
         if _time.monotonic() >= deadline:
             timed_out = True
             break
         _time.sleep(poll_interval_s)
-        ingested_ok = _ingested_ok_count()
+        reconciled, ingested_ok = _ingest_counts()
 
     elapsed = _time.monotonic() - started
     _litmus_version, schema_version, _fp = _current_provenance()
+    quarantined = max(reconciled - ingested_ok, 0)
     verb = "Rebuilt" if rebuild else "Built"
     click.echo(
         f"{verb} runs index from {disk_count} parquet file{'s' if disk_count != 1 else ''} "
@@ -686,11 +699,12 @@ def data_index_build(data_dir: str | None, rebuild: bool, background: bool) -> N
         click.echo("Already warm — 0 new files ingested.")
     else:
         new_files = max(ingested_ok - initial_ok, 0)
-        click.echo(f"{new_files} new file(s) ingested this run.")
+        note = f" ({quarantined} quarantined — incompatible schema)" if quarantined else ""
+        click.echo(f"{new_files} new file(s) indexed this run{note}.")
     if timed_out:
         click.echo(
             f"Warning: did not finish warming within {timeout_s:.0f}s "
-            f"({ingested_ok}/{disk_count} parquet files ingested so far) — "
+            f"({reconciled}/{disk_count} parquet files reconciled so far) — "
             "the daemon continues warming in the background."
         )
 

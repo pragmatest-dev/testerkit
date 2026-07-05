@@ -183,13 +183,14 @@ Policy:
 - **Never reap the current epoch, or an active/warm one seen in the last N days.**
 - **Files are full index replicas, not "small."** Each epoch is the *whole* index over the corpus
   (~0.7 GB per 10k runs, §"disk cost"), and a reaped-then-returning version pays a **full rebuild**.
-  The *fundamental* indexing is cheap — DuckDB bulk-reads the whole current corpus sub-second
-  (244 files: raw materialize 0.46 s) — but the current **daemon** rebuild *path* carries heavy
-  overhead (measured ~250× the raw-read floor on WSL2: ~120 s for 244 files, dominated by
-  checkpoint/WAL **fsync**, which WSL2 makes pathologically slow; real-hardware cost unmeasured).
-  So reaping is never a *data* risk (§5) and the raw floor is low, but the rebuild path is a real
-  *latency* cost until the fsync/checkpoint overhead is trimmed: reap the **dormant**, keep the
-  **active**. `--dry-run` prints the disk reclaimed, framed as reclaiming *cache*, never data.
+  The **index build is fast: ~4.5 s** for the whole current corpus (244 files; `:memory:` 3.7 s,
+  file-backed + `CHECKPOINT` 4.1 s — fsync adds only ~0.3 s). An earlier "~120 s rebuild" was **not**
+  a slow rebuild: it was a **bug in `litmus data index build`'s warmth poll** — it waited for
+  `ok == disk_count`, which even one *quarantined* file (incompatible schema) makes unreachable, so
+  the poll spun to its 120 s deadline while the daemon sat idle. Fixed (warmth counts *terminal*
+  states — `ok` + `quarantined`). So reaping is never a *data* risk (§5) *and* the rebuild it triggers
+  is cheap: reap the **dormant**, keep the **active**. `--dry-run` prints the disk reclaimed, framed
+  as reclaiming *cache*, never data.
 - **Retracted (2026-07-04):** an earlier "auto-reap superseded epochs on upgrade" idea — it punishes
   a still-active older version (Project A pinned to v0.3.0) with a repeated full rebuild every time a
   newer client touches the shared store. Forward motion is not a safe reap trigger; dormancy is.
@@ -317,10 +318,8 @@ locked and an explicit **trigger**, not another design pass:
 - **P3-b — coexisting per-fingerprint daemons** (§11.1): the real multi-version daemon fix. *Trigger:*
   concurrent multi-version against one shared store, or disk/latency pressure. Build on Gradle/Bazel's
   lifecycle playbook. (P3-a not worth building — dev rules cover its only live symptom.)
-- **Cold-rebuild perf tune:** the raw DuckDB index floor is sub-second per corpus; the daemon rebuild
-  *path* carries ~250× fsync/checkpoint overhead on WSL2 (§6). *Trigger:* a *native* measurement
-  confirms a large-corpus rebuild is slow → the fix is checkpoint/commit batching (fewer fsyncs), a
-  targeted tune, not a rewrite. Tracked in tech-debt.
+  (No cold-rebuild perf item — the "~120 s rebuild" was a `build` warmth-poll **bug**, not slow
+  ingest; fixed this session. The real rebuild is ~4.5 s. See §6 + the progress log.)
 - **Runtime-dir hygiene:** move socket/pid/port/lock rendezvous out of the data dir into the XDG
   runtime dir. *Trigger:* the `data import` stale-state scrub becomes a real bug. Tracked in tech-debt.
 
@@ -409,6 +408,11 @@ P1 → P4/P5 (visible, low-risk, exercises P1) → P2/P3 deferred per the trigge
   files on an already-warm index); `rm` refuses the current epoch without `--force`; `gc` reaps by
   the ledger's `last_seen`, honoring `--keep-last`/`--older-than` (reusing `retention.parse_duration`),
   always keeping the current epoch and any epoch of unknowable age. P2 and P3 remain.
+- 2026-07-04 — **`build` warmth-poll bug found + fixed** (during a "why is rebuild slow?" dig): the
+  poll gated on `ok == disk_count`, unreachable when any file is quarantined (incompatible schema),
+  so it spun to its 120 s deadline on an *idle* daemon. Real rebuild ~4.5 s. Fixed to count terminal
+  states (ok+quarantined) + report quarantined; regression test added. (My prior fsync / "116 s
+  startup" claims in this doc were wrong guesses, corrected in §6/§10/§11.e.)
 - 2026-07-04 — **Design session → decisions locked, workstream CLOSED at P1+P4/P5.** A long convergent
   discussion (validated against Gradle/Bazel/Nix prior art) settling every deferred question the same
   way — *cache optimization, not correctness, so defer with a trigger*:
@@ -421,10 +425,16 @@ P1 → P4/P5 (visible, low-risk, exercises P1) → P2/P3 deferred per the trigge
   "I'm not going back" is an explicit human action, never an auto-forward default (§6). (d) **Retracted
   two mid-session missteps:** "auto-reap superseded epochs on upgrade" (punishes a still-active old
   version with repeated rebuilds) and "global daemon as supervisor" (can't launch foreign versions).
-  (e) **Build-cost reality-check:** the raw DuckDB index floor is sub-second per corpus (244 files
-  materialize in 0.46 s); the *daemon* rebuild path is ~250× that on WSL2, dominated by checkpoint/WAL
-  **fsync** — a tunable overhead (checkpoint-batching), not a fundamental cost, and unmeasured on native
-  hardware. So "indexes are slow to build" is a fsync-overhead artifact, not a rewrite trigger.
+  (e) **"Indexes are slow to build" — investigated to root cause, and it was a BUG in our own
+  tooling, not perf.** Chain of my errors, each refuted by the next measurement: (1) a toy `SELECT *`
+  `:memory:` read (0.46 s) mistaken for "the index build"; (2) an *unproven* "~250× fsync-dominated"
+  claim — refuted by file-vs-`:memory:` (4.1 s vs 3.7 s, fsync ≈ 0.3 s); (3) an *unproven* "~116 s
+  non-ingest startup overhead" — refuted by inspecting `_ingested`: **242 ok + 2 quarantined**. Root
+  cause: `litmus data index build`'s warmth poll waited for `ok == disk_count`, which quarantined
+  files (never `ok`) make unreachable → it spun to its 120 s deadline while the daemon sat **idle**.
+  The real rebuild is **~4.5 s**. Fixed (warmth counts terminal states `ok`+`quarantined`; reports
+  quarantined) + regression test. Lesson: I asserted a cause three times before measuring; each guess
+  was wrong. "Profile before you assert" — the profile was "daemon idle, CLI sleeping in a bad loop."
   Everything past P1+P4/P5 (P2 copy-seed, P3-b coexisting daemons, cold-rebuild perf tune, XDG
   runtime-dir hygiene) is deferred **with triggers** (§10), not re-litigated.
 

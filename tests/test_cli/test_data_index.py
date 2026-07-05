@@ -485,6 +485,35 @@ def test_rm_force_removes_current(tmp_path: Path) -> None:
 # ── build (integration — the one command that must spawn/warm a daemon) ──
 
 
+def test_build_warmth_counts_quarantined_as_reconciled(tmp_path: Path) -> None:
+    """Regression: `build`'s warmth poll must count *terminal* `_ingested` states
+    (ok + quarantined), not just `ok`. A quarantined file (incompatible schema)
+    never becomes `ok`, so an `ok >= disk_count` gate is unreachable and would
+    spin the poll to its full deadline while the daemon sits idle — the exact
+    bug that made a 4.5s rebuild masquerade as a 120s one.
+    """
+    db = tmp_path / "idx.duckdb"
+    conn = duckdb.connect(str(db))
+    try:
+        conn.execute("CREATE TABLE _ingested (path VARCHAR, status VARCHAR)")
+        conn.executemany(
+            "INSERT INTO _ingested VALUES (?, ?)",
+            [(f"f{i}", "ok") for i in range(242)]
+            + [("bad1", "quarantined"), ("bad2", "quarantined")],
+        )
+        row = conn.execute(
+            "SELECT count(*) AS reconciled, "
+            "count(*) FILTER (WHERE status = 'ok') AS ok FROM _ingested"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    reconciled, ok = row
+    disk_count = 244
+    assert reconciled == disk_count  # terminal states reach disk_count → warm
+    assert ok == 242  # 'ok' alone never reaches 244 → would spin forever (the bug)
+
+
 def test_build_warms_the_canonical_runs_index() -> None:
     """Uses the canonical project data dir (this repo's litmus.yaml → ``data/``),
     the same shared singleton daemon every other CLI test in the suite uses
