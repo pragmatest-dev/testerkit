@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import duckdb
 from click.testing import CliRunner
@@ -27,10 +28,35 @@ from litmus.cli.data_cmd import (
     _format_bytes,
     _fp12_from_index_path,
     _humanize_ago,
-    dormant_epoch_hint,
+    _ingest_counts,
+    _poll_until_warm,
+    old_epoch_hint,
 )
 from litmus.data import _runs_duckdb_daemon as daemon
 from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
+
+if TYPE_CHECKING:
+    from litmus.data._flight_query import FlightQueryClient
+
+
+class _FakeFlight:
+    """Scripted stand-in for ``FlightQueryClient`` — returns the given
+    ``(reconciled, ok)`` pairs in order, repeating the last one forever. Lets
+    the build warmth poll be tested without spawning a daemon."""
+
+    def __init__(self, pairs: list[tuple[int, int]]) -> None:
+        self._pairs = pairs
+        self._i = 0
+
+    def query(self, sql: str) -> list[dict[str, int]]:
+        r, ok = self._pairs[min(self._i, len(self._pairs) - 1)]
+        self._i += 1
+        return [{"reconciled": r, "ok": ok}]
+
+
+def _fake(pairs: list[tuple[int, int]]) -> FlightQueryClient:
+    return cast("FlightQueryClient", _FakeFlight(pairs))
+
 
 # A fp12 that is (astronomically) never the real projection fingerprint —
 # used to stand in for a "some other version's" non-current epoch.
@@ -109,6 +135,38 @@ def test_humanize_ago_buckets() -> None:
     assert _humanize_ago(_iso(timedelta(days=1))) == "1 day ago"
 
 
+def test_ingest_counts() -> None:
+    assert _ingest_counts(_fake([(5, 3)])) == (5, 3)  # reconciled=5, ok=3 (2 quarantined)
+
+    class _Empty:
+        def query(self, sql: str) -> list[dict[str, int]]:
+            return []
+
+    assert _ingest_counts(cast("FlightQueryClient", _Empty())) == (0, 0)
+
+
+def test_poll_until_warm_returns_when_reconciled() -> None:
+    # reconciled == disk_count at the first read (2 ok + 1 quarantined) → warm, no wait.
+    assert _poll_until_warm(_fake([(3, 2)]), 3, stall_s=0.05, poll_interval_s=0.01) == (3, 2, False)
+
+
+def test_poll_until_warm_advances_then_warms() -> None:
+    client = _fake([(1, 1), (2, 2), (3, 3)])
+    assert _poll_until_warm(client, 3, stall_s=1.0, poll_interval_s=0.01) == (3, 3, False)
+
+
+def test_poll_until_warm_stalls_on_unreconcilable() -> None:
+    """The round-1 stall-guard: a file that never reconciles (e.g. a parquet
+    from a NEWER litmus version — deferred, no ``_ingested`` row) must make the
+    poll *settle*, not spin to the timeout ceiling."""
+    client = _fake([(2, 2)])  # never reaches disk_count=3
+    reconciled, ok, timed_out = _poll_until_warm(
+        client, 3, timeout_s=5.0, stall_s=0.05, poll_interval_s=0.01
+    )
+    assert (reconciled, ok) == (2, 2)
+    assert timed_out is False  # settled via stall guard, NOT the 5s timeout
+
+
 def test_epoch_size_bytes_includes_wal(tmp_path: Path) -> None:
     db = tmp_path / "_index.abc123456789.duckdb"
     db.write_bytes(b"x" * 100)
@@ -182,15 +240,15 @@ def test_list_renders_current_marker_seen_by_and_footer(tmp_path: Path) -> None:
     assert out.index(current_fp12) < out.index(_OTHER_FP12)
 
 
-def test_dormant_epoch_hint(tmp_path: Path) -> None:
+def test_old_epoch_hint(tmp_path: Path) -> None:
     """The setup-time hint counts only NON-current epochs, is None when there
-    are none (empty dir or current-only), and is size-gated — a tiny dormant
+    are none (empty dir or current-only), and is size-gated — a tiny older
     epoch stays silent under the default threshold but fires when it's lowered."""
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir(parents=True)
     current_fp12 = _current_fp12()
 
-    assert dormant_epoch_hint(str(tmp_path)) is None  # empty → no hint
+    assert old_epoch_hint(str(tmp_path)) is None  # empty → no hint
 
     _write_epoch_file(
         runs_dir / f"_index.{current_fp12}.duckdb",
@@ -199,7 +257,7 @@ def test_dormant_epoch_hint(tmp_path: Path) -> None:
         fingerprint=current_fp12 + "f" * 52,
         n_runs=1,
     )
-    assert dormant_epoch_hint(str(tmp_path)) is None  # current-only → no hint
+    assert old_epoch_hint(str(tmp_path)) is None  # current-only → no hint
 
     _write_epoch_file(
         runs_dir / f"_index.{_OTHER_FP12}.duckdb",
@@ -208,10 +266,10 @@ def test_dormant_epoch_hint(tmp_path: Path) -> None:
         fingerprint=_OTHER_FP12 + "0" * 52,
         n_runs=1,
     )
-    # A tiny (~tens of KB) dormant epoch is below the default 1 GiB gate → silent.
-    assert dormant_epoch_hint(str(tmp_path)) is None
+    # A tiny (~tens of KB) older epoch is below the default 1 GiB gate → silent.
+    assert old_epoch_hint(str(tmp_path)) is None
     # Lower the gate: now the hint fires and counts the one non-current epoch.
-    hint = dormant_epoch_hint(str(tmp_path), min_bytes=0)
+    hint = old_epoch_hint(str(tmp_path), min_bytes=0)
     assert hint is not None
     assert "1 older index epoch" in hint
     assert "litmus data index prune" in hint

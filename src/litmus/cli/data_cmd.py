@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from litmus.cli._common import _get_data_dir
 from litmus.cli.root import main
+
+if TYPE_CHECKING:
+    from litmus.data._flight_query import FlightQueryClient
 
 
 @main.group()
@@ -347,8 +352,7 @@ def data_reindex(data_dir: str | None) -> None:
             # and the runs content-addressed epoch files (``_index.<fp>.duckdb``,
             # #53 P1) — force-drop every epoch so the daemon rebuilds fresh.
             for idx in d.glob("_index*.duckdb"):
-                idx.unlink(missing_ok=True)
-                Path(f"{idx}.wal").unlink(missing_ok=True)
+                _unlink_epoch_file(idx)
 
     click.echo("Index daemons stopped. Index will rebuild on next query.")
 
@@ -377,6 +381,35 @@ def _epoch_size_bytes(path: Path) -> int:
     if wal.exists():
         total += wal.stat().st_size
     return total
+
+
+def _unlink_epoch_file(path: Path) -> None:
+    """Remove an epoch DuckDB file and its ``.wal`` sidecar (both best-effort)."""
+    path.unlink(missing_ok=True)
+    Path(f"{path}.wal").unlink(missing_ok=True)
+
+
+def _resolve_runs_dir(data_dir: str | None) -> Path:
+    """The runs-index directory under the configured (or default) data dir.
+
+    The single place the runs-index location is derived — the seam a future
+    XDG runtime-dir move (see derived-index-versioning.md §11.1) would touch.
+    """
+    return Path(_get_data_dir(data_dir)) / "runs"
+
+
+def _flight_client_for_runs(runs_dir: Path, label: str) -> FlightQueryClient:
+    """Acquire the runs daemon (spawning it if idle) and return a Flight SQL
+    client bound to it, with reacquire-on-failure wired up."""
+    from litmus.data import runs_duckdb_manager
+    from litmus.data._flight_query import FlightQueryClient
+
+    return FlightQueryClient(
+        runs_duckdb_manager.acquire(runs_dir),
+        "runs",
+        reacquire=lambda: runs_duckdb_manager.acquire(runs_dir),
+        label=label,
+    )
 
 
 def _format_bytes(n: int) -> str:
@@ -433,34 +466,34 @@ def _humanize_ago(iso_ts: str | None) -> str:
     return f"{years} year{'s' if years != 1 else ''} ago"
 
 
-# Below this, dormant epochs aren't worth a nudge — a rebuild costs ~1 ms/row
+# Below this, older epochs aren't worth a nudge — a rebuild costs ~1 ms/row
 # and a small store's whole index is tens of MB, so reclaiming it is noise. The
 # hint only speaks up once there's real disk to reclaim (large / lab-scale store).
 _HINT_MIN_BYTES = 1024**3  # 1 GiB
 
 
-def dormant_epoch_hint(
-    data_dir: str | None = None, *, min_bytes: int = _HINT_MIN_BYTES
-) -> str | None:
-    """One-line reminder that older (non-current) index epochs are on disk and
-    worth reclaiming, or ``None`` when there's nothing worth mentioning.
+def old_epoch_hint(data_dir: str | None = None, *, min_bytes: int = _HINT_MIN_BYTES) -> str | None:
+    """One-line reminder that **older (non-current-fingerprint)** index epochs are
+    on disk and worth reclaiming, or ``None`` when there's nothing worth mentioning.
 
-    Gated on *size* (``min_bytes``, default 1 GiB): dormant epochs are inert
-    files (their daemon is dead — no RAM/CPU), and a rebuild is cheap at small
-    scale, so tens of MB isn't worth a nudge. The hint fires only when the
-    reclaimable total crosses the threshold.
+    Deliberately identifies epochs by *fingerprint* (not the current code's), not
+    by ledger *last-access* — it's a cheap post-upgrade nudge, so it may include an
+    older version's epoch that's still occasionally used. That's fine: it only
+    *suggests* ``litmus data index prune``, which is the ledger-aware actor that
+    actually keeps recently-seen epochs and removes only the truly dormant.
 
-    Called after ``litmus setup`` (post-upgrade housekeeping is exactly when
-    old projection fingerprints have piled up). Best-effort and cheap — a
-    ``glob`` + ``stat`` only, never opens the daemon or a DuckDB file — and
-    swallows every error, because a housekeeping hint must never break setup.
-    Non-destructive: it only *suggests* ``litmus data index prune`` (which
-    itself keeps recently-seen epochs); it never removes anything.
+    Gated on *size* (``min_bytes``, default 1 GiB): older epochs are inert files
+    (their daemon is dead — no RAM/CPU) and rebuild cheaply at small scale, so tens
+    of MB isn't worth a nudge; the hint fires only once the total crosses the gate.
+
+    Best-effort and cheap — a ``glob`` + ``stat`` only, never opens the daemon or a
+    DuckDB file — and swallows every error, because a housekeeping hint (called
+    after ``litmus setup``) must never break setup. Non-destructive.
     """
     from litmus.data._runs_duckdb_daemon import _projection_fingerprint
 
     try:
-        runs_dir = Path(_get_data_dir(data_dir)) / "runs"
+        runs_dir = _resolve_runs_dir(data_dir)
         if not runs_dir.is_dir():
             return None
         current_fp12 = _projection_fingerprint()[:12]
@@ -474,7 +507,7 @@ def dormant_epoch_hint(
             return None
         return (
             f"{len(others)} older index epoch(s) present ({_format_bytes(total)}). "
-            "Reclaim dormant ones: litmus data index prune"
+            "Reclaim unused ones: litmus data index prune"
         )
     except Exception:  # noqa: BLE001 — best-effort hint, never break the caller
         return None
@@ -511,20 +544,14 @@ def _read_epoch_meta_readonly(path: Path) -> tuple[dict[str, str], int | None] |
 def _read_epoch_meta_via_daemon(runs_dir: Path) -> tuple[dict[str, str], int | None]:
     """Read the CURRENT epoch's provenance + row count via the running daemon's
     Flight SQL surface — the only path available while its exclusive file lock
-    is held. ``acquire`` starts the daemon if it isn't already running (idle
-    timeout expired), which drops the lock and lets a direct open succeed next
-    time; querying through Flight here works either way.
-    """
-    from litmus.data import runs_duckdb_manager
-    from litmus.data._flight_query import FlightQueryClient
+    is held.
 
-    location = runs_duckdb_manager.acquire(runs_dir)
-    client = FlightQueryClient(
-        location,
-        "runs",
-        reacquire=lambda: runs_duckdb_manager.acquire(runs_dir),
-        label="litmus data index",
-    )
+    Side effect: **spawns the runs daemon if it isn't already running** (via
+    ``acquire``) — so ``litmus data index list`` can wake an idle daemon. That
+    also drops the lock and lets a direct read-only open succeed next time;
+    querying through Flight here works either way.
+    """
+    client = _flight_client_for_runs(runs_dir, "litmus data index")
     meta_rows = client.query("SELECT key, value FROM _index_meta")
     meta = {str(r["key"]): str(r["value"]) for r in meta_rows}
     count_rows = client.query("SELECT count(*) AS n FROM runs_materialized")
@@ -575,8 +602,7 @@ def data_index_list(data_dir: str | None) -> None:
     from litmus.data._daemon_lifecycle import _installed_version
     from litmus.data._runs_duckdb_daemon import _projection_fingerprint, _read_epochs_ledger
 
-    data_dir_path = Path(_get_data_dir(data_dir))
-    runs_dir = data_dir_path / "runs"
+    runs_dir = _resolve_runs_dir(data_dir)
     epoch_files = sorted(runs_dir.glob("_index.*.duckdb")) if runs_dir.is_dir() else []
 
     if not epoch_files:
@@ -643,6 +669,64 @@ def data_index_list(data_dir: str | None) -> None:
     )
 
 
+_BUILD_WARM_TIMEOUT_S = 120.0  # hard ceiling for a huge corpus still making progress
+
+
+def _ingest_counts(client: FlightQueryClient) -> tuple[int, int]:
+    """``(reconciled, ok)`` from the daemon's ``_ingested`` ledger.
+
+    ``reconciled`` = files in a TERMINAL state (``ok`` OR ``quarantined`` — an
+    incompatible-schema file that never becomes ``ok``); ``ok`` = successfully
+    indexed. Warmth waits on *reconciled* so a quarantined file can't make an
+    ``ok >= disk_count`` gate unreachable (the false-120s-spin bug).
+    """
+    rows = client.query(
+        "SELECT count(*) AS reconciled, count(*) FILTER (WHERE status = 'ok') AS ok FROM _ingested"
+    )
+    if not rows:
+        return 0, 0
+    return int(rows[0]["reconciled"]), int(rows[0]["ok"])
+
+
+def _poll_until_warm(
+    client: FlightQueryClient,
+    disk_count: int,
+    *,
+    timeout_s: float = _BUILD_WARM_TIMEOUT_S,
+    stall_s: float = 15.0,
+    poll_interval_s: float = 0.5,
+) -> tuple[int, int, bool]:
+    """Poll ``_ingested`` until warm, stalled, or timed out. Returns
+    ``(reconciled, ingested_ok, timed_out)``.
+
+    Exits when: reconciled >= ``disk_count`` (fully warm); OR no new file
+    reconciles for ``stall_s`` (settled — the remaining files aren't ingestable
+    by this version, e.g. a parquet from a NEWER litmus version is *deferred*
+    with no ``_ingested`` row, which would otherwise spin to the ceiling); OR
+    ``timeout_s`` (still-progressing huge corpus). A false early stall-stop is
+    harmless — the daemon keeps ingesting in the background, so the index still
+    completes; the caller just reports progress so far.
+    """
+    now = time.monotonic()
+    deadline = now + timeout_s
+    last_progress = now
+    reconciled, ingested_ok = _ingest_counts(client)
+    timed_out = False
+    while reconciled < disk_count:
+        now = time.monotonic()
+        if now >= deadline:
+            timed_out = True
+            break
+        if now - last_progress >= stall_s:
+            break  # settled — remaining files aren't ingestable by this version
+        time.sleep(poll_interval_s)
+        prev = reconciled
+        reconciled, ingested_ok = _ingest_counts(client)
+        if reconciled > prev:
+            last_progress = time.monotonic()
+    return reconciled, ingested_ok, timed_out
+
+
 @data_index.command("build")
 @click.option("--data-dir", default=None, help="Results directory")
 @click.option(
@@ -662,10 +746,7 @@ def data_index_build(data_dir: str | None, rebuild: bool, background: bool) -> N
     ingested. Copy-seed birth (a cheap rescan-free path) is not built yet
     (#53 P2) — this always warms via a full rescan from parquet.
     """
-    import time as _time
-
     from litmus.data import runs_duckdb_manager
-    from litmus.data._flight_query import FlightQueryClient
     from litmus.data._runs_duckdb_daemon import (
         _current_provenance,
         _index_file_name,
@@ -673,8 +754,7 @@ def data_index_build(data_dir: str | None, rebuild: bool, background: bool) -> N
     )
     from litmus.data.runs_duckdb_manager import RunsDuckDBManager
 
-    data_dir_path = Path(_get_data_dir(data_dir))
-    runs_dir = data_dir_path / "runs"
+    runs_dir = _resolve_runs_dir(data_dir)
     runs_dir.mkdir(parents=True, exist_ok=True)
 
     fingerprint = _projection_fingerprint()
@@ -683,60 +763,26 @@ def data_index_build(data_dir: str | None, rebuild: bool, background: bool) -> N
 
     if rebuild:
         RunsDuckDBManager(runs_dir).force_restart()
-        index_path.unlink(missing_ok=True)
-        Path(f"{index_path}.wal").unlink(missing_ok=True)
+        _unlink_epoch_file(index_path)
         click.echo(f"Discarded current epoch {fp12} for a full rebuild (--rebuild).")
 
     disk_count = sum(1 for p in runs_dir.rglob("*.parquet") if not p.name.endswith(".tmp.parquet"))
 
-    started = _time.monotonic()
-    location = runs_duckdb_manager.acquire(runs_dir)
-
+    started = time.monotonic()
     if background:
+        runs_duckdb_manager.acquire(runs_dir)  # start the daemon; don't wait for warm
         click.echo("Index build started in the background (daemon warming).")
         return
 
-    client = FlightQueryClient(
-        location,
-        "runs",
-        reacquire=lambda: runs_duckdb_manager.acquire(runs_dir),
-        label="litmus data index build",
-    )
-
-    def _ingest_counts() -> tuple[int, int]:
-        # (reconciled, ok). ``reconciled`` = every file that reached a TERMINAL
-        # ``_ingested`` state — ``ok`` OR ``quarantined`` (an incompatible schema
-        # version, which never becomes ``ok``). Warmth MUST wait on *reconciled*,
-        # not ``ok``: an ``ok >= disk_count`` gate can never be satisfied when any
-        # file is quarantined, so it would spin the poll to its full deadline and
-        # print a false "still warming" while the daemon sits idle. ``ok`` is
-        # reported separately as the count successfully indexed.
-        rows = client.query(
-            "SELECT count(*) AS reconciled, "
-            "count(*) FILTER (WHERE status = 'ok') AS ok FROM _ingested"
-        )
-        if not rows:
-            return 0, 0
-        return int(rows[0]["reconciled"]), int(rows[0]["ok"])
-
-    initial_reconciled, initial_ok = _ingest_counts()
+    client = _flight_client_for_runs(runs_dir, "litmus data index build")
+    initial_reconciled, initial_ok = _ingest_counts(client)
     already_warm = initial_reconciled >= disk_count
+    reconciled, ingested_ok, timed_out = _poll_until_warm(client, disk_count)
 
-    timeout_s = 120.0
-    poll_interval_s = 0.5
-    deadline = _time.monotonic() + timeout_s
-    reconciled, ingested_ok = initial_reconciled, initial_ok
-    timed_out = False
-    while reconciled < disk_count:
-        if _time.monotonic() >= deadline:
-            timed_out = True
-            break
-        _time.sleep(poll_interval_s)
-        reconciled, ingested_ok = _ingest_counts()
-
-    elapsed = _time.monotonic() - started
+    elapsed = time.monotonic() - started
     _litmus_version, schema_version, _fp = _current_provenance()
     quarantined = max(reconciled - ingested_ok, 0)
+    unreconciled = max(disk_count - reconciled, 0)
     verb = "Rebuilt" if rebuild else "Built"
     click.echo(
         f"{verb} runs index from {disk_count} parquet file{'s' if disk_count != 1 else ''} "
@@ -748,9 +794,14 @@ def data_index_build(data_dir: str | None, rebuild: bool, background: bool) -> N
         new_files = max(ingested_ok - initial_ok, 0)
         note = f" ({quarantined} quarantined — incompatible schema)" if quarantined else ""
         click.echo(f"{new_files} new file(s) indexed this run{note}.")
+    if unreconciled and not timed_out:
+        click.echo(
+            f"{unreconciled} file(s) not indexed — written by a newer litmus "
+            "version (or unreadable); they'll index once this version supports them."
+        )
     if timed_out:
         click.echo(
-            f"Warning: did not finish warming within {timeout_s:.0f}s "
+            f"Warning: did not finish warming within {_BUILD_WARM_TIMEOUT_S:.0f}s "
             f"({reconciled}/{disk_count} parquet files reconciled so far) — "
             "the daemon continues warming in the background."
         )
@@ -772,8 +823,7 @@ def data_index_rm(fingerprint: str, data_dir: str | None, force: bool) -> None:
     )
     from litmus.data.runs_duckdb_manager import RunsDuckDBManager
 
-    data_dir_path = Path(_get_data_dir(data_dir))
-    runs_dir = data_dir_path / "runs"
+    runs_dir = _resolve_runs_dir(data_dir)
     epoch_files = sorted(runs_dir.glob("_index.*.duckdb")) if runs_dir.is_dir() else []
 
     matches = [p for p in epoch_files if _fp12_from_index_path(p).startswith(fingerprint)]
@@ -802,8 +852,7 @@ def data_index_rm(fingerprint: str, data_dir: str | None, force: bool) -> None:
     if fp12 == current_fp12 and force:
         RunsDuckDBManager(runs_dir).force_restart()
 
-    path.unlink(missing_ok=True)
-    Path(f"{path}.wal").unlink(missing_ok=True)
+    _unlink_epoch_file(path)
     _remove_epochs_ledger_entries(runs_dir, {fp12})
     click.echo(f"Removed index epoch {fp12} ({path.name}).")
 
@@ -841,8 +890,7 @@ def data_index_prune(data_dir: str | None, keep_last: int, older_than: str, dry_
     )
     from litmus.data.retention import parse_duration
 
-    data_dir_path = Path(_get_data_dir(data_dir))
-    runs_dir = data_dir_path / "runs"
+    runs_dir = _resolve_runs_dir(data_dir)
     epoch_files = sorted(runs_dir.glob("_index.*.duckdb")) if runs_dir.is_dir() else []
     if not epoch_files:
         click.echo("No index epochs to prune.")
@@ -913,8 +961,7 @@ def data_index_prune(data_dir: str | None, keep_last: int, older_than: str, dry_
 
     reaped_fp12s = {fp12 for fp12, _path in to_reap}
     for _fp12, path in to_reap:
-        path.unlink(missing_ok=True)
-        Path(f"{path}.wal").unlink(missing_ok=True)
+        _unlink_epoch_file(path)
     _remove_epochs_ledger_entries(runs_dir, reaped_fp12s)
     click.echo(f"\nRemoved {len(to_reap)} epoch(s), reclaiming {_format_bytes(reap_size)}.")
 
@@ -985,6 +1032,5 @@ def data_import(source: Path, data_dir: str | None) -> None:
             # and the runs content-addressed epoch files (``_index.<fp>.duckdb``,
             # #53 P1) — force-drop every epoch so the daemon rebuilds fresh.
             for idx in d.glob("_index*.duckdb"):
-                idx.unlink(missing_ok=True)
-                Path(f"{idx}.wal").unlink(missing_ok=True)
+                _unlink_epoch_file(idx)
     click.echo("Store daemons restarted; warm indexes rebuild on next access.")

@@ -24,9 +24,9 @@ def _after_setup(result: object) -> None:
     """After any ``litmus setup`` command, nudge (never force) reclaiming older
     index epochs — post-upgrade setup is when they've accumulated. Best-effort;
     the helper swallows its own errors, so this can't break setup."""
-    from litmus.cli.data_cmd import dormant_epoch_hint
+    from litmus.cli.data_cmd import old_epoch_hint
 
-    hint = dormant_epoch_hint()
+    hint = old_epoch_hint()
     if hint:
         click.echo(f"\nNote: {hint}")
 
