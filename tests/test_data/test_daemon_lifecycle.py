@@ -103,3 +103,23 @@ def test_runs_manager_keys_reuse_on_projection_fingerprint(tmp_path: Path) -> No
     assert mgr._can_reuse({"fingerprint": "deadbeef0000"}) is False  # different → respawn
     assert mgr._can_reuse({"litmus_version": "0.3.0"}) is False  # pre-fingerprint daemon → respawn
     assert mgr._can_reuse({}) is False
+
+
+def test_events_manager_keys_reuse_on_projection_fingerprint(tmp_path: Path) -> None:
+    """DuckDBDaemonManager (events, #64 parity with runs) keys reuse on the
+    projection fingerprint, not the litmus version. Pure — constructs the
+    manager and calls the hooks; no daemon spawned."""
+    from litmus.data._duckdb_daemon import _projection_fingerprint
+    from litmus.data.duckdb_manager import DuckDBDaemonManager
+
+    mgr = DuckDBDaemonManager(tmp_path)
+    fp = _projection_fingerprint()
+
+    identity = mgr._daemon_identity()
+    assert identity["fingerprint"] == fp
+    assert "litmus_version" in identity  # kept for provenance
+
+    assert mgr._can_reuse({"fingerprint": fp}) is True  # same projection → reuse
+    assert mgr._can_reuse({"fingerprint": "deadbeef0000"}) is False  # different → respawn
+    assert mgr._can_reuse({"litmus_version": "0.3.0"}) is False  # pre-fingerprint daemon → respawn
+    assert mgr._can_reuse({}) is False

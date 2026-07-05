@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from typing import Any
 
-from litmus.data._daemon_lifecycle import DaemonManager, wait_for_location
+from litmus.data._daemon_lifecycle import DaemonManager, _installed_version, wait_for_location
 from litmus.data._flight_query import probe_sql
 
 
@@ -25,6 +26,28 @@ class DuckDBDaemonManager(DaemonManager):
     _pid_name = "_duckdb_pid"
     _daemon_module = "litmus.data._duckdb_daemon"
     _port_file = "_duckdb_flight_port"
+
+    # Events keys daemon reuse on the projection FINGERPRINT, not just the
+    # litmus version (the base-class default) — parity with
+    # ``RunsDuckDBManager`` (#64). ``_projection_fingerprint`` is imported
+    # lazily inside the methods to break the import cycle (the daemon module
+    # imports this manager).
+
+    def _daemon_identity(self) -> dict[str, Any]:
+        """Stamp the projection fingerprint (plus the version, for provenance)
+        into the state file, so ``_can_reuse`` can compare it."""
+        from litmus.data._duckdb_daemon import _projection_fingerprint
+
+        return {"litmus_version": _installed_version(), "fingerprint": _projection_fingerprint()}
+
+    def _can_reuse(self, running_state: dict[str, Any]) -> bool:
+        """Reuse only a daemon whose projection fingerprint matches ours exactly.
+        A different — or missing (a pre-fingerprint daemon) — fingerprint means it
+        serves a different-shaped index, so respawn rather than send it queries
+        it can't answer."""
+        from litmus.data._duckdb_daemon import _projection_fingerprint
+
+        return running_state.get("fingerprint") == _projection_fingerprint()
 
 
 # Module-level convenience — EventStore uses these directly.

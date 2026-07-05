@@ -4,15 +4,17 @@ Spawned as a detached process by ``DuckDBDaemonManager.acquire()``.
 Maintains a persistent DuckDB index rebuilt incrementally from Arrow IPC
 files. Clients push new events via ``do_put`` and query via ``do_get``.
 
-Startup is O(new files since last run): the daemon opens the existing
-``_index.duckdb``, signals ready immediately, then ingests only files not
-yet recorded in the ``_ingested`` table via a background thread.
+Startup is O(new files since last run): the daemon opens its content-addressed
+``_index.<fp>.duckdb`` (see "Derived-index versioning" below), signals ready
+immediately, then ingests only files not yet recorded in the ``_ingested``
+table via a background thread.
 
 Usage: python -m litmus.data._duckdb_daemon <events_dir>
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -22,10 +24,13 @@ import time
 import warnings
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pyarrow as pa
 
+from litmus.data import _index_epoch
+from litmus.data._daemon_lifecycle import _installed_version
 from litmus.data._duckdb_flight_server import (
     DuckDBFlightServer,
     shutdown_flight_server_in_daemon,
@@ -36,12 +41,13 @@ from litmus.data._session_reaper import reap_abandoned_sessions
 from litmus.data.duckdb_manager import DuckDBDaemonManager
 from litmus.data.events import EVENT_CATALOG_VERSION_KEY, TYPED_PAYLOAD_COLUMNS
 from litmus.data.schema_dispatch import (
+    _ADAPTERS,
     SchemaVersionRefused,
     dispatch,
     report_schema_refusal,
     stamp_from_arrow_metadata,
 )
-from litmus.data.schema_versions import SchemaStore
+from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, KNOWN_SCHEMA_VERSIONS, SchemaStore
 
 logger = logging.getLogger(__name__)
 
@@ -183,17 +189,138 @@ def _insert_events(cur: duckdb.DuckDBPyConnection, table: pa.Table, *, attempts:
 # ── Schema management ────────────────────────────────────────────────
 
 
-def _open_index(index_path: Path) -> duckdb.DuckDBPyConnection:
-    """Open the persistent DuckDB index and idempotently align the schema.
+# ── Derived-index versioning (#64 — parity with the runs daemon) ────
+#
+# See docs/_internal/explorations/derived-index-versioning.md §3 and the
+# widened-fingerprint rationale in ``_runs_duckdb_daemon._projection_
+# fingerprint``. Events is the same pattern, folding in BOTH schema
+# coordinates it dispatches (``SchemaStore.EVENTS_ENVELOPE`` — the IPC
+# envelope shape — and ``SchemaStore.EVENT_CATALOG`` — the event-payload
+# catalog) so an adapter/whitelist change on either coordinate forks the
+# fingerprint even when ``_ensure_schema``'s DDL is untouched.
 
-    No version checks, no drop-and-recreate. ``_ensure_schema`` uses
-    ``CREATE TABLE IF NOT EXISTS`` and ``ALTER TABLE ADD COLUMN IF NOT
-    EXISTS`` so adding a new column to the code below auto-migrates
-    existing DBs on next spawn — no re-ingest, no version bump.
+
+def _shape_ddl_prefixes() -> tuple[str, ...]:
+    return (
+        "CREATE TABLE",
+        "CREATE OR REPLACE VIEW",
+        "ALTER TABLE",
+        "CREATE INDEX",
+        "CREATE TYPE",
+        "CREATE SEQUENCE",
+    )
+
+
+def _projection_fingerprint() -> str:
+    """Deterministic content-address of the events daemon's full read-path.
+
+    A recording proxy captures every ``execute()`` SQL as :func:`_ensure_schema`
+    builds the schema on a throwaway ``:memory:`` DB, so the DDL half of the
+    hash cannot drift from the real schema. Only shape-defining DDL (table /
+    view / alter / index / type / sequence) is hashed, whitespace-normalized.
+
+    Widened beyond DDL (mirroring the runs daemon, #53 P1) to fold in the
+    registered adapter-registry keys + schema whitelist for BOTH of events'
+    schema coordinates — ``EVENTS_ENVELOPE`` (the IPC envelope) and
+    ``EVENT_CATALOG`` (the event-payload catalog) — each sorted, so the hash
+    is order-independent and forks on any read-semantics change on either
+    axis, not just a DDL edit.
     """
-    conn = duckdb.connect(str(index_path))
-    _ensure_schema(conn)
-    return conn
+    recorded: list[str] = []
+
+    class _Recorder:
+        def __init__(self, real: duckdb.DuckDBPyConnection) -> None:
+            self._real = real
+
+        def execute(self, sql: str, *args: Any, **kwargs: Any) -> Any:
+            recorded.append(sql)
+            return self._real.execute(sql, *args, **kwargs)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._real, name)
+
+    scratch = duckdb.connect(":memory:")
+    try:
+        _ensure_schema(_Recorder(scratch))  # type: ignore[arg-type]
+    finally:
+        scratch.close()
+
+    prefixes = _shape_ddl_prefixes()
+    ddl = [norm for sql in recorded if (norm := " ".join(sql.split())).upper().startswith(prefixes)]
+    envelope_adapters = sorted(_ADAPTERS[SchemaStore.EVENTS_ENVELOPE])
+    envelope_whitelist = sorted(KNOWN_SCHEMA_VERSIONS[SchemaStore.EVENTS_ENVELOPE])
+    catalog_adapters = sorted(_ADAPTERS[SchemaStore.EVENT_CATALOG])
+    catalog_whitelist = sorted(KNOWN_SCHEMA_VERSIONS[SchemaStore.EVENT_CATALOG])
+    payload = "\n".join(
+        [
+            "--ddl--",
+            *ddl,
+            "--envelope-adapters--",
+            *envelope_adapters,
+            "--envelope-whitelist--",
+            *envelope_whitelist,
+            "--catalog-adapters--",
+            *catalog_adapters,
+            "--catalog-whitelist--",
+            *catalog_whitelist,
+        ]
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _current_provenance() -> tuple[str, str, str]:
+    """The ``(litmus_version, schema_version, projection_fingerprint)`` a
+    fresh build of this code would stamp.
+
+    ``schema_version`` renders BOTH of events' independently-versioned
+    coordinates (the fingerprint already gates on both; this is display/
+    debug provenance only, see ``_index_epoch.stamp_index_meta``).
+    """
+    return (
+        _installed_version(),
+        f"envelope={CURRENT_SCHEMA_VERSION[SchemaStore.EVENTS_ENVELOPE]};"
+        f"catalog={CURRENT_SCHEMA_VERSION[SchemaStore.EVENT_CATALOG]}",
+        _projection_fingerprint(),
+    )
+
+
+def _stamp_index_meta(conn: duckdb.DuckDBPyConnection) -> None:
+    """Write this build's provenance into ``_index_meta`` and mark it complete.
+
+    Thin events-specific wrapper (#64) around the store-agnostic
+    :func:`litmus.data._index_epoch.stamp_index_meta` — supplies this
+    daemon's own ``(litmus_version, schema_version, fingerprint)`` triple via
+    :func:`_current_provenance`.
+    """
+    litmus_version, schema_version, fingerprint = _current_provenance()
+    _index_epoch.stamp_index_meta(
+        conn,
+        litmus_version=litmus_version,
+        schema_version=schema_version,
+        fingerprint=fingerprint,
+    )
+
+
+def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
+    """Open the content-addressed derived index at *index_path* (named
+    ``_index.<fp>.duckdb`` by the caller, see :func:`_index_epoch.index_file_name`)
+    and ensure its schema is current.
+
+    Thin events-specific wrapper (#64) around the store-agnostic
+    :func:`litmus.data._index_epoch.open_index`, injecting this daemon's own
+    :func:`_ensure_schema`, :func:`_stamp_index_meta`, and the shared
+    :func:`_index_epoch.index_file_is_the_cause`. See the shared function's
+    docstring for the full two-path self-heal rationale (unreadable file vs.
+    build-incomplete). Events has no cascade-delete sweep race to guard here
+    (unlike runs' SATB freeze) — its ``_ingest_ipc_files`` only adds rows,
+    never prunes gone files.
+    """
+    return _index_epoch.open_index(
+        index_path,
+        ensure_schema=_ensure_schema,
+        stamp_meta=_stamp_index_meta,
+        index_file_is_the_cause=_index_epoch.index_file_is_the_cause,
+    )
 
 
 def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
@@ -411,8 +538,10 @@ def daemon_run(events_dir: Path) -> None:
     """
     mgr = DuckDBDaemonManager(events_dir)
 
-    index_path = events_dir / "_index.duckdb"
-    conn = _open_index(index_path)
+    fingerprint = _projection_fingerprint()
+    index_path = events_dir / _index_epoch.index_file_name(fingerprint)
+    conn, _ = _open_index(index_path)
+    _index_epoch.stamp_epochs_ledger(events_dir, fingerprint, _installed_version())
 
     # Fully lock-free (``parallel=True``): reads AND writes run on
     # per-thread cursors under DuckDB MVCC, no Python mutex. Events

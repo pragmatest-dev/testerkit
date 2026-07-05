@@ -348,9 +348,10 @@ def data_reindex(data_dir: str | None) -> None:
         d = results / subdir
         if d.exists():
             mgr_cls(d).force_restart()
-            # Glob covers both the events single-file index (``_index.duckdb``)
-            # and the runs content-addressed epoch files (``_index.<fp>.duckdb``,
-            # #53 P1) — force-drop every epoch so the daemon rebuilds fresh.
+            # Glob covers every store's index files — a legacy single-file
+            # ``_index.duckdb`` and the content-addressed epoch files
+            # ``_index.<fp>.duckdb`` (runs + events, #53/#64) — force-drop every
+            # epoch so the daemon rebuilds fresh.
             for idx in d.glob("_index*.duckdb"):
                 _unlink_epoch_file(idx)
 
@@ -1028,9 +1029,10 @@ def data_import(source: Path, data_dir: str | None) -> None:
         d = dst / sub
         if d.exists():
             mgr_cls(d).force_restart()
-            # Glob covers both the events single-file index (``_index.duckdb``)
-            # and the runs content-addressed epoch files (``_index.<fp>.duckdb``,
-            # #53 P1) — force-drop every epoch so the daemon rebuilds fresh.
+            # Glob covers every store's index files — a legacy single-file
+            # ``_index.duckdb`` and the content-addressed epoch files
+            # ``_index.<fp>.duckdb`` (runs + events, #53/#64) — force-drop every
+            # epoch so the daemon rebuilds fresh.
             for idx in d.glob("_index*.duckdb"):
                 _unlink_epoch_file(idx)
     click.echo("Store daemons restarted; warm indexes rebuild on next access.")
