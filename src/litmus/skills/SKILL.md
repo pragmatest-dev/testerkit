@@ -10,6 +10,7 @@ Skills are markdown prompts that guide AI assistants (Claude, Copilot, etc.) thr
 ## Available Skills
 
 ### Workflows
+- **[first-test](workflow/first-test.md)** - Start here: write a first test from scratch (no datasheet), zero config → adopt advanced pieces as needed
 - **[datasheet-to-test](workflow/datasheet-to-test.md)** - Full workflow from part datasheet to running tests
 - **[datasheet-to-catalog](workflow/datasheet-to-catalog.md)** - Generate catalog YAML from instrument datasheet PDF (thorough, for accuracy specs)
 - **[catalog-scaffold](catalog-scaffold.md)** - Quick catalog entry from Claude's knowledge (fast, for common instruments)
