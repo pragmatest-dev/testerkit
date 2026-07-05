@@ -8,7 +8,7 @@ where data lives and who edits it changes.
 
 | Tier | Scaffold via | What it adds | What's still in code |
 |------|--------------|--------------|----------------------|
-| **0** | `litmus init --tier bringup` | `verify` + `logger.measure` flow + parquet log. `conftest.py` provides `MagicMock`-shaped instrument fixtures. No YAML. | Drivers, mocks, limits — all inline in the test or `conftest.py`. |
+| **0** | `litmus init --tier bringup` | `verify` + `measure`/`observe` flow + parquet log. `conftest.py` provides `MagicMock`-shaped instrument fixtures. No YAML. | Drivers, mocks, limits — all inline in the test or `conftest.py`. |
 | **1** | same as Tier 0 | A sidecar `<test_file>.yaml` next to each test carries limits (and `sweeps:` / `mocks:` / `retry:` if needed). Limits leave the body. | Drivers, mock-return-values, station identity. |
 | **2** | `litmus init --tier bench` (or `--starter`) | Station YAML + part YAML + fixture YAML. Real driver classes resolved via the catalog. `conftest.py` shrinks. | Optional profile selection. |
 | **3** | `litmus init --tier factory` | Named profiles under `profiles/*.yaml` with `extends:` chains. Per-phase (dev / production / characterization) limit + mock + station-type binding. Pick a profile with `pytest --test-phase=<facet>`. | — |

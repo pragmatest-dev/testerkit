@@ -1,9 +1,14 @@
 # `observe` / `stream`
 
-`observe` and `stream` are the two record-only test-author verbs — the
-non-judging siblings of [`verify`](verify.md). Neither raises on the
-value. Use them for setup readouts, characterization, captures, and
+`observe` and `stream` are the record-only verbs that write to the **output
+lane** and to **channels** — `observe` records one reading (scalar, waveform,
+blob, or URI); `stream` appends channel samples. Neither judges or raises on
+the value. Use them for setup readouts, characterization, captures, and
 time-series logging.
+
+(For a record-only **measurement row** — the non-judging sibling of
+[`verify`](verify.md), same signature, `Outcome.DONE` — use `measure`, not
+`observe`; see [`verify`](verify.md).)
 
 ## `observe` — record one observation
 

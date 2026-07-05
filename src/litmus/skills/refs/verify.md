@@ -17,9 +17,19 @@ verify(
     name: str,
     value: float | int | None,
     limit: Limit | dict | None = None,        # inline limit; optional
-    characteristic: str | None = None,        # PartContext key
+    *,
+    characteristic: str | None = None,        # derive the limit from a part characteristic
+    namespace: str | None = None,             # group the measurement
+    unit: str | None = None,                  # engineering unit
 ) -> Measurement
 ```
+
+**Record-only sibling: `measure`.** Same signature as `verify`, but it **never
+judges and never raises on a missing limit** — it stamps one measurement row
+with `Outcome.DONE`. Use it to capture a value without pass/fail (characterization,
+diagnostics, logged context): `measure("vin_actual", 12.03)`. (`observe` is
+different — it writes to the *output lane*, not a measurement row; see
+[`observe`](observe.md).)
 
 Available as a pytest fixture (`def test_foo(verify, ...): verify(...)`).
 The OpenHTF adapter and `LitmusClient` surface the same callable
