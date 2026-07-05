@@ -40,6 +40,7 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from litmus.data import _index_epoch
 from litmus.data._accumulator_pool import (
     EMPTY_INFLIGHT_MEASUREMENTS,
     EMPTY_INFLIGHT_RUNS,
@@ -129,34 +130,10 @@ class _EventSequenceMonitor:
 # ── Schema management ────────────────────────────────────────────────
 
 
-def _index_file_is_the_cause(index_dir: Path) -> bool:
-    """True when DuckDB can open a fresh database in ``index_dir``.
-
-    Distinguishes a corrupt *index file* from an *environmental* fault
-    (disk full, read-only mount, broken install): if a throwaway probe DB
-    opens and writes fine in the same directory, DuckDB and the disk are
-    healthy, so the failure is the index file itself — safe to discard and
-    rebuild. If even the probe fails, the fault is environmental and we must
-    NOT delete the derived index. Gates the self-heal per "only rebuild if
-    the index is the problem."
-    """
-    probe = index_dir / f"._index_probe_{os.getpid()}.duckdb"
-    try:
-        c = duckdb.connect(str(probe))
-        c.execute("CREATE TABLE _probe(x INTEGER)")
-        c.close()
-        return True
-    except duckdb.Error:
-        return False
-    finally:
-        probe.unlink(missing_ok=True)
-        Path(f"{probe}.wal").unlink(missing_ok=True)
-
-
-def _discard_index(index_path: Path) -> None:
-    """Delete the derived index file and its WAL sidecar (rebuildable from parquet)."""
-    index_path.unlink(missing_ok=True)
-    Path(f"{index_path}.wal").unlink(missing_ok=True)
+# ``_index_file_is_the_cause`` is store-agnostic (#64) — moved to
+# ``_index_epoch.py``; kept here as a thin re-export because ``_open_index``
+# injects it into ``_index_epoch.open_index``.
+_index_file_is_the_cause = _index_epoch.index_file_is_the_cause
 
 
 # ── Derived-index versioning (#47, widened by #53 P1) ───────────────
@@ -249,14 +226,9 @@ def _projection_fingerprint() -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def _index_file_name(fingerprint: str) -> str:
-    """The content-addressed index filename for a full 64-char *fingerprint*.
-
-    A 12-char hex prefix is used in the name (birthday-safe past ~77k files —
-    8 would already do); the full digest lives inside the file as provenance
-    (:func:`_stamp_index_meta`).
-    """
-    return f"_index.{fingerprint[:12]}.duckdb"
+# ``_index_file_name`` is store-agnostic (#64) — moved to ``_index_epoch.py``;
+# kept importable here under its original name as a thin re-export.
+_index_file_name = _index_epoch.index_file_name
 
 
 def _current_provenance() -> tuple[str, str, str]:
@@ -272,45 +244,24 @@ def _current_provenance() -> tuple[str, str, str]:
 def _stamp_index_meta(conn: duckdb.DuckDBPyConnection) -> None:
     """Write this build's provenance into ``_index_meta`` and mark it complete.
 
-    Kept OUT of :func:`_ensure_schema` (it is versioning metadata, not
-    projection shape, so it must not feed its own fingerprint). The
-    build-complete marker (``built_at``) is written in a separate, LAST
-    statement — DuckDB autocommits each ``execute()`` — so a crash between
-    the provenance insert and this one leaves ``built_at`` absent, which
-    :func:`_open_index` reads as an incomplete build on the next open.
-    Idempotent upsert — safe to call on every (re)build.
+    Thin runs-specific wrapper (#64) around the store-agnostic
+    :func:`litmus.data._index_epoch.stamp_index_meta` — supplies the runs
+    daemon's own ``(litmus_version, schema_version, fingerprint)`` triple via
+    :func:`_current_provenance`. See that shared function's docstring for the
+    build-complete-marker-written-last rationale.
     """
     litmus_version, schema_version, fingerprint = _current_provenance()
-    conn.execute("CREATE TABLE IF NOT EXISTS _index_meta (key VARCHAR PRIMARY KEY, value VARCHAR)")
-    conn.execute(
-        "INSERT INTO _index_meta (key, value) VALUES "
-        "('litmus_version', ?), ('schema_version', ?), ('projection_fingerprint', ?) "
-        "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-        [litmus_version, schema_version, fingerprint],
-    )
-    conn.execute(
-        "INSERT INTO _index_meta (key, value) VALUES ('built_at', ?) "
-        "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-        [datetime.now(UTC).isoformat()],
+    _index_epoch.stamp_index_meta(
+        conn,
+        litmus_version=litmus_version,
+        schema_version=schema_version,
+        fingerprint=fingerprint,
     )
 
 
-def _read_index_meta(conn: duckdb.DuckDBPyConnection) -> dict[str, str]:
-    """Read the stored provenance as a dict; ``{}`` when ``_index_meta`` is
-    absent (a pre-#53 index, or a build that never reached this table)."""
-    try:
-        rows = conn.execute("SELECT key, value FROM _index_meta").fetchall()
-    except duckdb.Error:
-        return {}
-    return {str(k): str(v) for k, v in rows}
-
-
-def _reset_index(index_path: Path) -> duckdb.DuckDBPyConnection:
-    """Discard the on-disk index and reopen it empty with the current schema."""
-    _discard_index(index_path)
-    conn = duckdb.connect(str(index_path))
-    _ensure_schema(conn)
-    return conn
+# ``_read_index_meta`` is store-agnostic (#64) — moved to ``_index_epoch.py``;
+# kept importable here under its original name as a thin re-export.
+_read_index_meta = _index_epoch.read_index_meta
 
 
 def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
@@ -318,199 +269,26 @@ def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
     ``_index.<fp>.duckdb`` by the caller, see :func:`_index_file_name`) and
     ensure its schema is current.
 
-    ``is_fresh`` is ``True`` when the caller should treat the index as
-    (re)built-from-scratch — either the file didn't exist, or it was discarded
-    by one of the two self-heal paths below. The cold-start ingest sweep then
-    repopulates it from parquet (its ``_ingested`` ledger is empty). The schema
-    is idempotently aligned with the code via :func:`_ensure_schema`.
-
-    Two self-heal paths, both funnelling into a discard + rebuild:
-
-    1. **Unreadable file** (corrupt, #47): a ``kill -9`` mid-write, a bad disk
-       block, a DuckDB storage-format bump on upgrade. Opening raises a DuckDB
-       error; if a fresh probe confirms the fault is the *file* (not the
-       environment — disk full / read-only, see :func:`_index_file_is_the_cause`)
-       the index is discarded and reopened empty. An environmental fault
-       re-raises — we never delete the derived index on a transient disk error.
-    2. **Readable but BUILD-INCOMPLETE** (#53 P1): *this* path is named after
-       this code's own fingerprint — the projection DDL, adapter registry,
-       and schema whitelist that produced ``index_path``'s name are, by
-       construction, exactly this code's — so there is no shape left to
-       compare against a stored stamp. What CAN still be wrong is a crash
-       mid-build: the file was created but the build-complete marker
-       (``built_at`` in ``_index_meta``) was never written. A missing marker
-       is treated as an interrupted build and the whole index is discarded
-       and rebuilt from parquet.
-
-    Every (re)build re-stamps ``_index_meta`` (provenance + build-complete
-    marker); a complete pre-existing index opens normally with
-    ``is_fresh=False``, rows intact.
+    Thin runs-specific wrapper (#64) around the store-agnostic
+    :func:`litmus.data._index_epoch.open_index`, injecting this store's own
+    :func:`_ensure_schema`, :func:`_stamp_index_meta`, and
+    :func:`_index_file_is_the_cause`. See the shared function's docstring for
+    the full two-path self-heal rationale (unreadable file vs. build-incomplete).
     """
-    is_fresh = not index_path.exists()
-    conn: duckdb.DuckDBPyConnection | None = None
-    try:
-        conn = duckdb.connect(str(index_path))
-        _ensure_schema(conn)
-    except duckdb.Error as exc:
-        # Path 1 — unreadable file. Self-heal only when BOTH conditions hold;
-        # each other case re-raises for a distinct reason:
-        if is_fresh:
-            raise  # a brand-new file failing isn't corruption — an env/DuckDB fault
-        if not _index_file_is_the_cause(index_path.parent):
-            raise  # a fresh probe also fails → environmental (disk full / read-only)
-        logger.warning(
-            "Runs index at %s is unreadable (%s: %s) — discarding the derived "
-            "index and rebuilding from parquet.",
-            index_path,
-            type(exc).__name__,
-            str(exc).splitlines()[0] if str(exc) else "",
-        )
-        if conn is not None:
-            try:
-                conn.close()
-            except duckdb.Error:
-                pass
-        conn = _reset_index(index_path)
-        _stamp_index_meta(conn)
-        return conn, True
-
-    # Path 2 — readable. A pre-existing file with no build-complete marker
-    # was interrupted mid-build; a fresh file always needs (and gets) its
-    # first stamp below, unconditionally.
-    if not is_fresh:
-        if "built_at" in _read_index_meta(conn):
-            return conn, False  # build complete → normal open, keep the existing rows
-        logger.warning(
-            "Runs index at %s has no build-complete marker (an interrupted "
-            "build) — discarding and rebuilding from parquet.",
-            index_path,
-        )
-        try:
-            conn.close()
-        except duckdb.Error:
-            pass
-        conn = _reset_index(index_path)
-    _stamp_index_meta(conn)
-    return conn, True
+    return _index_epoch.open_index(
+        index_path,
+        ensure_schema=_ensure_schema,
+        stamp_meta=_stamp_index_meta,
+        index_file_is_the_cause=_index_file_is_the_cause,
+    )
 
 
-def _stamp_epochs_ledger(runs_dir: Path, fingerprint: str, litmus_version: str) -> None:
-    """Best-effort upsert of ``(fingerprint, seen_by, last_seen)`` into
-    the shared ``_epochs.json`` ledger in *runs_dir* on daemon open.
-
-    This is the *write* half of the §6 GC signal (derived-index-versioning.md)
-    — a passive last-access record so ``litmus data index gc``/``list`` (P4/P5)
-    can reap/report epochs without opening every index file. GC *policy* is
-    out of scope here; this only stamps.
-
-    ``seen_by`` accumulates every distinct ``litmus_version`` that has ever
-    opened this epoch file (sorted, deduplicated) — human identity for
-    ``litmus data index list`` (§7): a behaviorally-identical projection can
-    be, and often is, opened by several package versions (the sharing
-    collapse, §3). Tolerates a pre-P5 ledger entry shaped
-    ``{litmus_version, last_seen}`` (a single version, not yet a set) by
-    folding it into ``seen_by`` before appending — this ledger is pre-release
-    and best-effort, so no formal migration is needed, just no crash on read.
-
-    Keyed by the same 12-char prefix used in the index filename (matching the
-    file it describes 1:1) — collisions are astronomically unlikely at this
-    length (see :func:`_index_file_name`).
-
-    Deliberately best-effort: a ledger write is bookkeeping, never load-bearing
-    for correctness (the index itself is the source of truth), so any failure
-    (disk full, permissions, concurrent-write race) is logged and swallowed —
-    it must NEVER crash or fail the daemon.
-    """
-    ledger_path = runs_dir / "_epochs.json"
-    try:
-        try:
-            existing = json.loads(ledger_path.read_text())
-            data: dict[str, Any] = existing if isinstance(existing, dict) else {}
-        except (OSError, json.JSONDecodeError):
-            data = {}
-        key = fingerprint[:12]
-        prior = data.get(key)
-        seen_by: list[str] = []
-        if isinstance(prior, dict):
-            prior_seen_by = prior.get("seen_by")
-            if isinstance(prior_seen_by, list):
-                seen_by = [str(v) for v in prior_seen_by if v]
-            else:
-                legacy_version = prior.get("litmus_version")
-                if legacy_version:
-                    seen_by = [str(legacy_version)]
-        seen_by = sorted({*seen_by, litmus_version})
-        data[key] = {
-            "seen_by": seen_by,
-            "last_seen": datetime.now(UTC).isoformat(),
-        }
-        tmp_path = ledger_path.with_suffix(".json.tmp")
-        tmp_path.write_text(json.dumps(data, indent=2, sort_keys=True))
-        tmp_path.replace(ledger_path)  # atomic rename — no torn/partial ledger
-    except OSError as exc:
-        logger.warning("Could not update epochs ledger at %s: %s", ledger_path, exc)
-
-
-def _read_epochs_ledger(runs_dir: Path) -> dict[str, dict[str, Any]]:
-    """Best-effort read of the shared ``_epochs.json`` ledger, normalized.
-
-    Used by ``litmus data index list``/``gc`` (§7) to source SEEN BY / LAST
-    SEEN without opening every epoch file. Tolerates the pre-P5 ledger shape
-    (``{fp12: {litmus_version, last_seen}}``) by folding a legacy
-    ``litmus_version`` into a single-element ``seen_by`` — mirrors the
-    tolerance :func:`_stamp_epochs_ledger` applies on write. Never raises;
-    an unreadable/corrupt/missing ledger yields ``{}`` (the CLI degrades to
-    showing "unknown" rather than crashing on best-effort bookkeeping).
-    """
-    ledger_path = runs_dir / "_epochs.json"
-    try:
-        raw = json.loads(ledger_path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return {}
-    if not isinstance(raw, dict):
-        return {}
-    normalized: dict[str, dict[str, Any]] = {}
-    for fp12, entry in raw.items():
-        if not isinstance(entry, dict):
-            continue
-        seen_by = entry.get("seen_by")
-        if not isinstance(seen_by, list):
-            legacy_version = entry.get("litmus_version")
-            seen_by = [legacy_version] if legacy_version else []
-        normalized[fp12] = {
-            "seen_by": sorted({str(v) for v in seen_by if v}),
-            "last_seen": entry.get("last_seen"),
-        }
-    return normalized
-
-
-def _remove_epochs_ledger_entries(runs_dir: Path, fp12s: set[str]) -> None:
-    """Best-effort removal of the given fp12 keys from ``_epochs.json``.
-
-    Used by ``litmus data index rm``/``gc`` (§7) after unlinking an epoch
-    file, so the ledger doesn't keep a stale entry for a file that's gone.
-    Mirrors :func:`_stamp_epochs_ledger`'s atomic tmp-rename write and
-    best-effort ``OSError`` swallow — a ledger cleanup failure must never
-    crash the CLI command that triggered it.
-    """
-    ledger_path = runs_dir / "_epochs.json"
-    if not ledger_path.exists():
-        return
-    try:
-        try:
-            existing = json.loads(ledger_path.read_text())
-            data: dict[str, Any] = existing if isinstance(existing, dict) else {}
-        except (OSError, json.JSONDecodeError):
-            return
-        if not any(fp12 in data for fp12 in fp12s):
-            return
-        for fp12 in fp12s:
-            data.pop(fp12, None)
-        tmp_path = ledger_path.with_suffix(".json.tmp")
-        tmp_path.write_text(json.dumps(data, indent=2, sort_keys=True))
-        tmp_path.replace(ledger_path)
-    except OSError as exc:
-        logger.warning("Could not update epochs ledger at %s: %s", ledger_path, exc)
+# ``_stamp_epochs_ledger`` / ``_read_epochs_ledger`` / ``_remove_epochs_ledger_entries``
+# are store-agnostic (#64) — moved to ``_index_epoch.py``; kept importable here
+# under their original names as thin re-exports.
+_stamp_epochs_ledger = _index_epoch.stamp_epochs_ledger
+_read_epochs_ledger = _index_epoch.read_epochs_ledger
+_remove_epochs_ledger_entries = _index_epoch.remove_epochs_ledger_entries
 
 
 def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
