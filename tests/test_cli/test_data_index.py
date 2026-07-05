@@ -1,7 +1,7 @@
-"""``litmus data index list|build|rm|gc`` — runs-index epoch lifecycle tooling
+"""``litmus data index list|build|rm|prune`` — runs-index epoch lifecycle tooling
 (#53 P4/P5, see docs/_internal/explorations/derived-index-versioning.md §6/§7).
 
-``list``/``rm``/``gc`` operate purely on-disk (glob epoch files + read-only
+``list``/``rm``/``prune`` operate purely on-disk (glob epoch files + read-only
 DuckDB opens + the ``_epochs.json`` ledger) and never spawn a daemon, so they
 use fake epoch files built directly with ``duckdb.connect`` in ``tmp_path``
 (no daemon-spawning constructor is used — see ``tests/test_conventions.py``).
@@ -200,10 +200,10 @@ def test_list_falls_back_to_unknown_seen_by_without_ledger(tmp_path: Path) -> No
     assert "unknown" in result.output  # LAST SEEN, no ledger entry
 
 
-# ── gc ────────────────────────────────────────────────────────────────────
+# ── prune ────────────────────────────────────────────────────────────────────
 
 
-def _gc_fixture(tmp_path: Path) -> tuple[Path, str]:
+def _prune_fixture(tmp_path: Path) -> tuple[Path, str]:
     """Current epoch (very old last_seen — must survive anyway) + two
     old/stale non-current epochs + ledger. Returns (data_dir, current_fp12)."""
     runs_dir = tmp_path / "runs"
@@ -243,15 +243,15 @@ def _gc_fixture(tmp_path: Path) -> tuple[Path, str]:
     return tmp_path, current_fp12
 
 
-def test_gc_no_epochs(tmp_path: Path) -> None:
+def test_prune_no_epochs(tmp_path: Path) -> None:
     runner = CliRunner()
-    result = runner.invoke(main, ["data", "index", "gc", "--data-dir", str(tmp_path)])
+    result = runner.invoke(main, ["data", "index", "prune", "--data-dir", str(tmp_path)])
     assert result.exit_code == 0
-    assert "No index epochs to garbage-collect" in result.output
+    assert "No index epochs to prune" in result.output
 
 
-def test_gc_dry_run_reaps_old_keeps_current(tmp_path: Path) -> None:
-    data_dir, current_fp12 = _gc_fixture(tmp_path)
+def test_prune_dry_run_reaps_old_keeps_current(tmp_path: Path) -> None:
+    data_dir, current_fp12 = _prune_fixture(tmp_path)
     runs_dir = data_dir / "runs"
 
     runner = CliRunner()
@@ -260,7 +260,7 @@ def test_gc_dry_run_reaps_old_keeps_current(tmp_path: Path) -> None:
         [
             "data",
             "index",
-            "gc",
+            "prune",
             "--data-dir",
             str(data_dir),
             "--keep-last",
@@ -281,8 +281,8 @@ def test_gc_dry_run_reaps_old_keeps_current(tmp_path: Path) -> None:
     assert (runs_dir / f"_index.{_OTHER_FP12_2}.duckdb").exists()
 
 
-def test_gc_actually_reaps(tmp_path: Path) -> None:
-    data_dir, current_fp12 = _gc_fixture(tmp_path)
+def test_prune_actually_reaps(tmp_path: Path) -> None:
+    data_dir, current_fp12 = _prune_fixture(tmp_path)
     runs_dir = data_dir / "runs"
 
     runner = CliRunner()
@@ -291,7 +291,7 @@ def test_gc_actually_reaps(tmp_path: Path) -> None:
         [
             "data",
             "index",
-            "gc",
+            "prune",
             "--data-dir",
             str(data_dir),
             "--keep-last",
@@ -301,7 +301,7 @@ def test_gc_actually_reaps(tmp_path: Path) -> None:
         ],
     )
     assert result.exit_code == 0, result.output
-    assert "Reaped 2 epoch(s)" in result.output
+    assert "Removed 2 epoch(s)" in result.output
 
     assert (runs_dir / f"_index.{current_fp12}.duckdb").exists()  # current survives
     assert not (runs_dir / f"_index.{_OTHER_FP12}.duckdb").exists()
@@ -311,9 +311,9 @@ def test_gc_actually_reaps(tmp_path: Path) -> None:
     assert set(ledger) == {current_fp12}  # reaped entries removed too
 
 
-def test_gc_keep_last_overrides_older_than(tmp_path: Path) -> None:
+def test_prune_keep_last_overrides_older_than(tmp_path: Path) -> None:
     """--keep-last N keeps the N most-recently-seen epochs even past --older-than."""
-    data_dir, current_fp12 = _gc_fixture(tmp_path)
+    data_dir, current_fp12 = _prune_fixture(tmp_path)
     runs_dir = data_dir / "runs"
 
     runner = CliRunner()
@@ -322,7 +322,7 @@ def test_gc_keep_last_overrides_older_than(tmp_path: Path) -> None:
         [
             "data",
             "index",
-            "gc",
+            "prune",
             "--data-dir",
             str(data_dir),
             "--keep-last",
@@ -339,7 +339,7 @@ def test_gc_keep_last_overrides_older_than(tmp_path: Path) -> None:
     assert not (runs_dir / f"_index.{_OTHER_FP12_2}.duckdb").exists()
 
 
-def test_gc_never_reaps_unknown_age(tmp_path: Path) -> None:
+def test_prune_never_reaps_unknown_age(tmp_path: Path) -> None:
     """An epoch with no ledger entry at all is never reaped (unknowable age)."""
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir(parents=True)
@@ -366,7 +366,7 @@ def test_gc_never_reaps_unknown_age(tmp_path: Path) -> None:
         [
             "data",
             "index",
-            "gc",
+            "prune",
             "--data-dir",
             str(tmp_path),
             "--keep-last",

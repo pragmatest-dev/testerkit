@@ -98,17 +98,6 @@ Eagerly build/warm the CURRENT runs-index epoch (blocks until warm).
 | `--rebuild` | `flag` | Discard the current epoch first, so it rebuilds fresh from parquet. |
 | `--background` | `flag` | Start the daemon and return immediately; don't block until warm. |
 
-##### `litmus data index gc` {#cli-data-index-gc}
-
-Reap stale runs-index epochs by last-access (never the current epoch).
-
-| Argument / option | Type | Description |
-|---|---|---|
-| `--data-dir` | `text` | Results directory |
-| `--keep-last` | `integer` | Always keep at least this many most-recently-seen epochs.  *(default: `3`)* |
-| `--older-than` | `text` | Never reap an epoch last seen more recently than this (e.g. 30d).  *(default: `30d`)* |
-| `--dry-run` | `flag` | Show what would be reaped; delete nothing. |
-
 ##### `litmus data index list` {#cli-data-index-list}
 
 List every runs-index epoch by fingerprint, versions, rows, size, last seen.
@@ -116,6 +105,17 @@ List every runs-index epoch by fingerprint, versions, rows, size, last seen.
 | Argument / option | Type | Description |
 |---|---|---|
 | `--data-dir` | `text` | Results directory |
+
+##### `litmus data index prune` {#cli-data-index-prune}
+
+Remove stale runs-index epochs by last-access (never the current epoch).
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `--data-dir` | `text` | Results directory |
+| `--keep-last` | `integer` | Always keep at least this many most-recently-seen epochs.  *(default: `3`)* |
+| `--older-than` | `text` | Never remove an epoch last seen more recently than this (e.g. 30d).  *(default: `30d`)* |
+| `--dry-run` | `flag` | Show what would be removed; delete nothing. |
 
 ##### `litmus data index rm` {#cli-data-index-rm}
 

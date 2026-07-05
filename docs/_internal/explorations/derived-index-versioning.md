@@ -117,7 +117,7 @@ inside is a different *kind* of record:
 | **provenance** — litmus version + schema_version (human-readable) + the full 64-char fingerprint | display/debug for `litmus data index list` (§7); **not** a routing gate |
 
 `last_seen` (the GC signal) lives **not** in each file but in the shared `_epochs` ledger (§6), so
-`gc` and `list` scan access times without opening every DuckDB file.
+`prune` and `list` scan access times without opening every DuckDB file.
 
 **Fork granularity, settled:** because §2 isolates fully *and* §4 makes birth cheap, we do
 **not** chase "share one file within a minor" (§9's piggyback, shown unsafe by SQL-coupling).
@@ -222,7 +222,7 @@ Operational half of the epoch design; sibling to the durable-side `litmus data m
     3 index files · 1.0 GB total · current = e3b0c44298fc (0.3.1)
   ```
 - **`litmus data index rm <fingerprint>`** — drop one; refuses the current one without `--force`.
-- **`litmus data index gc [--keep-last N] [--older-than 30d] [--dry-run]`** — reap by the ledger.
+- **`litmus data index prune [--keep-last N] [--older-than 30d] [--dry-run]`** — reap by the ledger.
 
 **The upgrade-warm workflow** (pg_upgrade / blue-green, done deliberately):
 ```
@@ -230,7 +230,7 @@ pip install --upgrade litmus-test     # new version → new projection fingerpri
 litmus data index build               # copy-seed the new epoch from the old, forward-transform — fast
 pytest                                # runs warm; no first-query rebuild stall
 # …later, once you won't roll back:
-litmus data index gc --older-than 30d # reclaim the old epoch's disk
+litmus data index prune --older-than 30d # reclaim the old epoch's disk
 ```
 Copy-seed is what makes "build the green epoch ahead of cutover" cheap enough to be a routine
 pre-test step.
@@ -304,7 +304,7 @@ rm|gc` (§7) land in `src/litmus/cli/data_cmd.py`: `list` renders every epoch by
 fingerprint/schema/BUILT BY/SEEN BY/rows/size/last-seen with a `*` current-marker (direct
 read-only `duckdb.connect`, falling back to the daemon's Flight SQL surface only for the current
 epoch's exclusive lock); `build` blocks until warm (full parquet rescan — copy-seed is P2, not
-built) and reports idempotently; `rm` refuses the current epoch without `--force`; `gc` reaps by
+built) and reports idempotently; `rm` refuses the current epoch without `--force`; `prune` reaps by
 the `_epochs` ledger's `last_seen`, honoring `--keep-last`/`--older-than`, always keeping the
 current epoch and any epoch of unknowable age (no ledger entry).
 
@@ -347,7 +347,7 @@ P1 → P4/P5 (visible, low-risk, exercises P1) → P2/P3 deferred per the trigge
      foreign-version workers. A "global daemon" is therefore at most a **discovery registry**, never a
      **supervisor**; version resolution is a thin `bazelisk`/`gradlew`-style shim, not a service.
    - **Daemons coexist per active fingerprint**, each on its own port (Gradle's model), self-limited
-     by idle-death (the process-side GC; disk-side GC is the explicit `litmus data index gc`).
+     by idle-death (the process-side GC; disk-side GC is the explicit `litmus data index prune`).
    - **Runtime-state hygiene:** rendezvous files (socket/pid/port/lock) belong in the XDG *runtime*
      dir, not co-mingled in the data dir (per XDG; it's why `data import` must scrub stale state).
    - **Splits into P3-a** (fingerprint-keyed reuse, one daemon/dir — NOT worth building; its only live
@@ -399,13 +399,13 @@ P1 → P4/P5 (visible, low-risk, exercises P1) → P2/P3 deferred per the trigge
 - 2026-07-04 — **P4 + P5 BUILT** (`21e98778`) on `feat/0.3.1-index-epoch` (built ahead of P2/P3 per
   direct instruction). Ledger evolved: `_stamp_epochs_ledger` now accumulates `seen_by` as a sorted set
   (was: overwrite with the latest opener), with a `_read_epochs_ledger` reader tolerating the old
-  single-version shape and a `_remove_epochs_ledger_entries` cleanup helper for `rm`/`gc`.
+  single-version shape and a `_remove_epochs_ledger_entries` cleanup helper for `rm`/`prune`.
   `litmus data index list|build|rm|gc` land in `src/litmus/cli/data_cmd.py`: `list` sources
   provenance from direct read-only `duckdb.connect` (falling back to the daemon's Flight SQL only
   for the current epoch's exclusive lock) + the ledger, rendered as fingerprint/schema/BUILT
   BY/SEEN BY/rows/size/last-seen with a `*` current-marker and a totals footer; `build` blocks
   until warm via a full parquet rescan (copy-seed is still P2) and reports idempotently (0 new
-  files on an already-warm index); `rm` refuses the current epoch without `--force`; `gc` reaps by
+  files on an already-warm index); `rm` refuses the current epoch without `--force`; `prune` reaps by
   the ledger's `last_seen`, honoring `--keep-last`/`--older-than` (reusing `retention.parse_duration`),
   always keeping the current epoch and any epoch of unknowable age. P2 and P3 remain.
 - 2026-07-04 — **`build` warmth-poll bug found + fixed** (during a "why is rebuild slow?" dig): the

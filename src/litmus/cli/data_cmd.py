@@ -358,7 +358,7 @@ def data_reindex(data_dir: str | None) -> None:
 # See docs/_internal/explorations/derived-index-versioning.md §6 (retention)
 # and §7 (this tooling). The runs derived index lives at content-addressed
 # files ``<data_dir>/runs/_index.<fp12>.duckdb`` (P1, already shipped);
-# multiple epochs can coexist. These commands render/build/reap them by
+# multiple epochs can coexist. These commands render/build/prune them by
 # human-recognizable identity, sourcing provenance from each file's
 # ``_index_meta`` table and last-access from the shared ``_epochs.json``
 # ledger — never by re-reading parquet directly.
@@ -491,7 +491,7 @@ def data_index() -> None:
 
     The runs derived index is a content-addressed, always-rebuildable cache
     over durable parquet (see derived-index-versioning.md). These commands
-    build/warm it, list its epochs by human identity, drop one, or reap
+    build/warm it, list its epochs by human identity, drop one, or prune
     stale ones.
     """
 
@@ -761,30 +761,31 @@ def data_index_rm(fingerprint: str, data_dir: str | None, force: bool) -> None:
     click.echo(f"Removed index epoch {fp12} ({path.name}).")
 
 
-_DEFAULT_GC_OLDER_THAN = "30d"
-_DEFAULT_GC_KEEP_LAST = 3
+_DEFAULT_PRUNE_OLDER_THAN = "30d"
+_DEFAULT_PRUNE_KEEP_LAST = 3
 
 
-@data_index.command("gc")
+@data_index.command("prune")
 @click.option("--data-dir", default=None, help="Results directory")
 @click.option(
     "--keep-last",
-    default=_DEFAULT_GC_KEEP_LAST,
+    default=_DEFAULT_PRUNE_KEEP_LAST,
     show_default=True,
     help="Always keep at least this many most-recently-seen epochs.",
 )
 @click.option(
     "--older-than",
-    default=_DEFAULT_GC_OLDER_THAN,
+    default=_DEFAULT_PRUNE_OLDER_THAN,
     show_default=True,
-    help="Never reap an epoch last seen more recently than this (e.g. 30d).",
+    help="Never remove an epoch last seen more recently than this (e.g. 30d).",
 )
-@click.option("--dry-run", is_flag=True, help="Show what would be reaped; delete nothing.")
-def data_index_gc(data_dir: str | None, keep_last: int, older_than: str, dry_run: bool) -> None:
-    """Reap stale runs-index epochs by last-access (never the current epoch).
+@click.option("--dry-run", is_flag=True, help="Show what would be removed; delete nothing.")
+def data_index_prune(data_dir: str | None, keep_last: int, older_than: str, dry_run: bool) -> None:
+    """Remove stale runs-index epochs by last-access (never the current epoch).
 
-    Reaping is never a data-loss risk: a reaped epoch simply rebuilds from
+    Removal is never a data-loss risk: a removed epoch simply rebuilds from
     parquet if that version runs again (the derived index is a pure cache).
+    Mirrors ``litmus data prune`` (durable data) — same verb, index layer.
     """
     from litmus.data._runs_duckdb_daemon import (
         _projection_fingerprint,
@@ -797,7 +798,7 @@ def data_index_gc(data_dir: str | None, keep_last: int, older_than: str, dry_run
     runs_dir = data_dir_path / "runs"
     epoch_files = sorted(runs_dir.glob("_index.*.duckdb")) if runs_dir.is_dir() else []
     if not epoch_files:
-        click.echo("No index epochs to garbage-collect.")
+        click.echo("No index epochs to prune.")
         return
 
     try:
@@ -837,7 +838,7 @@ def data_index_gc(data_dir: str | None, keep_last: int, older_than: str, dry_run
             keep_reason.setdefault(fp12, f"last seen within --older-than {older_than}")
     for fp12, _path, ts in entries:
         if ts is None:
-            keep_reason.setdefault(fp12, "unknown age (no ledger entry) — never reap unknown")
+            keep_reason.setdefault(fp12, "unknown age (no ledger entry) — never remove unknown")
 
     to_reap = [(fp12, path) for fp12, path, _ts in entries if fp12 not in keep_reason]
     to_keep = [(fp12, path) for fp12, path, _ts in entries if fp12 in keep_reason]
@@ -847,7 +848,7 @@ def data_index_gc(data_dir: str | None, keep_last: int, older_than: str, dry_run
         for fp12, _path in to_keep:
             click.echo(f"  {fp12}  ({keep_reason[fp12]})")
     if not to_reap:
-        click.echo("\nNothing to reap.")
+        click.echo("\nNothing to prune.")
         return
 
     reap_size = sum(_epoch_size_bytes(path) for _fp12, path in to_reap)
@@ -868,7 +869,7 @@ def data_index_gc(data_dir: str | None, keep_last: int, older_than: str, dry_run
         path.unlink(missing_ok=True)
         Path(f"{path}.wal").unlink(missing_ok=True)
     _remove_epochs_ledger_entries(runs_dir, reaped_fp12s)
-    click.echo(f"\nReaped {len(to_reap)} epoch(s), reclaiming {_format_bytes(reap_size)}.")
+    click.echo(f"\nRemoved {len(to_reap)} epoch(s), reclaiming {_format_bytes(reap_size)}.")
 
 
 def _merge_data_dir(src: Path, dst: Path) -> int:
