@@ -433,6 +433,38 @@ def _humanize_ago(iso_ts: str | None) -> str:
     return f"{years} year{'s' if years != 1 else ''} ago"
 
 
+def dormant_epoch_hint(data_dir: str | None = None) -> str | None:
+    """One-line reminder that older (non-current) index epochs are on disk, or
+    ``None`` when there are none.
+
+    Called after ``litmus setup`` (post-upgrade housekeeping is exactly when
+    old projection fingerprints have piled up). Best-effort and cheap — a
+    ``glob`` + ``stat`` only, never opens the daemon or a DuckDB file — and
+    swallows every error, because a housekeeping hint must never break setup.
+    Non-destructive: it only *suggests* ``litmus data index prune`` (which
+    itself keeps recently-seen epochs); it never removes anything.
+    """
+    from litmus.data._runs_duckdb_daemon import _projection_fingerprint
+
+    try:
+        runs_dir = Path(_get_data_dir(data_dir)) / "runs"
+        if not runs_dir.is_dir():
+            return None
+        current_fp12 = _projection_fingerprint()[:12]
+        others = [
+            p for p in runs_dir.glob("_index.*.duckdb") if _fp12_from_index_path(p) != current_fp12
+        ]
+        if not others:
+            return None
+        total = sum(_epoch_size_bytes(p) for p in others)
+        return (
+            f"{len(others)} older index epoch(s) present ({_format_bytes(total)}). "
+            "Reclaim dormant ones: litmus data index prune"
+        )
+    except Exception:  # noqa: BLE001 — best-effort hint, never break the caller
+        return None
+
+
 def _read_epoch_meta_readonly(path: Path) -> tuple[dict[str, str], int | None] | None:
     """Try a direct read-only open of an epoch file for provenance + row count.
 

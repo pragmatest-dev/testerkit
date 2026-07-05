@@ -27,6 +27,7 @@ from litmus.cli.data_cmd import (
     _format_bytes,
     _fp12_from_index_path,
     _humanize_ago,
+    dormant_epoch_hint,
 )
 from litmus.data import _runs_duckdb_daemon as daemon
 from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
@@ -179,6 +180,37 @@ def test_list_renders_current_marker_seen_by_and_footer(tmp_path: Path) -> None:
     assert f"current = {current_fp12} (" in out
     # current epoch (last seen 2m ago) sorts before the 6-day-old one
     assert out.index(current_fp12) < out.index(_OTHER_FP12)
+
+
+def test_dormant_epoch_hint(tmp_path: Path) -> None:
+    """The setup-time hint counts only NON-current epochs, and is None when
+    there are none (empty dir or current-only)."""
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir(parents=True)
+    current_fp12 = _current_fp12()
+
+    assert dormant_epoch_hint(str(tmp_path)) is None  # empty → no hint
+
+    _write_epoch_file(
+        runs_dir / f"_index.{current_fp12}.duckdb",
+        litmus_version="0.3.1",
+        schema_version="0.1",
+        fingerprint=current_fp12 + "f" * 52,
+        n_runs=1,
+    )
+    assert dormant_epoch_hint(str(tmp_path)) is None  # current-only → no hint
+
+    _write_epoch_file(
+        runs_dir / f"_index.{_OTHER_FP12}.duckdb",
+        litmus_version="0.3.0",
+        schema_version="0.1",
+        fingerprint=_OTHER_FP12 + "0" * 52,
+        n_runs=1,
+    )
+    hint = dormant_epoch_hint(str(tmp_path))
+    assert hint is not None
+    assert "1 older index epoch" in hint
+    assert "litmus data index prune" in hint
 
 
 def test_list_falls_back_to_unknown_seen_by_without_ledger(tmp_path: Path) -> None:
