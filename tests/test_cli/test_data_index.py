@@ -183,8 +183,9 @@ def test_list_renders_current_marker_seen_by_and_footer(tmp_path: Path) -> None:
 
 
 def test_dormant_epoch_hint(tmp_path: Path) -> None:
-    """The setup-time hint counts only NON-current epochs, and is None when
-    there are none (empty dir or current-only)."""
+    """The setup-time hint counts only NON-current epochs, is None when there
+    are none (empty dir or current-only), and is size-gated — a tiny dormant
+    epoch stays silent under the default threshold but fires when it's lowered."""
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir(parents=True)
     current_fp12 = _current_fp12()
@@ -207,7 +208,10 @@ def test_dormant_epoch_hint(tmp_path: Path) -> None:
         fingerprint=_OTHER_FP12 + "0" * 52,
         n_runs=1,
     )
-    hint = dormant_epoch_hint(str(tmp_path))
+    # A tiny (~tens of KB) dormant epoch is below the default 1 GiB gate → silent.
+    assert dormant_epoch_hint(str(tmp_path)) is None
+    # Lower the gate: now the hint fires and counts the one non-current epoch.
+    hint = dormant_epoch_hint(str(tmp_path), min_bytes=0)
     assert hint is not None
     assert "1 older index epoch" in hint
     assert "litmus data index prune" in hint

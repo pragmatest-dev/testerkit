@@ -433,9 +433,22 @@ def _humanize_ago(iso_ts: str | None) -> str:
     return f"{years} year{'s' if years != 1 else ''} ago"
 
 
-def dormant_epoch_hint(data_dir: str | None = None) -> str | None:
-    """One-line reminder that older (non-current) index epochs are on disk, or
-    ``None`` when there are none.
+# Below this, dormant epochs aren't worth a nudge — a rebuild costs ~1 ms/row
+# and a small store's whole index is tens of MB, so reclaiming it is noise. The
+# hint only speaks up once there's real disk to reclaim (large / lab-scale store).
+_HINT_MIN_BYTES = 1024**3  # 1 GiB
+
+
+def dormant_epoch_hint(
+    data_dir: str | None = None, *, min_bytes: int = _HINT_MIN_BYTES
+) -> str | None:
+    """One-line reminder that older (non-current) index epochs are on disk and
+    worth reclaiming, or ``None`` when there's nothing worth mentioning.
+
+    Gated on *size* (``min_bytes``, default 1 GiB): dormant epochs are inert
+    files (their daemon is dead — no RAM/CPU), and a rebuild is cheap at small
+    scale, so tens of MB isn't worth a nudge. The hint fires only when the
+    reclaimable total crosses the threshold.
 
     Called after ``litmus setup`` (post-upgrade housekeeping is exactly when
     old projection fingerprints have piled up). Best-effort and cheap — a
@@ -457,6 +470,8 @@ def dormant_epoch_hint(data_dir: str | None = None) -> str | None:
         if not others:
             return None
         total = sum(_epoch_size_bytes(p) for p in others)
+        if total < min_bytes:
+            return None
         return (
             f"{len(others)} older index epoch(s) present ({_format_bytes(total)}). "
             "Reclaim dormant ones: litmus data index prune"
