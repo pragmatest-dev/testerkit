@@ -83,3 +83,23 @@ def test_fingerprint_seam_mismatched_fingerprint_respawns(tmp_path: Path) -> Non
     mgr = _FingerprintManager(tmp_path)
     assert mgr._can_reuse({"fingerprint": "xyz"}) is False
     assert mgr._can_reuse({}) is False
+
+
+def test_runs_manager_keys_reuse_on_projection_fingerprint(tmp_path: Path) -> None:
+    """RunsDuckDBManager (the first real store activated on the seam) keys reuse
+    on the projection fingerprint, not the litmus version. Pure — constructs the
+    manager and calls the hooks; no daemon spawned."""
+    from litmus.data._runs_duckdb_daemon import _projection_fingerprint
+    from litmus.data.runs_duckdb_manager import RunsDuckDBManager
+
+    mgr = RunsDuckDBManager(tmp_path)
+    fp = _projection_fingerprint()
+
+    identity = mgr._daemon_identity()
+    assert identity["fingerprint"] == fp
+    assert "litmus_version" in identity  # kept for provenance
+
+    assert mgr._can_reuse({"fingerprint": fp}) is True  # same projection → reuse
+    assert mgr._can_reuse({"fingerprint": "deadbeef0000"}) is False  # different → respawn
+    assert mgr._can_reuse({"litmus_version": "0.3.0"}) is False  # pre-fingerprint daemon → respawn
+    assert mgr._can_reuse({}) is False

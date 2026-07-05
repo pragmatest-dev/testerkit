@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from typing import Any
 
-from litmus.data._daemon_lifecycle import DaemonManager, wait_for_location
+from litmus.data._daemon_lifecycle import DaemonManager, _installed_version, wait_for_location
 from litmus.data._flight_query import probe_sql
 
 
@@ -25,6 +26,36 @@ class RunsDuckDBManager(DaemonManager):
     _pid_name = "_runs_duckdb_pid"
     _daemon_module = "litmus.data._runs_duckdb_daemon"
     _port_file = "_runs_duckdb_flight_port"
+
+    # Runs keys daemon reuse on the projection FINGERPRINT, not just the litmus
+    # version (the base-class default). The fingerprint is a content-address of
+    # the read path (projection DDL + adapters + whitelist), so a daemon serves
+    # exactly one index shape + SQL. Keying reuse on it means a client never
+    # sends a daemon SQL for a different projection — the coexistence law of the
+    # index-epoch design (derived-index-versioning.md §11.1). ``_projection_
+    # fingerprint`` is imported lazily inside the methods to break the import
+    # cycle (the daemon module imports this manager).
+
+    def _daemon_identity(self) -> dict[str, Any]:
+        """Stamp the projection fingerprint (plus the version, for provenance)
+        into the state file, so ``_can_reuse`` can compare it. A projection
+        change — even within one litmus version (a dev edit / branch switch,
+        invisible to the version ratchet) — yields a new fingerprint and thus a
+        fresh daemon on the matching epoch."""
+        from litmus.data._runs_duckdb_daemon import _projection_fingerprint
+
+        return {"litmus_version": _installed_version(), "fingerprint": _projection_fingerprint()}
+
+    def _can_reuse(self, running_state: dict[str, Any]) -> bool:
+        """Reuse only a daemon whose projection fingerprint matches ours exactly.
+        A different — or missing (a pre-fingerprint daemon) — fingerprint means it
+        serves a different-shaped index/SQL, so respawn rather than send it queries
+        it can't answer. Fingerprint equality subsumes the version ratchet: a
+        version bump that changes the projection changes the fingerprint (respawn);
+        one that doesn't keeps it (reuse)."""
+        from litmus.data._runs_duckdb_daemon import _projection_fingerprint
+
+        return running_state.get("fingerprint") == _projection_fingerprint()
 
 
 # Module-level convenience — RunStore uses these directly.
