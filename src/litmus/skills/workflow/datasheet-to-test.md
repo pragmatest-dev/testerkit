@@ -255,7 +255,8 @@ limits:
   efficiency:     {low: 55, high: 100, unit: "%"}
   output_voltage: {characteristic: "output_voltage"}    # delegates to part spec
 mocks:
-  dmm.measure_dc_voltage: 3.3
+  - target: dmm.measure_dc_voltage
+    return_value: 3.3
 ```
 </step>
 
