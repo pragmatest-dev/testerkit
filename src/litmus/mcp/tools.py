@@ -667,7 +667,7 @@ FILE 1: tests/test_{part_id}.py
 
 """Tests for {part_name}.
 
-Tests are plain pytest functions. Vectors, limits, and mocks live in
+Tests are plain pytest functions. Sweeps, limits, and mocks live in
 the sidecar YAML next to this file (``test_{part_id}.yaml``). The
 ``context`` and ``verify`` fixtures come from the Litmus pytest plugin.
 """
@@ -712,7 +712,7 @@ tests:
   test_output_voltage:
     limits:
       output_voltage:
-        ref: output_voltage
+        characteristic: output_voltage
         guardband_pct: 10
         comparator: GELE
   test_quiescent_current:
@@ -724,18 +724,19 @@ tests:
   test_load_regulation:
     limits:
       output_voltage:
-        ref: output_voltage
+        characteristic: output_voltage
         guardband_pct: 10
     mocks:
-      dmm.measure_dc_voltage: 5.0
+      - target: dmm.measure_dc_voltage
+        return_value: 5.0
 
 ================================================================================
 NOTES
 ================================================================================
 
-- Vectors: use ``@pytest.mark.parametrize`` or sidecar ``vectors:``.
+- Sweeps: use ``@pytest.mark.parametrize`` or sidecar ``sweeps:`` (a list).
   Sidecar overrides decorator at collection time.
-- Limits: declared per-measurement in sidecar; use ``ref:`` to derive
+- Limits: declared per-measurement in sidecar; use ``characteristic:`` to derive
   from a part characteristic, or inline ``low/high`` for direct
   bounds. Condition-indexed bands (``when:``) also supported.
 - Mocks: sidecar ``mocks:`` installs per-test. Use
@@ -840,7 +841,7 @@ def _read_file(path: str, project: str) -> dict[str, Any]:
             "content": TEST_TEMPLATE.format(part_name="PartName", part_id="part_id"),
             "notes": [
                 "Tests are plain pytest functions; use context/verify fixtures",
-                "Vectors, limits, and mocks live in the sidecar YAML next to the test",
+                "Sweeps, limits, and mocks live in the sidecar YAML next to the test",
             ],
         }
 

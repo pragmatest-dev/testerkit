@@ -150,9 +150,8 @@ Approval gates (stop at each):
 3. Extract specs from datasheet → Show to user → Ask approval → Save part
 4. litmus_schema(yaml_type="station") → Get exact station schema
 5. litmus_discover() → Show station config → Ask approval → Save station
-6. litmus_schema(yaml_type="sequence") → Get sequence schema (if needed)
-7. Show test plan → Ask approval → Save BOTH test .py AND config.yaml
-8. Confirm ready → litmus_run() → Show results
+6. Show test plan → Ask approval → Save BOTH test .py AND config.yaml
+7. Confirm ready → litmus_run() → Show results
 ```
 
 **Pass `project=<path>` to ALL calls after init.**
@@ -188,7 +187,7 @@ Do NOT guess field names — if the schema doesn't have it, don't use it.
 - `litmus_project(action="save", type="part|station|test", id="...",
    content={{...}}, project=...)`
 - `litmus_project(action="read", path="template:test", project=...)` — Get templates
-- `litmus_schema(yaml_type="part|station|catalog|sequence|fixture")` — **Call FIRST**
+- `litmus_schema(yaml_type="part|station|catalog|fixture")` — **Call FIRST**
 - `litmus_discover()` — Scan for connected instruments
 - `litmus_match(requirements=[...], project=...)` — Recommend catalog instruments
 - `litmus_run(test="tests/test_x.py", station="...", serial="...", project=...)`
@@ -206,8 +205,7 @@ Do NOT guess field names — if the schema doesn't have it, don't use it.
 6. **Create BOTH test files** — .py AND config.yaml
 7. **_mock in config.yaml** — Per-test/per-vector mock values
 8. **catalog_ref** on instruments resolves capabilities from catalog/
-9. **Per-step aliases** in sequences remap fixture names to station instruments
-10. **Choice format**: ALWAYS use numbered lists (1, 2, 3). NEVER use letter codes.
+9. **Choice format**: ALWAYS use numbered lists (1, 2, 3). NEVER use letter codes.
 """
 
 
@@ -322,7 +320,7 @@ def create_mcp_server() -> FastMCP:
         Args:
             action: One of: init, list, get, save, read
             type: Entity type for list/get/save
-                (part, station, fixture, sequence, catalog, instrument_asset, run, test)
+                (part, station, fixture, catalog, instrument_asset, run, test)
             id: Entity ID for get/save
             path: Path for init/read actions
             content: Content dict for save action
@@ -440,7 +438,7 @@ def create_mcp_server() -> FastMCP:
         Use this when detailed viewing or visual editing is needed.
 
         Args:
-            type: Entity type (part, station, run, fixture, sequence)
+            type: Entity type (part, station, run, fixture)
             id: Entity ID
             base_url: UI server URL (default: http://localhost:8000)
 
@@ -461,7 +459,7 @@ def create_mcp_server() -> FastMCP:
         source of truth for field names, types, enums, and structure.
 
         Args:
-            yaml_type: A file type (e.g. catalog, part, station, sequence,
+            yaml_type: A file type (e.g. catalog, part, station,
                 fixture, instrument_asset, project). Omit to list available types.
 
         Returns:
