@@ -1,6 +1,6 @@
 """Regression tests for the runs daemon's concurrency guarantees.
 
-Two failure modes these tests catch:
+Three failure modes these tests catch:
 
 1. Foreground-ingest spawn timeout — synchronous ingest before the
    daemon signals ready blows past ``_SPAWN_TIMEOUT`` (30s) on a fresh
@@ -12,9 +12,20 @@ Two failure modes these tests catch:
    on DuckDB's global catalog lock under GIL deadlocks the daemon, and
    any Flight query hangs indefinitely.
 
-Both are guarded by sharing a single connection + single lock between
-the Flight server and the background sweep — see ``daemon_run`` and
-``_ingest_parquet_files`` in ``_runs_duckdb_daemon.py``.
+3. Cascade-delete race — ``_ingest_parquet_files`` prunes ``_ingested``
+   rows whose file is "gone from disk", comparing against a disk-list
+   snapshot taken at the START of the sweep. A run ingested concurrently
+   (a ``notify_new_run``/``do_put`` mid-sweep) is genuinely on disk but
+   used to get wrongly deleted, because the OLD prune read ``_ingested``
+   AFTER the concurrent ingest yet compared it against that pre-ingest
+   snapshot. See the tests under "Cascade-delete race" below.
+
+(1) and (2) are guarded by sharing a single connection + single lock
+between the Flight server and the background sweep — see ``daemon_run``
+and ``_ingest_parquet_files`` in ``_runs_duckdb_daemon.py``. (3) is
+guarded by FREEZING the prune's candidate set to the ``_ingested`` rows
+present at sweep START, so a run a concurrent notify adds mid-sweep is
+never a deletion candidate.
 """
 
 from __future__ import annotations
@@ -32,6 +43,7 @@ import pyarrow.parquet as pq
 
 from litmus.analysis.runs_query import RunsQuery
 from litmus.data import runs_duckdb_manager
+from litmus.data._runs_duckdb_daemon import _ingest_one_file, _ingest_parquet_files, _open_index
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.schemas import RUN_ROW_SCHEMA
 
@@ -173,3 +185,127 @@ def test_query_during_ingest_does_not_hang():
         )
     finally:
         runs_duckdb_manager.release(canonical_runs)
+
+
+# ── Cascade-delete race (pre-existing bug, made routine by #53 P1) ──────
+#
+# ``_ingest_parquet_files`` snapshots the on-disk parquet list via
+# ``runs_dir.rglob("*.parquet")`` at the START of the sweep, then, after
+# ingesting, deletes ``_ingested`` rows whose file is "gone from disk". A
+# run that lands concurrently (a ``notify_new_run``/``do_put`` mid-sweep,
+# via ``_on_put`` -> ``_ingest_one_file`` under the same ``lock``) is present
+# on disk AND in ``_ingested`` but absent from the stale disk snapshot purely
+# because it didn't exist yet when the snapshot was taken — and the OLD code
+# wrongly cascade-deleted it (index data loss: the run vanishes from queries
+# until a later sweep re-ingests it).
+#
+# The fix FREEZES the prune's candidate set to the ``_ingested`` rows read at
+# sweep START (before this sweep's own — and any concurrent — ingest adds to
+# the table). A run added mid-sweep is never in that frozen set, so it is
+# never a deletion candidate and live/warm serving is never disrupted. It is a
+# plain set-difference — no per-candidate work, same cost as the original
+# prune. (An earlier version additionally re-checked ``Path.exists()`` per
+# candidate at delete time; that only guarded a rare ``rglob``-transient-miss
+# the original never guarded either, and the per-candidate stat burst perturbed
+# unrelated timing-sensitive tests under full-suite load, so it was dropped —
+# the freeze alone closes the race.)
+#
+# These tests use ``_open_index`` directly (a plain DuckDB file, no Flight
+# server, no daemon process) — same pattern as ``test_runs_index_selfheal.py``
+# — so ``tmp_path`` is safe here; nothing spawns a daemon.
+
+
+def _materialized_count(conn) -> int:
+    row = conn.execute("SELECT count(*) FROM runs_materialized").fetchone()
+    assert row is not None
+    return int(row[0])
+
+
+def _ingested_paths(conn) -> set[str]:
+    return {row[0] for row in conn.execute("SELECT path FROM _ingested").fetchall()}
+
+
+def test_cascade_delete_still_prunes_genuinely_removed_files(tmp_path: Path) -> None:
+    """The fix must NOT weaken the legitimate cascade-delete: a file
+    recorded in ``_ingested`` whose parquet was truly deleted from disk
+    before the sweep runs must still be pruned."""
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    base = datetime(2026, 3, 1, 10, 0, 0, tzinfo=UTC)
+
+    _write_run_parquet(runs_dir, run_id=f"gone-a-{uuid4()}", started=base)
+    path_b = _write_run_parquet(
+        runs_dir, run_id=f"gone-b-{uuid4()}", started=base + timedelta(seconds=1)
+    )
+
+    idx = tmp_path / "_index.duckdb"
+    conn, _ = _open_index(idx)
+    lock = threading.Lock()
+    try:
+        _ingest_one_file(conn, path_b, path_b.stat())
+        assert _materialized_count(conn) == 1
+
+        path_b.unlink()  # genuinely removed from disk before the sweep runs
+
+        _ingest_parquet_files(conn, runs_dir, lock)
+
+        assert _materialized_count(conn) == 1  # only A remains
+        assert str(path_b) not in _ingested_paths(conn)
+    finally:
+        conn.close()
+
+
+def test_concurrent_notify_during_sweep_is_queryable_after_sweep(tmp_path: Path) -> None:
+    """Exercises the actual concurrent path (not a monkeypatched snapshot):
+    a ``notify_new_run``-equivalent ingest for a brand-new run lands via the
+    ``on_ingested`` callback, which fires in the real gap between the
+    sweep's ingest loop and its cascade-delete pass — the same window a
+    genuine concurrent ``_on_put`` contends ``lock`` for.
+
+    Asserts the STRONGER, positive property the fix must preserve: the
+    notified run is directly queryable (by ``run_id``, in
+    ``runs_materialized``) once the sweep completes — not merely "was not
+    deleted". Immediate/warm serving of a concurrently-notified run must
+    survive this sweep unimpeded (rule 1 — the candidate set is frozen at
+    sweep start, so this run is never even considered for deletion — and
+    rule 2 — a fresh existence check at delete time — together guarantee
+    this without delaying or serializing the notify itself).
+    """
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    base = datetime(2026, 3, 1, 10, 0, 0, tzinfo=UTC)
+
+    _write_run_parquet(runs_dir, run_id=f"concur-a-{uuid4()}", started=base)
+
+    idx = tmp_path / "_index.duckdb"
+    conn, _ = _open_index(idx)
+    lock = threading.Lock()
+    run_id_b = f"concur-b-{uuid4()}"
+    landed: list[Path] = []
+    try:
+
+        def on_ingested(_run_ids: list[str]) -> None:
+            # Stands in for a concurrent notify_new_run/do_put: writes and
+            # ingests a brand-new run AFTER this sweep's disk snapshot (and
+            # its frozen _ingested candidate set) were taken, but BEFORE its
+            # cascade-delete pass runs.
+            path_b = _write_run_parquet(
+                runs_dir, run_id=run_id_b, started=base + timedelta(seconds=1)
+            )
+            with lock:
+                _ingest_one_file(conn, path_b, path_b.stat())
+            landed.append(path_b)
+
+        _ingest_parquet_files(conn, runs_dir, lock, on_ingested=on_ingested)
+
+        assert landed, "on_ingested callback never fired — test setup invalid"
+        assert _materialized_count(conn) == 2
+        assert str(landed[0]) in _ingested_paths(conn)
+        # The positive, "queryable" assertion: the notified run resolves by
+        # run_id in the materialized table the query layer reads.
+        row = conn.execute(
+            "SELECT run_id FROM runs_materialized WHERE run_id = ?", [run_id_b]
+        ).fetchone()
+        assert row is not None, f"run {run_id_b} not queryable after sweep completed"
+    finally:
+        conn.close()

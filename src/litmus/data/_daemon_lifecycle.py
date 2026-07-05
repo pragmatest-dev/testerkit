@@ -22,6 +22,7 @@ import sys
 import time
 import warnings
 from pathlib import Path
+from typing import Any
 
 from filelock import FileLock
 
@@ -124,24 +125,12 @@ class DaemonManager:
         lock = FileLock(self._dir / self._lock_name, timeout=10)
         state = self._dir / self._state_name
 
-        my_version = _installed_version()
-
         with lock:
             if state.exists():
                 try:
                     data = json.loads(state.read_text())
                     if _pid_alive(data["pid"]):
-                        daemon_version = data.get("litmus_version", "0.0.0")
-                        if _version_tuple(daemon_version) < _version_tuple(my_version):
-                            warnings.warn(
-                                f"Upgrading daemon from {daemon_version} to {my_version}",
-                                stacklevel=2,
-                            )
-                            self._kill_daemon(data["pid"])
-                            state.unlink(missing_ok=True)
-                            (self._dir / self._ready_name).unlink(missing_ok=True)
-                            (self._dir / self._pid_name).unlink(missing_ok=True)
-                        else:
+                        if self._can_reuse(data):
                             refs: list[int] = data.get("refs", [])
                             if os.getpid() not in refs:
                                 refs.append(os.getpid())
@@ -149,6 +138,16 @@ class DaemonManager:
                             state.write_text(json.dumps(data))
                             self._register_cleanup()
                             return
+                        else:
+                            warnings.warn(
+                                f"Restarting {type(self).__name__} daemon "
+                                "(running instance is incompatible with this client)",
+                                stacklevel=2,
+                            )
+                            self._kill_daemon(data["pid"])
+                            state.unlink(missing_ok=True)
+                            (self._dir / self._ready_name).unlink(missing_ok=True)
+                            (self._dir / self._pid_name).unlink(missing_ok=True)
                 except (json.JSONDecodeError, OSError, KeyError, TypeError) as exc:
                     warnings.warn(
                         f"Stale daemon state, respawning: {exc}",
@@ -159,7 +158,7 @@ class DaemonManager:
             self._spawn()
             pid = self._read_pid()
 
-            data = {"pid": pid, "refs": [os.getpid()], "litmus_version": my_version}
+            data = {"pid": pid, "refs": [os.getpid()], **self._daemon_identity()}
             data.update(self._post_spawn_state())
             state.write_text(json.dumps(data))
 
@@ -213,6 +212,29 @@ class DaemonManager:
             (self._dir / self._pid_name).unlink(missing_ok=True)
 
     # -- Subclass hooks ------------------------------------------------------
+
+    def _daemon_identity(self) -> dict[str, Any]:
+        """The compatibility identity stamped into the state file on spawn —
+        what ``_can_reuse`` later compares against.
+
+        Default: the litmus version (the version-ratchet). A subclass with a
+        projection fingerprint overrides this to add e.g. ``{"fingerprint":
+        ...}`` so reuse can key on it.
+        """
+        return {"litmus_version": _installed_version()}
+
+    def _can_reuse(self, running_state: dict[str, Any]) -> bool:
+        """Whether THIS client may reuse the running daemon described by
+        ``running_state`` (its state-file dict).
+
+        Default reproduces the version ratchet exactly: reuse iff the
+        running daemon's version is >= ours (an older-or-equal client rides
+        a newer daemon; a newer client does not reuse an older one — it
+        respawns/upgrades). A subclass keying on a fingerprint overrides
+        this to require an exact match instead.
+        """
+        daemon_version = running_state.get("litmus_version", "0.0.0")
+        return _version_tuple(daemon_version) >= _version_tuple(_installed_version())
 
     def _spawn_cmd(self) -> list[str]:
         """Command to spawn the daemon process.
