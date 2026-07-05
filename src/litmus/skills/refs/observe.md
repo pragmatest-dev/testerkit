@@ -16,9 +16,9 @@ time-series logging.
 observe(name: str, value: Any, *, namespace: str | None = None) -> None
 ```
 
-Records `value` against `name` (stamps the `out_*` column on the active
-vector) and routes by the value's shape — one verb for every kind of
-evidence:
+Records `value` against `name` (stamps it as an `output` — role `output`,
+name `name` — on the active vector) and routes by the value's shape — one
+verb for every kind of evidence:
 
 | Value | Routes to | Example |
 |-------|-----------|---------|
@@ -41,7 +41,7 @@ stream(name: str, sample: Any, *, namespace: str | None = None) -> str
 Appends a single `sample` to the `name` channel and returns its
 `channel://` URI. Use it to log a value across a sweep or soak (a rail
 under increasing load, a temperature ramp). Strictly orthogonal to
-`observe` — it never stamps `out_*`; call `observe(name, sink)` if you
+`observe` — it never stamps an `output` on the vector; call `observe(name, sink)` if you
 want the channel associated with the active vector.
 
 For high-rate or multi-chunk capture, open a streaming sink instead of

@@ -50,7 +50,7 @@ wf = scope.capture()
 observe("scope_step", wf)  # records the waveform; links it to this test's measurement rows
 ```
 
-`observe` records the `Waveform` in ChannelStore and tags this test with its `channel://` URI (as `out_scope_step`). Every `verify` you call afterward links back to that waveform automatically — so call `observe` before the `verify` calls that depend on it. (See [Three verbs](../../concepts/data/three-verbs.md) for how the link is stored.)
+`observe` records the `Waveform` in ChannelStore and tags this test with its `channel://` URI (as an `output` named `scope_step`). Every `verify` you call afterward links back to that waveform automatically — so call `observe` before the `verify` calls that depend on it. (See [Three verbs](../../concepts/data/three-verbs.md) for how the link is stored.)
 
 ## Step 3: Derive scalars and verify each
 
@@ -82,7 +82,7 @@ def test_psu_step_response(observe, verify, psu, scope) -> None:
     psu.set_voltage(5.0)
 
     wf = scope.capture()
-    observe("scope_step", wf)  # routes to ChannelStore; stamps out_scope_step on this vector
+    observe("scope_step", wf)  # routes to ChannelStore; stamps the scope_step output on this vector
 
     rise_us = compute_rise_time_us(wf, v_final=5.0)
     overshoot_v = compute_overshoot_v(wf, v_final=5.0)
@@ -91,11 +91,11 @@ def test_psu_step_response(observe, verify, psu, scope) -> None:
     verify("overshoot_v", overshoot_v, Limit(low=0, high=0.5, unit="V"))
 ```
 
-Both `verify` calls share the same `out_scope_step` URI because `observe` stamps it on the vector before either call. `verify` raises `AssertionError` on a failing value — if you want to record failures without stopping the test, use `measure` instead (see [`measure` fixture](../../reference/pytest/fixtures.md#measure--function)).
+Both `verify` calls share the same `scope_step` output URI because `observe` stamps it on the vector before either call. `verify` raises `AssertionError` on a failing value — if you want to record failures without stopping the test, use `measure` instead (see [`measure` fixture](../../reference/pytest/fixtures.md#measure--function)).
 
 ## Step 4: Read it back
 
-Open `http://localhost:8000/results`. Click the run row to reach `/results/<run_id>`, then open the **Measurements** tab. The `rise_time_us` and `overshoot_v` rows each show `out_scope_step` as a clickable URI. Click it to jump to `/channels/scope_step`, which plots the waveform.
+Open `http://localhost:8000/results`. Click the run row to reach `/results/<run_id>`, then open the **Measurements** tab. The `rise_time_us` and `overshoot_v` rows each show the `scope_step` output as a clickable URI. Click it to jump to `/channels/scope_step`, which plots the waveform.
 
 From any failing measurement you are one click from the trace that produced it.
 

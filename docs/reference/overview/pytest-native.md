@@ -48,7 +48,7 @@ pytest's marker mechanism is unchanged. All of these work on Litmus tests as doc
 
 The seven `@pytest.mark.litmus_*` markers Litmus adds are registered the same way as native markers and stack with them (with one constraint — see the [no-stacking rule](../pytest/markers.md#no-stacking-rule) for Litmus markers). See [Litmus markers](../pytest/markers.md) for full details.
 
-`@pytest.mark.parametrize` and `@pytest.mark.litmus_sweeps` interoperate: both feed the same `context.get_param(name)` API and the same parquet `in_*` columns at runtime.
+`@pytest.mark.parametrize` and `@pytest.mark.litmus_sweeps` interoperate: both feed the same `inputs` lane on the vector row (query with `FieldRef.input(name)`).
 
 ## conftest.py
 

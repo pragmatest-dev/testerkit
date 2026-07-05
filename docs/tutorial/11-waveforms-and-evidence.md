@@ -14,7 +14,7 @@ A PSU steps from 0 V to 5 V. A scope captures the transient. You want two judgme
 
 The problem: `verify` accepts a scalar. `scope.capture()` returns a `Waveform` — a block of samples with a `t0` timestamp and a `dt` sample interval. Passing the waveform directly to `verify` raises `TypeError`.
 
-The solution is two verbs in sequence: `observe` the raw waveform first, then `verify` each derived scalar. `observe` writes the waveform to ChannelStore and records a `channel://` link to it on the active test vector — so both verify rows carry `out_scope_step`, pointing back to the trace they were computed from.
+The solution is two verbs in sequence: `observe` the raw waveform first, then `verify` each derived scalar. `observe` writes the waveform to ChannelStore and records a `channel://` link to it on the active test vector — so both verify rows carry the `scope_step` output, pointing back to the trace they were computed from.
 
 See [The Three Test-Author Verbs](../concepts/data/three-verbs.md) for the model behind this pattern.
 
@@ -49,7 +49,7 @@ def test_psu_step_response(observe, verify, psu, scope) -> None:
     psu.set_voltage(5.0)
 
     wf = scope.capture()
-    observe("scope_step", wf)  # routes to ChannelStore; stamps out_scope_step on this vector
+    observe("scope_step", wf)  # routes to ChannelStore; stamps the scope_step output on this vector
 
     rise_us = compute_rise_time_us(wf, v_final=5.0)
     overshoot_v = compute_overshoot_v(wf, v_final=5.0)
@@ -62,9 +62,9 @@ What each line does:
 
 1. `psu.set_voltage(5.0)` — triggers the step. The PSU fixture is mocked; its `set_voltage` is a no-op.
 2. `scope.capture()` — acquires one trace. With the mock wired to `synthesize_psu_step_response`, this returns a fresh `Waveform` with realistic shape and small per-call jitter.
-3. `observe("scope_step", wf)` — writes the waveform to ChannelStore and stamps a `channel://` link (`out_scope_step = channel://scope_step?session=…`) on the active test vector. Every measurement recorded after this point in the test carries that link.
+3. `observe("scope_step", wf)` — writes the waveform to ChannelStore and stamps a `channel://` link as the `scope_step` output (`channel://scope_step?session=…`) on the active test vector. Every measurement recorded after this point in the test carries that link.
 4. `compute_rise_time_us` / `compute_overshoot_v` — pure functions that work on `wf.Y` (sample values) and `wf.dt` (sample interval in seconds).
-5. `verify(...)` — records a parquet measurement row with value, limit, and `out_scope_step`. Both rows carry the same URI.
+5. `verify(...)` — records a parquet measurement row with value, limit, and the `scope_step` output. Both rows carry the same URI.
 
 `observe` and `verify` are pytest fixtures provided by Litmus's bundled plugin — they appear as parameters in the test signature with no import needed.
 
@@ -156,7 +156,7 @@ The `scope_step_<session_short>.arrow` file is one Arrow row per `observe` call.
 
 Open `http://localhost:8000/results`. Click the run row to open the detail view at `/results/<run_id>`.
 
-On the **Measurements** tab, the two rows (`rise_time_us` and `overshoot_v`) each carry `out_scope_step` — a `channel://scope_step?session=…` URI. Click it to jump to `/channels/scope_step`, which plots the waveform. From a failing measurement you are one click from the trace that caused it.
+On the **Measurements** tab, the two rows (`rise_time_us` and `overshoot_v`) each carry the `scope_step` output — a `channel://scope_step?session=…` URI. Click it to jump to `/channels/scope_step`, which plots the waveform. From a failing measurement you are one click from the trace that caused it.
 
 For the full reference on what the Channels page shows, see [Operator UI → Channels](../reference/operator-ui/channels/list.md). For the Measurements tab layout, see [Operator UI → Results — detail](../reference/operator-ui/results/detail.md).
 
