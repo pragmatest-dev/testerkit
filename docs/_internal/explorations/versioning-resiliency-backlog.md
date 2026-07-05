@@ -61,6 +61,10 @@ Each item lists a **Trigger** (the symptom that makes it worth building) and a *
   playbook (compatibility-keyed reuse, fast redundant-daemon expiry, memory-aware self-stop,
   `--status` visibility). Composes with the req-6 serving-tier swap (`acquire → opaque location` is
   already the seam).
+- **Shared with F:** the fix lands in the **shared `DaemonManager.acquire`** (all four stores subclass
+  it) — reuse-key changes from `litmus_version` to fingerprint via a subclass hook. So B and **F (#64
+  cross-store parity)** are the *same seam*: do the base fix once and every store gets per-version
+  binding. See §F.
 - **Cost / risk:** largest item; revises the singleton lifecycle. No cheaper option exists (one daemon
   per active incompatible fingerprint is the floor).
 
@@ -108,15 +112,42 @@ Each item lists a **Trigger** (the symptom that makes it worth building) and a *
 
 ## F. Cross-store parity — events / channels / files (#64)
 
-- **What:** bring the events, channels, and files derived indexes to **runs parity**: content-addressed
-  epochs + the same versioning resiliency. They each have an `_index.duckdb` today, but only runs is
-  versioned.
-- **Why separate:** it's its own workstream (**task #64**), gated on runs P1 being validated — which it
-  now is. This is the most "ready to pick up now" item in this backlog (the runs pattern is the
-  template).
-- **Trigger:** ready now; sequence after any other 0.3.x priority. Reuse the runs helpers/pattern.
-- **Design:** #64; template = the runs implementation (`_runs_duckdb_daemon.py` epoch helpers +
-  `data_cmd.py` tooling).
+- **What:** bring the events, channels, and files derived indexes to **runs parity** — but *not* by
+  cloning runs three times. **Extract the shared spine; keep per-store what's per-store.**
+- **Verified structure (2026-07-05):** all four managers (`RunsDuckDBManager`, `DuckDBDaemonManager`
+  [events], `FilesCatalogManager`, `FlightDaemonManager` [channels]) subclass the **same
+  `DaemonManager`**; only runs is versioned today. **Events is runs' near-twin** (DuckDB daemon,
+  `_index.duckdb`, `_ingested` ledger, incremental ingest); **channels/files are *catalog* daemons**
+  (metadata over arrow segments / blobs, live upserts) — simpler, more stable projections.
+- **Three layers of applicability:**
+  1. **Already universal (verify, don't build):** the rebuild-from-at-rest guarantee holds for every
+     store (each `_index.duckdb` is a cache over durable at-rest data), so cache-not-data + LRU
+     retention (§C, §6) apply to all four unchanged.
+  2. **Shared spine — extract once, all four benefit:**
+     - **Per-fingerprint daemon binding belongs in `DaemonManager.acquire` itself** (it reuses by
+       `litmus_version` today). Change the reuse key to the **fingerprint via a subclass hook**, done
+       once in the base → every store gets correct per-version binding. Runs overrides the hook with
+       `_projection_fingerprint`; the others override as they gain a fingerprint. **This is the same
+       seam as item B (P3-b)** — B and F share it; do the base fix once and both land.
+     - The content-addressed epoch mechanics (`_index.<fp>.duckdb` naming, build-complete marker +
+       provenance in `_index_meta`, the `_epochs` ledger, retention) — currently inline in
+       `_runs_duckdb_daemon.py` — hoist into a **shared helper module** each daemon calls with *its
+       own* fingerprint. So #64 is mostly *extraction*, not re-implementation.
+  3. **Per-store — compute-your-own + verify:** each daemon computes its own fingerprint from its
+     read-path. **Verify (not assume):** does events' ingest sweep have the same SATB cascade-delete
+     race as runs (likely — same `_ingested`/incremental shape → apply the freeze)? Channels/files use
+     live catalog upserts → different pattern → check separately. And how shape-coupled is each store's
+     query layer (runs is heavily coupled via the measurement projection; the others are catalog-ish →
+     lower coexistence pressure).
+- **The judgment (over-engineering lens):** the other stores churn *less* (simpler, stabler
+  projections). Apply the **cheap spine** (per-fingerprint binding + content-addressed epochs) broadly
+  — it's the coexistence / no-crash-loop insurance, and pre-1.0 all projections still change. **Skip
+  the expensive parts** (copy-seed §A, heavy per-store tooling) unless a specific store's rebuild proves
+  costly (smaller indexes → avoiding a rebuild matters less).
+- **Why separate:** its own workstream (**task #64**), gated on runs P1 — now validated. The one item
+  in this backlog **ready now** (not waiting on an external trigger).
+- **Sequence:** base `DaemonManager` fingerprint hook + shared epoch helper → **events** first (closest
+  twin, verify+fix the sweep race) → the two catalogs. Reuse, don't re-implement.
 
 ---
 
