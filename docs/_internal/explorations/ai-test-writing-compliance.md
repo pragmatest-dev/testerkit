@@ -113,3 +113,54 @@ opt-in. No surface should imply a part spec or station is required to *start*.
 - Phase-3 test proves the examples run — the durable guard.
 - Re-run the audit (the surfaces-vs-source pass) after Phase 1 to confirm 0 remaining inaccuracies
   before adding Phase 2.
+
+---
+
+## Phase 4 — the request→toolbox router (design spine, locked 2026-07-05)
+
+The unifying decision procedure behind Phases 1–3. Shaped + locked via discussion; grounded in
+source + the progressive `examples/` series + the **TestStand mental model** (Litmus courts
+TestStand/LabVIEW migrants, so the router speaks their vocabulary).
+
+**Governing rule:** the *smallest sufficient* intervention; climb only when the request demands it
+(`tiers.md` "start low, stop when done", applied to the whole toolbox — CLI, MCP, verbs, rungs — not
+just config).
+
+**Verb model — "is it a Measurement at all?" is the primary fork** (all in CURRENT terms: role-tagged
+`inputs`/`outputs`/`measurements` lanes queried by role+name; there are NO `in_*`/`out_*` columns):
+- `observe` → **outputs** lane: raw data / evidence / non-measurement output (report text, "did X
+  happen", a waveform/capture, an incidental readout). Not a measurement.
+- `measure` → a **measurement**, never limit-checked (characterization).
+- `verify` → a **measurement that is a spec parameter** (limits now, or meant to exist). A
+  characterization profile's `verify_requires_limit: false` makes the *same* `verify` record instead
+  of raise — the phase, not the code, decides.
+- `measure`↔`verify` share an identical signature → start `measure`, change one word when the spec
+  lands. `observe` is a deliberate *lane* change.
+- `configure` → **inputs** lane; RARE — only for an **execution-dynamic** input (the *actual*
+  readback, a runtime-computed setpoint). Fixed stimulus is imperative `driver.set_*()`; swept
+  stimulus is a declared axis (`@parametrize` / sidecar `sweeps:`), recorded automatically.
+- `stream` → channel (time-series). There is NO `logger`.
+- Ambiguous intent (measurement-vs-output, judged-vs-not) → **ask one clarifying question** — a good
+  question beats a confident wrong verb.
+
+**Config-location law:** a value lives at the innermost layer that owns it — inline (code) → sidecar
+(operator) → part spec (DUT fact) → profile (phase-varying); non-varying stays put. Test bodies stay
+unchanged across tiers; only *where data lives and who edits it* changes.
+
+**Sweeps:** outer is the default (one vector per pytest item, `@parametrize` / sidecar `sweeps:`);
+inner (loop the `vectors` fixture in-body) is an optimization to amortize setup / collapse to one
+analytics row. `context.changed("name")` is a *general* cross-iteration reconfig-skip — works across
+outer vectors AND inner loops, not inner-only.
+
+**Human vs AI scaffold:** `litmus init --starter` (bench tier) is the fuller *human* onramp; the AI
+**right-sizes** — bare test → `--tier bringup` only when instruments enter → fuller only on request.
+
+**Home (progressive disclosure):** the router ships as a lean front-door
+`skills/refs/routing.md` (reachable via `litmus refs show routing`) that **links** the canonical refs
+(`verify.md` / `observe.md` / `tiers.md`) + the `examples/` chapters — it does not duplicate them.
+
+**Remaining under this phase:** (a) `routing.md` front-door [committed 2026-07-05]; (b) full 0.3.0
+doc-reality sweep (task #1); (c) an eval harness that grades *right-sizing* (CLI-when-a-command-
+suffices / ask-when-ambiguous / lowest-rung / no-over-scaffold) — dev tooling, its own branch, driven
+by Claude Code headless under the subscription (NOT paid API; platform never calls LLMs); a DSPy/GEPA
+optimizer over the same grader+tasks is a later follow-on.

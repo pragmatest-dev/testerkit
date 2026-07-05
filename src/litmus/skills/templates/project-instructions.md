@@ -58,7 +58,9 @@ All configuration uses YAML files with Pydantic validation. Edit YAML directly o
 ## Writing Tests
 
 Tests are plain pytest functions. **Start with zero config** — the plugin always
-provides these verbs; no YAML, station, or part spec is required to begin:
+provides these verbs; no YAML, station, or part spec is required to begin. *Not sure which verb, or
+how much config a request needs? `litmus refs show routing` maps a request → the right verb + rung.*
+The verbs:
 
 - `observe(name, value)` — record a reading (characterization / setup readouts). Never judges.
 - `verify(name, value, limit=...)` — judge a measurement against a limit. **The limit is
@@ -127,6 +129,7 @@ Read these on demand via the CLI — don't load them all upfront. `litmus refs l
 
 | Topic | Command |
 |-------|---------|
+| **Which tool / verb / rung for a request — start here** | `litmus refs show routing` |
 | Project tiers (Tier 0 → 4 ladder, when to graduate) | `litmus refs show tiers` |
 | `verify` signature, limit dict shape, sidecar `limits:` schema, outcomes | `litmus refs show verify` |
 | `observe` / `stream` record-only verbs, ChannelStore / FileStore routing | `litmus refs show observe` |

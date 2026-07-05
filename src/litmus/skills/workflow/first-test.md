@@ -88,4 +88,4 @@ Bundle session-level overrides (limits, sweeps, mocks, fixture, station_type) pe
 | 3 | `verify("name", x)` (limit from spec) | a part spec + `characteristic:` in the sidecar |
 | 4 | `--test-profile` / `--test-phase` | profiles |
 
-Pull the exact schema for any rung on demand: `litmus refs show verify | observe | mocks | profiles | tiers`.
+Pull the exact schema for any rung on demand: `litmus refs show routing | verify | observe | mocks | profiles | tiers` — start with `routing`, which maps a request to the right verb + rung.
