@@ -57,35 +57,68 @@ All configuration uses YAML files with Pydantic validation. Edit YAML directly o
 
 ## Writing Tests
 
-Tests are plain pytest functions. Use ``verify`` for judgment-bearing
-measurements, ``logger.measure`` for record-only (characterization /
-setup readouts). Limits, sweeps, and mocks live in a `<test_file>.yaml`
-sidecar next to each test, or as inline `@pytest.mark.litmus_*`
-decorators:
+Tests are plain pytest functions. **Start with zero config** — the plugin always
+provides these verbs; no YAML, station, or part spec is required to begin:
+
+- `observe(name, value)` — record a reading (characterization / setup readouts). Never judges.
+- `verify(name, value, limit=...)` — judge a measurement against a limit. **The limit is
+  required** — pass it inline (below), or supply it from a `<test_file>.yaml` sidecar or a part
+  spec (see the ladder). `verify` with no resolvable limit raises.
+- `measure` / `stream` — record-only variants (bare value / streaming samples).
+
+Simplest passing test — **no config at all**:
+
+```python
+def test_output_voltage(verify) -> None:
+    """Judge a reading against an inline limit — no station or part spec needed."""
+    verify("output_voltage", 3.3, limit={"low": 3.0, "high": 3.6, "unit": "V"})
+
+def test_rail_readout(observe) -> None:
+    observe("rail_voltage", 3.28)  # record-only; no limit needed
+```
+
+**Instruments are opt-in.** Fixtures like `psu`/`dmm` are **not** built in — they come from an
+active **station**'s `instruments:` map, or from the mock-instrument `conftest.py` that
+`litmus init --tier bringup` scaffolds. `--mock-instruments` swaps mock drivers in for a station's
+declared roles; it does **not** invent `psu`/`dmm`. With a station (or the bringup scaffold):
 
 ```python
 def test_output_voltage(verify, psu, dmm) -> None:
-    """Verify output voltage is within spec."""
     psu.set_voltage(3.3)
     psu.enable_output()
-    verify("output_voltage", float(dmm.measure_dc_voltage()))
+    verify("output_voltage", float(dmm.measure_dc_voltage()),
+           limit={"low": 3.0, "high": 3.6, "unit": "V"})
 ```
+
+**Grow as needed** — adopt each rung only when you want it:
+
+1. `observe(...)` — nothing.
+2. `verify(..., limit={...})` — an inline limit.
+3. `psu`/`dmm` + `--mock-instruments` — a station (or `litmus init --tier bringup`).
+4. `verify("name", x)` with the limit from a spec — a part spec + `<test>.yaml` sidecar.
+5. `--test-profile` / `--test-phase` — profiles.
+
+Sidecar `<test_file>.yaml` keys (all optional): `limits:`, `sweeps:`, `mocks:` (a list). Run
+`litmus refs show verify` for the exact schemas.
 
 ## AI Agent Integration
 
 **Prefer CLI with `--json` for tool use** — all commands above accept `--json` for machine-readable output. This is more token-efficient and reliable than MCP for local operations.
 
 **MCP tools** (for remote/discovery use cases):
-- `litmus` — CRUD on parts, stations, fixtures, instruments, profiles, catalog
+- `litmus_project` — CRUD on parts, stations, fixtures, instruments, profiles, catalog
+- `litmus_schema` — JSON Schema for a YAML type (call before generating any YAML)
+- `litmus_open` — URL to view/edit an entity in the browser
 - `litmus_discover` — Discover instruments on VISA / NI / Serial / LXI buses
 - `litmus_match` — Check whether a station can test a part
 - `litmus_run` — Execute tests and stream results
 - `litmus_runs` / `litmus_steps` / `litmus_metrics` — Runs and steps tables; yield / pareto / ppk / trend / retest / time-loss analytics
 - `litmus_events` / `litmus_sessions` / `litmus_channels` / `litmus_files` — Event log, sessions, channel data, and FileStore artifacts
 
-**Test data** is Parquet, queryable with DuckDB:
+**Test data** lives under `data/` (Parquet). Prefer the CLI / Query API
+(`litmus runs`, `litmus show <run_id> -f json`) over raw parquet. For ad-hoc DuckDB:
 ```sql
-SELECT * FROM 'results/**/*.parquet' WHERE step_name = 'voltage_check'
+SELECT * FROM 'data/runs/**/*.parquet' WHERE step_name = 'voltage_check'
 ```
 
 ## Reference Documentation
