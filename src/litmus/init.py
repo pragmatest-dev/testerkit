@@ -546,15 +546,17 @@ def _create_starter_files(path: Path) -> list[str]:
         fixture_file.write_text(comment_header + dump_yaml(fixture_content))
         created_files.append("fixtures/example_fixture.yaml")
 
-    # Create instruments/ asset files
-    for role, instrument_id in [
-        ("psu", "generic_psu_001"),
-        ("dmm", "generic_dmm_001"),
-    ]:
-        inst_file = path / "instruments" / f"{instrument_id}.yaml"
+    # Create instruments/ asset files. The asset ``id`` must equal the
+    # station's instrument role — resolve_station_instruments() joins
+    # station instruments to asset files by role via a dict keyed on
+    # asset.id (see load_instrument_files() in store.py), so an id that
+    # doesn't match the role never joins and the asset's info/calibration
+    # sit inert.
+    for role in ["psu", "dmm"]:
+        inst_file = path / "instruments" / f"{role}.yaml"
         if not inst_file.exists():
             inst_content = {
-                "id": instrument_id,
+                "id": role,
                 "protocol": "visa",
                 "driver": "litmus.instruments.visa.VisaInstrument",
                 "resource": f"TCPIP::192.168.1.{100 if role == 'psu' else 101}::INSTR",
@@ -565,13 +567,13 @@ def _create_starter_files(path: Path) -> list[str]:
                 },
                 "calibration": {
                     "due_date": "2027-01-01",
-                    "last_calibrated": "2026-01-01",
+                    "last_cal": "2026-01-01",
                     "certificate": f"CAL-{role.upper()}-2026-001",
                     "lab": "In-house",
                 },
             }
             inst_file.write_text(dump_yaml(inst_content))
-            created_files.append(f"instruments/{instrument_id}.yaml")
+            created_files.append(f"instruments/{role}.yaml")
 
     # Create tests/test_example.py
     test_file = path / "tests" / "test_example.py"

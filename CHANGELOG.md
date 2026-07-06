@@ -10,7 +10,14 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-07-03
+## [0.3.1] - YYYY-MM-DD
+
+### Fixed
+
+- `litmus init` no longer hangs in non-interactive environments (Codespaces/CI): the AI-setup prompt is skipped when `--no-input`/`--no-ai` is given or `CI`/`CODESPACES` is set; added `--no-input` and `--no-ai` flags.
+- `litmus init --starter` instrument assets now use `id == role` so identity/calibration join the station.
+
+## [0.3.0] - 2026-07-06
 
 Execution-grain and schema-versioning release. Steps and vectors get a clean
 at-rest grain — a step carries its own measurements; vectors exist only as
@@ -38,6 +45,7 @@ fresh `0.1` artifacts; older parquet is read via version dispatch or quarantined
 
 - At-rest schema versioning: a `0.1` baseline registry, whitelist-dispatch readers at all four store boundaries, and an opt-in forward-migrate sink. Newer-stamped files are deferred (a newer daemon re-reads them); unreadable ones are quarantined — never a hard crash.
 - Instrument reservations: re-entrant, timeout-aware resource locks, per-step reserve/release auto-wrap, step-duration server leases, and `instrument.reserved` / `instrument.released` events. Per-step/vector instrument sets are recorded at rest.
+- AI-skills reimagined: 11 focused Agent Skills (`litmus-<domain>/SKILL.md`) installed per-tool by `litmus setup` (Claude Code/Codex/Cursor/Copilot, native); a new `litmus docs show` CLI streaming the shipped docs; removal of the old `litmus refs` CLI / workflows / command stubs.
 
 ### Fixed
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -14,6 +15,16 @@ from litmus.cli.setup_cmd import (
     setup_claude_desktop,
     setup_copilot,
 )
+
+
+def _noninteractive() -> bool:
+    """Detect automation envs (CI/Codespaces) where isatty() is unreliable.
+
+    Codespaces allocates a pseudo-TTY for postCreate scripts, so
+    ``sys.stdin.isatty()`` returns True even though nothing is there to
+    answer a prompt. CI runners are similarly non-interactive.
+    """
+    return bool(os.environ.get("CI") or os.environ.get("CODESPACES"))
 
 
 @main.command()
@@ -41,6 +52,15 @@ from litmus.cli.setup_cmd import (
     default=None,
     help="Set up AI tool integration (MCP server + project instructions)",
 )
+@click.option(
+    "--no-input",
+    is_flag=True,
+    help=(
+        "Run non-interactively: scaffold with defaults and never prompt "
+        "(skips AI setup unless --ai is given)."
+    ),
+)
+@click.option("--no-ai", is_flag=True, help="Skip AI tool integration.")
 @click.option("--name", "project_name", default=None, help="Project name (overrides auto-detect)")
 def init(
     name: str | None,
@@ -49,6 +69,8 @@ def init(
     starter: bool | None,
     tier: str | None,
     ai: str | None,
+    no_input: bool,
+    no_ai: bool,
     project_name: str | None,
 ):
     """Initialize a new Litmus project.
@@ -113,12 +135,13 @@ def init(
     elif starter is False:
         # Explicit --no-starter flag — skip prompts (use --discover for instruments)
         pass
-    else:
-        # No flags provided - prompt interactively
+    elif sys.stdin.isatty() and not no_input and not _noninteractive():
+        # No flags provided and truly interactive - prompt
         if click.confirm("Create starter example files?", default=True):
             use_starter = True
         elif click.confirm("Discover instruments?", default=False):
             station = _discover_instruments(interactive=True)
+    # else: non-interactive with no flags given - bare scaffold (use_starter stays False)
 
     result = init_project(
         project_path,
@@ -145,9 +168,9 @@ def init(
     for warning in result["warnings"]:
         click.echo(f"Warning: {warning}")
 
-    # AI tool setup
-    if ai is None:
-        # Detect installed tools and prompt (only when stdin is a TTY)
+    # AI tool setup. An explicit --ai always wins, even under --no-input.
+    if ai is None and not no_ai and not no_input and not _noninteractive() and sys.stdin.isatty():
+        # Detect installed tools and prompt (only when truly interactive)
         ai_tools: list[tuple[str, str]] = []
         if check_command("claude"):
             ai_tools.append(("claude-code", "Claude Code"))
@@ -155,7 +178,7 @@ def init(
         if (project_path / ".vscode").exists() or check_command("code"):
             ai_tools.append(("copilot", "GitHub Copilot"))
 
-        if ai_tools and sys.stdin.isatty():
+        if ai_tools:
             choices = [name for name, _ in ai_tools]
             labels = [label for _, label in ai_tools]
             click.echo(f"\nDetected AI tools: {', '.join(labels)}")
@@ -168,10 +191,19 @@ def init(
                         type=click.Choice(choices, case_sensitive=False),
                         default=choices[0],
                     )
+    elif ai is None:
+        # Non-interactive (or explicitly skipped): never prompt. If AI
+        # tools were detected, hint how to wire them up later.
+        ai_tools = []
+        if check_command("claude"):
+            ai_tools.append(("claude-code", "Claude Code"))
+        if (project_path / ".vscode").exists() or check_command("code"):
+            ai_tools.append(("copilot", "GitHub Copilot"))
+        if ai_tools and not no_ai:
+            first_tool = ai_tools[0][0]
+            click.echo(f"\nTip: wire up your AI tool with  litmus setup {first_tool}")
 
     if ai:
-        import os
-
         original_cwd = os.getcwd()
         try:
             os.chdir(project_path)
