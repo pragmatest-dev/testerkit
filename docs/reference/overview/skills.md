@@ -6,13 +6,14 @@ For motivation (why AI integration at all), see [concepts/why-ai-integration](..
 
 > **Prerequisites.** These prompts run inside an AI client (Claude Code, Copilot, Cursor, or Cline) that you've connected to Litmus with `litmus setup <client>`. The client launches the `litmus mcp serve` server on demand over stdio — you don't start it yourself.
 
-## Three layers
+## Four layers
 
-- **Workflows** (3 prompts) — multi-step prompts you invoke directly; they drive the whole datasheet-to-tests flow.
-- **Sub-agent templates** (5 prompts) — single-job prompts the workflows spawn as sub-agents; not invoked directly.
+- **Project instructions** (1 template) — always-on context installed as `CLAUDE.md`, `.github/copilot-instructions.md`, or `AGENTS.md` (Codex, Cursor, Copilot CLI) by `litmus setup <client>`.
+- **Reference cards** (`refs/`) — on-demand topic guides streamed by `litmus refs list` / `litmus refs show <topic>`; the instructions file indexes them so the agent loads only what a request needs.
+- **Workflows** (3 prompts) — multi-step prompts you invoke directly; they drive the whole datasheet-to-tests flow. Plus **sub-agent templates** (5 prompts) the workflows spawn; not invoked directly.
 - **Slash commands** (2 per client) — client-specific wrappers that invoke the workflows from your editor's prompt UI.
 
-All three layers ship as plain markdown — read any prompt on [GitHub](https://github.com/pragmatest-dev/litmus/tree/main/src/litmus/skills), or in the `litmus/skills/` directory of your installed copy.
+All layers ship as plain markdown — read any prompt on [GitHub](https://github.com/pragmatest-dev/litmus/tree/main/src/litmus/skills), or in the `litmus/skills/` directory of your installed copy.
 
 ## Workflows
 
@@ -83,10 +84,11 @@ Installed automatically by `litmus setup <client>`:
 | Claude Code | `litmus setup claude-code` | `./.claude/commands/` (project-local) |
 | GitHub Copilot | `litmus setup copilot` | `.github/prompts/` (project-local) |
 | Claude Desktop | `litmus setup claude-desktop` | n/a — slash commands not supported; MCP only |
-| Cursor | `litmus setup cursor` | n/a — slash commands not supported; MCP only |
+| Cursor | `litmus setup cursor` | n/a — instructions via `AGENTS.md`; MCP via `.cursor/mcp.json` |
+| OpenAI Codex | `litmus setup codex` | n/a — instructions via `AGENTS.md`; MCP entry printed for `~/.codex/config.toml` |
 | Cline | `litmus setup cline` | n/a — slash commands not supported; MCP only |
 
-Claude Desktop, Cursor, and Cline get the MCP server registration (so the agent can call `litmus_*` tools), but workflow invocation is conversational: "run the datasheet-to-test workflow on this PDF" instead of typing a slash command. The workflow prompt itself is the same.
+Claude Desktop, Cursor, Codex, and Cline get the MCP server registration (so the agent can call `litmus_*` tools), but workflow invocation is conversational: "run the datasheet-to-test workflow on this PDF" instead of typing a slash command. The workflow prompt itself is the same.
 
 ## MCP tools the workflows call
 
@@ -132,7 +134,13 @@ Builds a `litmus.mcpb` Desktop Extension bundle on the user's Desktop. Double-cl
 
 ### `litmus setup cursor`
 
-Writes `.cursor/mcp.json` in the project directory.
+1. Writes `.cursor/mcp.json` in the project directory
+2. Writes or merges `./AGENTS.md` from `skills/templates/project-instructions.md` (Cursor reads `AGENTS.md` natively)
+
+### `litmus setup codex`
+
+1. Writes or merges `./AGENTS.md` from `skills/templates/project-instructions.md` (Codex's native context file)
+2. Prints the `[mcp_servers.litmus]` entry to add to `~/.codex/config.toml` (user-global config — Litmus prints it rather than editing another tool's home config)
 
 ### `litmus setup cline`
 
@@ -140,12 +148,11 @@ Writes `cline_mcp_settings.json` to VS Code user settings (`~/.config/Code/User/
 
 All `litmus setup` commands accept `--print-only` to show the config that would be written without modifying anything on disk.
 
-## Reference material the workflows load
+## Reference cards (`litmus refs`)
 
-| File | Used as background context by |
-|---|---|
-| [`refs/profiles.md`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/refs/profiles.md) | Workflows that touch profile config — explains the facet-query selection model |
-| [`templates/project-instructions.md`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/templates/project-instructions.md) | Installed as the project's `CLAUDE.md` / `copilot-instructions.md` so the agent has Litmus context in every conversation |
+On-demand topic guides under [`refs/`](https://github.com/pragmatest-dev/litmus/tree/main/src/litmus/skills/refs). Any agent (or human) streams them from the installed package — `litmus refs list` enumerates topics, `litmus refs show <topic>` prints one. The generated instructions file indexes them so the agent pulls a topic only when the request needs it. Topics: `routing` (request → verb + rung, start here), `test-writing`, `fixtures`, `tiers`, `verify`, `observe`, `instruments`, `part-specs`, `mocks`, `profiles`.
+
+[`templates/project-instructions.md`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/templates/project-instructions.md) is installed as the project's `CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md` so the agent has Litmus context in every conversation.
 
 ## See also
 

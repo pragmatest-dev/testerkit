@@ -11,6 +11,9 @@ This is the front door — each step links the reference that goes deeper.
 | yield / top failures / Ppk | `litmus metrics summary \| pareto \| ppk` |
 | to find instruments | `litmus discover` |
 | how a verb/knob works | `litmus refs show verify \| observe \| mocks \| profiles \| tiers` |
+| to write a full test / see the toolbox | `litmus refs show test-writing \| fixtures` |
+| instruments, drivers, stations, catalog | `litmus refs show instruments` |
+| per-DUT limits / part specs | `litmus refs show part-specs` |
 | to open the operator UI | `litmus serve` |
 
 ## 1 — Writing a test: how much scaffold?

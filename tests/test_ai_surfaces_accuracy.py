@@ -80,3 +80,31 @@ def test_no_deleted_sequence_schema_refs_in_mcp() -> None:
         text = py.read_text()
         assert 'yaml_type="sequence"' not in text, f"deleted 'sequence' schema ref in {py.name}"
         assert "yaml_type='sequence'" not in text, f"deleted 'sequence' schema ref in {py.name}"
+
+
+# ── The refs index and the refs files must not diverge ────────────────────
+
+
+def test_refs_index_matches_refs_files() -> None:
+    """Every `litmus refs show <topic>` named in an AI surface must resolve to
+    a real refs/*.md file, and every refs file must be indexed in the generated
+    instructions — so an agent can discover every card and never gets a dead
+    pointer."""
+    import re
+
+    real_topics = {p.stem for p in (_SKILLS / "refs").glob("*.md")}
+
+    referenced: set[str] = set()
+    for md in _SKILLS.rglob("*.md"):
+        for m in re.finditer(r"litmus refs show ([a-z0-9_|\\ -]+)", md.read_text()):
+            referenced |= {t.strip() for t in m.group(1).replace("\\", "").split("|")}
+    referenced = {t for t in referenced if t and " " not in t}
+
+    dead = referenced - real_topics
+    assert not dead, f"AI surfaces point at nonexistent ref topics: {sorted(dead)}"
+
+    template = (_SKILLS / "templates" / "project-instructions.md").read_text()
+    unindexed = {t for t in real_topics if f"litmus refs show {t}" not in template}
+    assert not unindexed, (
+        f"refs exist but aren't indexed in project-instructions.md: {sorted(unindexed)}"
+    )

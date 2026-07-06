@@ -406,9 +406,10 @@ def setup_copilot(print_only: bool):
 @setup.command("cursor")
 @click.option("--print-only", is_flag=True, help="Print config instead of installing")
 def setup_cursor(print_only: bool):
-    """Configure Litmus MCP server for Cursor.
+    """Configure Litmus for Cursor.
 
-    Creates or updates .cursor/mcp.json in the current project.
+    Creates or updates .cursor/mcp.json and generates AGENTS.md project
+    instructions (Cursor reads AGENTS.md natively).
 
     Example:
         litmus setup cursor
@@ -417,11 +418,56 @@ def setup_cursor(print_only: bool):
         config = {"mcpServers": {"litmus": _mcp_server_entry()}}
         click.echo("Add this to .cursor/mcp.json:\n")
         click.echo(json.dumps(config, indent=2))
+        click.echo("\nWould also create/update AGENTS.md (Litmus section).")
         return
 
+    # 1. MCP server
     mcp_file = Path.cwd() / ".cursor" / "mcp.json"
     _write_mcp_config(mcp_file)
+
+    # 2. Generate/update AGENTS.md (Cursor reads it natively)
+    result = _write_instructions(Path.cwd() / "AGENTS.md")
+    if result == "created":
+        click.echo("✓ Created AGENTS.md")
+    elif result == "updated":
+        click.echo("✓ Updated AGENTS.md (Litmus section)")
+    else:
+        click.echo("· AGENTS.md already up to date")
     click.echo("Restart Cursor to use Litmus tools.")
+
+
+@setup.command("codex")
+@click.option("--print-only", is_flag=True, help="Print config instead of installing")
+def setup_codex(print_only: bool):
+    """Configure Litmus for OpenAI Codex.
+
+    Generates AGENTS.md project instructions (Codex's native context file)
+    and prints the MCP server entry for ~/.codex/config.toml.
+
+    Example:
+        litmus setup codex
+    """
+    litmus_path = _get_litmus_path()
+    toml_snippet = f'[mcp_servers.litmus]\ncommand = "{litmus_path}"\nargs = ["mcp", "serve"]\n'
+
+    if print_only:
+        click.echo("Would create/update AGENTS.md (Litmus section).\n")
+        click.echo("Add this to ~/.codex/config.toml for MCP tools:\n")
+        click.echo(toml_snippet)
+        return
+
+    # 1. Generate/update AGENTS.md (Codex reads it natively)
+    result = _write_instructions(Path.cwd() / "AGENTS.md")
+    if result == "created":
+        click.echo("✓ Created AGENTS.md")
+    elif result == "updated":
+        click.echo("✓ Updated AGENTS.md (Litmus section)")
+    else:
+        click.echo("· AGENTS.md already up to date")
+
+    # 2. MCP is user-global config in Codex — print, don't write, another tool's home config
+    click.echo("\nTo add Litmus MCP tools, add this to ~/.codex/config.toml:\n")
+    click.echo(toml_snippet)
 
 
 @setup.command("cline")
