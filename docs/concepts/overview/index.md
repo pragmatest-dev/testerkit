@@ -6,6 +6,7 @@ The platform's mental model from above. Read in order if you're new; jump to the
 - [Platform vs framework](platform-vs-framework.md) — Litmus owns infrastructure (configuration, data, instrumentation, AI / operator surface); pytest owns test execution
 - [pytest](pytest.md) — why the platform rides on pytest as the default runner instead of its own
 - [AI integration](ai-integration.md) — the MCP server, what tools an AI agent gets, and where the platform draws the line between "platform exposes" and "platform calls an LLM"
+- [Tiers](tiers.md) — the Tier 0→4 ladder: `pytest` passes on a bare install, and you adopt station YAML, part specs, and profiles only when you need them
 
 ## See also
 

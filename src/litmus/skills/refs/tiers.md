@@ -25,8 +25,10 @@ Each tier is additive. To go from Tier 1 → Tier 2:
    form keeps working, but `characteristic:` lets the part YAML
    own the spec value.
 3. Drop the conftest mock-return-values. Real driver classes in the
-   catalog do the work; `--mock-instruments` swaps them for
-   `MagicMock(spec=DriverClass)` at session start.
+   catalog do the work; `--mock-instruments` swaps them for a mock
+   built from each instrument's `mock_config:` — a bare `Mock` (not
+   spec'd to the driver class, so `isinstance` against the real driver
+   is False) — at session start.
 
 The bundled Tier 0/1 `tests/test_smoke.py` includes both an inline
 form and a sidecar form so the migration shape is visible in one
