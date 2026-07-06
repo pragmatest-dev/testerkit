@@ -44,8 +44,8 @@ quick_start/
 ├── fixtures/                    # HOW parts are connected to instruments
 │   └── example_fixture.yaml     # Pin-to-channel mappings
 ├── instruments/                 # Instrument asset records (identity, calibration)
-│   ├── generic_psu_001.yaml
-│   └── generic_dmm_001.yaml
+│   ├── psu.yaml
+│   └── dmm.yaml
 ├── tests/                       # Test code + sidecar config
 │   ├── conftest.py              # Custom fixtures (optional — roles auto-register)
 │   ├── test_example.py          # Test functions

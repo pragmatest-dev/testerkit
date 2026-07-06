@@ -186,6 +186,29 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 def detect_file_type(path: Path) -> str | None:
     """Auto-detect the Litmus file type from YAML structure.
 
+    Real Litmus YAML files never carry a wrapper key literally named
+    ``station``/``fixture``/``project`` — those are Pydantic model
+    *names*, not YAML keys the models define. Detection instead keys off
+    each model's actual structural signature (checked most-specific
+    first, since a couple of fields are shared across models):
+
+    - ``catalog`` (:class:`~litmus.models.catalog.InstrumentCatalogEntry`):
+      the only model with a top-level ``capabilities`` list.
+    - ``part`` (:class:`~litmus.models.part.Part`): ``characteristics``
+      dict. Checked before ``instrument_asset`` because ``Part`` also has
+      an optional top-level ``driver`` field that would otherwise collide.
+    - ``instrument_asset`` (:class:`~litmus.models.instrument_asset.InstrumentAssetFile`):
+      ``protocol``/``driver`` (connection info) or ``info``/``calibration``
+      (per-unit identity) at the top level.
+    - ``station`` (:class:`~litmus.models.station.StationConfig`):
+      ``instruments`` dict — no other model defines this key.
+    - ``fixture`` (:class:`~litmus.models.test_config.FixtureConfig`):
+      ``connections`` (single-UUT) or ``sites`` (multi-UUT) — mutually
+      exclusive with each other and unique to fixtures.
+    - ``project`` (:class:`~litmus.models.project.ProjectConfig`,
+      i.e. ``litmus.yaml``): the only model with no ``id`` field at all,
+      so "has ``name``, no ``id``" is an unambiguous signature.
+
     Returns a FILE_LOADERS key ("station", "fixture", "part",
     "catalog", "instrument_asset", "project") or None.
     """
@@ -195,15 +218,20 @@ def detect_file_type(path: Path) -> str | None:
         return None
     if not isinstance(data, dict):
         return None
-    if "catalog_entry" in data:
+    if "capabilities" in data:
         return "catalog"
-    for key in ("station", "fixture", "project"):
-        if key in data:
-            return key
-    if "id" in data and ("protocol" in data or "driver" in data):
-        return "instrument_asset"
     if "id" in data and "characteristics" in data:
         return "part"
+    if "id" in data and (
+        "protocol" in data or "driver" in data or "info" in data or "calibration" in data
+    ):
+        return "instrument_asset"
+    if "instruments" in data:
+        return "station"
+    if "connections" in data or "sites" in data:
+        return "fixture"
+    if "id" not in data and "name" in data:
+        return "project"
     return None
 
 
@@ -1494,7 +1522,17 @@ def _fmt_apply_style(data: Any, key: str | None = None) -> Any:
         cm = CommentedMap()
         for k, v in data.items():
             cm[k] = _fmt_apply_style(v, key=k)
-        if key not in _FMT_BLOCK_KEYS and all(_fmt_is_scalar(v) for v in data.values()):
+        # key is None only at the document root (the initial call from
+        # dump_yaml). Never flow-style the whole document onto one
+        # line — that used to be unreachable (every generated file had
+        # at least one non-scalar block-key field), but a trimmed
+        # litmus.yaml (exclude_defaults) can legitimately be all-scalar
+        # at the root, and human-editable config should stay block.
+        if (
+            key is not None
+            and key not in _FMT_BLOCK_KEYS
+            and all(_fmt_is_scalar(v) for v in data.values())
+        ):
             cm.fa.set_flow_style()
         return cm
     if isinstance(data, list):

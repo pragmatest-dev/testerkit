@@ -247,7 +247,14 @@ Run with --mock-instruments for hardware-free testing:
                 }
             )
         proj = ProjectConfig(**proj_data)
-        litmus_yaml_path.write_text(dump_yaml(proj.model_dump()))
+        # exclude_defaults: the starter only ever sets a handful of
+        # user-relevant fields (name/data_dir/default_station/
+        # default_fixture/mock_instruments). Dumping the full model
+        # would also emit ~20 lines of internal tuning knobs
+        # (channels/files/session/stream/multi_site sub-configs) the
+        # starter never touches, which round-trip fine through
+        # ProjectConfig's own defaults on load.
+        litmus_yaml_path.write_text(dump_yaml(proj.model_dump(exclude_defaults=True)))
         created_files.append("litmus.yaml")
 
     # Create .gitignore
@@ -593,12 +600,21 @@ pytest plugin.
 """
 
 
-def test_output_voltage(context, psu, dmm, verify) -> None:
-    """Verify output voltage is within spec."""
+def test_output_voltage(context, psu, dmm, verify, observe) -> None:
+    """Verify output voltage is within spec; record the input setpoint too.
+
+    output_voltage's limit (test_example.yaml) points at the
+    ``output_voltage`` characteristic, and fixtures/example_fixture.yaml
+    wires that characteristic's pin to a station instrument — together
+    they auto-derive a fixture connection, so the measurement iterates
+    ``context.connections`` to consume it.
+    """
     vin = context.get_param("vin", 5.0)
+    observe("vin", vin, unit="V")
     psu.set_voltage(vin)
     psu.enable_output()
-    verify("output_voltage", float(dmm.measure_dc_voltage()))
+    for _ in context.connections:
+        verify("output_voltage", float(dmm.measure_dc_voltage()))
 '''
         test_file.write_text(test_content)
         created_files.append("tests/test_example.py")
@@ -613,20 +629,25 @@ def test_output_voltage(context, psu, dmm, verify) -> None:
             "# marker applied to every test in this module. Per-test\n"
             "# overrides go under the ``tests:`` tree.\n"
             "#\n"
-            "# Graduate to spec-driven limits by replacing low/high/unit\n"
-            "# with ``characteristic: output_voltage, tolerance_pct: 2``\n"
-            "# — the resolver reads the band from\n"
-            "# parts/example_part.yaml. Doing so also auto-derives\n"
-            "# fixture connections, so the test body must then iterate\n"
-            "# ``ctx.connections`` instead of calling the dmm directly.\n"
+            "# output_voltage's limit references the ``output_voltage``\n"
+            "# characteristic in parts/example_part.yaml instead of a\n"
+            "# hand-computed band. The resolver reads that\n"
+            "# characteristic's own spec band (3.3 V ± 2%) at\n"
+            "# measurement time, so tightening the datasheet spec in the\n"
+            "# part YAML updates the limit here too — no band to keep in\n"
+            "# sync by hand.\n"
+            "#\n"
+            "# fixtures/example_fixture.yaml already wires this\n"
+            "# characteristic's pin (TP_VOUT) to a station instrument, so\n"
+            "# naming the characteristic here auto-derives that fixture\n"
+            "# connection — the test body iterates ``context.connections``\n"
+            "# to consume it (see tests/test_example.py).\n"
             "\n"
             "tests:\n"
             "  test_output_voltage:\n"
             "    limits:\n"
             "      output_voltage:\n"
-            "        low: 3.234\n"
-            "        high: 3.366\n"
-            "        unit: V\n"
+            "        characteristic: output_voltage\n"
         )
         sidecar_file.write_text(sidecar_text)
         created_files.append("tests/test_example.yaml")

@@ -16,6 +16,11 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 - `litmus init` no longer hangs in non-interactive environments (Codespaces/CI): the AI-setup prompt is skipped when `--no-input`/`--no-ai` is given or `CI`/`CODESPACES` is set; added `--no-input` and `--no-ai` flags.
 - `litmus init --starter` instrument assets now use `id == role` so identity/calibration join the station.
+- `litmus validate` (platform, affects any project) now auto-detects station/fixture/project files by structural shape instead of a literal top-level key those files never have — bare `litmus validate` on a fresh `--starter` project used to fail 3 of 6 files with "Could not determine file type from YAML structure".
+- `litmus init --starter` now points the generated `output_voltage` limit at the `output_voltage` characteristic on `parts/example_part.yaml` instead of a hand-computed ±2% band, so the limit tracks the datasheet spec instead of drifting from it.
+- `litmus init --starter`'s generated `litmus.yaml` no longer dumps internal tuning knobs (`channels`/`files`/`session`/`stream`/`multi_site`) the starter never sets.
+- Corrected the generated `tests/test_example.yaml` header comment, which falsely claimed that switching to `characteristic:` limits requires the test body to iterate `ctx.connections`.
+- Fixed stale `instruments/generic_psu_001.yaml` / `generic_dmm_001.yaml` names in `docs/tutorial/quickstart.md` to match the renamed `psu.yaml` / `dmm.yaml`.
 
 ## [0.3.0] - 2026-07-06
 
