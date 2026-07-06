@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS file_catalog (
 )
 """
 
-# ``uri`` is the natural key (``file://{session}/{name}`` is 1:1 with a
+# ``uri`` is the natural key (``file://{date}/{session}/{name}`` is 1:1 with a
 # blob), so the catalog is its own ingest ledger: the startup scan skips
 # any sidecar whose uri is already present (incremental — no rebuild from
 # every sidecar), and the live ``do_put`` from ``FileStore.write`` upserts.

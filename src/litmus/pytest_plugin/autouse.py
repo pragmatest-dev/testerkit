@@ -194,10 +194,11 @@ def _litmus_push_limits(
 ) -> Iterator[None]:
     """Merge ``litmus_limits`` markers into typed configs and push them into state.
 
-    Markers are attached to the item during collection from four sources,
-    in merge order (later wins): sidecar file-level → class-scope →
-    per-test → inline ``@pytest.mark.litmus_limits`` decorators →
-    profile chain.
+    Markers are attached to the item during collection from several
+    sources, in merge order (later wins): inline
+    ``@pytest.mark.litmus_limits`` decorators → sidecar (file-level →
+    class-scope → per-test) → profile chain. So sidecar and profile
+    OVERRIDE inline, and profile wins overall.
 
     Each marker's kwargs is ``{measurement_name: <limit-spec>}``.
     Sidecar/profile markers carry typed :class:`MeasurementLimitConfig`

@@ -21,7 +21,6 @@ from litmus.cli.root import main
             "catalog",
             "part",
             "station",
-            "sequence",
             "fixture",
             "instrument_asset",
             "project",
@@ -34,7 +33,7 @@ from litmus.cli.root import main
 def validate(paths, file_type, as_json):
     """Validate YAML configuration files.
 
-    Checks catalog, part, station, sequence, fixture, instrument, and
+    Checks catalog, part, station, fixture, instrument, and
     project YAML files against their Pydantic schemas and reports errors
     with field paths.
 
@@ -63,7 +62,6 @@ def validate(paths, file_type, as_json):
             "catalog",
             "parts",
             "stations",
-            "sequences",
             "fixtures",
             "instruments",
         ]

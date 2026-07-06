@@ -544,7 +544,7 @@ from litmus.data.events import Event
 event = Event.model_validate(json_payload)   # picks the right subclass by event_type
 ```
 
-`ALL_EVENTS` (a set of every class) and the per-category sets (`SESSION_EVENTS`, `RUN_EVENTS`, `SLOT_EVENTS`, `FIXTURE_EVENTS`, `TEST_EVENTS`, `ROUTE_EVENTS`, `INSTRUMENT_EVENTS`, `DIAGNOSTIC_EVENTS`, `FILE_EVENTS`, `DIALOG_EVENTS`) are also exported from `litmus.data.events` for subscribers that filter by category.
+`ALL_EVENTS` (a set of every class) and the per-category sets (`SESSION_EVENTS`, `RUN_EVENTS`, `SITE_EVENTS`, `FIXTURE_EVENTS`, `TEST_EVENTS`, `ROUTE_EVENTS`, `INSTRUMENT_EVENTS`, `DIAGNOSTIC_EVENTS`, `FILE_EVENTS`, `DIALOG_EVENTS`) are also exported from `litmus.data.events` for subscribers that filter by category.
 
 ## See also
 

@@ -562,7 +562,7 @@ Validate YAML configuration files.
 | Argument / option | Type | Description |
 |---|---|---|
 | `PATHS`... | `path` |  |
-| `--type`/`-t` | `{catalog, part, station, sequence, fixture, instrument_asset, project}` | Explicit file type (skips auto-detection). |
+| `--type`/`-t` | `{catalog, part, station, fixture, instrument_asset, project}` | Explicit file type (skips auto-detection). |
 | `--json` | `flag` | Output as JSON |
 <!-- GENERATED:cli-commands:end -->
 

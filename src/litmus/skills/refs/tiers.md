@@ -12,7 +12,7 @@ where data lives and who edits it changes.
 | **1** | same as Tier 0 | A sidecar `<test_file>.yaml` next to each test carries limits (and `sweeps:` / `mocks:` / `retry:` if needed). Limits leave the body. | Drivers, mock-return-values, station identity. |
 | **2** | `litmus init --tier bench` (or `--starter`) | Station YAML + part YAML + fixture YAML. Real driver classes resolved via the catalog. `conftest.py` shrinks. | Optional profile selection. |
 | **3** | `litmus init --tier factory` | Named profiles under `profiles/*.yaml` with `extends:` chains. Per-phase (dev / production / characterization) limit + mock + station-type binding. Pick a profile with `pytest --test-phase=<facet>`. | — |
-| **4** | same as Tier 3 | Multi-slot orchestration, retest gates, characterization profiles with `verify_requires_limit: false`, lakehouse export. | — |
+| **4** | same as Tier 3 | Multi-site orchestration, retest gates, characterization profiles with `verify_requires_limit: false`, lakehouse export. | — |
 
 ## How to graduate
 

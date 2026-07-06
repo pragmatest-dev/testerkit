@@ -82,10 +82,10 @@ subset of payload values from `json` as top-level VARCHAR columns so the
 daemon can push `WHERE` filters into DuckDB without fetching and
 post-filtering on `json`. All are `string` type; absent = `None`.
 
-Current set (as of `EVENT_LOG_SCHEMA_VERSION = "1.0"`):
+Current set (as of `EVENT_LOG_SCHEMA_VERSION` = `0.1`):
 
 ```
-file_id, dialog_id, channel_id, slot_id,
+file_id, dialog_id, channel_id,
 uut_serial_number, station_hostname,
 instrument_id, node_id, step_path, fixture_id, operator_id, station_id,
 step_name, measurement_name, name,
@@ -105,7 +105,7 @@ columns it knows about.
 
 ```python
 # src/litmus/data/event_log.py
-EVENT_LOG_SCHEMA_VERSION = "1.0"
+EVENT_LOG_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION[SchemaStore.EVENTS_ENVELOPE]  # "0.1" today
 
 _IPC_SCHEMA = pa.schema(
     [...],
@@ -125,7 +125,7 @@ contract and does not appear in the Query API or operator UI.
 import pyarrow as pa, pyarrow.ipc as ipc
 
 reader = ipc.open_stream(pa.OSFile("path/to/file.arrow", "rb"))
-version = reader.schema.metadata.get(b"schema_version")  # e.g. b"1.0"
+version = reader.schema.metadata.get(b"schema_version")  # e.g. b"0.1"
 ```
 
 ### Version history

@@ -5,7 +5,7 @@ indirectly via ``observe()``/``verify()`` routing (when the value is
 non-channel-shaped); reachable directly via ``files.write()`` /
 ``filestore.stream()`` for power-user cases.
 
-URI scheme: ``file://{session_id}/{filename}`` — a logical reference. The
+URI scheme: ``file://{date}/{session_id}/{filename}`` — a logical reference. The
 FileStore resolves to the active backend (today: local FS) so the URI is
 backend-opaque and stays valid across future backend swaps.
 
