@@ -80,15 +80,16 @@ Events (source of truth)
 │   ├── 2026-03-10/
 │   │   ├── dmm.voltage_{session_short}.arrow
 │   │   └── scope.ch1.waveform_{session_short}.arrow
-│   └── _index.duckdb          # channel descriptors + query index
+│   └── _index.duckdb          # channel descriptors + query index (single file, disposable)
 ├── files/                     # FileStore
-│   └── 2026-03-10/
-│       └── {session_id}/
-│           └── setup_photo.png
+│   ├── 2026-03-10/
+│   │   └── {session_id}/
+│   │       └── setup_photo.png
+│   └── _index.duckdb          # file catalog + query index (single file, disposable)
 └── runs/                      # RunStore (parquet)
     ├── 2026-03-10/
     │   └── 20260310T143022Z_a1b2c3d4_SN001.parquet
-    └── _index.duckdb          # disposable query index
+    └── _index.<fingerprint>.duckdb   # content-addressed query index (see below)
 ```
 
 Sessions are not a stored entity — they're derived from events at query time.
@@ -134,27 +135,50 @@ Schema rewrites and column removals are deferred to the 1.0 cut, when a migratio
 
 ## The DuckDB query index
 
-Litmus maintains a DuckDB index alongside the parquet files to speed up queries like `litmus runs` and the web UI. The index is a **disposable cache** — it can be deleted and rebuilt at any time without data loss. The index file lives at `<data_dir>/runs/_index.duckdb`.
+Every store keeps a DuckDB index alongside its data files, to speed up queries like `litmus runs` and the web UI. The index is always a **disposable cache** — delete it and it rebuilds from the parquet or Arrow files underneath. Deleting an index file never loses data.
 
-If a schema column the index doesn't yet know about appears in a parquet file, the index runs `ALTER TABLE … ADD COLUMN IF NOT EXISTS` to absorb it. There is no version-gated drop-and-rebuild.
+Two index shapes are in use, depending on the store:
 
-To force a full rebuild:
+**RunStore — content-addressed.** The runs index file name embeds a short fingerprint of the query it serves — the shape of the projection plus the Litmus version that built it — as `_index.<fingerprint>.duckdb`. A query or schema change never rewrites an existing file in place: it produces a different fingerprint, and the next build writes a *new* file alongside any older ones. Multiple fingerprints can sit in the same `<data_dir>/runs/` directory at once — an older Litmus version (or another project pinned to an older release) reading the same results keeps opening its own file, untouched by a newer index being built next to it.
 
-```bash
-rm ~/.local/share/litmus/data/runs/_index.duckdb*
+**ChannelStore and FileStore — a single `_index.duckdb`.** These two stores have not adopted the content-addressed model yet; each keeps one index file that's reused (or, on a schema change, deleted and rebuilt) in place. Same disposable-cache guarantee, no coexisting versions.
+
+### Managing runs-index files
+
+`litmus data index` manages the RunStore's index files (called *epochs* — one per fingerprint):
+
+```cli
+$ litmus data index list
+  FINGERPRINT   SCHEMA  BUILT BY  SEEN BY       RUNS   SIZE    LAST SEEN
+* a1b2c3d4e5f6  3       0.3.0     0.3.0         1,204  18.2 MB just now
+  f0e1d2c3b4a5  2       0.2.4     0.2.4, 0.3.0  1,204  17.9 MB 6 days ago
+
+$ litmus data index build            # warm the current epoch
+$ litmus data index rm f0e1d2c3b4a5  # drop one epoch by its fingerprint prefix
+$ litmus data index prune            # reap epochs no recent version has touched
 ```
+
+- `list` — every epoch present, with its fingerprint, schema version, the Litmus version that built it, every version that has since read it, row count, size, and last access.
+- `build` — warms the epoch matching the currently installed Litmus version by ingesting from parquet. `--rebuild` discards it first for a clean rebuild.
+- `rm <fingerprint-prefix>` — deletes one epoch. Refuses to remove the epoch actively serving queries unless `--force`.
+- `prune` — removes epochs no recent Litmus version has touched, always keeping the current epoch and (by default) the three most-recently-seen others.
+
+None of these touch the parquet files. Every command is safe to run at any time — the worst case is that the next query pays the cost of a rebuild.
+
+To force a full rebuild of the channels or files index, delete `_index.duckdb` under that store's directory — it rebuilds from the Arrow segments or file catalog on next access.
 
 ## Mixed versions on one machine
 
-When multiple projects use different litmus versions but share the global results directory:
+When multiple projects use different Litmus versions but share the global results directory:
 
 | Layer | What happens | User impact |
 |---|---|---|
 | Parquet files | Each version writes its own schema. Newer files may have more columns. | NULL values for columns that didn't exist when the file was written. |
-| Query index | Schema is additive (`ALTER TABLE … ADD COLUMN IF NOT EXISTS`) per data_dir. The runs daemon is one process per data_dir, not per version. | New columns appear in the index once a newer-version process writes them. |
-| Web UI / CLI | Shows whatever the current index has. | Some fields may be empty for older runs. |
+| Runs query index | Content-addressed: each Litmus version reads and writes its own epoch file, keyed by its own fingerprint. Old and new epochs coexist in `<data_dir>/runs/` without contention. | `litmus data index list` shows every epoch present; nothing to migrate by hand. Run `litmus data index prune` to reclaim disk from epochs no version uses anymore. |
+| Channels / files query index | A single shared index file per store. | Rare cross-version friction can still surface here; delete `_index.duckdb` in that store's directory to force a rebuild. |
+| Web UI / CLI | Shows whatever the current process's index has. | Some fields may be empty for older runs. |
 
-The rule: newer is always a superset. An older litmus version reading newer results ignores unknown columns; a newer version reading older results sees NULL for missing columns. No version corrupts or downgrades another's data.
+The rule: newer is always a superset. An older Litmus version reading newer results ignores unknown columns; a newer version reading older results sees NULL for missing columns. No version corrupts or downgrades another's data.
 
 ## See also
 
@@ -162,6 +186,7 @@ The rule: newer is always a superset. An older litmus version reading newer resu
 
 - [Reference → Parquet schema](../../reference/data/parquet-schema.md) — column-level reference for the materialized run rows
 - [Reference → Query API](../../reference/data/query-api.md) — `RunsQuery` / `StepsQuery` / `MeasurementsQuery` — the read path over the run store
+- [Reference → `litmus data index`](../../reference/cli.md#cli-data-index) — full flag reference for `list` / `build` / `rm` / `prune`
 - [How-to → Querying events](../../how-to/data/querying-events.md), [Querying channels](../../how-to/data/querying-channels.md) — task recipes against each store
 - [How-to → Export results](../../how-to/data/export-results.md) — pulling rows out of the parquet store
 - [Integration → Lakehouse import](../../integration/data/lakehouse-import.md) — pulling Litmus parquet into your warehouse

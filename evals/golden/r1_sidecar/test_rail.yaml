@@ -1,0 +1,4 @@
+tests:
+  test_rail_in_spec:
+    limits:
+      rail_voltage: {low: 3.0, high: 3.6, unit: V}

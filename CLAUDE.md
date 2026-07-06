@@ -104,7 +104,7 @@ Do NOT bloat CLAUDE.md with implementation details — the AI can discover those
 
 ## Catalog YAML
 
-Use `/catalog-from-datasheet` skill for all catalog work. Schema reference: `docs/reference/catalog/schema.md`. Models: `src/litmus/models/capability.py`.
+Use the `litmus-datasheets` skill (its catalog pipeline) for all catalog work. Schema reference: `docs/reference/catalog/schema.md`. Models: `src/litmus/models/capability.py`.
 
 ## Tool Usage Rules
 
@@ -145,4 +145,4 @@ Once a plan is approved, the plan is the contract. While executing:
 
 ## Compaction Recovery
 
-After compaction, if the conversation mentions catalog processing: re-read `catalog/QUEUE.md`, then re-invoke `/catalog-from-datasheet` via the Skill tool.
+After compaction, if the conversation mentions catalog processing: re-read `catalog/QUEUE.md`, then re-invoke the `litmus-datasheets` skill (its catalog pipeline) via the Skill tool.

@@ -65,21 +65,57 @@ def _write_mcp_config(mcp_file: Path) -> None:
     click.echo(f"Wrote {mcp_file}")
 
 
-def _copy_skill_stubs(source_dir: Path, target_dir: Path) -> list[str]:
-    """Copy .md skill stubs from package source to project target.
+def _skill_names() -> list[str]:
+    """List packaged Agent Skill dir names (sorted), without copying anything."""
+    skills_src = _PKG_ROOT / "skills"
+    if not skills_src.exists():
+        return []
+    return sorted(d.name for d in skills_src.iterdir() if d.is_dir() and (d / "SKILL.md").exists())
 
-    Always overwrites (stubs are tiny pointers to package workflows).
-    Returns list of created file names.
+
+def _copy_skill_dirs(target_root: Path) -> list[str]:
+    """Project every packaged Agent Skill dir into a per-tool skills root.
+
+    A skill dir is any immediate child of ``skills/`` containing a
+    ``SKILL.md``. Each is copied whole (``SKILL.md`` + ``references/`` +
+    any other assets, e.g. ``litmus-datasheets/agents/``). Always
+    overwrites — the project copy is a projection of package data, not
+    something users hand-edit.
+
+    This single ``SKILL.md`` (``name``/``description`` frontmatter) format
+    is now natively read by all four target tools — no per-tool adapter
+    generation (e.g. Cursor ``.mdc`` rules, Copilot ``.prompt.md``) is
+    needed. Verified 2026-07:
+    - Claude Code / Codex: ``.claude/skills/`` / ``.agents/skills/`` (long-standing).
+    - Cursor 2.4+ (shipped 2026-01-22): reads ``.cursor/skills/`` and
+      ``.agents/skills/`` natively — https://cursor.com/docs/skills ,
+      https://cursor.com/changelog/2-4
+    - GitHub Copilot (shipped 2025-12-18, stable VS Code early Jan 2026):
+      reads ``.github/skills/``, ``.claude/skills/``, ``.agents/skills/``
+      natively across VS Code/JetBrains agent mode, Copilot CLI, and the
+      coding agent —
+      https://github.blog/changelog/2025-12-18-github-copilot-now-supports-agent-skills/ ,
+      https://docs.github.com/en/copilot/concepts/agents/about-agent-skills
+
+    Do NOT reintroduce Cursor-rules/Copilot-prompt adapters on the
+    (now stale) assumption that these tools can't read ``SKILL.md`` —
+    re-verify against the URLs above first.
+
+    Returns the sorted list of skill dir names copied.
     """
-    created = []
-    if not source_dir.exists():
-        return created
-    target_dir.mkdir(parents=True, exist_ok=True)
-    for src_file in sorted(source_dir.glob("*.md")):
-        dst_file = target_dir / src_file.name
-        dst_file.write_text(src_file.read_text())
-        created.append(src_file.name)
-    return created
+    import shutil
+
+    skills_src = _PKG_ROOT / "skills"
+    if not skills_src.exists():
+        return []
+
+    copied = []
+    for skill_dir in sorted(skills_src.iterdir()):
+        if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
+            continue
+        shutil.copytree(skill_dir, target_root / skill_dir.name, dirs_exist_ok=True)
+        copied.append(skill_dir.name)
+    return copied
 
 
 _MARKER_START = "<!-- litmus:start -->"
@@ -136,8 +172,9 @@ def _write_instructions(target_path: Path, header: str = "") -> str | None:
 def setup_claude_code(print_only: bool):
     """Configure Litmus MCP server for Claude Code.
 
-    Registers the MCP server, copies skill command stubs, and generates
-    a CLAUDE.md project instructions file if one doesn't exist.
+    Registers the MCP server, projects the packaged Agent Skills into
+    .claude/skills/, and generates a CLAUDE.md project instructions file
+    if one doesn't exist.
 
     Example:
         litmus setup claude-code
@@ -150,13 +187,12 @@ def setup_claude_code(print_only: bool):
     if print_only:
         # Preview ALL three side effects of the real run so users can
         # decide whether to commit before doing so. Previously only the
-        # MCP JSON was shown, hiding the .claude/commands/ + CLAUDE.md
+        # MCP JSON was shown, hiding the .claude/skills/ + CLAUDE.md
         # writes entirely.
         cmd = f"claude mcp add litmus -- {litmus_path} mcp serve"
-        stubs_src = _PKG_ROOT / "skills" / "commands" / "claude-code"
-        stubs_dst = Path.cwd() / ".claude" / "commands"
+        skills_dst = Path.cwd() / ".claude" / "skills"
+        skill_names = _skill_names()
         claude_md = Path.cwd() / "CLAUDE.md"
-        stub_files = sorted(p.name for p in stubs_src.glob("*.md")) if stubs_src.exists() else []
 
         def _rel(p: Path) -> Path:
             try:
@@ -171,9 +207,9 @@ def setup_claude_code(print_only: bool):
         for line in json.dumps(config, indent=2).splitlines():
             click.echo(f"   {line}")
         click.echo("")
-        click.echo(f"2. Copy {len(stub_files)} slash-command stub(s) to {_rel(stubs_dst)}/:")
-        for name in stub_files:
-            click.echo(f"     {name}")
+        click.echo(f"2. Copy {len(skill_names)} Agent Skill dir(s) to {_rel(skills_dst)}/:")
+        for name in skill_names:
+            click.echo(f"     {name}/")
         click.echo("")
         action = "Create" if not claude_md.exists() else "Update (Litmus section)"
         click.echo(f"3. {action} {_rel(claude_md)}")
@@ -198,12 +234,11 @@ def setup_claude_code(print_only: bool):
         click.echo("Claude CLI not found or failed. Add manually:")
         click.echo(f"\n  claude mcp add litmus -- {litmus_path} mcp serve\n")
 
-    # 2. Copy command stubs to .claude/commands/
-    stubs_src = _PKG_ROOT / "skills" / "commands" / "claude-code"
-    stubs_dst = Path.cwd() / ".claude" / "commands"
-    created = _copy_skill_stubs(stubs_src, stubs_dst)
-    if created:
-        click.echo(f"✓ Copied commands to .claude/commands/ ({len(created)} files)")
+    # 2. Project Agent Skills into .claude/skills/
+    skills_dst = Path.cwd() / ".claude" / "skills"
+    copied = _copy_skill_dirs(skills_dst)
+    if copied:
+        click.echo(f"✓ Copied Agent Skills to .claude/skills/ ({len(copied)} dirs)")
 
     # 3. Generate/update CLAUDE.md
     result = _write_instructions(Path.cwd() / "CLAUDE.md")
@@ -338,8 +373,12 @@ def setup_claude_desktop(legacy: bool, print_only: bool):
 def setup_copilot(print_only: bool):
     """Configure Litmus for GitHub Copilot (VS Code + CLI).
 
-    Sets up MCP server, prompt stubs, and instruction files for both
-    Copilot in VS Code and Copilot CLI (which also reads AGENTS.md).
+    Sets up the MCP server, projects the packaged Agent Skills into
+    .github/skills/ (Copilot has read SKILL.md natively from this path
+    since Dec 2025 — VS Code/JetBrains agent mode, Copilot CLI, and the
+    coding agent all discover it automatically; no adapter/prompt-file
+    generation needed), and writes instruction files for both Copilot in
+    VS Code and Copilot CLI (which also reads AGENTS.md).
 
     Example:
         litmus setup copilot
@@ -357,6 +396,13 @@ def setup_copilot(print_only: bool):
     if print_only:
         click.echo(".vscode/mcp.json:\n")
         click.echo(json.dumps(mcp_config, indent=2))
+        click.echo(
+            f"\nWould copy {len(_skill_names())} Agent Skill dir(s) to .github/skills/ "
+            "(native Agent Skills format — Copilot reads SKILL.md directly):"
+        )
+        for name in _skill_names():
+            click.echo(f"     {name}/")
+        click.echo("\nAnd create/update copilot-instructions.md + AGENTS.md (Litmus section).")
         return
 
     # 1. Create/merge .vscode/mcp.json
@@ -376,12 +422,11 @@ def setup_copilot(print_only: bool):
     mcp_file.write_text(json.dumps(final_config, indent=2) + "\n")
     click.echo("✓ Wrote .vscode/mcp.json (litmus MCP server)")
 
-    # 2. Copy prompt stubs to .github/prompts/
-    stubs_src = _PKG_ROOT / "skills" / "commands" / "copilot"
-    stubs_dst = Path.cwd() / ".github" / "prompts"
-    created = _copy_skill_stubs(stubs_src, stubs_dst)
-    if created:
-        click.echo(f"✓ Copied prompts to .github/prompts/ ({len(created)} files)")
+    # 2. Project Agent Skills into .github/skills/
+    skills_dst = Path.cwd() / ".github" / "skills"
+    copied = _copy_skill_dirs(skills_dst)
+    if copied:
+        click.echo(f"✓ Copied Agent Skills to .github/skills/ ({len(copied)} dirs)")
 
     # 3. Generate/update .github/copilot-instructions.md
     copilot_instructions = Path.cwd() / ".github" / "copilot-instructions.md"
@@ -406,9 +451,13 @@ def setup_copilot(print_only: bool):
 @setup.command("cursor")
 @click.option("--print-only", is_flag=True, help="Print config instead of installing")
 def setup_cursor(print_only: bool):
-    """Configure Litmus MCP server for Cursor.
+    """Configure Litmus for Cursor.
 
-    Creates or updates .cursor/mcp.json in the current project.
+    Creates or updates .cursor/mcp.json, projects the packaged Agent
+    Skills into .cursor/skills/ (Cursor 2.4+ reads SKILL.md natively
+    from this path — no adapter/rules-file generation needed), and
+    generates AGENTS.md project instructions (Cursor reads AGENTS.md
+    natively).
 
     Example:
         litmus setup cursor
@@ -417,11 +466,78 @@ def setup_cursor(print_only: bool):
         config = {"mcpServers": {"litmus": _mcp_server_entry()}}
         click.echo("Add this to .cursor/mcp.json:\n")
         click.echo(json.dumps(config, indent=2))
+        click.echo(
+            f"\nWould copy {len(_skill_names())} Agent Skill dir(s) to .cursor/skills/ "
+            "(native Agent Skills format — Cursor 2.4+ reads SKILL.md directly):"
+        )
+        for name in _skill_names():
+            click.echo(f"     {name}/")
+        click.echo("\nAnd create/update AGENTS.md (Litmus section).")
         return
 
+    # 1. MCP server
     mcp_file = Path.cwd() / ".cursor" / "mcp.json"
     _write_mcp_config(mcp_file)
+
+    # 2. Project Agent Skills into .cursor/skills/
+    skills_dst = Path.cwd() / ".cursor" / "skills"
+    copied = _copy_skill_dirs(skills_dst)
+    if copied:
+        click.echo(f"✓ Copied Agent Skills to .cursor/skills/ ({len(copied)} dirs)")
+
+    # 3. Generate/update AGENTS.md (Cursor reads it natively)
+    result = _write_instructions(Path.cwd() / "AGENTS.md")
+    if result == "created":
+        click.echo("✓ Created AGENTS.md")
+    elif result == "updated":
+        click.echo("✓ Updated AGENTS.md (Litmus section)")
+    else:
+        click.echo("· AGENTS.md already up to date")
     click.echo("Restart Cursor to use Litmus tools.")
+
+
+@setup.command("codex")
+@click.option("--print-only", is_flag=True, help="Print config instead of installing")
+def setup_codex(print_only: bool):
+    """Configure Litmus for OpenAI Codex.
+
+    Projects the packaged Agent Skills into .agents/skills/, generates
+    AGENTS.md project instructions (Codex's native context file), and
+    prints the MCP server entry for ~/.codex/config.toml.
+
+    Example:
+        litmus setup codex
+    """
+    litmus_path = _get_litmus_path()
+    toml_snippet = f'[mcp_servers.litmus]\ncommand = "{litmus_path}"\nargs = ["mcp", "serve"]\n'
+
+    if print_only:
+        click.echo(f"Would copy {len(_skill_names())} Agent Skill dir(s) to .agents/skills/:")
+        for name in _skill_names():
+            click.echo(f"     {name}/")
+        click.echo("\nAnd create/update AGENTS.md (Litmus section).\n")
+        click.echo("Add this to ~/.codex/config.toml for MCP tools:\n")
+        click.echo(toml_snippet)
+        return
+
+    # 1. Project Agent Skills into .agents/skills/
+    skills_dst = Path.cwd() / ".agents" / "skills"
+    copied = _copy_skill_dirs(skills_dst)
+    if copied:
+        click.echo(f"✓ Copied Agent Skills to .agents/skills/ ({len(copied)} dirs)")
+
+    # 2. Generate/update AGENTS.md (Codex reads it natively)
+    result = _write_instructions(Path.cwd() / "AGENTS.md")
+    if result == "created":
+        click.echo("✓ Created AGENTS.md")
+    elif result == "updated":
+        click.echo("✓ Updated AGENTS.md (Litmus section)")
+    else:
+        click.echo("· AGENTS.md already up to date")
+
+    # 3. MCP is user-global config in Codex — print, don't write, another tool's home config
+    click.echo("\nTo add Litmus MCP tools, add this to ~/.codex/config.toml:\n")
+    click.echo(toml_snippet)
 
 
 @setup.command("cline")

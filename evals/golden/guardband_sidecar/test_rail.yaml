@@ -1,0 +1,4 @@
+tests:
+  test_rail_observe:
+    limits:
+      rail_voltage: {characteristic: rail_voltage, guardband_pct: 5}

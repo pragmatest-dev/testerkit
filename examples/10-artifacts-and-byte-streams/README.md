@@ -13,12 +13,12 @@ burn-in test demonstrates the four shapes:
 - **JSONL byte stream** — a streaming event log opened with
   `files.stream(name, format="jsonl")`. One JSON line per event.
   `StreamStarted` + `StreamEnded` lifecycle events bracket the
-  capture; the final `file://...` URI lands on the verify row's
-  `out_burn_log` column.
+  capture; the final `file://...` URI lands on the verify row as the
+  `burn_log` output.
 
 Plus a regular `verify` on the mean rail voltage. All four artifacts
-ride on the same vector — `out_uut_photo` / `out_vendor_capture` /
-`out_burn_log` / `out_burn_report` are all reachable from the verify
+ride on the same vector — the `uut_photo` / `vendor_capture` /
+`burn_log` / `burn_report` outputs are all reachable from the verify
 row, so the analyst can navigate from a failing measurement to any
 piece of supporting evidence in one click.
 
@@ -56,12 +56,12 @@ uv run litmus serve --reload
 
 Navigate:
 - `http://localhost:8000/results/{run_id}` — the verify row. The
-  Artifacts section shows the four `out_*` columns, each a clickable
+  Artifacts section shows the four outputs, each a clickable
   `file://...` URI.
-- Click `out_uut_photo` → the photo renders inline.
-- Click `out_burn_report` → the JSON is shown.
-- Click `out_burn_log` → the JSONL log (text view).
-- Click `out_vendor_capture` → download (binary, no inline viewer).
+- Click `uut_photo` → the photo renders inline.
+- Click `burn_report` → the JSON is shown.
+- Click `burn_log` → the JSONL log (text view).
+- Click `vendor_capture` → download (binary, no inline viewer).
 
 ## What lands on disk
 

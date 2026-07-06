@@ -350,7 +350,7 @@ litmus data promote
 This:
 
 - Walks your project-local `data/runs/runs/*/*.parquet`
-- **Skips** runs that match starter sentinels (`part_id: example_part`, `uut_serial: STARTER001`, etc.) — the throwaway scaffolding you ran while learning
+- **Skips** runs that match starter sentinels (`part_id: example_part`, `uut_serial_number: STARTER001`, etc.) — the throwaway scaffolding you ran while learning
 - Copies the rest into the global store (`~/.local/share/litmus/data/` on Linux; platformdirs equivalents on Mac/Windows)
 - Removes the `data_dir:` override from your `litmus.yaml` so future runs go straight to the global store
 

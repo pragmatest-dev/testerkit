@@ -1,155 +1,172 @@
 # Skills reference
 
-Litmus ships a set of **AI workflow prompts** that drive Claude / Copilot / Cursor / Cline through hardware-test authoring tasks. This page is the inventory: what each prompt does, what it calls, and how it's installed.
+Litmus ships 11 **Agent Skills** — one directory per skill under
+[`src/litmus/skills/`](https://github.com/pragmatest-dev/litmus/tree/main/src/litmus/skills),
+each a `SKILL.md` written to the
+[Agent Skills open standard](https://github.blog/changelog/2025-12-18-github-copilot-now-supports-agent-skills/):
+YAML frontmatter (`name`, `description`) an agent matches against the user's
+request, then a body the agent reads once matched. This page is the
+inventory — what each skill covers, how the depth behind it is sourced, and
+how `litmus setup <tool>` gets the files in front of your agent.
 
-For motivation (why AI integration at all), see [concepts/why-ai-integration](../../concepts/overview/ai-integration.md). For setup commands (`litmus setup <client>`), see [how-to/mcp-integration](../../how-to/overview/mcp-integration.md).
+For motivation (why AI integration at all), see
+[concepts/why-ai-integration](../../concepts/overview/ai-integration.md). For
+registering the MCP server and instructions file per tool, see
+[how-to/mcp-integration](../../how-to/overview/mcp-integration.md).
 
-> **Prerequisites.** These prompts run inside an AI client (Claude Code, Copilot, Cursor, or Cline) that you've connected to Litmus with `litmus setup <client>`. The client launches the `litmus mcp serve` server on demand over stdio — you don't start it yourself.
+## The 11 skills
 
-## Three layers
-
-- **Workflows** (3 prompts) — multi-step prompts you invoke directly; they drive the whole datasheet-to-tests flow.
-- **Sub-agent templates** (5 prompts) — single-job prompts the workflows spawn as sub-agents; not invoked directly.
-- **Slash commands** (2 per client) — client-specific wrappers that invoke the workflows from your editor's prompt UI.
-
-All three layers ship as plain markdown — read any prompt on [GitHub](https://github.com/pragmatest-dev/litmus/tree/main/src/litmus/skills), or in the `litmus/skills/` directory of your installed copy.
-
-## Workflows
-
-User-invocable. Multi-step. STOP at every approval gate.
-
-### `datasheet-to-test`
-
-| | |
+| Skill | Use when |
 |---|---|
-| Source | [`workflow/datasheet-to-test.md`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/workflow/datasheet-to-test.md) |
-| Input | A part datasheet PDF |
-| Output | `parts/<id>.yaml`, `stations/<id>.yaml`, `tests/test_<id>.py`, `tests/test_<id>.yaml` |
-| Phases | Parse datasheet → save part spec → recommend instruments → create station config → generate tests → execute |
-| MCP tools used | `litmus_project` (init, save, read), `litmus_match`, `litmus_run`, `litmus_open`, `litmus_discover` |
+| `litmus-tests` | Testing, measuring, or logging any hardware value — the front door. Starts at zero config, grows only as the request demands. |
+| `litmus-mocks` | Running tests without real hardware — dev-machine smoke tests, CI, a bench that's tied up, or pinning one instrument call's return value. |
+| `litmus-stations` | Setting up the bench — instruments, roles, a bring-your-own driver, discovery, fixture pin routing. |
+| `litmus-parts` | Specifying the DUT — documented characteristics, pin map, or a datasheet limit as reusable part YAML. |
+| `litmus-profiles` | Different limits, sweeps, mocks, or wiring per test phase or part variant, selected with a CLI flag at run time. |
+| `litmus-sites` | Testing multiple UUTs at once on one fixture — multi-site / multi-socket parallel production testing. |
+| `litmus-capture` | Capturing or reading back non-tabular evidence — a waveform, a live sensor feed, a photo, a vendor capture file, a log. |
+| `litmus-analysis` | Getting an answer out of existing runs — yield, Pareto, Ppk, a trend, a retest rate, an export or report. |
+| `litmus-debug` | Triaging why a run failed, errored, looks wrong, or is missing. |
+| `litmus-interactive` | Pausing a test for operator input, building a custom live operator screen, or driving a station interactively outside pytest. |
+| `litmus-datasheets` | Importing an instrument or part datasheet PDF into catalog or part config. |
 
-Approval gates at every phase. The user reviews extracted specs, picked instruments, station wiring, and the generated test before the agent moves on.
+Each row above is a condensed reading of that skill's own `description`
+frontmatter — the exact text an agent matches against. `litmus-tests` is
+the deliberate front door: it starts at a bare `def test_x(verify): ...`
+with no station, no YAML, and only routes to a sibling skill (mocks,
+stations, parts, profiles, sites, capture, analysis, debug, interactive)
+once the request needs that layer.
 
-### `datasheet-to-catalog`
+## Single-source design
 
-| | |
-|---|---|
-| Source | [`workflow/datasheet-to-catalog.md`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/workflow/datasheet-to-catalog.md) |
-| Input | An instrument datasheet PDF |
-| Output | A `catalog/<instrument>.yaml` entry with channels, capabilities, accuracy specs |
-| Approach | Section-by-section: split → extract → write → mechanical audit + semantic review → fix-loop until clean |
-| Sub-agents spawned | `section-splitter`, `section-extractor`, `section-writer`, `section-reviewer`, `scaffold-writer` |
+A `SKILL.md` is not a standalone essay. It carries the **action
+playbook** — the decision the agent has to make and the judgment calls
+around it (which verb, which config rung, what to warn about) — in a body
+short enough to read in full every time the skill matches. Anything that's
+already documented at length lives in the shipped docs, and the skill
+tells the agent to read it there instead of re-stating it:
 
-Thorough. Use when you need accuracy specs and condition-indexed bands captured correctly. Slower than `catalog-scaffold` but produces audit-clean catalog entries.
+```
+## Deeper
+Read the docs:
+litmus docs show concepts/overview/tiers
+litmus docs show how-to/execution/writing-tests
+```
 
-### `catalog-scaffold`
+This keeps exactly one copy of any factual claim — the shipped `docs/`
+tree — instead of a frozen paraphrase inside the skill that drifts the
+next time the underlying behavior changes. `litmus docs show <path>`
+streams that same tree; see [The `litmus docs` CLI](#the-litmus-docs-cli)
+below.
 
-| | |
-|---|---|
-| Source | [`catalog-scaffold.md`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/catalog-scaffold.md) |
-| Input | An instrument make + model (no datasheet PDF needed) |
-| Output | A `catalog/<instrument>.yaml` entry from the model's prior knowledge |
-| When to use | Well-known instruments (Keysight 34461A, Keithley 2400, etc.) where the model can recall specs without re-reading the datasheet |
+Two skills carry a `references/` subdirectory for content that has no
+shipped-doc home:
 
-Fast path. For instruments the model doesn't know well, use `datasheet-to-catalog` instead.
+- **`litmus-datasheets`** — `references/catalog-pipeline.md`,
+  `test-pipeline.md`, `scaffold.md`, `process-queue.md` are the full
+  phase-by-phase orchestration contracts for its four import pipelines
+  (too long and too procedural for a `docs/` page). It also carries
+  `agents/` — five sub-agent prompts (`section-splitter`,
+  `scaffold-writer`, `section-extractor`, `section-writer`,
+  `section-reviewer`) the catalog pipeline spawns in sequence; each is
+  single-responsibility and not invoked directly by a user.
+- **`litmus-interactive`** — `references/live-ui-patterns.md` is the
+  decision table + anti-pattern catalog for building a custom NiceGUI
+  page against live channel data (subscribe-vs-raw-thread, when to
+  stop mutating from a callback).
 
-## Sub-agent templates
+Every other skill's `SKILL.md` is self-contained plus links out to `litmus
+docs show` — no `references/` directory.
 
-Single-responsibility prompts the workflows spawn as sub-agents. **Not invoked directly.** Each names a recommended model size for its job — the `Tier` column below.
+## Install / cross-tool
 
-| Template | Job | Tier |
-|---|---|---|
-| [`section-splitter`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/agents/section-splitter.md) | Read a datasheet PDF, divide into processing sections (page ranges). No YAML, no extraction. | mid-to-high |
-| [`section-extractor`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/agents/section-extractor.md) | Read PDF pages, produce a complete structured inventory file. Extraction only, no schema knowledge. | high |
-| [`section-writer`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/agents/section-writer.md) | Convert a pre-extracted inventory into catalog YAML capabilities. Does NOT re-read the PDF. | high |
-| [`section-reviewer`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/agents/section-reviewer.md) | Review AND fix catalog YAML against the inventory. Semantic checks only, no PDF access. | high |
-| [`scaffold-writer`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/agents/scaffold-writer.md) | Read targeted pages and write the device-level YAML (channels, interfaces, board attributes). Does NOT extract capabilities. | high |
+`litmus setup <tool>` copies the packaged skill directories into the
+tool's **native** Agent-Skills path — the same `SKILL.md` file, read
+directly, no per-tool adapter or reformatting:
 
-The single-responsibility split is deliberate. Each agent does one job with a narrow context; the workflow chains them with a fix loop (extractor → writer → reviewer → fix → reviewer until clean). A single agent doing all four jobs is more error-prone; the chain catches mistakes at each boundary between agents.
+| Tool | Setup command | Skills copied to | Instructions file | MCP registration |
+|---|---|---|---|---|
+| Claude Code | `litmus setup claude-code` | `.claude/skills/` | `CLAUDE.md` | `claude mcp add litmus -- <bin> mcp serve` |
+| OpenAI Codex | `litmus setup codex` | `.agents/skills/` | `AGENTS.md` | printed for `~/.codex/config.toml` (Codex's home config; Litmus doesn't write another tool's home config) |
+| Cursor | `litmus setup cursor` | `.cursor/skills/` | `AGENTS.md` | `.cursor/mcp.json` |
+| GitHub Copilot | `litmus setup copilot` | `.github/skills/` | `.github/copilot-instructions.md` + `AGENTS.md` | `.vscode/mcp.json` |
 
-## Slash commands
+All four read `SKILL.md` natively — Claude Code and Codex from the start;
+Cursor since 2.4 (shipped 2026-01-22); GitHub Copilot since its Agent
+Skills support shipped 2025-12-18 (stable in VS Code early January 2026),
+across VS Code/JetBrains agent mode, Copilot CLI, and the coding agent.
+There is no Cursor `.mdc` rules file and no Copilot `.prompt.md` wrapper
+generated — the single `SKILL.md` is the whole artifact.
 
-Per-client wrappers that invoke the workflows from your editor's slash-command UI.
+The instructions file (`CLAUDE.md` / `AGENTS.md` /
+`.github/copilot-instructions.md`) is marker-managed: `litmus setup`
+writes the Litmus section between `<!-- litmus:start -->` /
+`<!-- litmus:end -->` markers, creating the file if it doesn't exist or
+replacing only that section if it does, leaving the rest of the file
+alone.
 
-| Command | Clients | Invokes |
-|---|---|---|
-| `/catalog-from-datasheet [pdf] [yaml]` | Claude Code, Copilot | `datasheet-to-catalog` workflow on a single PDF |
-| `/process-catalog` | Claude Code, Copilot | Walks `catalog/QUEUE.md`, runs `/catalog-from-datasheet` on each pending entry |
+`litmus setup claude-desktop` and `litmus setup cline` are MCP-only —
+neither projects a native skills directory. `claude-desktop` bundles the
+skill files inside the `.mcpb` extension as reference material rather
+than a loose, natively-read directory; `cline` writes only
+`cline_mcp_settings.json`.
 
-Installed automatically by `litmus setup <client>`:
+Every `litmus setup <tool>` command accepts `--print-only` to preview all
+of its side effects — skills copied, instructions file created/updated,
+MCP config — without writing anything.
 
-| Client | Setup command | Where commands install |
-|---|---|---|
-| Claude Code | `litmus setup claude-code` | `./.claude/commands/` (project-local) |
-| GitHub Copilot | `litmus setup copilot` | `.github/prompts/` (project-local) |
-| Claude Desktop | `litmus setup claude-desktop` | n/a — slash commands not supported; MCP only |
-| Cursor | `litmus setup cursor` | n/a — slash commands not supported; MCP only |
-| Cline | `litmus setup cline` | n/a — slash commands not supported; MCP only |
+## The `litmus docs` CLI
 
-Claude Desktop, Cursor, and Cline get the MCP server registration (so the agent can call `litmus_*` tools), but workflow invocation is conversational: "run the datasheet-to-test workflow on this PDF" instead of typing a slash command. The workflow prompt itself is the same.
+```cli
+$ litmus docs list reference
+reference/catalog/schema
+reference/cli
+reference/overview/pytest-native
+reference/overview/skills
+...
 
-## MCP tools the workflows call
+$ litmus docs show concepts/data/three-verbs
+# Three verbs: configure, observe, verify
+...
+```
 
-The 13 MCP tools exposed by the `litmus mcp serve` server (the AI client launches it on demand over stdio; you don't run it yourself). Per-tool parameter detail in the [API reference](../runtime/api.md#tools).
+`litmus docs list [section]` enumerates shipped doc pages (optionally
+scoped to `concepts`, `how-to`, `reference`, `tutorial`, or `integration`);
+`litmus docs show <path>` prints one page to stdout, resolved with or
+without a trailing `.md`. Both read from the same `docs/` tree that ships
+in the installed package (a bundled copy in a wheel install, the repo's
+`docs/` directory in an editable/source checkout) — the environment-stable
+way for an agent (or a human) to read Litmus documentation without baking
+an absolute path into project config. This is the single source every
+skill's "Deeper" section points at, and it replaces the removed `litmus
+refs` command — there is no separate curated reference corpus to keep in
+sync.
 
-| Tool | Workflows that use it |
-|---|---|
-| `litmus_project` (init / save / read / lookup_enum / enum_reference) | All workflows |
-| `litmus_match` | `datasheet-to-test` |
-| `litmus_run` | `datasheet-to-test` |
-| `litmus_open` | `datasheet-to-test` |
-| `litmus_discover` | `datasheet-to-test` |
-| `litmus_schema` | (available; rarely called by workflows directly) |
-| `litmus_events`, `litmus_sessions`, `litmus_channels`, `litmus_files`, `litmus_runs`, `litmus_steps`, `litmus_metrics` | Post-run analysis (available to any agent) |
+## MCP vs skills
 
-## MCP prompts
+Two different jobs, not overlapping ones:
 
-Workflows that MCP clients can fetch as a prompt — an alternative to slash commands for clients that surface a prompt list.
+- **MCP** is live execution and introspection — `litmus_project`,
+  `litmus_run`, `litmus_match`, `litmus_discover`, `litmus_runs`,
+  `litmus_metrics`, and the rest of the tool surface the `litmus mcp
+  serve` server exposes. Calling one of these does something or reads
+  something right now. Full per-tool detail: [API reference →
+  MCP tools](../runtime/api.md#tools).
+- **Skills** are judgment and procedure — which verb to reach for, which
+  config rung a request actually needs, what to check before declaring a
+  pipeline done. A skill matching doesn't execute anything by itself; it
+  tells the agent which MCP tools or CLI commands to call and in what
+  order, and where to read further before it does.
 
-| Prompt | Returns | Equivalent to |
-|---|---|---|
-| `datasheet-to-test` | The full workflow text | The slash command, but discoverable via the MCP prompts list |
-
-## What the setup commands install
-
-For reference, the full per-client install scope of `litmus setup <client>`:
-
-### `litmus setup claude-code`
-
-1. Registers the MCP server: `claude mcp add litmus -- <litmus-bin> mcp serve`
-2. Copies slash command stubs: `skills/commands/claude-code/*.md` → `./.claude/commands/`
-3. Writes or merges `./CLAUDE.md` from `skills/templates/project-instructions.md` (Litmus context the agent always reads)
-
-### `litmus setup copilot`
-
-1. Writes `.vscode/mcp.json` (MCP server registration)
-2. Writes `.github/copilot-instructions.md` (Litmus context for Copilot Chat)
-3. Copies slash command stubs: `skills/commands/copilot/*.prompt.md` → project
-
-### `litmus setup claude-desktop`
-
-Builds a `litmus.mcpb` Desktop Extension bundle on the user's Desktop. Double-click to install. `--legacy` writes JSON config to `~/.config/Claude/claude_desktop_config.json` instead.
-
-### `litmus setup cursor`
-
-Writes `.cursor/mcp.json` in the project directory.
-
-### `litmus setup cline`
-
-Writes `cline_mcp_settings.json` to VS Code user settings (`~/.config/Code/User/` on Linux, `~/Library/Application Support/Code/User/` on macOS, `~/AppData/Roaming/Code/User/` on Windows).
-
-All `litmus setup` commands accept `--print-only` to show the config that would be written without modifying anything on disk.
-
-## Reference material the workflows load
-
-| File | Used as background context by |
-|---|---|
-| [`refs/profiles.md`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/refs/profiles.md) | Workflows that touch profile config — explains the facet-query selection model |
-| [`templates/project-instructions.md`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/templates/project-instructions.md) | Installed as the project's `CLAUDE.md` / `copilot-instructions.md` so the agent has Litmus context in every conversation |
+A skill's playbook routes into MCP tools and CLI commands as the steps
+require — `litmus-tests` step 6 runs plain `pytest`; `litmus-datasheets`
+saves through `litmus_project(action="save", ...)`; `litmus-debug` reads
+back through `litmus_runs` / `litmus_steps`. Neither layer substitutes for
+the other.
 
 ## See also
 
 - [Concepts: why AI integration](../../concepts/overview/ai-integration.md) — motivation
-- [How-to: datasheet-to-test workflow](../../how-to/catalog/datasheet-to-test.md) — end-to-end walkthrough
-- [How-to: MCP integration](../../how-to/overview/mcp-integration.md) — registering the server with each AI client
+- [How-to: MCP integration](../../how-to/overview/mcp-integration.md) — registering the server and instructions file with each AI tool
 - [Reference: MCP tools](../runtime/api.md#tools) — per-tool parameter detail
+- [Reference: CLI](../cli.md) — `litmus docs`, `litmus setup`, and every other command

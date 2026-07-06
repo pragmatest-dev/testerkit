@@ -21,7 +21,7 @@ def mcp_serve(transport: str):
     The MCP server exposes tools for:
     - Reading part specs, stations, instruments
     - Capability matching
-    - Saving new specs, sequences, tests
+    - Saving new specs and tests
     - Running tests
 
     Configure Claude Code to use this server:

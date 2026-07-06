@@ -1468,7 +1468,7 @@ _FMT_BLOCK_KEYS = {
     "characteristics",
     "vectors",
     "limits",
-    # Sequences
+    # Steps (execution grain)
     "steps",
     # Station / fixture
     "instruments",

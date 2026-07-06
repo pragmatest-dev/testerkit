@@ -208,7 +208,7 @@ harness.prompt(
 
 `harness.context` returns the active `Context` (vector ▸ step ▸ run, most-specific-wins). `harness.run_context` returns the run-level `Context` directly. Each child context inherits from its parent and can override locally.
 
-To stamp stimulus values (→ parquet `in_*` columns), use `configure()`. For environmental readings (→ `out_*` columns), use `observe()`:
+To stamp stimulus values (recorded in the vector's `inputs` lane, `FieldRef.input(name)`), use `configure()`. For environmental readings (the `outputs` lane, `FieldRef.output(name)`), use `observe()`:
 
 ```python
 harness.run_context.configure("operator", "jane")            # run scope

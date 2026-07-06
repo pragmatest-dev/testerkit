@@ -4,13 +4,13 @@ The canonical observe + verify pattern:
 
 1. Trigger the event (``psu.set_voltage(5.0)``)
 2. Capture the raw evidence (``scope.capture()`` returns a Waveform)
-3. ``observe`` the waveform — routes to ChannelStore; ``out_scope_step``
-   on every verify row in this vector carries the ``channel://`` URI
+3. ``observe`` the waveform — routes to ChannelStore; the ``scope_step``
+   output on every verify row in this vector carries the ``channel://`` URI
 4. Compute the derived scalars (rise time, overshoot)
 5. ``verify`` each scalar against its limit
 
 On the ``/results/{run_id}`` page, the two verify rows (``rise_time_us`` and
-``overshoot_v``) each show ``out_scope_step`` as a clickable URI that opens
+``overshoot_v``) each show the ``scope_step`` output as a clickable URI that opens
 the supporting waveform.
 """
 
@@ -51,7 +51,7 @@ def test_psu_step_response(observe, verify, psu, scope) -> None:
     psu.set_voltage(5.0)
 
     wf = scope.capture()
-    observe("scope_step", wf)  # routes to ChannelStore; stamps out_scope_step on this vector
+    observe("scope_step", wf)  # routes to ChannelStore; stamps the scope_step output on this vector
 
     rise_us = compute_rise_time_us(wf, v_final=5.0)
     overshoot_v = compute_overshoot_v(wf, v_final=5.0)

@@ -80,7 +80,7 @@ sweeps:
   - {vin: [3.3, 5.0, 12.0]}
 ```
 
-**`litmus_sweeps` vs `@pytest.mark.parametrize`:** both work; both feed the same `context.get_param(name)` API and the same parquet `in_*` columns. Use `litmus_sweeps` when you want range expanders (`linspace`, `arange`, `logspace`, etc.) or sidecar parity; use `@pytest.mark.parametrize` when you want pytest's `pytest.param(..., id="...")` / `marks=[...]` per-row metadata. See [Test vectors & sweeps](../../how-to/execution/vector-expansion.md) for full semantics including range expanders and the `vectors` self-loop fixture.
+**`litmus_sweeps` vs `@pytest.mark.parametrize`:** both work; both feed the same `inputs` lane on the vector row (query with `FieldRef.input(name)`). Use `litmus_sweeps` when you want range expanders (`linspace`, `arange`, `logspace`, etc.) or sidecar parity; use `@pytest.mark.parametrize` when you want pytest's `pytest.param(..., id="...")` / `marks=[...]` per-row metadata. See [Test vectors & sweeps](../../how-to/execution/vector-expansion.md) for full semantics including range expanders and the `vectors` self-loop fixture.
 
 ---
 

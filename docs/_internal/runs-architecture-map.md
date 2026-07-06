@@ -38,8 +38,8 @@ Load-bearing facts (verified against source):
   `_MEASUREMENT_LIST`).
 - **Steps carry their own data.** A step latches `inputs`/`outputs`/`measurements` on
   `StepEnded` (`_build_step_results_from_events`, `_event_accumulator.py`). Steps do NOT shed
-  inputs. `in_*`/`out_*` on a step row is the step-scope data (conditions from sweep params
-  AND any `configure()` call in the step body).
+  inputs. The `inputs`/`outputs` lanes on a step row are the step-scope data (conditions from
+  sweep params AND any `configure()` call in the step body).
 - **A non-looping step has ZERO vectors.** A vector row exists ONLY for an actual sweep/loop
   point: a Mode-1 `@parametrize` variant, a class-outer `litmus_sweeps` iteration, or a
   Mode-2 in-body `vectors`/`context.vector()` iteration. The synthesized scope vector is
@@ -64,7 +64,7 @@ Load-bearing facts (verified against source):
 
 | Layer | What | Source of truth |
 |---|---|---|
-| **Events** | The chronological telling. `in_*`/`out_*` ride on the events. | `data/events.py`; accumulated by `EventAccumulator` (`backends/_event_accumulator.py`). Events are durable; the accumulator is replay-rebuildable. |
+| **Events** | The chronological telling. The `inputs`/`outputs` lanes ride on the events. | `data/events.py`; accumulated by `EventAccumulator` (`backends/_event_accumulator.py`). Events are durable; the accumulator is replay-rebuildable. |
 | **At-rest parquet** | Nested archive, one file per run. `record_type ∈ {run,step,vector}`, nested lanes + measurements. | `RUN_ROW_SCHEMA` in `data/schemas.py`. Written via `table_from_rows`/`_build_write_schema`. |
 | **DuckDB projections** | Unpacked query tables, derived at ingest. | `_runs_duckdb_daemon.py`: `runs_materialized`, `steps_materialized`, `measurements_materialized` (daemon **UNNESTs** the nested `measurements`), `measurements_dynamic` (EAV from the in/out/custom lanes) + the `dynamic_attrs` MAP. Inflight twin: `_accumulator_pool.py` (`INFLIGHT_*_SCHEMA`); the `runs`/`steps`/`measurements` **VIEWs** UNION materialized + inflight overlay `BY NAME`. |
 | **Query API** | Read surfaces. | `analysis/runs_query.py`, `steps_query.py`, `measurements_query.py`, `measurement_facets.py`. UI/API/CLI/MCP/Grafana read **through these**, never raw parquet. |
