@@ -24,11 +24,11 @@ Calling `observe("scope_step", wf)` before the two `verify`s does two things:
 
 1. Routes the waveform to ChannelStore (typed array row + `sample_interval`),
    returning a `channel://scope_step?session=…` URI.
-2. Stamps that URI on `out_scope_step` for every measurement row in this
-   vector — so the two verify rows (`rise_time_us`, `overshoot_v`) both
+2. Stamps that URI as the `scope_step` output on every measurement row in
+   this vector — so the two verify rows (`rise_time_us`, `overshoot_v`) both
    carry the URI of the waveform they were derived from.
 
-On `/results/{run_id}`, the measurement rows show `out_scope_step` as a
+On `/results/{run_id}`, the measurement rows show the `scope_step` output as a
 clickable link to the waveform in `/channels/scope_step`. Failing a limit
 takes you one click from "what" to "why."
 
@@ -51,7 +51,7 @@ uv run litmus serve --reload
 ```
 
 - `http://localhost:8000/results` — the run, with both verify rows passing
-- Click into the run → both rows show `out_scope_step` as a `channel://` URI
+- Click into the run → both rows show the `scope_step` output as a `channel://` URI
 - Click the URI → `/channels/scope_step` plots the captured waveform
 
 Each pytest invocation produces a new run with a slightly different rise

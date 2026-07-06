@@ -72,7 +72,7 @@ one click from the supporting trace:
 def test_psu_step_response(observe, verify, psu, scope) -> None:
     psu.set_voltage(5.0)
     wf = scope.capture()
-    observe("scope_step", wf)  # routes to ChannelStore; stamps out_scope_step on this vector
+    observe("scope_step", wf)  # routes to ChannelStore; stamps the scope_step output on this vector
 
     rise_us = compute_rise_time_us(wf, v_final=5.0)
     overshoot_v = compute_overshoot_v(wf, v_final=5.0)
@@ -121,7 +121,7 @@ HTTP, or the `litmus.channels` module, not the CLI surface `litmus runs` /
 - **An array or waveform captured once** — that's `observe`, which routes it
   to ChannelStore itself; no `stream` call needed. A plain blob (image,
   vendor binary, PDF) attached once is a FileStore artifact instead — see
-  the blob row in `litmus refs show observe`.
+  `litmus refs show artifacts`.
 - **A byte/record stream** (video, TDMS, raw vendor frames) — that's
   `litmus.files.stream(name, format=...)`, the FileStore equivalent; see
   `litmus refs show observe`.

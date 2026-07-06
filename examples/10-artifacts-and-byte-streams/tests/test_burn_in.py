@@ -4,8 +4,8 @@ Demonstrates the full FileStore use case in v0.2.0:
 
 * **PIL.Image** — a captured photo of the UUT, observe'd at start of
   test. Routes to FileStore via the PIL serializer; lands as PNG;
-  ``out_uut_photo`` carries ``file://...`` URI; the operator UI's
-  artifact viewer renders it inline.
+  the ``uut_photo`` output carries the ``file://...`` URI; the
+  operator UI's artifact viewer renders it inline.
 * **Pydantic model** — a structured burn-in report observed at end
   of test. Routes to FileStore via the BaseModel serializer; lands
   as JSON.
@@ -15,11 +15,11 @@ Demonstrates the full FileStore use case in v0.2.0:
 * **JSONL byte stream** — a streaming event log opened via
   ``files.stream(name, format="jsonl")``. One line per event;
   ``StreamStarted`` + ``StreamEnded`` lifecycle events bracket the
-  capture; ``out_burn_log`` on the verify row carries the final
-  ``file://...`` URI.
+  capture; the ``burn_log`` output on the verify row carries the
+  final ``file://...`` URI.
 
 Plus a verify on the rail voltage — same vector links the verify
-row to every artifact above via ``out_*`` columns.
+row to every artifact above via its outputs.
 """
 
 from __future__ import annotations
@@ -64,8 +64,8 @@ def test_uut_burn_in(observe, verify, psu) -> None:
     # files.stream(format="jsonl") returns a sink whose .write()
     # accepts JSON-serializable values directly. Latching the sink
     # via ``observe("burn_log", log)`` stamps the sink's ``file://``
-    # URI onto the active vector so ``out_burn_log`` lands on the
-    # verify row alongside the other artifacts.
+    # URI onto the active vector so the ``burn_log`` output lands on
+    # the verify row alongside the other artifacts.
     with litmus.files.stream("burn_log", format="jsonl") as log:
         observe("burn_log", log)
         log.write({"ts": datetime.now(UTC).isoformat(), "event": "psu_on", "voltage_set": 5.0})
@@ -106,8 +106,8 @@ def test_uut_burn_in(observe, verify, psu) -> None:
     observe("burn_report", report)
 
     # The judgment: rail voltage stayed within ±5 % of 5.0 V across
-    # all samples. ``out_uut_photo`` / ``out_vendor_capture`` /
-    # ``out_burn_log`` / ``out_burn_report`` all land on this row;
+    # all samples. The ``uut_photo`` / ``vendor_capture`` /
+    # ``burn_log`` / ``burn_report`` outputs all land on this row;
     # one click takes the analyst from the verify row to any
     # artifact.
     rail_mean = sum(readings) / len(readings)

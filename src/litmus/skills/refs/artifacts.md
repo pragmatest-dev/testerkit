@@ -57,7 +57,7 @@ vector_id=None, attributes=None)` opens a `StreamingSink` for **one
 growing artifact** — every `.write(chunk)` appends to that same file
 (`raw`, `jsonl`, `tdms`, `h5` formats). This is the byte-stream sibling
 of `litmus.channels.stream` (one typed numeric sample per call); see
-`litmus refs show observe` for the channel side. The sink emits a
+`litmus refs show streaming` for the channel side. The sink emits a
 `file://` URI on close; `observe(name, sink)` inside the `with` block
 links that URI to the active vector as an output, same as any other
 `observe` call.
@@ -99,6 +99,6 @@ then resolve the URI against FileStore.
 |---|---|
 | judge a scalar against a limit | `litmus refs show verify` |
 | record a scalar/waveform/blob, no judgment | `litmus refs show observe` |
-| one typed numeric sample per call, time-series | `litmus.channels.stream` — `litmus refs show observe` |
+| one typed numeric sample per call, time-series | `litmus.channels.stream` — `litmus refs show streaming` |
 | a growing file (log, DAQ capture, vendor format) | `litmus.files.stream` (this page) |
 | one-shot file (photo, report, vendor capture) | `observe(name, value)` or `litmus.files.write` (this page) |
