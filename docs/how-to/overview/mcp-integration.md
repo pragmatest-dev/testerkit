@@ -2,11 +2,11 @@
 
 Litmus exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server whose tools expose run/query/authoring actions to AI assistants. The platform does **not** call LLMs itself — it only exposes tools that an AI agent drives.
 
-This page is the operational how-to: registering Litmus with each supported AI client. For motivation see [concepts/why-ai-integration](../../concepts/overview/ai-integration.md); for the end-to-end workflow walkthrough see [datasheet-to-test](../catalog/datasheet-to-test.md); for the full inventory of shipped skills + sub-agents + slash commands see [reference/skills](../../reference/overview/skills.md). Per-tool MCP reference: [api.md → MCP tools](../../reference/runtime/api.md#tools).
+This page is the operational how-to: registering Litmus with each supported AI client. For motivation see [concepts/why-ai-integration](../../concepts/overview/ai-integration.md); for the end-to-end workflow walkthrough — now the `litmus-datasheets` skill's pipeline — see [datasheet-to-test](../catalog/datasheet-to-test.md); for the full inventory of the 11 Agent Skills see [reference/skills](../../reference/overview/skills.md). Per-tool MCP reference: [api.md → MCP tools](../../reference/runtime/api.md#tools).
 
 > **CLI as a peer surface.** Any agent with a terminal — Claude Code with Bash, Cursor with terminal, the GitHub Copilot CLI — can drive Litmus through `litmus …` commands instead of (or alongside) MCP. The CLI surface mirrors most of the MCP tools (`litmus runs`, `litmus show`, `litmus discover`, `litmus metrics`, `litmus schema`, `litmus validate`, …). See [reference/cli](../../reference/cli.md). This page is for AI clients that speak MCP natively.
 
-> **Prerequisites.** `litmus` installed and on `$PATH` (`pip install litmus-test` — distribution `litmus-test`, import `litmus`). One of the supported AI clients listed below — Claude Code, Claude Desktop, GitHub Copilot, Cursor, or Cline. A working project directory (`litmus init` to scaffold one). For `litmus_run`, a station configured in `stations/` — note `litmus_run` always executes in mock mode (see below).
+> **Prerequisites.** `litmus` installed and on `$PATH` (`pip install litmus-test` — distribution `litmus-test`, import `litmus`). One of the supported AI clients listed below — Claude Code, Claude Desktop, OpenAI Codex, GitHub Copilot, Cursor, or Cline. A working project directory (`litmus init` to scaffold one). For `litmus_run`, a station configured in `stations/` — note `litmus_run` always executes in mock mode (see below).
 
 ## Setup
 
@@ -14,12 +14,15 @@ This page is the operational how-to: registering Litmus with each supported AI c
 
 | Client | Command | What gets written |
 |---|---|---|
-| Claude Code (CLI) | `litmus setup claude-code` | Registers the MCP server via `claude mcp add litmus`, copies skill stubs to `.claude/commands/`, and creates / updates `./CLAUDE.md` |
-| Claude Desktop | `litmus setup claude-desktop` | Builds a `litmus.mcpb` Desktop Extension bundle on the user's Desktop (zip) for double-click install. Use `--legacy` to write `~/.config/Claude/claude_desktop_config.json` directly instead. |
-| GitHub Copilot Chat | `litmus setup copilot` | Project-local `.vscode/mcp.json` plus `.github/copilot-instructions.md` |
-| Cursor | `litmus setup cursor` | Project-local `.cursor/mcp.json` |
-| Cline (VS Code) | `litmus setup cline` | `cline_mcp_settings.json` in VS Code User settings (`~/.config/Code/User/` on Linux, `~/Library/Application Support/Code/User/` on macOS, `~/AppData/Roaming/Code/User/` on Windows) |
+| Claude Code (CLI) | `litmus setup claude-code` | Registers the MCP server via `claude mcp add litmus`, projects the 11 Agent Skills into `.claude/skills/`, and creates / updates `./CLAUDE.md` |
+| Claude Desktop | `litmus setup claude-desktop` | Builds a `litmus.mcpb` Desktop Extension bundle on the user's Desktop (zip) for double-click install — skills ship bundled inside the `.mcpb` as reference material, not a loose skills directory. Use `--legacy` to write `~/.config/Claude/claude_desktop_config.json` directly instead. |
+| OpenAI Codex | `litmus setup codex` | Projects the 11 Agent Skills into `.agents/skills/`, creates / updates `./AGENTS.md`, and prints the MCP server entry for `~/.codex/config.toml` (Codex's home config — Litmus doesn't write another tool's home config) |
+| GitHub Copilot Chat | `litmus setup copilot` | Project-local `.vscode/mcp.json`, projects the 11 Agent Skills into `.github/skills/`, and creates / updates `.github/copilot-instructions.md` plus `./AGENTS.md` |
+| Cursor | `litmus setup cursor` | Project-local `.cursor/mcp.json`, projects the 11 Agent Skills into `.cursor/skills/`, and creates / updates `./AGENTS.md` |
+| Cline (VS Code) | `litmus setup cline` | `cline_mcp_settings.json` in VS Code User settings (`~/.config/Code/User/` on Linux, `~/Library/Application Support/Code/User/` on macOS, `~/AppData/Roaming/Code/User/` on Windows) — MCP-only, no skills directory |
 | Anything else | `litmus mcp serve` directly | You configure your AI client manually |
+
+All four native-skills clients (Claude Code, Codex, Cursor, Copilot) read `SKILL.md` directly from their skills path — no per-tool adapter or reformatting. See [reference/skills](../../reference/overview/skills.md) for the full skill inventory and the single-source design behind `SKILL.md`.
 
 After running any setup command, restart the client to pick up the new MCP server. To confirm it registered, ask the assistant to list its tools (or open the client's MCP panel) — the `litmus_*` tools should appear. If they don't, the client didn't load the server: re-run the setup command, restart the client again, and confirm the config file from the table above was written.
 
