@@ -150,7 +150,7 @@ All `litmus setup` commands accept `--print-only` to show the config that would 
 
 ## Reference cards (`litmus refs`)
 
-On-demand topic guides under [`refs/`](https://github.com/pragmatest-dev/litmus/tree/main/src/litmus/skills/refs). Any agent (or human) streams them from the installed package — `litmus refs list` enumerates topics, `litmus refs show <topic>` prints one. The generated instructions file indexes them so the agent pulls a topic only when the request needs it. Topics: `routing` (request → verb + rung, start here), `test-writing`, `fixtures`, `tiers`, `verify`, `observe`, `instruments`, `part-specs`, `mocks`, `profiles`.
+On-demand topic guides under [`refs/`](https://github.com/pragmatest-dev/litmus/tree/main/src/litmus/skills/refs). Any agent (or human) streams them from the installed package — `litmus refs list` enumerates topics, `litmus refs show <topic>` prints one. The generated instructions file indexes them so the agent pulls a topic only when the request needs it. Topics: `routing` (any request → the right tool, start here), `solutions` (the simple→advanced arc keyed to `examples/01…12`), `test-writing`, `fixtures`, `tiers`, `verify`, `observe`, `streaming`, `artifacts`, `instruments`, `part-specs`, `mocks`, `profiles`, `multi-site`, `debugging`, `analytics`, `project-setup`.
 
 [`templates/project-instructions.md`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/templates/project-instructions.md) is installed as the project's `CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md` so the agent has Litmus context in every conversation.
 

@@ -129,13 +129,20 @@ Read these on demand via the CLI — don't load them all upfront. `litmus refs l
 
 | Topic | Command |
 |-------|---------|
-| **Which tool / verb / rung for a request — start here** | `litmus refs show routing` |
-| **Writing a test end-to-end** (anatomy, sidecars, sweeps, config cascade) | `litmus refs show test-writing` |
+| **Any request → the right tool/verb/rung — START HERE** | `litmus refs show routing` |
+| **The solution arc** — simple → advanced, keyed to `examples/01…12` | `litmus refs show solutions` |
+| Writing a test end-to-end (anatomy, sidecars, sweeps, config cascade) | `litmus refs show test-writing` |
 | Every fixture/helper the plugin provides (the test author's toolbox) | `litmus refs show fixtures` |
 | Project tiers (Tier 0 → 4 ladder, when to graduate) | `litmus refs show tiers` |
 | `verify` signature, limit dict shape, sidecar `limits:` schema, outcomes | `litmus refs show verify` |
-| `observe` / `stream` record-only verbs, ChannelStore / FileStore routing | `litmus refs show observe` |
-| Instruments: station YAML, bring-your-own drivers, catalog, capability matching | `litmus refs show instruments` |
+| `observe` / record-only verbs, evidence routing | `litmus refs show observe` |
+| Streaming samples / waveforms → channels (`stream`) | `litmus refs show streaming` |
+| File artifacts attached to runs (captures, logs, reports) | `litmus refs show artifacts` |
+| Instruments: station YAML, bring-your-own drivers, catalog, matching | `litmus refs show instruments` |
 | Part specs: per-DUT limits, characteristics, spec-driven `verify` | `litmus refs show part-specs` |
 | Per-test mock overrides (`litmus_mocks` marker + sidecar `mocks:`) | `litmus refs show mocks` |
 | Profiles, facets, phase wiring | `litmus refs show profiles` |
+| Parallel sites / multi-UUT (`--site`, `site_index`) | `litmus refs show multi-site` |
+| Triage a failed run (runs → show → events; common causes) | `litmus refs show debugging` |
+| Metrics, queries, exports, Grafana, reports | `litmus refs show analytics` |
+| Project setup: `init`, `litmus.yaml`, folders, `validate`/`schema` | `litmus refs show project-setup` |
