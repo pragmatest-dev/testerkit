@@ -170,6 +170,26 @@ Scan for available instruments.
 | `--identify`/`--no-identify` | `flag` | Query *IDN? for each instrument |
 | `--json` | `flag` | Output as JSON |
 
+### `litmus docs` (group) {#cli-docs}
+
+Stream the shipped documentation to stdout.
+
+#### `litmus docs list` {#cli-docs-list}
+
+List available documentation pages, optionally filtered to SECTION.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `SECTION` | `text` |  |
+
+#### `litmus docs show` {#cli-docs-show}
+
+Print the named documentation page to stdout.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `PATH` | `text` |  |
+
 ### `litmus export` {#cli-export}
 
 Export a test run or session to a different format via event replay.
@@ -387,24 +407,6 @@ Scaffold a new test file.
 |---|---|---|
 | `NAME` | `text` |  |
 
-### `litmus refs` (group) {#cli-refs}
-
-Stream curated reference docs to stdout.
-
-#### `litmus refs list` {#cli-refs-list}
-
-List available reference topics.
-
-*(no options or arguments.)*
-
-#### `litmus refs show` {#cli-refs-show}
-
-Print the named reference doc to stdout.
-
-| Argument / option | Type | Description |
-|---|---|---|
-| `TOPIC` | `text` |  |
-
 ### `litmus runs` {#cli-runs}
 
 List recent test runs.
@@ -487,6 +489,14 @@ Configure Litmus MCP server for Cline (VS Code extension).
 |---|---|---|
 | `--print-only` | `flag` | Print config instead of installing |
 
+#### `litmus setup codex` {#cli-setup-codex}
+
+Configure Litmus for OpenAI Codex.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `--print-only` | `flag` | Print config instead of installing |
+
 #### `litmus setup copilot` {#cli-setup-copilot}
 
 Configure Litmus for GitHub Copilot (VS Code + CLI).
@@ -497,7 +507,7 @@ Configure Litmus for GitHub Copilot (VS Code + CLI).
 
 #### `litmus setup cursor` {#cli-setup-cursor}
 
-Configure Litmus MCP server for Cursor.
+Configure Litmus for Cursor.
 
 | Argument / option | Type | Description |
 |---|---|---|

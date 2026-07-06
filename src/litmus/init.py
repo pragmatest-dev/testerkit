@@ -652,7 +652,7 @@ part), the test bodies here are unchanged — you just swap the
 sidecar shape.
 
 For the full ``verify`` signature, limit dict schema, and outcomes,
-run ``litmus refs show verify``.
+see the ``litmus-tests`` skill (your AI assistant loads it automatically).
 
 Run::
 

@@ -24,26 +24,15 @@ pytest --station=my_bench         # Run against specific station (id or YAML pat
 pytest --test-profile=production  # Apply a named profile
 pytest --test-phase=production    # Select profile by facet
 
-litmus serve                      # Operator UI (localhost:8000)
-litmus serve --reload             # Dev mode with auto-reload
-litmus runs [--json]              # List recent test runs
-litmus show <run_id>              # Show run details
-litmus show <run_id> -f json      # JSON output (also: html, csv, pdf)
-litmus discover [--json]          # Scan for instruments
-litmus validate [paths] [--json]  # Validate YAML config files
-litmus instrument list [--json]   # List configured instruments
-litmus instrument show <id> [--json]  # Show instrument details + cal status
-```
-
-### Metrics (filters: `--since`, `--until`, `--part`, `--station`, `--phase`; all accept `--json`)
-
-```bash
-litmus metrics summary [--period day|week|month] [--json]
-litmus metrics pareto [--top N] [--json]
-litmus metrics ppk [--min-samples N] [--json]
-litmus metrics trend [--period day|week|month] [--json]
-litmus metrics retest [--period day|week|month] [--json]
-litmus metrics time-loss [--period day|week|month] [--json]
+litmus init [name] [--tier bringup|bench|factory]  # Scaffold a new project (skip-if-exists)
+litmus new-test <name>             # Scaffold tests/test_<name>.py from your station
+litmus validate [paths] [--json]   # Validate YAML config files
+litmus serve                       # Operator UI (localhost:8000)
+litmus serve --reload              # Dev mode with auto-reload
+litmus runs [--json]               # List recent test runs
+litmus show <run_id> [-f html|pdf|json|csv]  # Show run details / generate report
+litmus metrics summary [--json]    # Yield / pareto / ppk / trend / retest / time-loss (see `litmus metrics --help`)
+litmus discover [--json]           # Scan for instruments
 ```
 
 ## YAML Configuration
@@ -58,14 +47,12 @@ All configuration uses YAML files with Pydantic validation. Edit YAML directly o
 ## Writing Tests
 
 Tests are plain pytest functions. **Start with zero config** — the plugin always
-provides these verbs; no YAML, station, or part spec is required to begin. *Not sure which verb, or
-how much config a request needs? `litmus refs show routing` maps a request → the right verb + rung.*
-The verbs:
+provides these verbs; no YAML, station, or part spec is required to begin. The verbs:
 
 - `observe(name, value)` — record a reading (characterization / setup readouts). Never judges.
 - `verify(name, value, limit=...)` — judge a measurement against a limit. **The limit is
   required** — pass it inline (below), or supply it from a `<test_file>.yaml` sidecar or a part
-  spec (see the ladder). `verify` with no resolvable limit raises.
+  spec. `verify` with no resolvable limit raises.
 - `measure` / `stream` — record-only variants (bare value / streaming samples).
 
 Simplest passing test — **no config at all**:
@@ -92,16 +79,26 @@ def test_output_voltage(verify, psu, dmm) -> None:
            limit={"low": 3.0, "high": 3.6, "unit": "V"})
 ```
 
-**Grow as needed** — adopt each rung only when you want it:
+**Grow as needed** — a station, a part spec, a sidecar, or a profile only when the
+request calls for it. Sidecar `<test_file>.yaml` keys (all optional): `limits:`,
+`sweeps:`, `mocks:` (a list).
 
-1. `observe(...)` — nothing.
-2. `verify(..., limit={...})` — an inline limit.
-3. `psu`/`dmm` + `--mock-instruments` — a station (or `litmus init --tier bringup`).
-4. `verify("name", x)` with the limit from a spec — a part spec + `<test>.yaml` sidecar.
-5. `--test-profile` / `--test-phase` — profiles.
+## Agent Skills
 
-Sidecar `<test_file>.yaml` keys (all optional): `limits:`, `sweeps:`, `mocks:` (a list). Run
-`litmus refs show verify` for the exact schemas.
+Litmus ships Agent Skills — your assistant loads them automatically based on what
+you're asking for. Reach for:
+
+- `litmus-tests` — test / measure / log a value (the front door; simple → advanced)
+- `litmus-stations` — set up a bench / wire an instrument
+- `litmus-parts` — spec a DUT's characteristics and limits
+- `litmus-mocks` — run without hardware
+- `litmus-profiles` — different limits/behavior per phase (dev vs production)
+- `litmus-sites` — test multiple units in parallel
+- `litmus-capture` — capture/read back waveforms or files
+- `litmus-analysis` — yield / Ppk / query results
+- `litmus-debug` — figure out why a run failed
+- `litmus-interactive` — guided/conversational test-writing on-ramp
+- `litmus-datasheets` — import a datasheet PDF into a catalog entry or part spec
 
 ## AI Agent Integration
 
@@ -122,27 +119,3 @@ Sidecar `<test_file>.yaml` keys (all optional): `limits:`, `sweeps:`, `mocks:` (
 ```sql
 SELECT * FROM 'data/runs/**/*.parquet' WHERE step_name = 'voltage_check'
 ```
-
-## Reference Documentation
-
-Read these on demand via the CLI — don't load them all upfront. `litmus refs list` shows available topics.
-
-| Topic | Command |
-|-------|---------|
-| **Any request → the right tool/verb/rung — START HERE** | `litmus refs show routing` |
-| **The solution arc** — simple → advanced, keyed to `examples/01…12` | `litmus refs show solutions` |
-| Writing a test end-to-end (anatomy, sidecars, sweeps, config cascade) | `litmus refs show test-writing` |
-| Every fixture/helper the plugin provides (the test author's toolbox) | `litmus refs show fixtures` |
-| Project tiers (Tier 0 → 4 ladder, when to graduate) | `litmus refs show tiers` |
-| `verify` signature, limit dict shape, sidecar `limits:` schema, outcomes | `litmus refs show verify` |
-| `observe` / record-only verbs, evidence routing | `litmus refs show observe` |
-| Streaming samples / waveforms → channels (`stream`) | `litmus refs show streaming` |
-| File artifacts attached to runs (captures, logs, reports) | `litmus refs show artifacts` |
-| Instruments: station YAML, bring-your-own drivers, catalog, matching | `litmus refs show instruments` |
-| Part specs: per-DUT limits, characteristics, spec-driven `verify` | `litmus refs show part-specs` |
-| Per-test mock overrides (`litmus_mocks` marker + sidecar `mocks:`) | `litmus refs show mocks` |
-| Profiles, facets, phase wiring | `litmus refs show profiles` |
-| Parallel sites / multi-UUT (`--site`, `site_index`) | `litmus refs show multi-site` |
-| Triage a failed run (runs → show → events; common causes) | `litmus refs show debugging` |
-| Metrics, queries, exports, Grafana, reports | `litmus refs show analytics` |
-| Project setup: `init`, `litmus.yaml`, folders, `validate`/`schema` | `litmus refs show project-setup` |

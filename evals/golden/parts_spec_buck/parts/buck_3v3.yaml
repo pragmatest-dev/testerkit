@@ -1,0 +1,15 @@
+id: buck_3v3
+name: Demo 3.3 V Buck Converter
+
+pins:
+  TP_VOUT: {name: TP2, net: VOUT_3V3}
+
+characteristics:
+  rail_3v3:
+    function: dc_voltage
+    direction: output
+    unit: V
+    pin: TP_VOUT
+    bands:
+      - value: 3.3
+        accuracy: {pct_reading: 3.0}

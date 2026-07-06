@@ -1,24 +1,60 @@
 """Anti-drift guard for the AI-facing test-writing surfaces (#66).
 
-The generated CLAUDE.md, the `litmus refs`, and the MCP templates tell a
-generative AI how to write Litmus tests. They drifted from the real API once
-(a phantom `logger.measure` verb, `psu`/`dmm` assumed without a station,
+The 11 `litmus-*` skills (`src/litmus/skills/<name>/SKILL.md`) tell a
+generative AI how to use Litmus. They drifted from the real API once (a
+phantom `logger.measure` verb, `psu`/`dmm` assumed without a station,
 limit-less `verify`, sidecar `ref:`/`vectors:`/dict-`mocks:`, deleted
-`sequence` refs) — and nothing caught it because nothing *ran* the examples.
+`sequence` refs, a since-deleted `litmus refs` CLI, dead doc citations) — and
+nothing caught it because nothing *ran* or *resolved* the examples.
 
 This test runs / validates the canonical snippets against the real plugin +
-models, so a verb rename or a schema change breaks CI instead of silently
-shipping broken advice to users.
+models, and structurally validates every skill file (frontmatter, dead
+tokens, cited doc paths), so a verb rename, a schema change, or a stale
+citation breaks CI instead of silently shipping broken advice to users.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+
+import pytest
 
 import litmus
 
 _SKILLS = Path(litmus.__file__).parent / "skills"
 _MCP = Path(litmus.__file__).parent / "mcp"
+
+_SKILL_NAME_RE = re.compile(r"^litmus-[a-z-]+$")
+
+_EXPECTED_SKILL_NAMES = {
+    "litmus-tests",
+    "litmus-mocks",
+    "litmus-stations",
+    "litmus-parts",
+    "litmus-profiles",
+    "litmus-sites",
+    "litmus-capture",
+    "litmus-analysis",
+    "litmus-debug",
+    "litmus-interactive",
+    "litmus-datasheets",
+}
+
+_SKILL_DIRS = sorted(p for p in _SKILLS.iterdir() if p.is_dir() and (p / "SKILL.md").exists())
+
+
+def _parse_frontmatter(text: str) -> dict[str, str]:
+    """Minimal frontmatter parser: only needs flat `key: value` lines."""
+    assert text.startswith("---\n"), "SKILL.md must start with a frontmatter block"
+    end = text.index("\n---", 4)
+    block = text[4:end]
+    out: dict[str, str] = {}
+    for line in block.splitlines():
+        if ":" in line:
+            key, _, value = line.partition(":")
+            out[key.strip()] = value.strip()
+    return out
 
 
 # ── The verbs the surfaces name must actually exist ────────────────────────
@@ -33,7 +69,7 @@ def test_record_only_verbs_exist() -> None:
     assert not hasattr(litmus, "logger")
 
 
-# ── The zero-config examples from the generated CLAUDE.md must RUN ─────────
+# ── The zero-config examples from the skills must RUN ──────────────────────
 
 
 def test_generated_claude_md_zero_config_verify(verify) -> None:
@@ -46,11 +82,11 @@ def test_generated_claude_md_zero_config_observe(observe) -> None:
     observe("rail_voltage", 3.28)
 
 
-# ── The sidecar shapes the templates/refs document must validate ──────────
+# ── The sidecar shapes the skills document must validate ───────────────────
 
 
 def test_canonical_sidecar_shapes_validate() -> None:
-    """The shapes shown in the MCP TEST_TEMPLATE / datasheet-to-test / refs
+    """The shapes shown in litmus-tests / litmus-mocks / litmus-datasheets
     must pass SidecarConfig (extra=forbid) — catches a drift back to `ref:`,
     `vectors:`, or dict-`mocks:`."""
     from litmus.models.test_config import SidecarConfig
@@ -65,6 +101,19 @@ def test_canonical_sidecar_shapes_validate() -> None:
             "mocks": [{"target": "dmm.measure_dc_voltage", "return_value": 5.0}],
         }
     )
+
+
+def test_guardband_sidecar_shape_validates() -> None:
+    """The guardband form (`{characteristic: X, guardband_pct: N}`, litmus-tests
+    §4 and litmus-parts) must pass both the sidecar-level model and the
+    per-measurement limit model directly — catches a drift in either the
+    field names or their nesting under `limits:`."""
+    from litmus.models.test_config import MeasurementLimitConfig, SidecarConfig
+
+    shape = {"characteristic": "rail_voltage", "guardband_pct": 5}
+
+    MeasurementLimitConfig.model_validate(shape)
+    SidecarConfig.model_validate({"limits": {"rail_voltage": shape}})
 
 
 # ── Targeted guards for the specific stale tokens this branch removed ─────
@@ -82,29 +131,114 @@ def test_no_deleted_sequence_schema_refs_in_mcp() -> None:
         assert "yaml_type='sequence'" not in text, f"deleted 'sequence' schema ref in {py.name}"
 
 
-# ── The refs index and the refs files must not diverge ────────────────────
+# ── Every skill dir is spec-valid ───────────────────────────────────────────
 
 
-def test_refs_index_matches_refs_files() -> None:
-    """Every `litmus refs show <topic>` named in an AI surface must resolve to
-    a real refs/*.md file, and every refs file must be indexed in the generated
-    instructions — so an agent can discover every card and never gets a dead
-    pointer."""
-    import re
-
-    real_topics = {p.stem for p in (_SKILLS / "refs").glob("*.md")}
-
-    referenced: set[str] = set()
-    for md in _SKILLS.rglob("*.md"):
-        for m in re.finditer(r"litmus refs show ([a-z0-9_|\\ -]+)", md.read_text()):
-            referenced |= {t.strip() for t in m.group(1).replace("\\", "").split("|")}
-    referenced = {t for t in referenced if t and " " not in t}
-
-    dead = referenced - real_topics
-    assert not dead, f"AI surfaces point at nonexistent ref topics: {sorted(dead)}"
-
-    template = (_SKILLS / "templates" / "project-instructions.md").read_text()
-    unindexed = {t for t in real_topics if f"litmus refs show {t}" not in template}
-    assert not unindexed, (
-        f"refs exist but aren't indexed in project-instructions.md: {sorted(unindexed)}"
+def test_exactly_eleven_skills_named_correctly() -> None:
+    names = {p.name for p in _SKILL_DIRS}
+    assert names == _EXPECTED_SKILL_NAMES, (
+        f"skill dirs drifted from the expected 11: missing={_EXPECTED_SKILL_NAMES - names}, "
+        f"extra={names - _EXPECTED_SKILL_NAMES}"
     )
+    for name in names:
+        assert _SKILL_NAME_RE.match(name), f"skill dir {name!r} doesn't match ^litmus-[a-z-]+$"
+
+
+@pytest.mark.parametrize("skill_dir", _SKILL_DIRS, ids=lambda p: p.name)
+def test_skill_md_is_spec_valid(skill_dir: Path) -> None:
+    """Every `SKILL.md` has frontmatter `name` == its dir name, a non-empty
+    `description`, and a body under 500 lines (skills are meant to be read
+    in full by an agent, not skimmed)."""
+    md = skill_dir / "SKILL.md"
+    text = md.read_text()
+    frontmatter = _parse_frontmatter(text)
+
+    assert frontmatter.get("name") == skill_dir.name, (
+        f"{md}: frontmatter name {frontmatter.get('name')!r} != dir name {skill_dir.name!r}"
+    )
+    assert frontmatter.get("description"), f"{md}: frontmatter description is empty or missing"
+
+    line_count = len(text.splitlines())
+    assert line_count < 500, f"{md}: {line_count} lines, must be < 500"
+
+
+# ── No dead tokens anywhere under skills/ ───────────────────────────────────
+
+_DEAD_TOKEN_PATTERNS: dict[str, re.Pattern[str]] = {
+    "deleted 'litmus refs' CLI": re.compile(r"litmus refs\b"),
+    "phantom 'logger' fixture": re.compile(r"\blogger\b"),
+    "removed in_* prefixed column": re.compile(r"\bin_[a-z][a-z0-9_]*\b"),
+    "removed out_* prefixed column": re.compile(r"\bout_[a-z][a-z0-9_]*\b"),
+    "pre-rename 'slot' terminology": re.compile(r"\bslot\b"),
+    "deleted monolith skill name": re.compile(r"name:\s*litmus-skills\b"),
+}
+
+
+def _all_skill_md_files() -> list[Path]:
+    files: list[Path] = []
+    for skill_dir in _SKILL_DIRS:
+        files.append(skill_dir / "SKILL.md")
+        refs_dir = skill_dir / "references"
+        if refs_dir.exists():
+            files.extend(sorted(refs_dir.rglob("*.md")))
+    return files
+
+
+_ALL_SKILL_MD = _all_skill_md_files()
+
+
+@pytest.mark.parametrize("md", _ALL_SKILL_MD, ids=lambda p: str(p.relative_to(_SKILLS)))
+def test_no_dead_tokens_in_skill_files(md: Path) -> None:
+    text = md.read_text()
+    for label, pattern in _DEAD_TOKEN_PATTERNS.items():
+        m = pattern.search(text)
+        assert m is None, f"{md.relative_to(_SKILLS)}: {label} (found {m and m.group(0)!r})"
+
+
+# ── Every cited `litmus docs show <path>` must resolve ──────────────────────
+
+_DOCS_SHOW_RE = re.compile(r"litmus docs show\s+([a-zA-Z0-9_/-]+)")
+
+
+def _cited_doc_paths() -> list[tuple[Path, str]]:
+    cites: list[tuple[Path, str]] = []
+    for md in _ALL_SKILL_MD:
+        for m in _DOCS_SHOW_RE.finditer(md.read_text()):
+            cites.append((md, m.group(1)))
+    return cites
+
+
+_CITED_DOC_PATHS = _cited_doc_paths()
+
+
+@pytest.mark.parametrize(
+    "md_and_path",
+    _CITED_DOC_PATHS,
+    ids=lambda t: f"{t[0].relative_to(_SKILLS)}::{t[1]}",
+)
+def test_cited_doc_paths_resolve(md_and_path: tuple[Path, str]) -> None:
+    """Every `litmus docs show <path>` cited from a skill must resolve to a
+    real shipped doc page, via the same resolver `litmus docs show` itself
+    uses (not a hardcoded `litmus/_docs` guess) — so a skill citing a
+    nonexistent page fails CI instead of dead-ending an agent at runtime."""
+    from litmus.cli.docs_cmd import KNOWN_SECTIONS, _docs_dir
+
+    md, path = md_and_path
+    root = _docs_dir()
+    rel = path if path.endswith(".md") else f"{path}.md"
+    top_section = rel.split("/", 1)[0]
+    doc_path = root / rel
+
+    assert top_section in KNOWN_SECTIONS, (
+        f"{md.relative_to(_SKILLS)} cites {path!r} — top-level section "
+        f"{top_section!r} isn't a known docs section {KNOWN_SECTIONS}"
+    )
+    assert doc_path.exists(), (
+        f"{md.relative_to(_SKILLS)} cites nonexistent doc page: {path!r} (resolved {doc_path})"
+    )
+
+
+def test_at_least_one_doc_citation_found() -> None:
+    """Sanity check on the scanner itself: skills reference shipped docs
+    heavily — if this drops to zero, the citation regex broke, not the docs."""
+    assert len(_CITED_DOC_PATHS) > 5

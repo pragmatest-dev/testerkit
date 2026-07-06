@@ -12,6 +12,7 @@ Author test code and run it — limits, sweeps, retries, traceability, operator 
 - [Multi-UUT testing](multi-uut-testing.md) — run multiple UUTs in parallel, with shared instruments
 - [Measurement traceability](traceability.md) — UUT / part / pin / instrument identity captured automatically
 - [Operator prompts](operator-prompts.md) — pause a test for operator input with the `litmus_prompts` marker and `prompt` fixture
+- [Build a custom operator UI page](custom-operator-ui.md) — reuse the shared layout primitives and live-channel bindings to add your own NiceGUI page
 
 ## See also
 

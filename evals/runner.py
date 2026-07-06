@@ -1,10 +1,10 @@
 """Model-in-loop eval runner — dev tooling, NOT part of the litmus package.
 
-For each task, invokes an AI to generate the test into a throwaway project dir,
-then grades it deterministically (grader.py). Reports per-task pass-rate over N
-runs. The default backend is **Claude Code headless** (`claude -p`), which runs
-under your existing Max/Pro subscription — no API key, no per-call billing (it
-draws against subscription rate limits, so keep N small).
+For each task, invokes an AI to generate the candidate into a throwaway project
+dir, then grades it deterministically (grader.py). Reports per-task pass-rate
+over N runs. The default backend is **Claude Code headless** (`claude -p`),
+which runs under your existing Max/Pro subscription — no API key, no per-call
+billing (it draws against subscription rate limits, so keep N small).
 
 The platform never calls an LLM; this harness does, and lives outside src/litmus.
 
@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -36,42 +37,72 @@ from grader import grade  # noqa: E402
 from tasks import TASKS  # noqa: E402
 
 _REPO = Path(__file__).resolve().parent.parent
-_SKILL_DIRS = (
-    _REPO / "src" / "litmus" / "skills" / "workflow",
-    _REPO / "src" / "litmus" / "skills" / "refs",
-)
+_SKILLS_ROOT = _REPO / "src" / "litmus" / "skills"
 
 
 def _skill_context(task) -> str:
-    parts = []
+    """Load a task's skill as model-augmentation context.
+
+    Skills live at ``src/litmus/skills/<skill>/SKILL.md``. If the skill dir (or
+    its SKILL.md) doesn't exist — e.g. ``litmus-interactive`` before it ships —
+    this returns "" and the task still runs, just vanilla-only.
+    """
+    skill_md = _SKILLS_ROOT / task.skill / "SKILL.md"
+    if not skill_md.exists():
+        return ""
+    parts = [f"# {task.skill}\n\n{skill_md.read_text()}"]
     for ref in task.context_refs:
-        for base in _SKILL_DIRS:
-            f = base / f"{ref}.md"
-            if f.exists():
-                parts.append(f"# {ref}\n\n{f.read_text()}")
-                break
+        f = _SKILLS_ROOT / task.skill / "references" / f"{ref}.md"
+        if f.exists():
+            parts.append(f"# {task.skill}/references/{ref}\n\n{f.read_text()}")
     return "\n\n---\n\n".join(parts)
 
 
 def _prompt(task, with_skill: bool) -> str:
-    ctx = (
-        ("\n\nUse this Litmus test-writing guide:\n\n" + _skill_context(task)) if with_skill else ""
-    )
-    return (
-        "You are writing a hardware test with Litmus (a pytest-native framework).\n"
-        f"Task: {task.prompt}\n"
-        "Write the necessary file(s) into the current directory. Do the SMALLEST "
-        "thing that satisfies the request — do not add configuration the task "
-        f"doesn't need.{ctx}"
-    )
+    skill_text = _skill_context(task) if with_skill else ""
+    # Missing skill dir (e.g. a skill not shipped yet) -> run vanilla, no
+    # dangling "use this guide" header pointing at nothing.
+    ctx = ("\n\nUse this Litmus skill guide:\n\n" + skill_text) if skill_text else ""
+    if task.expect_cli:
+        body = (
+            "You are answering a question about existing Litmus test data using "
+            "the real `litmus` CLI (or an equivalent MCP tool) — do not write a "
+            "test.\n"
+            f"Task: {task.prompt}\n"
+            "Write the exact command you would run into a file named "
+            "`answer.txt` in the current directory (one command, nothing else)."
+        )
+    elif task.validate_yaml:
+        body = (
+            f"You are authoring Litmus {task.validate_yaml} configuration YAML.\n"
+            f"Task: {task.prompt}\n"
+            f"Write the YAML file(s) into the current directory's "
+            f"{task.validate_yaml}s/ folder. Do the SMALLEST thing that "
+            "satisfies the request — do not add configuration the task "
+            "doesn't need."
+        )
+    else:
+        body = (
+            "You are writing a hardware test with Litmus (a pytest-native framework).\n"
+            f"Task: {task.prompt}\n"
+            "Write the necessary file(s) into the current directory. Do the SMALLEST "
+            "thing that satisfies the request — do not add configuration the task "
+            "doesn't need."
+        )
+    return body + ctx
 
 
-def _generate(prompt: str, project: Path, model) -> None:
-    """Drive Claude Code headless to write the candidate into `project`."""
+def _generate(prompt: str, project: Path, model) -> str:
+    """Drive Claude Code headless to write the candidate into `project`.
+
+    Returns the model's captured stdout+stderr so the runner can persist it as
+    `.eval_response.txt` for CLI-answer tasks (grader.py's structural check).
+    """
     cmd = ["claude", "-p", prompt, "--dangerously-skip-permissions"]
     if model:
         cmd += ["--model", model]
-    subprocess.run(cmd, cwd=str(project), capture_output=True, text=True, timeout=300)
+    proc = subprocess.run(cmd, cwd=str(project), capture_output=True, text=True, timeout=300)
+    return proc.stdout + "\n" + proc.stderr
 
 
 def run(task, n: int, with_skill: bool, model):
@@ -79,7 +110,8 @@ def run(task, n: int, with_skill: bool, model):
     for i in range(n):
         proj = Path(tempfile.mkdtemp(prefix=f"eval_{task.id}_{i}_"))
         try:
-            _generate(_prompt(task, with_skill), proj, model)
+            reply = _generate(_prompt(task, with_skill), proj, model)
+            (proj / ".eval_response.txt").write_text(reply)
             results.append(grade(proj, task))
         finally:
             shutil.rmtree(proj, ignore_errors=True)
@@ -101,16 +133,29 @@ def main() -> int:
 
     cond = "vanilla" if a.vanilla else "skill-augmented"
     print(f"condition={cond}  n={a.n}  model={a.model or 'default'}\n")
+
+    per_skill_ok: dict = defaultdict(int)
+    per_skill_total: dict = defaultdict(int)
     total_ok = total = 0
     for t in tasks:
+        if t.manual:
+            print(f"{t.id:26s} SKIPPED ({t.skip_reason or 'manual task'})")
+            continue
         rs = run(t, a.n, not a.vanilla, a.model)
         ok = sum(r.ok for r in rs)
         total_ok += ok
         total += len(rs)
-        print(f"{t.id:20s} {ok}/{len(rs)} pass")
+        per_skill_ok[t.skill] += ok
+        per_skill_total[t.skill] += len(rs)
+        print(f"{t.id:26s} [{t.skill}] {ok}/{len(rs)} pass")
         for r in rs:
             if not r.ok:
                 print("   " + r.summary().replace("\n", "\n   "))
+
+    print("\nPer-skill:")
+    for skill in sorted(per_skill_total):
+        print(f"  {skill:20s} {per_skill_ok[skill]}/{per_skill_total[skill]} pass")
+
     print(f"\nTOTAL {total_ok}/{total}")
     return 0
 

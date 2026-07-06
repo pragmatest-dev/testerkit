@@ -1,0 +1,9 @@
+id: bench_01
+name: Bench 01
+instruments:
+  psu:
+    type: psu
+    mock: true
+  dmm:
+    type: dmm
+    mock: true

@@ -1,8 +1,8 @@
-# Litmus test-writing evals
+# Litmus AI-skill evals
 
-Measures whether the AI-facing surfaces (the skills, refs, and generated
-`CLAUDE.md`) actually lead a generative AI to produce **correct, right-sized**
-Litmus tests — not just plausible-looking ones.
+Measures whether the AI-facing surfaces (the 11 skills at
+`src/litmus/skills/<name>/SKILL.md`) actually lead a generative AI to produce
+**correct, right-sized** Litmus artifacts — not just plausible-looking ones.
 
 This is **dev tooling**. It lives outside `src/litmus` and calls a model itself;
 the Litmus platform never calls an LLM.
@@ -11,27 +11,47 @@ the Litmus platform never calls an LLM.
 
 Two pieces:
 
-1. **`grader.py` — the trusted core (deterministic).** Given the files an AI
-   produced for a task, it *runs* them and checks:
+1. **`grader.py` — the trusted core (deterministic).** Given the files (and
+   captured response) an AI produced for a task, it checks whichever
+   dimensions the task needs:
    - **collects / passes** — real `pytest` run in an isolated project (with
-     `--mock-instruments` where the rung needs it);
+     `--mock-instruments` / `--test-phase=...` / extra env where the task
+     needs it) — most tasks (writing a test) are graded this way;
    - **sidecar valid** — any `<test>.yaml` validates against litmus's own
-     `SidecarConfig` (so the grader can't drift from the real schema);
+     `SidecarConfig`, which also exercises `MeasurementLimitConfig` for any
+     guardband-shaped (`{characteristic, guardband_pct}`) limit entry;
+   - **station / part valid** — for scaffold tasks (`validate_yaml="station"`
+     / `"part"`), the emitted `stations/*.yaml` / `parts/*.yaml` validates
+     against the real `StationConfig` / `Part` model instead of running
+     pytest at all;
+   - **cli** — for CLI-answer tasks (`expect_cli=...`), a structural check
+     that the candidate's response/files literally contain the expected
+     `litmus <subcommand>` invocation, not prose describing one;
    - **minimal** — no over-scaffolding (no station/part/profile YAML, no
      `psu`/`dmm` fixtures below the rung that needs them);
    - **negative control** — a paired out-of-band variant must *fail*, proving the
      test judges instead of rubber-stamping.
 
-2. **`runner.py` — the model in the loop.** For each task it asks an AI to write
-   the test into a throwaway dir, then grades it. Runs each task N times and
-   reports a pass-rate. Supports **vanilla vs skill-augmented** (run both to
-   measure the lift the skills provide — the method Anthropic's skill guidance
-   recommends).
+2. **`runner.py` — the model in the loop.** For each task it asks an AI (via
+   `claude -p`, headless) to write the candidate into a throwaway dir, then
+   grades it. Runs each task N times and reports a pass-rate, plus a
+   **per-skill** rollup. Supports **vanilla vs skill-augmented** — with the
+   skill, the augmentation context is that task's real
+   `src/litmus/skills/<skill>/SKILL.md` (run both to measure the lift the
+   skill provides — the method Anthropic's skill guidance recommends). If a
+   task's skill dir doesn't exist yet, the augmentation context is empty and
+   the task simply runs vanilla instead of erroring.
 
-`tasks.py` is the task set as plain data — the start-simple ladder (Rung 0
+`tasks.py` is the task set as plain data, one representative task per skill
+(11 skills): the `litmus-tests` set is the original start-simple ladder (Rung 0
 record-only → Rung 1 sidecar → Rung 2 mock instruments) plus over-engineering
-traps ("just log this" must *not* scaffold a station). Kept as data so a future
-optimizer (DSPy/GEPA) can use it as a trainset.
+traps ("just log this" must *not* scaffold a station); every other skill
+(`litmus-mocks`, `litmus-stations`, `litmus-parts`, `litmus-profiles`,
+`litmus-sites`, `litmus-capture`, `litmus-analysis`, `litmus-debug`,
+`litmus-interactive`, `litmus-datasheets`) gets one task spanning its trigger.
+`litmus-datasheets`' task is `manual=True` (needs a real datasheet PDF fixture)
+and is skipped by the automated runner. Kept as data so a future optimizer
+(DSPy/GEPA) can use it as a trainset.
 
 ## Run it
 
@@ -64,8 +84,13 @@ point at any other model/provider; the tasks and grader are backend-agnostic.
 - **Negative controls are best-effort** — they inject an out-of-band value by
   string replacement, so they're conclusive for typical scalar tests and
   `inconclusive` (`neg=?`) when they can't find a value to mutate.
-- **Not yet graded:** right-sizing for *non-test* requests (a "show me my last
-  run" prompt should yield a CLI command, and an ambiguous prompt should yield a
-  *question*, not code). Those need a structural grader — a documented next step.
+- **CLI-answer grading is structural, not semantic** — `expect_cli` only greps
+  for the literal `litmus <subcommand>` substring in the candidate's response/
+  files; it doesn't check the flags are right for the question asked. Good
+  enough to catch "answered with prose instead of the tool," not to catch a
+  subtly wrong filter.
+- **Not yet graded:** an ambiguous prompt should yield a *question*, not code —
+  no task currently exercises that; a future structural grader could check the
+  candidate asked rather than guessed.
 - **Next:** wrap the same grader as a DSPy/GEPA metric to *optimize* the skill
   text against these tasks, once the pass-rates justify it.
