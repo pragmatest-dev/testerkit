@@ -19,6 +19,7 @@ from pathlib import Path
 
 import duckdb
 
+from litmus.data._daemon_lifecycle import daemon_duckdb_config
 from litmus.data._duckdb_flight_server import (
     shutdown_flight_server_in_daemon,
     start_flight_server_in_daemon,
@@ -40,7 +41,7 @@ def daemon_run(files_dir: Path) -> None:
     # Persistent catalog (``_index.duckdb``): survives a restart and is
     # brought current by an incremental sidecar scan, vs. the old in-memory
     # rebuild-from-every-sidecar. Blobs + sidecars stay the durable truth.
-    conn = duckdb.connect(str(files_dir / "_index.duckdb"))
+    conn = duckdb.connect(str(files_dir / "_index.duckdb"), config=daemon_duckdb_config())
     ensure_schema(conn)
     scan_sidecars(conn, files_dir)
     write_lock = threading.Lock()

@@ -25,6 +25,8 @@ from typing import Any
 
 import duckdb
 
+from litmus.data._daemon_lifecycle import daemon_duckdb_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -124,7 +126,7 @@ def reset_index(
     so this stays store-agnostic.
     """
     discard_index(index_path)
-    conn = duckdb.connect(str(index_path))
+    conn = duckdb.connect(str(index_path), config=daemon_duckdb_config())
     ensure_schema(conn)
     return conn
 
@@ -176,7 +178,7 @@ def open_index(
     is_fresh = not index_path.exists()
     conn: duckdb.DuckDBPyConnection | None = None
     try:
-        conn = duckdb.connect(str(index_path))
+        conn = duckdb.connect(str(index_path), config=daemon_duckdb_config())
         ensure_schema(conn)
     except duckdb.Error as exc:
         # Path 1 — unreadable file. Self-heal only when BOTH conditions hold;

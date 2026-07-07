@@ -15,16 +15,21 @@ from __future__ import annotations
 
 import atexit
 import json
+import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
 import time
 import warnings
+import zlib
 from pathlib import Path
 from typing import Any
 
 from filelock import FileLock
+
+logger = logging.getLogger(__name__)
 
 # 300s (5 min) so daemons survive routine UI page switches. The
 # previous 10s was timed to die exactly between operator
@@ -44,8 +49,77 @@ _POLL_INTERVAL = 2  # seconds between daemon ref-count checks
 # surfaces real spawn failures (corrupt index, unbindable port).
 _SPAWN_TIMEOUT = float(os.environ.get("LITMUS_DAEMON_SPAWN_TIMEOUT", "30"))
 
+# Default number of CPUs a daemon process pins itself to. gRPC's pollers +
+# EventEngine workers, Arrow's thread pool, and DuckDB's executor all size
+# themselves to the visible core count, so an unpinned Flight daemon on a
+# 24-core box spawns ~96 threads. Since every store × directory is its own
+# daemon, the aggregate trips WSL's pids cgroup at ~30 daemons. Query daemons
+# are I/O-bound, so a small core budget costs no meaningful throughput.
+# Override (or disable with <= 0) via ``LITMUS_DAEMON_CPU_CAP``.
+_CPU_CAP = int(os.environ.get("LITMUS_DAEMON_CPU_CAP", "4"))
+
 # Track acquired managers so atexit/signal can release them all
 _acquired: dict[str, DaemonManager] = {}
+
+
+def _taskset_prefix(dir_key: str) -> list[str]:
+    """Return a ``taskset -c <cpus>`` command prefix that pins a spawned daemon
+    to a small core set, or ``[]`` when capping is off/unsupported/unneeded.
+
+    Prepended to the spawn command rather than set from inside the daemon:
+    gRPC, Arrow, and DuckDB all read the core count when they are *imported*,
+    and importing ``litmus`` already pulls in pyarrow — so affinity has to be
+    set before the Python process starts. ``taskset`` does that and, unlike a
+    fork-time ``preexec_fn``, is safe to use from a multithreaded parent. It
+    ``exec``s into the command, so the ``-m <module> <dir>`` tail (and thus
+    daemon process-matching) is preserved.
+
+    Each Flight daemon otherwise sizes its gRPC pollers + EventEngine workers,
+    Arrow pool, and DuckDB executor to the full core count (~96 threads on a
+    24-core box); since every store × directory is its own daemon, the
+    aggregate trips WSL's pids cgroup at ~30 daemons. Query daemons are
+    I/O-bound, so a small core budget costs no meaningful throughput.
+
+    ``dir_key`` (the daemon's directory) offsets the chosen core window by a
+    stable hash so different projects' daemons spread across cores instead of
+    all piling onto cpus 0..cap-1. ``LITMUS_DAEMON_CPU_CAP`` overrides the cap;
+    <= 0 disables it.
+    """
+    if _CPU_CAP <= 0 or not hasattr(os, "sched_getaffinity"):
+        return []
+    taskset = shutil.which("taskset")
+    if taskset is None:
+        return []
+    try:
+        available = sorted(os.sched_getaffinity(0))
+    except OSError:
+        return []
+    n = len(available)
+    if _CPU_CAP >= n:
+        return []  # already at/under the cap — don't restrict
+    offset = zlib.crc32(dir_key.encode()) % n
+    chosen = sorted({available[(offset + i) % n] for i in range(_CPU_CAP)})
+    return [taskset, "-c", ",".join(str(c) for c in chosen)]
+
+
+def daemon_duckdb_config() -> dict[str, Any]:
+    """DuckDB ``connect(config=...)`` sizing the executor pool to the process's
+    *allowed* cores — for a daemon's long-lived index connection.
+
+    DuckDB defaults its thread pool to ``hardware_concurrency()`` (the whole
+    machine), ignoring CPU affinity — so a daemon pinned by :func:`_taskset_prefix`
+    to a few cores otherwise spawns ~24 oversubscribed executor threads on those
+    cores. Sizing to ``sched_getaffinity`` drops that to the pin with no
+    throughput loss (you can't outrun the cores you're pinned to). It also
+    auto-scopes: a client that opens the same index unpinned reads its full core
+    count, so only daemons shrink. No-op on platforms without ``sched_getaffinity``.
+    """
+    if not hasattr(os, "sched_getaffinity"):
+        return {}
+    try:
+        return {"threads": max(1, len(os.sched_getaffinity(0)))}
+    except OSError:
+        return {}
 
 
 def _daemon_log_tail(log_path: Path, n: int = 25) -> str:
@@ -365,7 +439,10 @@ class DaemonManager:
         ready_file = self._dir / self._ready_name
         ready_file.unlink(missing_ok=True)
 
-        cmd = self._spawn_cmd()
+        # Prefix with ``taskset`` (when available) so gRPC/Arrow/DuckDB size
+        # their thread pools to a small core budget — they read the core count
+        # at import, before any daemon code (or even ``import litmus``) runs.
+        cmd = _taskset_prefix(str(self._dir)) + self._spawn_cmd()
         log_path = self._dir / "_daemon.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_handle = open(log_path, "ab", buffering=0)

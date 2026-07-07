@@ -29,6 +29,7 @@ import duckdb
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
+from litmus.data._daemon_lifecycle import daemon_duckdb_config
 from litmus.data.channels.models import (
     ChannelDescriptor,
     ChannelSample,
@@ -192,7 +193,7 @@ class ChannelIndex:
         daemon's persistent-index + in-memory-overlay split.
         """
         index_path = self._channels_dir / "_index.duckdb"
-        self._index_db = duckdb.connect(str(index_path))
+        self._index_db = duckdb.connect(str(index_path), config=daemon_duckdb_config())
         self._ensure_schema(self._index_db)
         # Ephemeral live overlay: attached :memory: so it's visible to every
         # child read cursor (a register()'d temp view would not be), yet not
