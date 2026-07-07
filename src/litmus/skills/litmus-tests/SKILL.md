@@ -23,6 +23,16 @@ Ask: **is this value a Measurement?** (the TestStand distinction)
 `measure` and `verify` share a signature — start with `measure`, add a limit and
 change one word to `verify` when a spec exists. If unsure whether it's judged, ASK.
 
+**`observe` attaches raw data or context to a measurement** — a supporting reading
+(a temperature), a captured waveform, an image, a "did X happen" flag. Reach for it
+whenever you want to keep evidence alongside a result; it lands as an output on the
+run. Want that evidence **live and continuous** — samples over time, not one captured
+value? That's `stream(...)`, the live sibling of `observe`; it lands as a channel (see
+`litmus-capture`). The **one** thing NOT to `observe` is an *input*: a sweep param (the
+`vin: float` a test takes from `litmus_sweeps`) or an instrument setpoint is already
+recorded as an input automatically, so `observe("vin", vin)` just duplicates it into
+the outputs lane.
+
 ## 2. Write the smallest test — zero config
 
 No station, no YAML:

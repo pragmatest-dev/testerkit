@@ -251,6 +251,8 @@ Initialize a new Litmus project.
 | `--starter`/`--no-starter` | `flag` | Generate starter example files (prompts if not specified) |
 | `--tier` | `{bringup, bench, factory}` | Scaffold tier. 'bringup' = Tier 0/1 (MagicMock fixtures, one test, one sidecar, no station/part YAML). 'bench' = Tier 2 starter (equivalent to --starter). 'factory' = Tier 3/4 (bench + profiles). |
 | `--ai` | `{claude-code, claude-desktop, copilot}` | Set up AI tool integration (MCP server + project instructions) |
+| `--no-input` | `flag` | Run non-interactively: scaffold with defaults and never prompt (skips AI setup unless --ai is given). |
+| `--no-ai` | `flag` | Skip AI tool integration. |
 | `--name` | `text` | Project name (overrides auto-detect) |
 
 ### `litmus instrument` (group) {#cli-instrument}

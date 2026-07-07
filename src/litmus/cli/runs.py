@@ -81,7 +81,9 @@ def runs(
 
     try:
         with RunsQuery(_data_dir=data_dir) as q:
-            test_runs = q.list_recent(limit=limit, since=since_utc, until=until_utc)
+            test_runs = q.list_recent(
+                limit=limit, since=since_utc, until=until_utc, include_incomplete=True
+            )
     except FlightPermanentError as exc:
         raise click.ClickException(str(exc)) from None
 
@@ -109,7 +111,7 @@ def runs(
         uut = run.uut_serial_number or ""
         project = run.project_name or ""
         station = run.station_id or ""
-        outcome = run.outcome or ""
+        outcome = run.outcome or "RUNNING"
         click.echo(
             f"{run_id:<10} {started:<26} {uut:<15} {project:<20} {station:<20} {outcome:<10}"
         )

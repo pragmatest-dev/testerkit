@@ -127,8 +127,12 @@ def _route_cleanup(request: pytest.FixtureRequest) -> Iterator[None]:
     Ensures all routes activated via RoutedProxy during a test are
     deactivated before the next test runs.
     """
-    yield
+    # Resolve the session route manager BEFORE the yield: requesting a
+    # fixture during teardown is deprecated (PytestRemovedIn10Warning).
+    # ``_route_manager`` is session-scoped, so this is a one-time create
+    # and teardown reuses the same reference.
     rm = safe_get_session_fixture(request, "_route_manager")
+    yield
     if rm is not None:
         rm.deactivate_all()
 

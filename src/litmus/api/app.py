@@ -290,7 +290,7 @@ def create_api_router() -> APIRouter:
 
         q = RunsQuery(_data_dir=data_dir)
         try:
-            rows = q.list_recent(limit=limit)
+            rows = q.list_recent(limit=limit, include_incomplete=True)
         finally:
             q.close()
         return {"runs": [r.model_dump(exclude={"file_path"}) for r in rows]}

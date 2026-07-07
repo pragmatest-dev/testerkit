@@ -393,7 +393,10 @@ def _list_runs(project: str) -> list[dict[str, Any]]:
 
     q = RunsQuery(_data_dir=_resolve_data_dir(project))
     try:
-        return [r.model_dump(exclude={"file_path"}) for r in q.list_recent(limit=50)]
+        return [
+            r.model_dump(exclude={"file_path"})
+            for r in q.list_recent(limit=50, include_incomplete=True)
+        ]
     finally:
         q.close()
 
@@ -1735,7 +1738,12 @@ def runs_tool(
                 return {"error": "run_id is required when action='get'"}
             run = q.get(run_id)
             return {"run": run.model_dump(mode="json") if run else None}
-        return {"runs": [r.model_dump(mode="json") for r in q.list_recent(limit=limit)]}
+        return {
+            "runs": [
+                r.model_dump(mode="json")
+                for r in q.list_recent(limit=limit, include_incomplete=True)
+            ]
+        }
     finally:
         q.close()
 

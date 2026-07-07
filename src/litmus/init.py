@@ -352,7 +352,16 @@ to the global store.
         schemas_dir = vscode_dir / "schemas"
         try:
             schema_paths = export_schemas(schemas_dir)
-            settings = {"yaml.schemas": vscode_yaml_schemas()}
+            # yaml.schemas → autocomplete/validation on the config YAML; the
+            # pytest keys light up the VS Code Test Explorer on first open
+            # (litmus tests are pytest, and litmus_sweeps fans out to real
+            # parametrize items). No interpreter path — VS Code auto-detects
+            # a local ``.venv`` or the Codespace's system Python.
+            settings = {
+                "yaml.schemas": vscode_yaml_schemas(),
+                "python.testing.pytestEnabled": True,
+                "python.testing.pytestArgs": ["tests"],
+            }
             vscode_dir.mkdir(exist_ok=True)
             settings_path.write_text(json.dumps(settings, indent=2) + "\n")
             created_files.append(".vscode/settings.json")
@@ -585,32 +594,27 @@ def _create_starter_files(path: Path) -> list[str]:
     # Create tests/test_example.py
     test_file = path / "tests" / "test_example.py"
     if not test_file.exists():
-        test_content = '''"""Example test demonstrating Litmus basics.
+        test_content = '''"""Verify a 3.3 V rail across a range of input voltages.
 
-The test code focuses on WHAT to do. The vector sweep and limit live
-in the sidecar ``test_example.yaml`` next to this file — change them
-without touching code.
+``litmus_sweeps`` fans this test out at collection into one runnable item
+per input voltage — ``test_output_voltage[3.3]`` / ``[5.0]`` / ``[5.5]`` in
+the VSCode Test Explorer, and one measurement row per vector in the
+results. Each ``vin`` value is recorded as that vector's input condition;
+the pass/fail band comes from the ``output_voltage`` characteristic in
+parts/example_part.yaml (3.3 V ± 2%), so no limit is hardcoded here.
 
-Run with: pytest
-(All defaults configured in pyproject.toml)
-
-Instrument fixtures (psu, dmm) are auto-registered from station config.
-The ``context`` and ``verify`` fixtures are provided by the Litmus
-pytest plugin.
+Run with: pytest  (defaults live in pyproject.toml).
+``psu`` / ``dmm`` come from the station config; ``context`` and ``verify``
+are provided by the Litmus pytest plugin.
 """
 
+import pytest
 
-def test_output_voltage(context, psu, dmm, verify, observe) -> None:
-    """Verify output voltage is within spec; record the input setpoint too.
 
-    output_voltage's limit (test_example.yaml) points at the
-    ``output_voltage`` characteristic, and fixtures/example_fixture.yaml
-    wires that characteristic's pin to a station instrument — together
-    they auto-derive a fixture connection, so the measurement iterates
-    ``context.connections`` to consume it.
-    """
-    vin = context.get_param("vin", 5.0)
-    observe("vin", vin, unit="V")
+@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0, 5.5]}])
+@pytest.mark.litmus_limits(output_voltage={"characteristic": "output_voltage"})
+def test_output_voltage(context, psu, dmm, verify, vin: float) -> None:
+    """Drive the input rail to ``vin``; confirm the 3.3 V output holds within spec."""
     psu.set_voltage(vin)
     psu.enable_output()
     for _ in context.connections:
@@ -618,39 +622,6 @@ def test_output_voltage(context, psu, dmm, verify, observe) -> None:
 '''
         test_file.write_text(test_content)
         created_files.append("tests/test_example.py")
-
-    # Create tests/test_example.yaml (sidecar referenced from the test docstring)
-    sidecar_file = path / "tests" / "test_example.yaml"
-    if not sidecar_file.exists():
-        sidecar_text = (
-            "# Sidecar for tests/test_example.py.\n"
-            "#\n"
-            "# Each top-level key (``limits``, ``sweeps``, …) is a Litmus\n"
-            "# marker applied to every test in this module. Per-test\n"
-            "# overrides go under the ``tests:`` tree.\n"
-            "#\n"
-            "# output_voltage's limit references the ``output_voltage``\n"
-            "# characteristic in parts/example_part.yaml instead of a\n"
-            "# hand-computed band. The resolver reads that\n"
-            "# characteristic's own spec band (3.3 V ± 2%) at\n"
-            "# measurement time, so tightening the datasheet spec in the\n"
-            "# part YAML updates the limit here too — no band to keep in\n"
-            "# sync by hand.\n"
-            "#\n"
-            "# fixtures/example_fixture.yaml already wires this\n"
-            "# characteristic's pin (TP_VOUT) to a station instrument, so\n"
-            "# naming the characteristic here auto-derives that fixture\n"
-            "# connection — the test body iterates ``context.connections``\n"
-            "# to consume it (see tests/test_example.py).\n"
-            "\n"
-            "tests:\n"
-            "  test_output_voltage:\n"
-            "    limits:\n"
-            "      output_voltage:\n"
-            "        characteristic: output_voltage\n"
-        )
-        sidecar_file.write_text(sidecar_text)
-        created_files.append("tests/test_example.yaml")
 
     return created_files
 

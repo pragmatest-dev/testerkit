@@ -21,6 +21,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+from litmus.data import runs_duckdb_manager
 from litmus.data._collection_indices import StepKey, assign_indices
 from litmus.data.models import (
     CollectedItem,
@@ -324,6 +325,12 @@ _SESSION_ID_KEY: pytest.StashKey = pytest.StashKey()
 # scoped to this session's run, NOT get_current_run_scope() (which a nested
 # in-process pytester run restores to the OUTER run, finalizing it prematurely).
 _RUN_SCOPE_KEY: pytest.StashKey = pytest.StashKey()
+# The runs materializer daemon's dir for THIS pytest session, so
+# pytest_sessionfinish can release the exact ref acquired in
+# _open_session_for_pytest (never recompute independently — a nested
+# in-process pytester session must release its own acquire, not the
+# outer session's).
+_RUNS_DIR_KEY: pytest.StashKey = pytest.StashKey()
 
 
 def _open_session_for_pytest(session) -> None:
@@ -384,8 +391,25 @@ def _open_session_for_pytest(session) -> None:
         checkpoint_cadence=project.stream.resolve_cadence(project.session.idle_lease_seconds),
     )
     scope.attach_channel_store(channel_store)
+
+    # Acquire the runs materializer daemon on the same data_dir so it
+    # subscribes to the events daemon and materializes runs live during this
+    # pytest session. Without this, nothing launches the runs daemon during a
+    # bare ``pytest`` run — only a reader (``litmus runs`` / RunsQuery) did,
+    # lazily, on its first query. Same acquire pattern as
+    # RunsQuery.__init__ (litmus/analysis/runs_query.py). Launched
+    # unconditionally, same condition as the channel store above (NOT gated
+    # by ``emit_lifecycle``/``is_multi_site_worker()``) — the daemon is a
+    # per-(dir) refcounted singleton, so every site worker acquiring the same
+    # canonical dir is safe as long as each acquire is matched by a release
+    # (see pytest_sessionfinish).
+    runs_dir = data_dir / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    runs_duckdb_manager.acquire(runs_dir)
+
     session.stash[_SESSION_SCOPE_KEY] = scope
     session.stash[_SESSION_ID_KEY] = session_id
+    session.stash[_RUNS_DIR_KEY] = runs_dir
 
 
 def pytest_sessionstart(session):
@@ -950,6 +974,16 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
             cs.close()
         scope.emit_ended()
         scope.close_stores()
+
+    # Release our runs-daemon ref acquired in _open_session_for_pytest. Never
+    # block/wait for `run.materialized` here — the daemon materializes off
+    # the events bus asynchronously and idles down on its own timeout;
+    # blocking pytest exit on it was explicitly rejected. Guarded by the
+    # stash (absent on --collect-only, where no session was opened) so this
+    # never double-releases or releases a ref this session never acquired.
+    runs_dir = session.stash.get(_RUNS_DIR_KEY, None)
+    if runs_dir is not None:
+        runs_duckdb_manager.release(runs_dir)
 
     set_active_instruments({})
     set_instrument_records({})
