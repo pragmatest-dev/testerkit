@@ -160,7 +160,11 @@ async def metrics_page(
 
     def _filter_args() -> tuple:
         return (
-            list(phase_filter.value or []) or None,
+            # Empty phase selection = ALL phases (the query's ``["all"]``
+            # sentinel), not ``None`` — ``None`` means "exclude development",
+            # which surfaces nothing for dev/starter data. Clearing the filter
+            # should widen to everything, not narrow to none.
+            list(phase_filter.value or []) or ["all"],
             list(part_filter.value or []) or None,
             list(station_filter.value or []) or None,
             # since_filter.value / until_filter.value are UTC strings from the
@@ -198,13 +202,16 @@ async def metrics_page(
             outcomes = await run.io_bound(_fetch_run_level_counts, data_dir)
             summary_container.clear()
             _render_run_level_fallback_body(summary_container, outcomes)
-            phase_label = ", ".join(phase_) if phase_ else "production"
-            scope_msg = (
-                f"No {phase_label} runs in the selected window. Metrics are "
-                "per-phase — development is mock / dirty-git data and is "
-                "excluded here. Change the Phase filter (e.g. development) or "
-                "widen the date range."
-            )
+            if phase_ == ["all"]:
+                scope_msg = "No runs in the selected window (all phases). Widen the date range."
+            else:
+                phase_label = ", ".join(phase_) if phase_ else "production"
+                scope_msg = (
+                    f"No {phase_label} runs in the selected window. Metrics are "
+                    "per-phase — development is mock / dirty-git data, excluded "
+                    "unless you clear the Phase filter (= all phases). Change the "
+                    "Phase filter or widen the date range."
+                )
             render_empty_card(trend_chart_container, "Yield trend", scope_msg)
             render_empty_card(
                 time_stats_container,
