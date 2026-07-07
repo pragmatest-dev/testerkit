@@ -10,7 +10,7 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ## [Unreleased]
 
-## [0.3.1] - YYYY-MM-DD
+## [0.3.1] - 2026-07-06
 
 Out-of-the-box: a fresh `litmus init --starter` runs, surfaces live and finished runs
 across every reader, and enables the VS Code Test Explorer with no setup.
