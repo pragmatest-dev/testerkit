@@ -344,31 +344,57 @@ to the global store.
     # Red Hat YAML extension as soon as they open the project.
     vscode_dir = path / ".vscode"
     settings_path = vscode_dir / "settings.json"
-    if not settings_path.exists():
-        import json
+    import json
 
-        from litmus.schema_export import export_schemas, vscode_yaml_schemas
+    from litmus.schema_export import export_schemas, vscode_yaml_schemas
 
-        schemas_dir = vscode_dir / "schemas"
-        try:
-            schema_paths = export_schemas(schemas_dir)
-            # yaml.schemas → autocomplete/validation on the config YAML; the
-            # pytest keys light up the VS Code Test Explorer on first open
-            # (litmus tests are pytest, and litmus_sweeps fans out to real
-            # parametrize items). No interpreter path — VS Code auto-detects
-            # a local ``.venv`` or the Codespace's system Python.
-            settings = {
-                "yaml.schemas": vscode_yaml_schemas(),
-                "python.testing.pytestEnabled": True,
-                "python.testing.pytestArgs": ["tests"],
-            }
+    schemas_dir = vscode_dir / "schemas"
+    try:
+        schema_paths = export_schemas(schemas_dir)
+        # MERGE our keys into any existing settings.json rather than skipping
+        # it — a template repo (e.g. litmus-starter) or the user may already
+        # ship one, and skip-if-exists would silently drop the schema + pytest
+        # wiring so the VS Code Test Explorer never turns on. Every other key
+        # (e.g. ``task.allowAutomaticTasks``) is preserved. yaml.schemas →
+        # config-YAML autocomplete/validation; the pytest keys light up the
+        # Test Explorer (litmus tests are pytest; litmus_sweeps fans out to
+        # real parametrize items). No interpreter path — VS Code auto-detects
+        # a local ``.venv`` or the Codespace's system Python.
+        existing: dict[str, object] | None = {}
+        settings_existed = settings_path.exists()
+        if settings_existed:
+            # Tolerate JSONC (VS Code allows ``//`` comments): drop whole-line
+            # comments before parsing. Comments are lost on rewrite, settings
+            # preserved. If it still won't parse, leave the file untouched
+            # rather than clobber the user's settings.
+            body = "\n".join(
+                ln
+                for ln in settings_path.read_text().splitlines()
+                if not ln.lstrip().startswith("//")
+            )
+            try:
+                parsed = json.loads(body) if body.strip() else {}
+                existing = parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError:
+                existing = None
+        if existing is None:
+            warnings.append(
+                ".vscode/settings.json exists but could not be parsed to merge in the "
+                "schema/pytest settings — left as-is (set python.testing.pytestEnabled "
+                "manually if the Test Explorer is empty)."
+            )
+        else:
+            existing["yaml.schemas"] = vscode_yaml_schemas()
+            existing["python.testing.pytestEnabled"] = True
+            existing["python.testing.pytestArgs"] = ["tests"]
             vscode_dir.mkdir(exist_ok=True)
-            settings_path.write_text(json.dumps(settings, indent=2) + "\n")
-            created_files.append(".vscode/settings.json")
-            for sp in schema_paths:
-                created_files.append(str(sp.relative_to(path)))
-        except (ImportError, OSError) as exc:
-            warnings.append(f"Failed to generate VS Code YAML schemas: {exc}")
+            settings_path.write_text(json.dumps(existing, indent=2) + "\n")
+            if not settings_existed:
+                created_files.append(".vscode/settings.json")
+        for sp in schema_paths:
+            created_files.append(str(sp.relative_to(path)))
+    except (ImportError, OSError) as exc:
+        warnings.append(f"Failed to generate VS Code YAML schemas: {exc}")
 
     # Write station file if instruments were discovered
     if station and station.get("instruments"):
