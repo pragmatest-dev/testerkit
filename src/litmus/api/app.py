@@ -88,9 +88,9 @@ def warm_data_daemons() -> None:
     """
     import logging
 
-    from litmus.data import duckdb_manager as _events_mgr
     from litmus.data import runs_duckdb_manager as _runs_mgr
     from litmus.data.channels import flight_manager as _channels_mgr
+    from litmus.data.event_store import EventStore
     from litmus.data.files import catalog_manager as _files_mgr
 
     logger = logging.getLogger("litmus.api.app")
@@ -110,7 +110,10 @@ def warm_data_daemons() -> None:
     except Exception:  # noqa: BLE001 — best-effort eager acquire
         logger.exception("runs daemon eager acquire failed")
     try:
-        _events_mgr.acquire(events_dir)
+        # Warm the events daemon through the EventStore seam (not the raw
+        # duckdb_manager): get_shared() spawns the daemon AND caches the
+        # thread-flat shared instance the API's read paths reuse.
+        EventStore.get_shared(results)
     except Exception:  # noqa: BLE001
         logger.exception("events daemon eager acquire failed")
     channels_location: str | None = None

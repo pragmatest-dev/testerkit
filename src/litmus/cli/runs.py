@@ -258,60 +258,39 @@ def _read_events_by_id(
     id_prefix: str,
     data_dir: str,
 ) -> tuple[list[dict], str]:
-    """Read events matching an ID prefix from Arrow IPC files.
+    """Read events matching an ID prefix from the durable event store.
 
     Auto-detects whether the prefix matches a run_id or session_id.
     UUIDs never collide, so a prefix match on either column is unambiguous.
 
+    Reads through the ``EventStore`` seam (the durable index) rather than the
+    rotating Arrow IPC outbox: that outbox is bounded to a crash-loss window
+    (event_log.py), so a raw ``events/*.arrow`` scan silently misses events for
+    any run/session older than it — an incomplete export.
+
     Returns:
         (events, matched_column) where matched_column is "run_id" or "session_id".
     """
-    import json as json_mod
+    from litmus.data.event_store import EventStore
 
-    from litmus.data._ipc_writer import read_ipc_batches
+    with EventStore(_data_dir=data_dir) as es:
+        # ``events()`` returns the *parsed* event dicts (JSON payload merged with
+        # writer_key/event_offset) — already the shape ``replay_to_subscriber``
+        # consumes, so no further JSON decoding is needed.
+        rows = es.events()
 
-    events_dir = Path(data_dir) / "events"
-    if not events_dir.exists():
-        return [], ""
+    # ``events()`` orders by ``received_at`` (receipt order), which the
+    # do_put/ingest insert race can scramble relative to emit order. Replay
+    # reconstructs the run hierarchy (RunStarted → steps → RunEnded) and so
+    # needs true emit order — sort by ``(writer_key, event_offset)``, the
+    # writer-stamped sequence that survives that race.
+    rows.sort(key=lambda r: (r.get("writer_key") or "", r.get("event_offset") or 0))
 
-    # First pass: determine which column matches
-    matched_col = ""
-    for arrow_file in sorted(events_dir.rglob("*.arrow")):
-        table = read_ipc_batches(arrow_file)
-        if table is None:
-            continue
-        for col_name in ("run_id", "session_id"):
-            col = table.column(col_name)
-            for i in range(table.num_rows):
-                val = col[i].as_py()
-                if val and val.startswith(id_prefix):
-                    matched_col = col_name
-                    break
-            if matched_col:
-                break
-        if matched_col:
-            break
-
-    if not matched_col:
-        return [], ""
-
-    # Second openly collect all matching events
-    all_events: list[dict] = []
-    for arrow_file in sorted(events_dir.rglob("*.arrow")):
-        table = read_ipc_batches(arrow_file)
-        if table is None:
-            continue
-        col = table.column(matched_col)
-        json_col = table.column("json")
-        for i in range(table.num_rows):
-            val = col[i].as_py()
-            if val and val.startswith(id_prefix):
-                try:
-                    evt = json_mod.loads(json_col[i].as_py())
-                    all_events.append(evt)
-                except (json_mod.JSONDecodeError, TypeError):
-                    continue
-    return all_events, matched_col
+    for matched_col in ("run_id", "session_id"):
+        matched = [r for r in rows if str(r.get(matched_col) or "").startswith(id_prefix)]
+        if matched:
+            return matched, matched_col
+    return [], ""
 
 
 @main.command()
