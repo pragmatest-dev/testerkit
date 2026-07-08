@@ -94,8 +94,9 @@ you're asking for. Reach for:
 - `litmus-mocks` — run without hardware
 - `litmus-profiles` — different limits/behavior per phase (dev vs production)
 - `litmus-sites` — test multiple units in parallel
-- `litmus-capture` — capture/read back waveforms or files
-- `litmus-analysis` — yield / Ppk / query results
+- `litmus-capture` — capture a waveform or file during a test
+- `litmus-data` — read/query/export runs, steps, measurements, channels, files
+- `litmus-analysis` — yield / Ppk / Pareto / trend metrics
 - `litmus-debug` — figure out why a run failed
 - `litmus-interactive` — guided/conversational test-writing on-ramp
 - `litmus-datasheets` — import a datasheet PDF into a catalog entry or part spec
@@ -114,8 +115,11 @@ you're asking for. Reach for:
 - `litmus_runs` / `litmus_steps` / `litmus_metrics` — Runs and steps tables; yield / pareto / ppk / trend / retest / time-loss analytics
 - `litmus_events` / `litmus_sessions` / `litmus_channels` / `litmus_files` — Event log, sessions, channel data, and FileStore artifacts
 
-**Test data** lives under `data/` (Parquet). Prefer the CLI / Query API
-(`litmus runs`, `litmus show <run_id> -f json`) over raw parquet. For ad-hoc DuckDB:
-```sql
-SELECT * FROM 'data/runs/**/*.parquet' WHERE step_name = 'voltage_check'
-```
+**Reading test data** — ALWAYS go through a purpose-built surface: `litmus runs`
+/ `litmus show <run_id> -f json` (CLI), the Query API (`RunsQuery` / `StepsQuery`
+/ `MeasurementsQuery`), or the `litmus_runs` / `litmus_steps` / `litmus_metrics`
+MCP tools. **NEVER read `data/**/*.parquet` or `data/*/_index.*.duckdb`
+directly** — that layout is internal and content-addressed (the fingerprint in
+an index filename is a schema hash that renames on any version bump), so a
+hand-rolled parquet/DuckDB reader breaks silently on upgrade. The `litmus-data`
+skill covers every read surface.

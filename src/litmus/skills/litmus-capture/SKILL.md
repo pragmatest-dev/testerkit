@@ -1,14 +1,14 @@
 ---
 name: litmus-capture
-description: Use when a user wants to capture or read back non-tabular test evidence with Litmus — a waveform, a live sensor feed, a photo, a vendor capture file, a log — anything that isn't a single scalar measurement.
+description: Use when a user wants to capture non-tabular test evidence during a test with Litmus — record a waveform, a live sensor feed, a photo, a vendor capture file, or a log. This is the write side; reading any of it back afterwards is litmus-data.
 ---
 
 # Capturing evidence (channels + files)
 
 Picking the capture **verb** (`observe` vs `stream` vs a file write) is a
 `litmus-tests` decision — see its verb table. This skill owns what happens
-once you've picked a store: the write mechanics and how to read the data
-back.
+once you've picked a store: the write mechanics. Reading any of it back
+afterwards is `litmus-data`.
 
 ## 1. Which store?
 
@@ -86,22 +86,12 @@ with litmus.files.stream("burn_log", format="jsonl") as log:
 the active session); `run_id` only lands in the sidecar when written
 through these calls, not through `observe`'s auto-routing.
 
-## 4. Reading it back
+## 4. Reading it back → `litmus-data`
 
-| Data | Surface |
-|---|---|
-| Channel, one-shot pull | `litmus.channels.query(name, last_n=..., max_points=...)` |
-| Channel, live gauge/chart | `litmus.channels.latest(name, cb)` / `.live(name, cb, max_hz=...)` |
-| Channel, agent/remote | MCP `litmus_channels(channel_id, session_id=, last_n=, max_points=)` |
-| Channel, human | `litmus serve` → `/channels/<channel_id>` |
-| Artifact catalog (metadata, not bytes) | MCP `litmus_files(uri=, session_id=, run_id=)` |
-| Artifact, human | `litmus serve` → `/files` → `/files/{date}/{session_id}/{filename}` |
-| Artifact, durable link to a run | query the vector's output value (`FieldRef.output(name)` — see `litmus-analysis`), then resolve the `file://` URI |
-
-There is no `litmus channels` or `litmus files` CLI subcommand — channel
-and artifact readback is UI, MCP, HTTP, or the `litmus.channels`/
-`litmus.files` modules directly. `litmus show <run_id>` prints
-measurements only; it doesn't list outputs or artifact URIs.
+Pulling a channel, resolving an artifact, or wiring a capture's `file://` URI
+to a run is a read concern — see `litmus-data`. There is no `litmus
+channels`/`files` CLI subcommand; readback is UI, MCP, HTTP, or the
+`litmus.channels`/`litmus.files` modules.
 
 ## Best-practice defaults
 
@@ -109,8 +99,8 @@ measurements only; it doesn't list outputs or artifact URIs.
   array `observe` would already route to ChannelStore.
 - **`stream` for anything you'd call a channel** (would still exist if
   nobody read it); a one-off capture is `observe`.
-- **Filter artifact readback by `session_id`**, not `run_id`, to catch
-  every artifact from a run — `observe`-routed blobs carry no `run_id`.
+- **Blobs routed through `observe` carry no `run_id`** — only a `session_id`;
+  keep that in mind when the capture has to be found again later.
 
 ## Deeper
 Read the docs:
@@ -118,9 +108,7 @@ Read the docs:
 litmus docs show how-to/data/capture-waveform
 litmus docs show how-to/data/capture-an-artifact
 litmus docs show how-to/data/stream-live-channel
-litmus docs show how-to/data/querying-channels
 litmus docs show concepts/data/three-verbs
 ```
-Sibling skills: `litmus-tests` (verb choice), `litmus-analysis` (querying
-the tabular data these artifacts attach to), `litmus-debug` (events around
-a capture).
+Sibling skills: `litmus-tests` (verb choice), `litmus-data` (reading any of
+this back), `litmus-debug` (events around a capture).

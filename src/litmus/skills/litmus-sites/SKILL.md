@@ -137,4 +137,4 @@ litmus docs show how-to/execution/multi-uut-testing
 Runnable example: `examples/12-parallel-sites`.
 Sibling skills: `litmus-tests` (verb choice, right-sizing), `litmus-mocks`
 (per-site mock state), `litmus-stations` (station/fixture wiring),
-`litmus-analysis` (session/site queries).
+`litmus-data` (session/site queries).

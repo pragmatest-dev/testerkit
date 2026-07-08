@@ -18,8 +18,9 @@ skills/
 ├── litmus-parts/        spec a DUT's characteristics and limits
 ├── litmus-profiles/     different limits/behavior per test phase
 ├── litmus-sites/        test multiple units in parallel
-├── litmus-capture/      capture/read back waveforms and files
-├── litmus-analysis/     yield / Ppk / query existing runs
+├── litmus-capture/      capture a waveform or file during a test
+├── litmus-data/         read/query/export runs, steps, measurements, channels, files
+├── litmus-analysis/     yield / Ppk / Pareto / trend metrics
 ├── litmus-debug/        triage why a run failed
 ├── litmus-interactive/  guided/conversational test-writing on-ramp
 ├── litmus-datasheets/   import an instrument/part datasheet PDF (also has agents/ + references/)

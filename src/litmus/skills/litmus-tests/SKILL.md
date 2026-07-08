@@ -133,4 +133,4 @@ litmus docs show how-to/execution/spec-driven-testing
 litmus docs show how-to/execution/test-context
 ```
 Sibling skills: `litmus-mocks`, `litmus-stations`, `litmus-parts`, `litmus-profiles`,
-`litmus-sites`, `litmus-capture`, `litmus-analysis`, `litmus-debug`, `litmus-interactive`.
+`litmus-sites`, `litmus-capture`, `litmus-data`, `litmus-analysis`, `litmus-debug`, `litmus-interactive`.

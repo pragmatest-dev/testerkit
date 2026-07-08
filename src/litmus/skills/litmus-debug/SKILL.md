@@ -120,7 +120,8 @@ litmus docs show how-to/data/mcp-debug-failures
 litmus docs show how-to/data/find-flaky-tests
 litmus docs show concepts/execution/outcomes
 ```
-Sibling skills: `litmus-analysis` (querying past the single failing run),
-`litmus-tests` (limit resolution order), `litmus-mocks` (mock setup),
+Sibling skills: `litmus-data` (reading runs past the single failing one),
+`litmus-analysis` (yield/Ppk across many runs), `litmus-tests` (limit
+resolution order), `litmus-mocks` (mock setup),
 `litmus-stations` (driver/connection setup), `litmus-interactive` (guided
 prompts during a debug session).

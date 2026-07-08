@@ -1,6 +1,6 @@
 """Anti-drift guard for the AI-facing test-writing surfaces (#66).
 
-The 11 `litmus-*` skills (`src/litmus/skills/<name>/SKILL.md`) tell a
+The 12 `litmus-*` skills (`src/litmus/skills/<name>/SKILL.md`) tell a
 generative AI how to use Litmus. They drifted from the real API once (a
 phantom `logger.measure` verb, `psu`/`dmm` assumed without a station,
 limit-less `verify`, sidecar `ref:`/`vectors:`/dict-`mocks:`, deleted
@@ -35,6 +35,7 @@ _EXPECTED_SKILL_NAMES = {
     "litmus-profiles",
     "litmus-sites",
     "litmus-capture",
+    "litmus-data",
     "litmus-analysis",
     "litmus-debug",
     "litmus-interactive",
@@ -137,7 +138,7 @@ def test_no_deleted_sequence_schema_refs_in_mcp() -> None:
 def test_exactly_eleven_skills_named_correctly() -> None:
     names = {p.name for p in _SKILL_DIRS}
     assert names == _EXPECTED_SKILL_NAMES, (
-        f"skill dirs drifted from the expected 11: missing={_EXPECTED_SKILL_NAMES - names}, "
+        f"skill dirs drifted from the expected 12: missing={_EXPECTED_SKILL_NAMES - names}, "
         f"extra={names - _EXPECTED_SKILL_NAMES}"
     )
     for name in names:

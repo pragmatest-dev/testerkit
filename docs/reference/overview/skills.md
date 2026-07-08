@@ -1,6 +1,6 @@
 # Skills reference
 
-Litmus ships 11 **Agent Skills** — one directory per skill under
+Litmus ships 12 **Agent Skills** — one directory per skill under
 [`src/litmus/skills/`](https://github.com/pragmatest-dev/litmus/tree/main/src/litmus/skills),
 each a `SKILL.md` written to the
 [Agent Skills open standard](https://github.blog/changelog/2025-12-18-github-copilot-now-supports-agent-skills/):
@@ -14,7 +14,7 @@ For motivation (why AI integration at all), see
 registering the MCP server and instructions file per tool, see
 [how-to/mcp-integration](../../how-to/overview/mcp-integration.md).
 
-## The 11 skills
+## The 12 skills
 
 | Skill | Use when |
 |---|---|
@@ -24,8 +24,9 @@ registering the MCP server and instructions file per tool, see
 | `litmus-parts` | Specifying the DUT — documented characteristics, pin map, or a datasheet limit as reusable part YAML. |
 | `litmus-profiles` | Different limits, sweeps, mocks, or wiring per test phase or part variant, selected with a CLI flag at run time. |
 | `litmus-sites` | Testing multiple UUTs at once on one fixture — multi-site / multi-socket parallel production testing. |
-| `litmus-capture` | Capturing or reading back non-tabular evidence — a waveform, a live sensor feed, a photo, a vendor capture file, a log. |
-| `litmus-analysis` | Getting an answer out of existing runs — yield, Pareto, Ppk, a trend, a retest rate, an export or report. |
+| `litmus-capture` | Capturing non-tabular evidence during a test — a waveform, a live sensor feed, a photo, a vendor capture file, a log. |
+| `litmus-data` | Reading, querying, or exporting existing test data — runs, steps, measurements, channels, files, events — via the models, CLI, Query API, or MCP. |
+| `litmus-analysis` | Computing a statistic across runs — yield, Pareto, Ppk, a trend, a retest rate, time-loss. |
 | `litmus-debug` | Triaging why a run failed, errored, looks wrong, or is missing. |
 | `litmus-interactive` | Pausing a test for operator input, building a custom live operator screen, or driving a station interactively outside pytest. |
 | `litmus-datasheets` | Importing an instrument or part datasheet PDF into catalog or part config. |
@@ -34,8 +35,12 @@ Each row above is a condensed reading of that skill's own `description`
 frontmatter — the exact text an agent matches against. `litmus-tests` is
 the deliberate front door: it starts at a bare `def test_x(verify): ...`
 with no station, no YAML, and only routes to a sibling skill (mocks,
-stations, parts, profiles, sites, capture, analysis, debug, interactive)
-once the request needs that layer.
+stations, parts, profiles, sites, capture, data, analysis, debug,
+interactive) once the request needs that layer.
+
+(`litmus-capture` writes non-tabular evidence, `litmus-data` reads any store
+back, `litmus-analysis` computes statistics over the tabular data — three
+distinct jobs on the data axis, no overlap.)
 
 ## Single-source design
 

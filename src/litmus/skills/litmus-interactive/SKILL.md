@@ -182,6 +182,7 @@ appear live.
 `references/live-ui-patterns.md` — the chosen-pattern decision table and
 anti-pattern catalog for building NiceGUI pages against live Litmus data.
 Sibling skills: `litmus-tests` (verb choice, `context` fixture),
-`litmus-capture` (channel/file store mechanics and readback),
-`litmus-debug` (hung/timed-out prompt triage), `litmus-stations` (station
+`litmus-capture` (writing to the channel/file stores), `litmus-data`
+(reading channels/files back), `litmus-debug` (hung/timed-out prompt
+triage), `litmus-stations` (station
 YAML and instrument roles `station.instrument()` resolves).
