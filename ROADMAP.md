@@ -49,10 +49,37 @@ Things that make Litmus *good* (not just shippable). Sorted by RICE.
 | Array channel empty-result schema | small | 0.5 | 0.9 | 0.2 | small |
 | Runs daemon — record actual `row_count` in `_ingested` | small | 0.5 | 0.9 | 0.2 | small |
 
-### 0.3.0 — analytics release
+### 0.3.x — execution-model / schema / reservation line (recovered 2026-07-09)
 
-The deferred quality-metrics work. 0.2.0 shipped the Tier-1 set + the cheap
-wins (Ppk, RTY, DPMO/DPPM); 0.3.0 is the capability + SPC + cross-tab pass.
+The **actual** 0.3 series: data-model-at-rest, schema versioning, multi-site,
+instrument reservation, and the identity / builder cleanups. This ladder was
+planned in the 2026-07-08 session's task list but never written here — recovered
+from the transcripts and made durable. The shipped half is authoritatively
+recorded in `CHANGELOG.md`; the full ladder is kept here for sequencing.
+**Analytics is NOT 0.3** (it was mislabeled) — see 0.4.0 below.
+
+| Epic | Refs | Status |
+|---|---|---|
+| **[0.3.0]** Release finish — schema-versioning → main | — | ✅ v0.3.0 |
+| **[0.3.0]** Operator-UI bug fixes (Sonnet smoke test) | — | ✅ v0.3.0 |
+| **[0.3.0]** AI test-writing surfaces — accuracy + start-simple compliance | #66 | ✅ ~v0.3.1 (`b38470a5`) |
+| **[0.3.1]** Schema-versioning hardening + content-addressed index epoch | #47/#53 | ✅ v0.3.1 |
+| **[0.3.2]** Instrument reservation / coordinator — step-lease, read-only observe, station-scoped join-on-connect | #11/#12/#18 | 🔶 per-step reserve shipped (v0.3.0); class-container hold on `feat/class-container-instrument-reservation`; coordinator + observe pending. `docs/_internal/explorations/instrument-reservation.md` |
+| **[0.3.3]** Multi-site launch UI + live execution view (gantt) | #8/#14 | ⬜ |
+| **[0.3.4]** Fixture as a first-class entity | — | ⬜ |
+| **[0.3.5]** StepsQuery inputs/outputs field-query surface — query by role+name | #26 | ⬜ |
+| **[0.3.6]** Tech-debt / standalone cluster (#34 flaky = do-now) | #34 | ⬜ |
+| **[0.3.7]** Observed-entity identity model — read + write single-sourcing | — | ⬜ `docs/_internal/explorations/best-available-identity.md` |
+| **[0.3.8]** Builder overhaul — objects correct by construction | — | ⬜ |
+| **[0.3.9]** Retry collapse view — first / last / all | — | ⬜ |
+| **[0.3.10]** Cross-store parity indexing — events/channels/files → runs-parity | #64 | 🔶 shared DaemonManager fingerprint + `_index_epoch` spine landed; channels + files catalog daemons to parity remain (deferred) |
+| **[0.3.11]** Versioning & index resiliency backlog — copy-seed, coexisting daemons, retention, XDG runtime-dir hygiene | #65 | ⬜ deferred backlog. `docs/_internal/explorations/versioning-resiliency-backlog.md` |
+
+### 0.4.0 — analytics release
+
+The deferred quality-metrics work (**was mislabeled 0.3.0** — the 0.3 series is
+the execution-model line above). 0.2.0 shipped the Tier-1 set + the cheap
+wins (Ppk, RTY, DPMO/DPPM); 0.4.0 is the capability + SPC + cross-tab pass.
 Design: `docs/_internal/explorations/0.3.0-analytics-metrics.md`.
 
 | Item | R | I | C | E | Score |
