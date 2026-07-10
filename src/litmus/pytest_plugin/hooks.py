@@ -1278,6 +1278,46 @@ _OPEN_CLASS_ATTR = "_litmus_open_class_container"
 _CLASS_ITERATION_COUNTERS_ATTR = "_litmus_class_iteration_counters"
 
 
+def _class_scoped_instrument_roles(cls: type | None) -> list[str]:
+    """Instrument roles the CLASS declares via ``@pytest.mark.usefixtures``.
+
+    A class-level ``usefixtures`` is the user's signal that the instrument
+    covers the whole class — so it is reserved for the lifetime of the class
+    **container step** rather than cycled per method. A role requested as a
+    method parameter (``def test_x(self, dmm)``) is NOT a class marker and keeps
+    its per-step grain. Returned sorted so multi-role acquisition uses a
+    canonical order (deadlock avoidance), matching the per-step reserve loop.
+    """
+    if cls is None:
+        return []
+    registered = get_registered_instrument_roles()
+    roles: set[str] = set()
+    for mark in getattr(cls, "pytestmark", []):
+        if getattr(mark, "name", None) == "usefixtures":
+            for arg in getattr(mark, "args", ()):
+                if arg in registered:
+                    roles.add(arg)
+    return sorted(roles)
+
+
+def _release_container_reservations(open_state: dict[str, Any]) -> None:
+    """Release the class-scoped reservations taken when the container opened.
+
+    Drops the container's outer refcount for each class-held role. The flock
+    is freed only when every method's per-step refcount has also unwound, so
+    this is what ends the cross-sequence hold. Best-effort at teardown/session
+    end: a missing pool or already-released role is a no-op.
+    """
+    roles = open_state.get("reserved_roles") or []
+    if not roles:
+        return
+    pool = get_instrument_pool()
+    if pool is None:
+        return
+    for role in reversed(roles):
+        pool.release_reservation(role)
+
+
 def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
     """Open a class container step on transition or iteration boundary.
 
@@ -1320,6 +1360,7 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
         if open_vec is not None:
             logger_inst.end_outer_vector(open_vec)
         logger_inst.end_step()
+        _release_container_reservations(open_state)
         setattr(logger_inst, _OPEN_CLASS_ATTR, None)
 
     if cls is not None:
@@ -1330,6 +1371,27 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
         vi = counters.get(cls.__name__, 0)
         counters[cls.__name__] = vi + 1
 
+        # Reserve the instruments the class hoists to class scope, held for the
+        # container's whole lifetime. ``reserve`` is reentrant per (pid, session,
+        # role), so each method's own per-step reserve for the same role is a
+        # refcount increment — the flock never drops between methods and the
+        # instrument is held continuously across the sequence. Reserve BEFORE
+        # opening the container step (mirrors the per-method path) so a
+        # ResourceInUse fails setup cleanly without a dangling container.
+        container_retry = getattr(item, "execution_count", 1) - 1
+        class_roles = _class_scoped_instrument_roles(cls)
+        pool = get_instrument_pool()
+        reserved_roles: list[str] = []
+        if pool is not None and class_roles:
+            try:
+                for role in class_roles:
+                    pool.reserve(role, step_retry=container_retry)
+                    reserved_roles.append(role)
+            except BaseException:
+                for r in reversed(reserved_roles):
+                    pool.release_reservation(r, step_retry=container_retry)
+                raise
+
         # ``first_step_index`` is the position where the container's TestStep
         # is about to be appended (``len(steps)`` before append).  Children
         # appended afterwards are this iteration's children for rollup.
@@ -1338,7 +1400,7 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
             cls.__name__,
             class_name=cls.__name__,
             module=getattr(cls, "__module__", None),
-            step_retry=getattr(item, "execution_count", 1) - 1,
+            step_retry=container_retry,
         )
         # A class-outer vector is a real condition point ONLY when the class
         # carries a ``litmus_sweeps`` marker (``outer_values`` non-empty). For
@@ -1361,6 +1423,7 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
                 "vector_index": vi,
                 "first_step_index": first_step_index,
                 "vector": c_vec,
+                "reserved_roles": reserved_roles,
             },
         )
 
@@ -1377,6 +1440,7 @@ def _close_open_class_container(logger_inst: Any) -> None:
             logger_inst.end_outer_vector(vec)
         logger_inst.end_step()
     finally:
+        _release_container_reservations(open_state)
         setattr(logger_inst, _OPEN_CLASS_ATTR, None)
 
 

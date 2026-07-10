@@ -196,21 +196,88 @@ Continuity is therefore expressed by **code structure** (loop inside the step = 
 parametrize = release), not guessed by the framework. The lease boundary is also the safe
 **handoff point** for take-control (you can't preempt mid-step).
 
-### 3.2 Grain ladder **[open: expose as option, default step]**
+### 3.2 Grain follows fixture-declaration scope — reentrancy, not a ladder **[locked 2026-07-09]**
 
-The machinery already spans the extremes (per-RPC server lock ↔ session file lock), so the
-user-facing option is cheap:
+**Correction (2026-07-09).** The earlier framing had a "grain ladder" whose `run/session`
+rung was justified by the claim *"the only way to express cross-*step* continuity — no code
+structure spans steps."* **That claim is false, and the ladder was the wrong model.** A
+pytest **class is a code structure that spans steps**: `_ensure_class_container`
+(`hooks.py:1281`) opens a **container step** on class-entry and closes it on class-exit; the
+method-steps nest under it (`step_path` = `TestSeq/test_efficiency`) and its outcome is a
+rollup of children. The class container is open continuously across the gap between methods —
+exactly the span the ladder said didn't exist.
+
+So there is **no new grain to name and no user-facing knob.** The reservation grain simply
+**follows the scope at which the fixture is declared**, and three facts already in the code
+compose to make that work with no new machinery:
+
+1. **The class already is a step.** The container step brackets the sequence
+   (`_ensure_class_container` open → `_close_open_class_container` close).
+2. **A class-hoisted fixture is already the signal.** A user must go out of their way to
+   move an instrument fixture to class scope (`@pytest.mark.usefixtures("dmm")` on the class,
+   or a class-scoped fixture). That declaration site *is* the intent to hold across the
+   sequence — nothing else needs to express it.
+3. **`reserve()` is already re-entrant** for the same `(pid, session_id, role)` holder
+   (`pool.py:124` — "increments the refcount without contending; each call requires a
+   matching `release_reservation`").
+
+Compose them and the hold falls out for free. Reserve at the step level where the fixture
+lives:
+
+- **Fixture on the method** → reserved at the method step, released between methods.
+  (Today's behavior — unchanged.)
+- **Fixture hoisted to the class** → reserved at the **container step** (open → close). Each
+  method still calls `reserve()` for that role, but it's the same `(pid, session, role)`, so
+  it's a re-entrant **increment**, not a re-acquire. The refcount never reaches zero between
+  methods — the container holds the outer count — so **the lock spans the whole sequence**.
+  Container close drops the outer count and releases.
+
+This *is* the "bigger step lock": it's just "lock as step," recursively, with reentrant
+refcounts making the nesting continuous. No vocabulary beyond "step" because there is no new
+concept — steps nest under steps.
+
+**The only unbuilt piece is one wire.** `_ensure_class_container` does **not** call
+`reserve()` today, so the outer refcount is never taken and the chain collapses to
+per-method. To realize the model: at container-open, `reserve()` the **class-scoped** roles
+(class `usefixtures` ∩ registered roles) keyed to the container's `step_index`; at
+container-close, release them. Method-level `reserve()` calls stay exactly as they are and
+become reentrant increments for any role the container already holds.
+
+**Status of the step rung itself (verified 2026-07-09): SHIPPED.** The per-step
+reserve/release *is live today* and is the current default. The pytest `instruments` fixture
+calls `pool.connect(role, ...)` only (`pytest_plugin/__init__.py:683`) — connection, **no
+lock** — and the per-step `pytest_runtest_call` hookwrapper calls `pool.reserve(...,
+step_index=...)` / `release_reservation(...)` around each method (`hooks.py:1465-1515`). So
+the flock genuinely cycles at step grain; nothing holds an outer run-long refcount on the
+pytest path. The class/sequence hold is therefore **purely additive on the shipped step
+floor** — it needs no run-level grain and touches nothing that already works. `acquire()`
+(= `connect` + `reserve`, `pool.py:287`) remains back-compat for `route_manager` /
+interactive `connect()`, not the test path.
+
+> **Supersedes §2.2 and §2.5.** Those sections describe the *pre-split* file-lock path where
+> the lock was "held session-long" (§2.2) and connection/reservation were "fused" (§2.5).
+> No longer true: `connect()` and `reserve()`/`release_reservation()` are separate on the
+> file-lock path, and the fixture connects-only. Read §2.2/§2.5 as history; §3.1/§3.2 are the
+> current model.
+
+**Deadlock is already handled.** Holding multiple locks across a span is no worse than
+`run`-hold (which holds them across the whole run), and the reserve loop already iterates
+`roles = sorted(...)` (`hooks.py:1462`) — canonical lock ordering, the standard avoidance
+discipline. No extra work.
+
+**The surviving grain choices** (still a real menu, just not a "continuity" ladder):
 
 | Grain | Meaning | Path | Notes |
 |---|---|---|---|
 | command | per RPC call | server only | exists today (per-RPC lock); too fine for atomic set→read sequences |
-| **step** | per step-body execution | both | **default**; the locked boundary above |
-| run/session | held whole run | both | **current** file-lock behavior; the only way to express cross-*step* continuity (no code structure spans steps) |
+| **step** | per step-body execution | both | **default AND current shipped behavior** (see below). The §3.1 locked boundary. Class-hoisted fixtures span their sequence *via reentrancy*, not a distinct grain. |
+| run/session | held whole run | both | **not currently wired on the pytest path** (the fixture `connect()`s only — no run-long lock). Was the old behavior when the fixture called `acquire`. Would be the way to hold across *unrelated* classes / the whole run if reintroduced as an override. |
 | ~~vector~~ | per vector | — | **excluded** — breaks in-body optimization/redo (§3.1) |
 
-**[open]** Config scope: per-instrument/role (contention is a rig property) vs profile
-(run-hold is a per-test intent) vs `litmus.yaml` global. Lean per-instrument/role for the
-command↔step choice; run-hold may be a per-test override. Not decided.
+**[open]** Config scope for the command↔step choice: per-instrument/role (contention is a
+rig property) vs profile vs `litmus.yaml` global. Lean per-instrument/role. Not decided.
+(The sequence-hold is *not* on this axis — it's expressed by fixture scope in test code, not
+config.)
 
 ---
 
