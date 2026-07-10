@@ -125,12 +125,26 @@ state, the unifying model (above), and the open questions live here.
 
 - `InstrumentServer` (`instruments/server.py`) holds **one** connected driver per role and
   serves RPC over a localhost socket. Clients get a `RemoteInstrumentProxy`.
-- Arbitration is an **in-process `threading.Lock` per resource, taken PER RPC CALL**
-  (`server.py:182-188`), with a heartbeat-timeout force-acquire for dead clients (a known
-  race, `server.py:196-208`). Roles flagged `concurrent=True` (switches) **skip the lock**
-  (`server.py:37-38`).
-- The lock is a `threading.Lock`, not a file lock, **because the contenders are threads in
-  one process** (the client handler threads). flock would be meaningless there.
+- Arbitration is **two layers** (verified 2026-07-09):
+  1. **Step-duration lease** (the admission gate). A client sends `_RESERVE` → the server
+     grants an **exclusive, refcounted, re-entrant-per-connection** lease on the resource
+     (`_acquire_lease`, `server.py:247`). While a lease is held, any *other* connection's RPC
+     is **refused up front** with `ResourceInUse` before it reaches the lock
+     (`server.py:278-292`); `_RELEASE` decrements the refcount (`server.py:259-268`).
+  2. **Per-resource `threading.Lock`, taken PER RPC CALL** (`server.py:294-318`), with a
+     heartbeat-timeout force-acquire for dead clients (a known race). This is the **original**
+     mechanism and is **retained as the floor** — every dispatched RPC still takes and
+     releases it. When no lease is held it is the sole arbitration and "serialises all callers
+     as before, preserving existing behaviour unchanged" (`server.py:47-48`).
+- The lease is the gate *above* the per-call lock, not a replacement for it. Reserved (step)
+  callers get an atomic multi-call sequence because others are refused admission; unreserved
+  (command-grain) callers fall through to per-call serialization. Roles flagged
+  `concurrent=True` (switches) **skip both** (`server.py:41`, `server.py:72-73`).
+- The per-call lock is a `threading.Lock`, not a file lock, **because the contenders are
+  threads in one process** (the client handler threads). flock would be meaningless there.
+  It is not re-entrant, but is safe by construction: held only within one dispatch and never
+  nested (never across a lease or another RPC). The lease *is* refcounted/re-entrant per
+  connection, which is what composes the step-over-connection nesting.
 
 ### 2.4 Multi-slot orchestration (how "parallel runs" actually work)
 
@@ -283,13 +297,25 @@ config.)
 
 ## 4. Verified defects / cracks
 
-### 4.1 Arbitration grain is per-RPC, not per-step — **#11 core**
+### 4.1 Cross-RPC interleaving — **FIXED via step lease (was #11 core)**
 
-The server locks per RPC (`server.py:182`). A multi-command atomic sequence (`set range`
-→ `read`) from slot A can be **interleaved by slot B between RPCs**, corrupting the logical
-reading. Parallel runs don't crash — the *connection* has one owner — but the *operation*
-isn't atomic. Fix: per-RPC lock → **step-duration lease**. The real "parallel runs don't
-work as designed" for atomic sequences.
+**Original problem.** The server locked only per RPC. A multi-command atomic sequence
+(`set range` → `read`) from slot A could be **interleaved by slot B between RPCs**,
+corrupting the logical reading. Parallel runs didn't crash — the *connection* had one owner —
+but the *operation* wasn't atomic. This was the real "parallel runs don't work as designed"
+for atomic sequences.
+
+**Status (verified 2026-07-09): FIXED.** The per-RPC lock was **not replaced** — the
+step-duration lease was added as an **admission gate above it** (see §2.3). A reserved caller
+holds the lease for the step body; while it does, slot B's RPCs are refused with
+`ResourceInUse` before they reach the per-call lock (`server.py:278-292`), so the
+`set range → read` sequence is now atomic against other slots. The per-RPC `threading.Lock`
+remains as the floor — it is what serializes the *unreserved* (command-grain) path, exactly
+as before. So interleaving corruption is only reachable by a caller that issues raw RPCs
+**without** reserving; the normal per-step `reserve()` path (and the class-container reserve)
+is atomic. The residual work under #11 is not the grain fix (done) but the event-sourcing of
+the lease (§7) so the shared-path reservation is visible in the event log, not just enforced
+in-process.
 
 ### 4.2 Shared-detection keys on role name, not resource — **narrow, real**
 
@@ -378,7 +404,7 @@ read-only `connect()`/observe entry that routes to channel subscription instead 
 
 | Task | Owns | This doc's findings |
 |---|---|---|
-| **#11** | reservation events + locking grain | §3 (step boundary, grain ladder), §4.1 (per-RPC→step-lease), §4.2 (detection), §7 (events + server-emits-lease) |
+| **#11** | reservation events + locking grain | §3 (step boundary, grain), §4.1 (step-lease grain fix — **DONE**; residual = server-emits-lease events, §7), §4.2 (detection), §7 (events + server-emits-lease) |
 | **#12** | read-only observe | §5, §6 — depends on §4.3 (joinable coordinator) |
 | **#13** | in-body vector redo | §3.1 (lease wraps in-body loop; shares step-context with #11) |
 | **#17** | reservation/dialog spans on run parquet | §7 (event-sourced spans; keep out of C5 column) |
