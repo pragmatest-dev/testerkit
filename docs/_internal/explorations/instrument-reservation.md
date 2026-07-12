@@ -313,9 +313,20 @@ holds the lease for the step body; while it does, slot B's RPCs are refused with
 remains as the floor — it is what serializes the *unreserved* (command-grain) path, exactly
 as before. So interleaving corruption is only reachable by a caller that issues raw RPCs
 **without** reserving; the normal per-step `reserve()` path (and the class-container reserve)
-is atomic. The residual work under #11 is not the grain fix (done) but the event-sourcing of
-the lease (§7) so the shared-path reservation is visible in the event log, not just enforced
-in-process.
+is atomic.
+
+**On the #11 "event-sourcing" residual — it is an *analytics* feature, not a reservation
+mechanism (clarified 2026-07-11).** The server already has a complete, authoritative
+reservation engine: the live in-memory lease table (`self._leases: resource_key →
+(refcount, conn_id)`, `_acquire_lease`/`_release_lease`, `server.py:174-223`), reentrant
+per connection, blocking contenders on a condition variable, auto-releasing every lease on
+disconnect (`_release_all_leases`, the `finally` at `server.py:325`), and gating the
+operation path too (`:278-292`). Locking is correct with **zero** events. Event-sourcing
+the lease (§7) buys only *derived outputs* — a durable "who held what, when" for utilization
+analytics and the #17 reservation spans — plus a projection for non-member observers. If
+reservation analytics is never built, the server needs no lease events at all. So the #11
+residual is better read as "reservation **analytics** needs events," not "reservation needs
+events."
 
 ### 4.2 Shared-detection keys on role name, not resource — **narrow, real**
 
@@ -353,6 +364,20 @@ projection for non-members. *(Precedent: multi-slot sync already coordinates acr
 processes via EventStore events — `get_sync(event_store)` / `SyncCoordinator`. And the
 runs/channels/files daemons are the same "first touch stands up a shared service" shape the
 coordinator's lifecycle can follow.)*
+
+**The coordinator is a *per-host* problem — no station registry needed for it (clarified
+2026-07-11).** The file lock already keys on the **resolved resource address**, under a
+**machine-global** `LITMUS_HOME/locks/` (`locks.py:40,81` — `_sanitize_resource` filenames,
+default `platformdirs.user_data_dir`). So cross-project contention on one host is *already*
+correct with no station identity at all — two projects opening `GPIB::16::INSTR` hit the same
+lock file. It follows that a **single-host coordinator** needs only hostname/convention to be
+found (a well-known socket / `LITMUS_HOME`-anchored path), exactly like the runs/channels/
+files daemons — **not** a global station registry. A registry is required for *only* one
+slice: a **station that spans hosts** — networked LXI/SCPI instruments driven from several
+machines, or a remote observer/dashboard on a different host — where each machine has its own
+`LITMUS_HOME/locks/` and so cannot arbitrate via the shared file. That slice is deferrable;
+the per-host coordinator (the common bench) can ship without it. **The registry is not a
+0.3.2 prerequisite — the cross-host case is.**
 
 ---
 
@@ -427,17 +452,31 @@ read-only `connect()`/observe entry that routes to channel subscription instead 
 5. **[open]** §4.2 guard: dedupe shared-detection by resolved resource — warn vs auto-merge.
 6. **[open]** §4.3 fencing mechanism: file lock vs a coordinator-registered discoverable
    claim (these may be the same thing once the coordinator is station-scoped).
-7. **[open]** **Station identity scope (verified 2026-06-29).** Today station resolution is
+7. **[largely resolved 2026-07-11]** **Station identity scope.** Today station resolution is
    project-local, CWD-anchored: `connect()` → `find_station_config` reads the project's
    `stations/` YAML, and `_find_project_config` walks CWD ancestors for `litmus.yaml`
-   (`connect.py:488-493,506-533`). There is **no global station registry**. So two processes
-   agree on "the same station" only by sharing the project folder — even though the lock
-   namespace (`LITMUS_HOME/locks/`, resource-keyed) is already machine-global. **Asymmetry:
-   locks global, station identity project-local.** A station-scoped coordinator that
-   *out-of-context* processes (an interactive UI started elsewhere) can join therefore needs
-   a global station registry + addressing — which collides with data-dir resolution, config
-   precedence, and multi-project-on-one-machine semantics. Big blast radius; do not design
-   under #11. This is the substrate the "connecting = joining" keystone assumes.
+   (`connect.py:488-493,506-533`); the data plane stamps `station_hostname =
+   socket.gethostname()` (`run_scope.py:468`). There is **no global station registry** — and,
+   per §4.3, the **per-host coordinator does not need one**: the lock is already resource-keyed
+   and machine-global, so same-host contention is correct with no station identity, and the
+   coordinator is discoverable by hostname/convention. **A registry is required only for the
+   cross-host slice** (a station spanning machines, or a remote observer) — deferrable, not a
+   0.3.2 prerequisite.
+
+   **Sub-point — hostname and IP are NOT synonyms, and trying to unify them is a category
+   error.** (a) The lookup is unreliable: forward DNS is one-name→many-IPs (a multi-homed bench
+   PC on lab-LAN *and* instrument-subnet), reverse PTR is usually absent on a LAN, DHCP moves
+   the IP, and even the host has no canonical form (`gethostname()` ≠ `getfqdn()`). (b) More
+   fundamentally they identify **different entities** — the *driving-host* hostname vs the
+   *instrument's* address — so "make them synonyms" conflates a computer with a device. The
+   clean rule: **key contention on the resolved resource address, which self-scopes** — a bus
+   address (`GPIB`/`USB`) is host-local by nature (the machine-global lock dir already scopes
+   it); a `TCPIP::<ip>` address is network-global by nature (two hosts agree because the string
+   is identical). No host↔IP resolver is needed. The *only* real resolution work is
+   **canonicalizing alias forms of one networked resource** (`TCPIP::10.0.0.5` vs
+   `TCPIP::bench-dmm.lab` vs `...::SOCKET`) so one device ≠ two lock files — a best-effort
+   normalization at lock time (the §4.2 "dedupe by resolved resource" guard, extended to DNS),
+   **not** a station registry.
 8. **[open]** **Libraries — don't reinvent the proxy/coordinator (2026-06-29).** The
    hand-rolled `RemoteInstrumentProxy` + server reimplement transparent remote objects;
    the coordinator would reimplement discovery. Evaluate before building #18: **RPyC**
