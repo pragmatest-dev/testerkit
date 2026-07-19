@@ -1,3 +1,5 @@
+![TesterKit](_assets/branding/testerkit-wordmark.png)
+
 # TesterKit Documentation
 
 TesterKit is a Python-native hardware test platform for the AI-assisted era.
