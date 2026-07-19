@@ -295,6 +295,56 @@ config.)
 
 ---
 
+## 3.3 Governance — who chooses the sharing mode **[locked 2026-07-15]**
+
+**Two layers, authored in two places — the split every mature T&M/control system uses.**
+Prior-art research (2026-07-15, four systems, primary-sourced) found a remarkably consistent
+pattern:
+
+| System | Who chooses **exclusivity** | Who authors the **permission / topology** | Read-only observer? |
+|---|---|---|---|
+| **VISA / PyVISA** (our base layer) | **Client, at connect/lock** (`no_lock`/`exclusive`/`shared`); sharing via a bearer **accessKey** the first locker mints & relays | Nobody — no central authority | **None** |
+| **Tango** | **Client** — `DeviceProxy::lock()` (10 s validity, auto-relock, force-unlock) | **Admin** — access-control, read-vs-write per user/host | **Yes** — reads/events never blocked by a write lock |
+| **EPICS** | **No client lock** — concurrent writes last-writer-wins | **Admin** — central `.acf` policy (ASG NONE/READ/WRITE) | **Yes** — reads always multi-client |
+| **NI / IVI / TestStand** | **Client, in code** — momentary `LockSession`/`UnlockSession` | **Station/admin** — logical-name → instrument mapping | **None** — "a genuine gap in the NI/IVI model" |
+
+Two governance layers fall out, and the ecosystem authors them separately:
+
+1. **Permission + topology (the ceiling)** — *"is this resource coordinated? who may write it?
+   what is it?"* → **authored centrally in station config** (mirrors EPICS `.acf`, IVI logical
+   names, Tango access-control). Declarative.
+2. **Exclusivity (the act)** — *"I am taking control now, for this scope"* → **chosen by the
+   client at `connect()` time, scoped to a bracket** (unanimous: VISA / Tango / IVI). Imperative.
+   First-mover `INITIALIZE_NEW` (stand up + publish endpoint to the registry) vs late-joiner
+   `ATTACH_TO_EXISTING` — independently the exact model NI's cross-process broker arrived at.
+
+**Litmus decision:** adopt the two-layer split. Config authors the ceiling (per-resource:
+coordinated? who may write?); the client opts into the momentary mode at `connect()`
+(**write** / **observe**); a config-less loose process (script, custom UI) may opt into
+`shared` explicitly at the connect call, and the first connector *publishes* the mode to the
+machine-global registry so every later process — any entrypoint, any project — reads it from
+there. This is reinforced by our own substrate: **Litmus sits directly on VISA, whose only
+native primitive is client-at-connect locking** — centrally-declared exclusivity would fight
+the ground we stand on.
+
+**The observer tier is a control-system import.** Observe-is-default / only-writes-arbitrated
+is the Tango/EPICS lineage; the bench lineage (VISA, IVI/NI) has **no observer mode at all**.
+Litmus brings the control-system's best idea into the pytest-bench world (§6).
+
+**BYODriver — the model is driver-agnostic by construction (2026-07-18).** The "instrument" is
+an arbitrary Python object the user brings (PyVISA, PyMeasure, vendor SDK, a socket, a mock).
+- The **coordination/lease layer already forwards** `getattr`/method calls to *whatever* object
+  it holds (§2.3) — it never assumes VISA. The single-owner write-lease works for any driver.
+- **We do NOT command-filter a "read-only" handle.** There is no reliable way to know which
+  methods of an arbitrary driver mutate hardware, and a "read" is a bus *write* anyway (see §6).
+  So the read/write split is enforced by **which plane you're handed** (channel subscription vs
+  driver handle), never by policing commands. This is what makes it BYODriver-safe.
+- The one requirement BYODriver imposes: a **stable resource-identity string** to key the lock +
+  registry (VISA `GPIB::16::INSTR`, socket `IP:port`, or a user-supplied id in config). Given
+  any stable identity, the machine-global keying generalizes past VISA unchanged.
+
+---
+
 ## 4. Verified defects / cracks
 
 ### 4.1 Cross-RPC interleaving — **FIXED via step lease (was #11 core)**
@@ -393,15 +443,51 @@ the per-host coordinator (the common bench) can ship without it. **The registry 
 
 ---
 
-## 6. Read-only observe (#12)
+## 6. Read-only observe (#12) **[locked 2026-07-18]**
 
 Model: **one writer** per instrument (leases + emits reservation events), **N read-only
-observers** that **subscribe to the channel stream** the writer already publishes — no
-lock, no second hardware session, invisible to reservation/utilization. "Data-centric
-observation" = subscribe to the *data* (channels) plus the *state* (reservation events),
-never a hardware connection. The channel live fan-out already exists; the missing seam is a
-read-only `connect()`/observe entry that routes to channel subscription instead of
-`pool.acquire`. Reachable from a separate process once the coordinator is joinable (§4.3).
+observers**. A producer gets the **driver handle**; an observer gets a **data subscription**
+and *never the driver*. The two intents are different sessions, not one handle throttled two
+ways — the read/write split is enforced by **which plane you're handed**, not by policing
+commands.
+
+**Enforcement is by absence, not by a read-only allow-list.** The observer holds no driver, so
+there is nothing to police — it physically cannot issue a command. This is the *only* robust
+mechanism, for two reasons:
+
+- **You can't command-filter an arbitrary (BYODriver) handle.** Nothing tells the forwarder
+  which of a vendor driver's methods mutate hardware (§3.3). A "read-only handle" would demand
+  users annotate every driver — hostile and unreliable.
+- **On a shared instrument there is no safe non-holder "read" anyway** — a read *is* a bus write
+  (`MEAS:VOLT?` writes the query, then reads). An observer's own read would inject bytes that
+  **interleave with the holder's command sequence** — the exact §4.1 corruption the lease
+  prevents. A non-holder live read is indistinguishable from a second writer and must contend
+  for the lease. **Product limitation, stated plainly: you cannot issue your own live reads to
+  an instrument someone else is driving — you get their published readings, or you wait your
+  turn.** (This is *why* Tango/EPICS also forbid raw client I/O on a shared device.)
+
+So observation = subscribe to **what the producer publishes**, via two things Litmus already
+has, split cleanly:
+
+- **Coordinator = write-lease + discovery.** Answers "who is producing on this instrument now,
+  under what `session_id` / `instrument_role`?" It does **not** fan out instrument data itself.
+- **Channel store = read fan-out.** Already streams live-from-now, tagged by `session_id` +
+  `instrument_role`. The observer asks the coordinator "who's driving the DMM?", gets the keys,
+  and subscribes to *those* channels through the existing stream.
+
+"You can read things **associated with** the requested instrument even if you can't write it" =
+the producer's published channels (its `observe()` outputs / channel writes) plus the *state*
+(reservation events). **Deliberate boundary:** the observer sees what the producer *publishes*,
+**not** eavesdropped raw VISA traffic — and because it reads channels (a driver-neutral plane),
+the observe path is BYODriver-agnostic by decoupling. The missing seam is a read-only
+`connect()`/observe entry that routes to channel subscription instead of `pool.acquire`.
+Reachable from a separate process once the coordinator is joinable (§4.3).
+
+**Producer contention (settled):** a *writer* that hits a held exclusive lease **blocks up to a
+specified timeout, then stops cleanly** (fails the step with `ResourceInUse`). No demotion to
+observer, no polling-to-acquire — the caller chooses the timeout (default `0` = immediate
+refuse, as the file lock does today). Falling back to observe is a *separate, explicit* call,
+never an imposed state.
 
 ---
 
@@ -439,20 +525,28 @@ read-only `connect()`/observe entry that routes to channel subscription instead 
 
 ## 9. Open questions
 
-1. **[open]** Coordinator **lifecycle/ownership**: first-connector starts it? a
-   `litmus serve`-style station daemon owns it? lazy-start only when contention appears?
-   (Rhymes with the runs/channels/files daemons.)
-2. **[open]** Does the **file-lock path survive** as the solo zero-infra default, or does
-   everything eventually route through the coordinator? (Lean: file lock for solo,
+1. **[resolved 2026-07-15 — §3.3]** **Who chooses the sharing mode.** Two layers: config
+   authors the ceiling (per-resource: coordinated? who may write?); the client opts into the
+   momentary mode (**write**/**observe**) at `connect()`; first-mover publishes it to the
+   machine-global registry; late-joiners read it. Entrypoint-agnostic (test, script, custom
+   UI are peers). Backed by four prior-art systems.
+2. **[open]** Coordinator **lifecycle/ownership**: first-connector (`INITIALIZE_NEW`) stands it
+   up, late-joiners `ATTACH_TO_EXISTING` — but does a `litmus serve` context own it, and does
+   it lazy-start only on the shared path? (Rhymes with the runs/channels/files daemons; the
+   *trigger* is config/registry, **not** the launching command — see §3.3.)
+3. **[open]** Does the **file-lock path survive** as the solo zero-infra default, or does
+   everything eventually route through the coordinator? (Lean: file lock for solo/dedicated,
    coordinator for shared.)
-3. **[open]** **Take-control policy**: who can take control, when? (observe-always,
-   control-when-idle, per-instrument policy — the "connected vs active / coverage vs
-   granularity" decision.)
-4. **[open]** Grain-config scope (§3.2): per-instrument/role vs profile vs global.
-5. **[open]** §4.2 guard: dedupe shared-detection by resolved resource — warn vs auto-merge.
-6. **[open]** §4.3 fencing mechanism: file lock vs a coordinator-registered discoverable
+4. **[deferred — observe-only-first]** **Take-control policy**: who can seize a *live* holder,
+   when? (observe-always, control-when-idle, per-instrument.) Explicitly OUT of this epic —
+   control transfers only at lease boundaries (release → acquire), never mid-hold; live seizure
+   is a later epic. This is *why* observe-only-first is coherent (§6): no seizure mechanism =
+   no demote-and-poll behavior to design.
+5. **[open]** Grain-config scope (§3.2): per-instrument/role vs profile vs global.
+6. **[open]** §4.2 guard: dedupe shared-detection by resolved resource — warn vs auto-merge.
+7. **[open]** §4.3 fencing mechanism: file lock vs a coordinator-registered discoverable
    claim (these may be the same thing once the coordinator is station-scoped).
-7. **[largely resolved 2026-07-11]** **Station identity scope.** Today station resolution is
+8. **[largely resolved 2026-07-11]** **Station identity scope.** Today station resolution is
    project-local, CWD-anchored: `connect()` → `find_station_config` reads the project's
    `stations/` YAML, and `_find_project_config` walks CWD ancestors for `litmus.yaml`
    (`connect.py:488-493,506-533`); the data plane stamps `station_hostname =
@@ -477,15 +571,46 @@ read-only `connect()`/observe entry that routes to channel subscription instead 
    `TCPIP::bench-dmm.lab` vs `...::SOCKET`) so one device ≠ two lock files — a best-effort
    normalization at lock time (the §4.2 "dedupe by resolved resource" guard, extended to DNS),
    **not** a station registry.
-8. **[open]** **Libraries — don't reinvent the proxy/coordinator (2026-06-29).** The
-   hand-rolled `RemoteInstrumentProxy` + server reimplement transparent remote objects;
-   the coordinator would reimplement discovery. Evaluate before building #18: **RPyC**
-   (netref proxies — forward calls AND live remote objects, removing the pickle/flat-API
-   limits of our `__getattr__` proxy), **Pyro5** (remote-object proxies + a **name server**
-   = the §4.3 discovery piece), stdlib **`multiprocessing.managers`** (`BaseManager`/
-   `AutoProxy`; we already use `multiprocessing.connection`). Heavyweight full-vision prior
-   art: **Tango Controls** / **EPICS** (discoverable device servers + access control; likely
-   too heavy for "starts simple"). Cautionary: **QCoDeS reportedly built then removed** a
-   multiprocessing remote-instrument server — VERIFY why before doubling down on the
-   hand-rolled path. Relevant to #18 + a possible future `RemoteInstrumentProxy` swap
-   (additive-later per req-6), NOT the #11 branch. Real eval happens at #18.
+9. **[RESOLVED 2026-07-12 — deep prior-art research, 24 primary-sourced claims]** **Do NOT
+   adopt a transparent-object-remoting library (RPyC / Pyro5); build the coordinator on the
+   existing command-forwarding message-passing server.** The question was "integrate (RPyC/
+   Pyro5) vs extend the hand-rolled server." Research inverts the naive P2 read — the thing a
+   library would "integrate" (transparent remote objects) is precisely what fails for live
+   drivers:
+   - **The QCoDeS failure is fundamental, not incidental.** QCoDeS built the exact design under
+     consideration — `RemoteInstrument`/`InstrumentServer`, one OS process per instrument, calls
+     routed through queues — and **removed it entirely** in v0.1.4 (PR #510, changelog:
+     "Multiprocessing removed"). Root cause: a live driver wraps an **exclusive OS/VISA handle
+     (ctypes pointer) that cannot be pickled or migrated across a process boundary — and
+     shouldn't be, since that would permit the competing connections exclusivity exists to
+     prevent** (#53: *"they can't be pickled… otherwise you'd be able to make competing
+     connections where only one is allowed"*; still enforced today — `Instrument.__getstate__`
+     raises). Downstream failure modes: **orphaned processes** holding hardware after the parent
+     died (`VI_ERROR_RSRC_BUSY`, only fix = kill all Python, #172/#120), cross-process **queue
+     timeouts** (#119), **meta-instruments** failing to compose across the boundary (#119).
+   - **No project remotes a live driver via RPyC or Pyro5** (absence-of-adoption is the signal).
+     Pyro5 enforces **single-thread proxy ownership** that collides with VISA/OS-handle thread
+     affinity (`_pyroClaimOwnership`). RPyC netrefs are generic; nobody has made them survive a
+     live session.
+   - **The two living Python T&M solutions both hand-rolled explicit command-forwarding
+     message-passing** where the server owns the session and forwards *commands* (not state):
+     **pyvisa-proxy** (reflection-forwarding over ZMQ) and **instrumentserver** (ZMQ ROUTER/
+     DEALER + a PUB socket) — zero references to rpyc/Pyro in either. This is the dominant
+     industry pattern, and **Litmus already built it** (`InstrumentServer` forwards per-RPC
+     commands over `multiprocessing.connection`; never serializes the driver). So evolving the
+     existing server is *matching proven prior art*, not reinventing.
+   - **Two bonuses:** (a) the worst QCoDeS failure was **orphaned processes** → the coordinator's
+     #1 lifecycle requirement is **robust death-cleanup**, which Litmus already has (`flock`
+     auto-release on process death + `_release_all_leases`/refcount-shutdown on disconnect) —
+     harden and test it, don't rearchitect. (b) **Read-only observe (#12) is validated and maps
+     to existing infra**: Tango's device-server-pushes-to-all-subscribers events and
+     instrumentserver's PUB socket are exactly Litmus's **channel-stream fan-out** — so #12 rides
+     the channel stream (§6), now backed by two independent precedents.
+   - **Deferred, additive:** a **ZMQ transport swap** (matching both living tools) is the natural
+     option *if/when* cross-host is needed — it travels with the cross-host slice (§4.3, open-Q6),
+     not this line. Skip the RPyC/Pyro5 bake-off spike entirely (evidence-closed); the only spike
+     worth running is *our own* server under two concurrent observers.
+
+   Sources: QCoDeS #53, #119, #120, #172, changelog 0.1.4/PR #510; pyvisa-proxy
+   (github.com/casabre/pyvisa-proxy); instrumentserver (github.com/toolsforexperiments/
+   instrumentserver); Pyro5 client docs; RPyC README; Tango Controls events doc.
