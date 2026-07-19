@@ -35,6 +35,9 @@ maturity is not.
   class (sequence): a class that `usefixtures` an instrument role reserves it for
   the lifetime of the class container step — not just per method — via reentrant
   refcounting, so the lock never drops between two methods of the same class.
+- The operator UI carries the TesterKit brand: wordmark in the sidebar, mark in
+  the header, and a real favicon — replacing the placeholder lightning-bolt emoji.
+  Documentation screenshots were regenerated against the new look.
 
 ### Fixed
 
