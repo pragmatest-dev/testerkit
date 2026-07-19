@@ -37,3 +37,7 @@ testerkit/skills/refs/
 .env
 .env.local
 .env.*.local
+
+# Brand generator font input. Outlines are shipped in the SVGs, not the font
+# itself — committing the TTF would be OFL-1.1 redistribution.
+branding/selawik/

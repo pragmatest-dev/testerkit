@@ -12,41 +12,28 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ## [0.4.0] - 2026-07-18
 
-The rebrand release: **Litmus is now TesterKit.** Releases through 0.3.1 were
-published on PyPI as `litmus-test`; from 0.4.0 the package is `testerkit`.
-Version numbering continues unbroken — the rename is cosmetic, the software's
-maturity is not.
+**Litmus is now TesterKit.** Releases through 0.3.1 shipped as `litmus-test`;
+from 0.4.0 the package is `testerkit`. Version numbering continues unbroken.
 
 ### Changed
 
-- **BREAKING** Renamed the entire project `litmus` → `testerkit`. The PyPI
-  distribution is `testerkit` (was `litmus-test`); the import package is
-  `testerkit` (was `litmus`); the CLI is `testerkit` (was `litmus`); environment
-  variables are `TESTERKIT_*` (were `LITMUS_*`); the project config file is
-  `testerkit.yaml` (was `litmus.yaml`); the bundled agent skills are `testerkit-*`;
-  the MCP server is `testerkit`. There are **no aliases** — update imports,
-  scripts, environment variables, and config filenames. The on-disk data-dir key
-  changed to `testerkit`; existing local data under the old key is not migrated
-  (pre-1.0).
+- **BREAKING** `litmus` → `testerkit` everywhere: PyPI dist, import package, CLI,
+  `TESTERKIT_*` env vars, `testerkit.yaml`, agent skills, MCP server. **No aliases.**
+  The data-dir key changed too; existing local data is not migrated (pre-1.0).
 
 ### Added
 
-- Class-hoisted instrument fixtures hold their reservation across the whole test
-  class (sequence): a class that `usefixtures` an instrument role reserves it for
-  the lifetime of the class container step — not just per method — via reentrant
-  refcounting, so the lock never drops between two methods of the same class.
-- The operator UI carries the TesterKit brand: wordmark in the sidebar, mark in
-  the header, and a real favicon — replacing the placeholder lightning-bolt emoji.
-  Documentation screenshots were regenerated against the new look.
+- Class-hoisted instrument fixtures hold their reservation for the whole class
+  (sequence), not just per method — reentrant, so the lock never drops between methods.
+- Brand marks in the operator UI (sidebar wordmark, header mark, favicon).
 
 ### Fixed
 
-- Flight daemon thread pools are capped (~96 → ~56 threads per daemon).
-- Event export and the HTTP/MCP daemon-warm path route through the EventStore seam.
-- Metrics UI: an empty phase filter means ALL phases, not none.
+- Flight daemon thread pools capped (~96 → ~56 per daemon).
+- Event export + HTTP/MCP daemon-warm route through the EventStore seam.
+- Metrics UI: empty phase filter means ALL phases, not none.
 - `testerkit init` merges an existing `.vscode/settings.json` instead of skipping it.
-- The AI read surface is split into the `testerkit-data` skill, with a hard rule
-  against reading raw parquet.
+- AI read surface split into the `testerkit-data` skill (no raw parquet).
 
 ## [0.3.1] - 2026-07-06
 
