@@ -49,14 +49,16 @@ Things that make TesterKit *good* (not just shippable). Sorted by RICE.
 | Array channel empty-result schema | small | 0.5 | 0.9 | 0.2 | small |
 | Runs daemon — record actual `row_count` in `_ingested` | small | 0.5 | 0.9 | 0.2 | small |
 
-### 0.3.x — execution-model / schema / reservation line (recovered 2026-07-09)
+### 0.3.x → 0.4.x — execution-model / schema / reservation line
 
-The **actual** 0.3 series: data-model-at-rest, schema versioning, multi-site,
-instrument reservation, and the identity / builder cleanups. This ladder was
-planned in the 2026-07-08 session's task list but never written here — recovered
-from the transcripts and made durable. The shipped half is authoritatively
-recorded in `CHANGELOG.md`; the full ladder is kept here for sequencing.
-**Analytics is NOT 0.3** (it was mislabeled) — see 0.5.0 below (0.4.0 is the rebrand release).
+The execution-model line: data-model-at-rest, schema versioning, multi-site,
+instrument reservation, and the identity / builder cleanups. Recovered from the
+2026-07-08 session's task list (never written here at the time) and made durable
+2026-07-09. **Retagged to 0.4.x on 2026-07-18** when 0.4.0 became the rebrand
+release (Litmus → TesterKit); 0.3.0/0.3.1 stay as shipped history, the forward
+ladder continues as 0.4.1+. Shipped rows are authoritatively recorded in
+`CHANGELOG.md`. **Analytics is NOT on this line** (it was mislabeled) — see 0.5.0
+below.
 
 | Epic | Refs | Status |
 |---|---|---|
@@ -64,16 +66,17 @@ recorded in `CHANGELOG.md`; the full ladder is kept here for sequencing.
 | **[0.3.0]** Operator-UI bug fixes (Sonnet smoke test) | — | ✅ v0.3.0 |
 | **[0.3.0]** AI test-writing surfaces — accuracy + start-simple compliance | #66 | ✅ ~v0.3.1 (`b38470a5`) |
 | **[0.3.1]** Schema-versioning hardening + content-addressed index epoch | #47/#53 | ✅ v0.3.1 |
-| **[0.3.2]** Instrument reservation / coordinator — step-lease, read-only observe, station-scoped join-on-connect | #11/#12/#18 | 🔶 per-step reserve shipped (v0.3.0); class-container hold on `feat/class-container-instrument-reservation`; coordinator + observe pending. `docs/_internal/explorations/instrument-reservation.md` |
-| **[0.3.3]** Multi-site launch UI + live execution view (gantt) | #8/#14 | ⬜ |
-| **[0.3.4]** Fixture as a first-class entity | — | ⬜ |
-| **[0.3.5]** StepsQuery inputs/outputs field-query surface — query by role+name | #26 | ⬜ |
-| **[0.3.6]** Tech-debt / standalone cluster (#34 flaky = do-now) | #34 | ⬜ |
-| **[0.3.7]** Observed-entity identity model — read + write single-sourcing | — | ⬜ `docs/_internal/explorations/best-available-identity.md` |
-| **[0.3.8]** Builder overhaul — objects correct by construction | — | ⬜ |
-| **[0.3.9]** Retry collapse view — first / last / all | — | ⬜ |
-| **[0.3.10]** Cross-store parity indexing — events/channels/files → runs-parity | #64 | 🔶 shared DaemonManager fingerprint + `_index_epoch` spine landed; channels + files catalog daemons to parity remain (deferred) |
-| **[0.3.11]** Versioning & index resiliency backlog — copy-seed, coexisting daemons, retention, XDG runtime-dir hygiene | #65 | ⬜ deferred backlog. `docs/_internal/explorations/versioning-resiliency-backlog.md` |
+| **[0.4.0]** Rebrand (Litmus → TesterKit) + class-container instrument reservation | #11 | ✅ v0.4.0 (2026-07-18) |
+| **[0.4.1]** Instrument reservation / coordinator — step-lease, read-only observe, station-scoped join-on-connect | #11/#12/#18 | 🔶 per-step + class-container reserve SHIPPED (v0.4.0); coordinator + observe pending. `docs/_internal/explorations/instrument-reservation.md` |
+| **[0.4.2]** Multi-site launch UI + live execution view (gantt) | #8/#14 | ⬜ |
+| **[0.4.3]** Fixture as a first-class entity | — | ⬜ |
+| **[0.4.4]** StepsQuery inputs/outputs field-query surface — query by role+name | #26 | ⬜ |
+| **[0.4.5]** Tech-debt / standalone cluster (#34 flaky = do-now) | #34 | ⬜ |
+| **[0.4.6]** Observed-entity identity model — read + write single-sourcing | — | ⬜ `docs/_internal/explorations/best-available-identity.md` |
+| **[0.4.7]** Builder overhaul — objects correct by construction | — | ⬜ |
+| **[0.4.8]** Retry collapse view — first / last / all | — | ⬜ |
+| **[0.4.9]** Cross-store parity indexing — events/channels/files → runs-parity | #64 | 🔶 shared DaemonManager fingerprint + `_index_epoch` spine landed; channels + files catalog daemons to parity remain (deferred) |
+| **[0.4.10]** Versioning & index resiliency backlog — copy-seed, coexisting daemons, retention, XDG runtime-dir hygiene | #65 | ⬜ deferred backlog. `docs/_internal/explorations/versioning-resiliency-backlog.md` |
 
 ### 0.4.0 — rebrand (Litmus → TesterKit) — SHIPPED 2026-07-18
 
