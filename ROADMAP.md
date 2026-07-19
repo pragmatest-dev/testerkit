@@ -56,7 +56,7 @@ instrument reservation, and the identity / builder cleanups. This ladder was
 planned in the 2026-07-08 session's task list but never written here — recovered
 from the transcripts and made durable. The shipped half is authoritatively
 recorded in `CHANGELOG.md`; the full ladder is kept here for sequencing.
-**Analytics is NOT 0.3** (it was mislabeled) — see 0.4.0 below.
+**Analytics is NOT 0.3** (it was mislabeled) — see 0.5.0 below (0.4.0 is the rebrand release).
 
 | Epic | Refs | Status |
 |---|---|---|
@@ -75,11 +75,20 @@ recorded in `CHANGELOG.md`; the full ladder is kept here for sequencing.
 | **[0.3.10]** Cross-store parity indexing — events/channels/files → runs-parity | #64 | 🔶 shared DaemonManager fingerprint + `_index_epoch` spine landed; channels + files catalog daemons to parity remain (deferred) |
 | **[0.3.11]** Versioning & index resiliency backlog — copy-seed, coexisting daemons, retention, XDG runtime-dir hygiene | #65 | ⬜ deferred backlog. `docs/_internal/explorations/versioning-resiliency-backlog.md` |
 
-### 0.4.0 — analytics release
+### 0.4.0 — rebrand (Litmus → TesterKit) — SHIPPED 2026-07-18
+
+Wholesale rename: PyPI `litmus-test` → `testerkit`, import `litmus` → `testerkit`,
+CLI / env / config / skills / MCP all renamed; hard break, no aliases; greenfield
+data dir (pre-1.0). Bundled with the class-container instrument reservation
+feature and accrued fixes. Version numbering continues unbroken. See CHANGELOG
+`[0.4.0]`.
+
+### 0.5.0 — analytics release
 
 The deferred quality-metrics work (**was mislabeled 0.3.0** — the 0.3 series is
-the execution-model line above). 0.2.0 shipped the Tier-1 set + the cheap
-wins (Ppk, RTY, DPMO/DPPM); 0.4.0 is the capability + SPC + cross-tab pass.
+the execution-model line above; retagged 0.4.0 → 0.5.0 once 0.4.0 became the
+rebrand release). 0.2.0 shipped the Tier-1 set + the cheap wins (Ppk, RTY,
+DPMO/DPPM); 0.5.0 is the capability + SPC + cross-tab pass.
 Design: `docs/_internal/explorations/0.3.0-analytics-metrics.md`.
 
 | Item | R | I | C | E | Score |

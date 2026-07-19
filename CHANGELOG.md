@@ -10,6 +10,41 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-18
+
+The rebrand release: **Litmus is now TesterKit.** Releases through 0.3.1 were
+published on PyPI as `litmus-test`; from 0.4.0 the package is `testerkit`.
+Version numbering continues unbroken — the rename is cosmetic, the software's
+maturity is not.
+
+### Changed
+
+- **BREAKING** Renamed the entire project `litmus` → `testerkit`. The PyPI
+  distribution is `testerkit` (was `litmus-test`); the import package is
+  `testerkit` (was `litmus`); the CLI is `testerkit` (was `litmus`); environment
+  variables are `TESTERKIT_*` (were `LITMUS_*`); the project config file is
+  `testerkit.yaml` (was `litmus.yaml`); the bundled agent skills are `testerkit-*`;
+  the MCP server is `testerkit`. There are **no aliases** — update imports,
+  scripts, environment variables, and config filenames. The on-disk data-dir key
+  changed to `testerkit`; existing local data under the old key is not migrated
+  (pre-1.0).
+
+### Added
+
+- Class-hoisted instrument fixtures hold their reservation across the whole test
+  class (sequence): a class that `usefixtures` an instrument role reserves it for
+  the lifetime of the class container step — not just per method — via reentrant
+  refcounting, so the lock never drops between two methods of the same class.
+
+### Fixed
+
+- Flight daemon thread pools are capped (~96 → ~56 threads per daemon).
+- Event export and the HTTP/MCP daemon-warm path route through the EventStore seam.
+- Metrics UI: an empty phase filter means ALL phases, not none.
+- `testerkit init` merges an existing `.vscode/settings.json` instead of skipping it.
+- The AI read surface is split into the `testerkit-data` skill, with a hard rule
+  against reading raw parquet.
+
 ## [0.3.1] - 2026-07-06
 
 Out-of-the-box: a fresh `testerkit init --starter` runs, surfaces live and finished runs
