@@ -17,7 +17,7 @@ import pyarrow as pa
 import pyarrow.flight as flight
 import pytest
 
-from litmus.data._duckdb_flight_server import (
+from testerkit.data._duckdb_flight_server import (
     DuckDBFlightServer,
     _apply_filter,
     _parse_subscribe,

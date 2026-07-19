@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import json
 
-from litmus.data.channels.models import CHANNEL_SCHEMA_VERSION
-from litmus.data.event_log import _IPC_SCHEMA, EVENT_LOG_SCHEMA_VERSION
-from litmus.data.events import EVENT_CATALOG_VERSION
-from litmus.data.files.models import FILE_METADATA_SCHEMA_VERSION, FileArtifactMetadata
-from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
-from litmus.data.schemas import RUN_ROW_SCHEMA, SCHEMA_VERSION, _build_write_schema
+from testerkit.data.channels.models import CHANNEL_SCHEMA_VERSION
+from testerkit.data.event_log import _IPC_SCHEMA, EVENT_LOG_SCHEMA_VERSION
+from testerkit.data.events import EVENT_CATALOG_VERSION
+from testerkit.data.files.models import FILE_METADATA_SCHEMA_VERSION, FileArtifactMetadata
+from testerkit.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
+from testerkit.data.schemas import RUN_ROW_SCHEMA, SCHEMA_VERSION, _build_write_schema
 
 
 def test_every_store_stamp_matches_the_registry() -> None:

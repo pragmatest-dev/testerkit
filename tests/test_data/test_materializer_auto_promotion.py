@@ -3,7 +3,7 @@
 Two materialization paths in the codebase:
 
 - **offline path** — :meth:`ParquetBackend._build_measurement_rows`
-  walks a pre-built :class:`TestRun` (e.g. from ``LitmusClient``)
+  walks a pre-built :class:`TestRun` (e.g. from ``TesterKitClient``)
   and emits one row per ``vector.measurements`` entry.
 - **live path** — :class:`EventAccumulator` projects an event
   stream; :func:`materialize_run_to_parquet` writes its state out
@@ -32,13 +32,13 @@ from uuid import uuid4
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.data.backends._event_accumulator import EventAccumulator
-from litmus.data.backends._row_helpers import decode_lane_structs
-from litmus.data.backends.parquet import (
+from testerkit.data.backends._event_accumulator import EventAccumulator
+from testerkit.data.backends._row_helpers import decode_lane_structs
+from testerkit.data.backends.parquet import (
     ParquetBackend,
     materialize_run_to_parquet,
 )
-from litmus.data.events import (
+from testerkit.data.events import (
     MeasurementRecorded,
     Observation,
     RunEnded,
@@ -48,7 +48,7 @@ from litmus.data.events import (
     VectorEnded,
     VectorStarted,
 )
-from litmus.data.models import (
+from testerkit.data.models import (
     UUT,
     Measurement,
     Outcome,
@@ -550,13 +550,13 @@ class TestObservationKind:
         ],
     )
     def test_classifier(self, payload, expected) -> None:
-        from litmus.data.backends._row_helpers import observation_kind
+        from testerkit.data.backends._row_helpers import observation_kind
 
         assert observation_kind(payload) == expected
 
     def test_bool_classified_before_int(self) -> None:
         """``True`` is also int in Python; bool branch must come first."""
-        from litmus.data.backends._row_helpers import observation_kind
+        from testerkit.data.backends._row_helpers import observation_kind
 
         assert observation_kind(True) == "scalar:bool"
         assert observation_kind(False) == "scalar:bool"

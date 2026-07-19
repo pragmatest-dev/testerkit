@@ -3,7 +3,7 @@
 ``context.run`` / ``context.station`` / ``context.part`` are the
 read-only ambient roll-up tests use without taking ``logger`` /
 ``station_config`` / ``part`` as fixture arguments. Each
-delegates to a ContextVar getter in :mod:`litmus.execution._state`.
+delegates to a ContextVar getter in :mod:`testerkit.execution._state`.
 
 UUT identity intentionally lives at ``context.run.uut`` — a top-level
 ``context.uut`` would collide with the bare ``uut`` fixture (which is
@@ -23,7 +23,7 @@ pytest_plugins = ["pytester"]
 _INI = textwrap.dedent(
     """
     [pytest]
-    addopts = -p no:litmus -p litmus.pytest_plugin
+    addopts = -p no:testerkit -p testerkit.pytest_plugin
     asyncio_default_fixture_loop_scope = function
     """
 )

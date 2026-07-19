@@ -1,7 +1,7 @@
 """Coverage for ``required_inputs`` resolution and ``default_profile``.
 
 The resolver runs at session start and walks every declared input
-through CLI flag → env var → ``litmus.prompts.ask`` (in that order),
+through CLI flag → env var → ``testerkit.prompts.ask`` (in that order),
 fail-fast on missing values. ``default_profile`` + ``--no-test-profile``
 control disambiguation when profiles are declared.
 """
@@ -10,16 +10,16 @@ from __future__ import annotations
 
 import pytest
 
-from litmus.execution.profiles import (
+from testerkit.execution.profiles import (
     ProfileError,
     required_input_key_to_cli_flag,
     required_input_key_to_env_var,
     resolve_default_profile,
     resolve_required_inputs,
 )
-from litmus.models.project import ProfileConfig, ProjectConfig
-from litmus.models.test_config import PromptConfig
-from litmus.prompts import set_prompt_handler
+from testerkit.models.project import ProfileConfig, ProjectConfig
+from testerkit.models.test_config import PromptConfig
+from testerkit.prompts import set_prompt_handler
 
 
 class _StubConfig:
@@ -43,8 +43,8 @@ def test_cli_flag_underscore_to_hyphen() -> None:
 
 
 def test_env_var_uppercase_with_prefix() -> None:
-    assert required_input_key_to_env_var("lot_number") == "LITMUS_LOT_NUMBER"
-    assert required_input_key_to_env_var("operator") == "LITMUS_OPERATOR"
+    assert required_input_key_to_env_var("lot_number") == "TESTERKIT_LOT_NUMBER"
+    assert required_input_key_to_env_var("operator") == "TESTERKIT_OPERATOR"
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +59,7 @@ def test_resolve_returns_empty_when_nothing_declared() -> None:
 
 
 def test_cli_flag_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LITMUS_LOT_NUMBER", "from_env")
+    monkeypatch.setenv("TESTERKIT_LOT_NUMBER", "from_env")
     project = ProjectConfig(
         name="p",
         required_inputs={"lot_number": PromptConfig(message="lot?", prompt_type="input")},
@@ -69,7 +69,7 @@ def test_cli_flag_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_env_var_wins_when_no_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LITMUS_LOT_NUMBER", "L42")
+    monkeypatch.setenv("TESTERKIT_LOT_NUMBER", "L42")
     project = ProjectConfig(
         name="p",
         required_inputs={"lot_number": PromptConfig(message="lot?", prompt_type="input")},
@@ -81,7 +81,7 @@ def test_env_var_wins_when_no_flag(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_prompt_handler_fallthrough_when_no_flag_or_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("LITMUS_WAFER_ID", raising=False)
+    monkeypatch.delenv("TESTERKIT_WAFER_ID", raising=False)
     set_prompt_handler(lambda cfg: "W17")
     try:
         project = ProjectConfig(
@@ -97,7 +97,7 @@ def test_prompt_handler_fallthrough_when_no_flag_or_env(
 def test_missing_required_input_raises_usage_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("LITMUS_LOT_NUMBER", raising=False)
+    monkeypatch.delenv("TESTERKIT_LOT_NUMBER", raising=False)
     set_prompt_handler(None)  # No handler; auto-confirm not set; non-tty -> error
     project = ProjectConfig(
         name="p",
@@ -109,7 +109,7 @@ def test_missing_required_input_raises_usage_error(
 
 
 def test_empty_prompt_value_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LITMUS_LOT_NUMBER", raising=False)
+    monkeypatch.delenv("TESTERKIT_LOT_NUMBER", raising=False)
     set_prompt_handler(lambda cfg: "")
     try:
         project = ProjectConfig(

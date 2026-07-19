@@ -1,0 +1,465 @@
+/* TesterKit Global Styles */
+
+/* CSS Variables */
+:root {
+  --color-primary: #3b82f6;
+  --color-primary-dark: #2563eb;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --color-info: #3b82f6;
+
+  --color-bg: #f8fafc;
+  --color-bg-card: #ffffff;
+  --color-border: #e2e8f0;
+
+  --color-text: #1e293b;
+  --color-text-muted: #64748b;
+  --color-text-light: #94a3b8;
+
+  --sidebar-width: 240px;
+  --header-height: 56px;
+}
+
+/* Base */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* Quasar overrides */
+.q-page {
+  background: var(--color-bg);
+  padding-left: var(--sidebar-width) !important;
+}
+
+/* TesterKit design-system page shell. Pages opt in by wrapping content
+   in ``page_layout()`` (testerkit.ui.shared.components). The shell
+   constrains the page area to the visible viewport so any
+   ``data_table`` or other fill-the-space component inside has a
+   finite height to scroll within — rows scroll, the page does not.
+   Pages that need natural-flow content (docs, long forms) skip the
+   shell and behave normally.
+
+   ``!important`` because Quasar's ``q-page`` ships
+   ``min-height: 100vh`` inline-equivalent with high specificity,
+   and NiceGUI's ``nicegui-column`` sets sizing on the inner div.
+   We need to win against both reliably. */
+.testerkit-page {
+  height: calc(100vh - var(--header-height)) !important;
+  max-height: calc(100vh - var(--header-height)) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100% !important;
+  overflow: hidden !important;
+}
+
+/* Sticky table headers — wraps any q-table the data_table helper
+   builds. Keeps column labels visible while rows scroll. */
+.testerkit-data-table .q-table thead tr th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f1f5f9;
+}
+
+.q-header {
+  left: var(--sidebar-width) !important;
+  width: calc(100% - var(--sidebar-width)) !important;
+}
+
+.q-drawer--left {
+  top: 0 !important;
+}
+
+.q-table th {
+  background: #f1f5f9 !important;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.q-table td {
+  font-size: 0.875rem;
+}
+
+.q-table tbody tr:hover {
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+/* Sidebar */
+.q-drawer {
+  background: #0f172a !important;
+}
+
+.q-drawer .q-item {
+  border-radius: 0.375rem;
+  margin: 0.125rem 0.5rem;
+}
+
+.q-drawer .q-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Cards */
+.q-card {
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+  border: 1px solid var(--color-border);
+}
+
+/* Buttons */
+.q-btn {
+  text-transform: none;
+  font-weight: 500;
+}
+
+/* Status badges */
+.badge-pass {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge-fail {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.badge-running {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.badge-pending {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+/* Log output */
+.nicegui-log {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+/* Form inputs */
+.q-field--outlined .q-field__control {
+  border-radius: 0.375rem;
+}
+
+/* Progress bar */
+.q-linear-progress {
+  border-radius: 0.25rem;
+  height: 0.5rem !important;
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Utility classes */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-mono {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Prose styles for documentation */
+.prose {
+  color: var(--color-text);
+  line-height: 1.75;
+}
+
+.prose h1 {
+  font-size: 2.25rem;
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: 1rem;
+  line-height: 1.2;
+  color: #1e293b;
+}
+
+.prose h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  line-height: 1.3;
+  color: #1e293b;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.5rem;
+}
+
+.prose h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+  color: #334155;
+}
+
+.prose h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  color: #475569;
+}
+
+.prose p {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+.prose a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.prose a:hover {
+  text-decoration: underline;
+}
+
+.prose strong {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.prose code {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.875em;
+  background: #f1f5f9;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  color: #be185d;
+}
+
+/* Code blocks: light bg + Pygments syntax highlighting.
+ *
+ * markdown2's `fenced-code-blocks` extra delegates to Pygments and
+ * emits tokenized <span class="k|s|n|...">. The .codehilite stylesheet
+ * below colors those tokens to match pragmatest's github-light theme
+ * (closest match available in Pygments is the `default` style). */
+.prose pre {
+  background: #f8fafc;
+  color: #1e293b;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 1.5rem 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  border: 1px solid #e2e8f0;
+}
+
+.prose pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* Pygments `default` style — generated via
+ *   HtmlFormatter(style='default', cssclass='codehilite').get_style_defs('.codehilite')
+ * Comments + colors trimmed for readability; behavior unchanged. */
+.prose .codehilite { background: transparent; }
+.prose .codehilite .c,
+.prose .codehilite .ch,
+.prose .codehilite .cm,
+.prose .codehilite .c1,
+.prose .codehilite .cs,
+.prose .codehilite .cpf { color: #3D7B7B; font-style: italic; }
+.prose .codehilite .cp { color: #9C6500; }
+.prose .codehilite .err { border: 1px solid #F00; }
+.prose .codehilite .k,
+.prose .codehilite .kc,
+.prose .codehilite .kd,
+.prose .codehilite .kn,
+.prose .codehilite .kr,
+.prose .codehilite .nt { color: #008000; font-weight: bold; }
+.prose .codehilite .kp,
+.prose .codehilite .nb,
+.prose .codehilite .bp,
+.prose .codehilite .sx { color: #008000; }
+.prose .codehilite .kt { color: #B00040; }
+.prose .codehilite .o { color: #666; }
+.prose .codehilite .ow { color: #A2F; font-weight: bold; }
+.prose .codehilite .m,
+.prose .codehilite .mb,
+.prose .codehilite .mf,
+.prose .codehilite .mh,
+.prose .codehilite .mi,
+.prose .codehilite .mo,
+.prose .codehilite .il { color: #666; }
+.prose .codehilite .s,
+.prose .codehilite .sa,
+.prose .codehilite .sb,
+.prose .codehilite .sc,
+.prose .codehilite .dl,
+.prose .codehilite .s2,
+.prose .codehilite .sh,
+.prose .codehilite .s1 { color: #BA2121; }
+.prose .codehilite .sd { color: #BA2121; font-style: italic; }
+.prose .codehilite .se { color: #AA5D1F; font-weight: bold; }
+.prose .codehilite .si { color: #A45A77; font-weight: bold; }
+.prose .codehilite .sr { color: #A45A77; }
+.prose .codehilite .ss,
+.prose .codehilite .nv,
+.prose .codehilite .vc,
+.prose .codehilite .vg,
+.prose .codehilite .vi,
+.prose .codehilite .vm { color: #19177C; }
+.prose .codehilite .na { color: #687822; }
+.prose .codehilite .nc,
+.prose .codehilite .nn { color: #00F; font-weight: bold; }
+.prose .codehilite .no { color: #800; }
+.prose .codehilite .nd { color: #A2F; }
+.prose .codehilite .ne { color: #CB3F38; font-weight: bold; }
+.prose .codehilite .nf,
+.prose .codehilite .fm { color: #00F; }
+.prose .codehilite .ni { color: #717171; font-weight: bold; }
+.prose .codehilite .nl { color: #767600; }
+.prose .codehilite .w { color: #BBB; }
+.prose .codehilite .gh,
+.prose .codehilite .gp { color: #000080; font-weight: bold; }
+.prose .codehilite .gu { color: #800080; font-weight: bold; }
+.prose .codehilite .gd { color: #A00000; }
+.prose .codehilite .gi { color: #008400; }
+.prose .codehilite .gr { color: #E40000; }
+.prose .codehilite .go { color: #717171; }
+.prose .codehilite .gs { font-weight: bold; }
+.prose .codehilite .ge { font-style: italic; }
+
+.prose ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin: 1rem 0;
+}
+
+.prose ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin: 1rem 0;
+}
+
+.prose li {
+  margin: 0.375rem 0;
+}
+
+.prose li > ul,
+.prose li > ol {
+  margin: 0.25rem 0;
+}
+
+.prose blockquote {
+  border-left: 4px solid #3b82f6;
+  padding-left: 1rem;
+  margin: 1.5rem 0;
+  color: #64748b;
+  font-style: italic;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+  font-size: 0.875rem;
+}
+
+.prose thead {
+  background: #f1f5f9;
+  border-bottom: 2px solid #cbd5e1; /* slate-300, defines header */
+}
+
+.prose th {
+  font-weight: 600;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  color: #0f172a; /* slate-900 for stronger header weight */
+}
+
+.prose td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #e2e8f0; /* slate-200, row separator only */
+  vertical-align: top;
+}
+
+/* Zebra striping — slate-50 on odd rows for scannability. */
+.prose tbody tr:nth-child(odd) {
+  background: #f8fafc;
+}
+
+.prose tbody tr:hover {
+  background: #f1f5f9; /* slate-100, contrasts both white + zebra */
+}
+
+.prose hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 2rem 0;
+}
+
+.prose img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin: 1.5rem 0;
+}
+
+/* Prose slate variant */
+.prose-slate h1,
+.prose-slate h2,
+.prose-slate h3,
+.prose-slate h4 {
+  color: #1e293b;
+}
+
+.prose-slate strong {
+  color: #1e293b;
+}
+
+/* Max width for prose */
+.prose.max-w-none {
+  max-width: none;
+}
+
+/* Documentation page layout */
+.docs-layout {
+  display: flex;
+  min-height: 100%;
+}
+
+.docs-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.docs-content {
+  flex: 1;
+  min-width: 0;
+}

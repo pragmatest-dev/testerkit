@@ -57,7 +57,7 @@ repos:
         name: reference-docs-drift
         entry: uv run python scripts/generate_reference_docs.py --all --check
         language: system
-        files: ^(scripts/generate_reference_docs\.py|src/litmus/(data/(events|models)\.py|data/channels/models\.py|models/.*\.py|api/(app|models|responses)\.py|mcp/server\.py|cli\.py|grafana/cli\.py|pytest_plugin/hooks\.py|analysis/(runs|steps|measurements)_query\.py|analysis/measurement_facets\.py)|docs/reference/(configuration|cli|data/(event-types|models|query-api)|runtime/api|overview/pytest-native)\.md)$
+        files: ^(scripts/generate_reference_docs\.py|src/testerkit/(data/(events|models)\.py|data/channels/models\.py|models/.*\.py|api/(app|models|responses)\.py|mcp/server\.py|cli\.py|grafana/cli\.py|pytest_plugin/hooks\.py|analysis/(runs|steps|measurements)_query\.py|analysis/measurement_facets\.py)|docs/reference/(configuration|cli|data/(event-types|models|query-api)|runtime/api|overview/pytest-native)\.md)$
         pass_filenames: false
         require_serial: true
 
@@ -69,7 +69,7 @@ repos:
         name: screenshot-drift-reminder
         entry: uv run python scripts/check-screenshot-drift.py
         language: system
-        files: ^src/litmus/ui/pages/.*\.py$
+        files: ^src/testerkit/ui/pages/.*\.py$
         pass_filenames: true
         require_serial: false
         verbose: true  # pre-commit only shows output on failure unless verbose

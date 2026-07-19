@@ -72,7 +72,7 @@ Events are the source; at-rest parquet + queries are **derived** (accumulator pr
 parquet layer. The freeze happens at emission.
 
 **`slot_id` is removed, not renamed.** Today `slot_id` (the string `"slot_1"` / `"default"`)
-is the *primary identity* — the `slots` dict key, the `_LITMUS_SLOT_ID` env, the reservation /
+is the *primary identity* — the `slots` dict key, the `_TESTERKIT_SLOT_ID` env, the reservation /
 routing key, the `SlotResult` key, the `--uut-serials slot_1=` key — and `slot_index` is
 *derived* from it (`slot_ids.index(slot_id)`). The reshape **inverts** that: the integer
 **position becomes the identity** and the synthetic string identifier disappears entirely.
@@ -86,7 +86,7 @@ routing key, the `SlotResult` key, the `--uut-serials slot_1=` key — and `slot
 
 - **`RunStarted`** — the per-site-worker run carries **`site_index`** (was `slot_index`) +
   **`site_name`** (new). This is the freeze point: the worker reads its `site_index` from
-  `_LITMUS_SITE_INDEX` and resolves `site_name` from the active fixture's site at that index.
+  `_TESTERKIT_SITE_INDEX` and resolves `site_name` from the active fixture's site at that index.
   Every step / vector / measurement row is attributed to a site by **projection through its
   `run_id` → `RunStarted`** — the accumulator does not need site fields on each measurement
   event.
@@ -156,7 +156,7 @@ sites:
 
 ## CLI — `--site` and `--uut-serials`, both take index or name
 
-`--slot` → `--site`. `_LITMUS_SLOT_ID` / `_LITMUS_SLOT_INDEX` → `_LITMUS_SITE_INDEX` (0-based).
+`--slot` → `--site`. `_TESTERKIT_SLOT_ID` / `_TESTERKIT_SLOT_INDEX` → `_TESTERKIT_SITE_INDEX` (0-based).
 
 **Resolution rule (both flags):** int-parse the token first → `site_index`; else → match
 `site_name`. Unambiguous because names can't be bare integers.
@@ -198,8 +198,8 @@ gap, the launch can.
 - **At-rest schema:** `schemas.py` `slot`/`slot_index` column → `site_index` + `site_name`
   (denormalized onto run/measurement rows).
 - **Queries:** `runs_query.py`, `steps_query.py`, `measurements_query.py` slot filters/columns.
-- **Wire/env:** `_LITMUS_SLOT_ID`/`_LITMUS_SLOT_INDEX`/`_LITMUS_SLOT_COUNT` →
-  `_LITMUS_SITE_INDEX`/`_LITMUS_SITE_COUNT`; `--slot`, `--uut-serials` help text.
+- **Wire/env:** `_TESTERKIT_SLOT_ID`/`_TESTERKIT_SLOT_INDEX`/`_TESTERKIT_SLOT_COUNT` →
+  `_TESTERKIT_SITE_INDEX`/`_TESTERKIT_SITE_COUNT`; `--slot`, `--uut-serials` help text.
 - **UI:** `execution_gantt.py` stack naming, any slot columns/labels → site.
 - **Docs:** reference docs (event-types, models, cli, configuration) regenerate;
   fixtures/multi-site user docs.
@@ -215,11 +215,11 @@ only 1-based usage found is an optional **report display** preference, which dec
 
 - **NI TestStand Semiconductor Module** — `Parameters.TestSocket.Index` is **0-based by
   default** (first site = Socket 0). NI notes "some users prefer 1-indexed *reports*" — i.e. 0
-  is the engine base, 1 is a display choice. (TestStand is a named Litmus migration path.)
+  is the engine base, 1 is a display choice. (TestStand is a named TesterKit migration path.)
 - **STDF** — `SITE_NUM` is `U*1`, **tester-specific** (spec mandates no base); canonical
   multi-site example data shows `SITE_NUM = [0, 1]`. The "all" sentinel is `HEAD_NUM = 255`,
   not "site 0."
-- **Litmus internal** — `slot_index = slot_ids.index(slot_id)` (0-based), `vector_index`,
+- **TesterKit internal** — `slot_index = slot_ids.index(slot_id)` (0-based), `vector_index`,
   `step_index` all 0-based. No exceptions.
 
 Sources: NI TSM multisite docs; pySTDF `SITE_NUM = [0,1]` example; STDF V4 spec.

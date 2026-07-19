@@ -21,8 +21,8 @@ import pyarrow as pa
 import pyarrow.fs as pafs
 import pytest
 
-from litmus.data.files import FileStore
-from litmus.data.files._backend import BlobBackend
+from testerkit.data.files import FileStore
+from testerkit.data.files._backend import BlobBackend
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def remote_store():
 class TestBackendSwap:
     def test_s3_uri_resolves_to_non_local_backend(self) -> None:
         """A config URI swap produces a non-local backend (the wiring)."""
-        backend = BlobBackend.from_uri("s3://litmus-test-bucket/prefix?region=us-east-1")
+        backend = BlobBackend.from_uri("s3://testerkit-bucket/prefix?region=us-east-1")
         assert backend.is_local is False
         assert backend.local_path("2026/sid/x.bin") is None
 

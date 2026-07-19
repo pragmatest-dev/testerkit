@@ -1,4 +1,4 @@
-# Litmus Roadmap
+# TesterKit Roadmap
 
 Active backlog (RICE-prioritized) and archive of shipped work. Items
 graduate from **Backlog** to **Completed** on merge — never strike
@@ -23,11 +23,11 @@ Backlog items that are 0.1.0 gates:
 | Item | R | I | C | E | Score |
 |---|---|---|---|---|---|
 | `response_model=` coverage on FastAPI endpoints | high | 1.5 | 0.9 | 1.0 | high |
-| `litmus plan --profile=X` — dry-run profile resolution | medium | 1 | 0.9 | 0.5 | medium |
+| `testerkit plan --profile=X` — dry-run profile resolution | medium | 1 | 0.9 | 0.5 | medium |
 
 ### 0.2.0 — first adoption push
 
-Things that make Litmus *good* (not just shippable). Sorted by RICE.
+Things that make TesterKit *good* (not just shippable). Sorted by RICE.
 
 | Item | R | I | C | E | Score |
 |---|---|---|---|---|---|
@@ -101,13 +101,13 @@ to confirm direction.
 |---|---|---|---|---|---|
 | UI Extensions API — third-party plugins | high | 3 | 0.5 | 8.0 | The OpenHTF-killer pitch; needs early adopters to shape the API |
 | Alternate runner wrappers (OpenHTF / unittest / Robot) | high | 3 | 0.4 | 6.0 | Migration story; build *one* (OpenHTF) once we know which mappings stick |
-| Split into `pytest-litmus` + `litmus-test` | high | 2 | 0.5 | 4.0 | Packaging refactor; only worth it once API surfaces stabilize |
+| Split into `pytest-testerkit` + `testerkit` | high | 2 | 0.5 | 4.0 | Packaging refactor; only worth it once API surfaces stabilize |
 | Switch-matrix routing | low (specialized) | 2 | 0.5 | 4.0 | Needed by some shops, irrelevant to many |
 | Sequences for fine-grained execution control | low | 1 | 0.4 | 4.0 | Was deleted in v1; revisit if pytest's primitives prove insufficient |
 | Transports — read side (download / fetch / replay) | medium | 1.5 | 0.6 | 2.0 | Wait until storage layer settles |
-| `@litmus.judges` marker | low (escape hatch) | 0.5 | 0.7 | 0.5 | Only if the runtime `pytest_assertion_pass` + measurement-with-limits inference proves insufficient in practice |
+| `@testerkit.judges` marker | low (escape hatch) | 0.5 | 0.7 | 0.5 | Only if the runtime `pytest_assertion_pass` + measurement-with-limits inference proves insufficient in practice |
 | `execution_index` global pre-order counter on step rows | medium | 1 | 0.7 | 0.5 | Today `step_started_at` is enough for total ordering; revisit if hierarchical-sequence reports need a stable pre-order key independent of timing. |
-| `litmus export --to delta/iceberg/snowflake` | medium | 1.5 | 0.5 | 2.0 | Built-in transform from Litmus parquets to lakehouse table formats. The 3-line SQL pattern is documented at `docs/integration/lakehouse-import.md`; turn it into a first-class command once a real adopter asks. Don't pre-build. |
+| `testerkit export --to delta/iceberg/snowflake` | medium | 1.5 | 0.5 | 2.0 | Built-in transform from TesterKit parquets to lakehouse table formats. The 3-line SQL pattern is documented at `docs/integration/lakehouse-import.md`; turn it into a first-class command once a real adopter asks. Don't pre-build. |
 | Table-format catalog evaluation (DuckLake / Delta / Iceberg) | medium | 2 | 0.5 | 3.0 | Replace ~3K lines of `_runs_duckdb_daemon.py` ingest sweep + `_materialized` table management with a managed catalog. DuckLake the closest fit (DuckDB-as-catalog, parquet-as-data); Delta/Iceberg as interop options. See `docs/explorations/data-architecture.md` open questions. |
 | Pluggable `Materializer` interface (parquet / postgres / snowflake / etc.) | medium | 2 | 0.6 | 4.0 | The runs daemon currently materializes runs to parquet only. Event payload already carries `materializer` + `destination`, so adding a `Materializer` plugin contract is forward-compatible. Wait until a real consumer asks. |
 | Runner-invocation capture (full vs ad-hoc) | high | 2 | 0.4 | 3.0 | Demoted: the naive `is_adhoc` (CLI `-k`/`-m`/node-ids) is wrong with profiles — a profile injects `markexpr`/`keyword` via `PYTEST_ADDOPTS`, so profile runs mislabel as ad-hoc and "Full" overclaims (a profile already scopes the test set). Needs a profile-aware model: scope = (profile, selection beyond the profile) + `profile` on `RunStarted`. |
@@ -134,7 +134,7 @@ and physical-channel-id (open design forks)._
   `LiveBadge` pills + the holder+timer rule. (Also tracked under "Live
   updates on Events and Channels store-browser pages" below.)
 - **Wire `channels_liveness_query` as an MCP tool + HTTP endpoint** —
-  `litmus_channels_liveness` + `GET /api/channels/_liveness`. Drafted then
+  `testerkit_channels_liveness` + `GET /api/channels/_liveness`. Drafted then
   reverted: on a large store the inline `_maybe_scan_disk()` inside the
   registry read blocks the Flight `do_get` past the client deadline
   (`FlightTimedOutError`). **Decouple the disk scan from the registry read
@@ -189,7 +189,7 @@ Source: `docs/_internal/explorations/channels-write-scaling.md`,
 
 _RICE: R=low-med, I=2, C=0.6, E=4w → **low-med**. Target Later (bites at
 multi-producer / HIL scale, not single-station). Quick win now: extend the
-`litmus benchmark` sweep to `write_many` / `stream` (E≈0.3w) so a regression
+`testerkit benchmark` sweep to `write_many` / `stream` (E≈0.3w) so a regression
 like the Phase-5 one is visible next time._
 
 - **Daemon write path (`serve=True`) doesn't scale across writers** — one
@@ -197,7 +197,7 @@ like the Phase-5 one is visible next time._
 - **Index as a pull-consumer tailing segments by offset.** (Note:
   `pyarrow.dataset` was ruled OUT for this; pull-by-offset is the path.)
 - **Batched-relay fan-out** to raise the ~4k/s live-relay ceiling.
-- **`litmus benchmark` concurrent sweep covers only `channels.write`** —
+- **`testerkit benchmark` concurrent sweep covers only `channels.write`** —
   extend to `write_many` / `stream`.
 - **R4 backend-swap proof** (Redis / S3) for the channels store.
 - **Streaming-relay convergence (broken contract).** Channels and files
@@ -249,7 +249,7 @@ FileStore streaming landing first; encode-bound, narrower audience
 ### Store federation & retention remainder
 
 Most of the 2026-06 federation/retention sweep shipped (reference-aware
-channel + file retention #262/#272, `litmus data import` #271,
+channel + file retention #262/#272, `testerkit data import` #271,
 promote-carries-refs #269, dangling-ref resilience #263). Remaining open.
 Source: `docs/_internal/explorations/data-stores.md`,
 `data-store-backends.md`, `data-store-unification-invariants.md`.
@@ -258,9 +258,9 @@ _RICE: R=med, I=1.5, C=0.7, E=2.5w → **med**. Target 0.2.0 for run
 seal/export + the `materialize` boundary fix; Later for the layout reorg
 (v0.3.0) and req-6 (no real remote server yet — don't ship dead env vars)._
 
-- **Run seal / export bundle.** A `litmus data` verb that seals a run and
+- **Run seal / export bundle.** A `testerkit data` verb that seals a run and
   exports it (with its referenced channel/file data) as a portable bundle.
-  `litmus data import` is the inbound half; the outbound bundle isn't built.
+  `testerkit data import` is the inbound half; the outbound bundle isn't built.
 - **`materialize` globs channel `.arrow`** — store-boundary violation; it
   reads channel segments through an ephemeral non-indexed `ChannelStore`
   instead of the channels daemon API. (Gated on the #262 ref-vs-copy
@@ -347,10 +347,10 @@ the marker alone fixes neither the cost nor recovery):
   failing-bug class no longer re-replays every daemon launch. This is the
   marker's operational point — emitting it *without* excluding doesn't fix
   the per-launch cost.
-- **`litmus data rematerialize [--run <id> | --all-failed]`** — clears the
+- **`testerkit data rematerialize [--run <id> | --all-failed]`** — clears the
   marker, replays the cohort, re-materializes. Run after upgrading with the
   fix. Surface a count ("N runs failed to materialize → run
-  `litmus data rematerialize`").
+  `testerkit data rematerialize`").
 - **Retention must pin un-materialized / failed cohorts** — `prune_date_dirs`
   is date-blind today; it must skip date-dirs holding not-yet-materialized
   runs, mirroring reference-aware channel retention. (The `RunMaterialized`
@@ -414,10 +414,10 @@ Source: `docs/_internal/explorations/data-stores.md`,
 `streaming-unification.md`.
 
 _RICE: R=med, I=2, C=0.6, E=3w → **med-high**. Target 0.2.0 for the
-`litmus.live` subscribe/deref SDK (the external-consumer + AI adoption
+`testerkit.live` subscribe/deref SDK (the external-consumer + AI adoption
 surface); v0.3.0 for channels/files as test inputs._
 
-- **Consumer SDK — `litmus.live`** (`subscribe_events` / `subscribe_channel`
+- **Consumer SDK — `testerkit.live`** (`subscribe_events` / `subscribe_channel`
   / `subscribe_file` / `run_live`, plus deref). The subscribe-and-deref
   surface for external consumers (build item 20).
 - **Channels + files as test INPUTS** (v0.3.0) — read live channel / file
@@ -478,10 +478,10 @@ sweep (published docs must match the shipped API); 0.2.0 for items 25–30._
 - **v0.2.0 docs items 25–30** — 5 stale operator-UI pages, uuts / profiles
   pages, the four-store model.
 
-### Example portability — copy-out + `litmus init --from-example`
+### Example portability — copy-out + `testerkit init --from-example`
 
 Make the bundled examples something a user can **get and run** after installing
-Litmus, bound to their installed `litmus-test` and with data isolated from theirs.
+TesterKit, bound to their installed `testerkit` and with data isolated from theirs.
 Design: `docs/_internal/explorations/examples-portability.md`.
 
 _RICE: R=med, I=2, C=0.7, E=1.5w → **med-high**. Target 0.2.0 (adoption /
@@ -490,17 +490,17 @@ getting-started). The relocate-to-root prerequisite is do-now-cheap and unblocks
 bundling is the larger half._
 
 - **Relocate uv source to the workspace root** (prerequisite, small) — move
-  `litmus-test = { workspace = true }` from the 11 example tomls up into the root
+  `testerkit = { workspace = true }` from the 11 example tomls up into the root
   `pyproject.toml`. Verified: root sources propagate to members, so example tomls
-  become clean PEP 621 (bind to the user's installed `litmus-test`) while in-repo
+  become clean PEP 621 (bind to the user's installed `testerkit`) while in-repo
   `uv sync` still resolves examples to local HEAD (`editable = "."`).
 - **Bundle examples into the wheel** — they ship in the sdist but not the wheel
   today; needed for `init --from-example` to pull from a `pip install`ed package.
-- **`litmus init <name> --from-example <id>`** — scaffold an example as a fresh
+- **`testerkit init <name> --from-example <id>`** — scaffold an example as a fresh
   standalone project the user names.
-- **`.examples/<id>/` mode** (`litmus pull-example`, name TBD) — the *only*
+- **`.examples/<id>/` mode** (`testerkit pull-example`, name TBD) — the *only*
   sanctioned in-project placement; dot-dir, so hidden from the user's pytest
-  collection and data, isolated by the example's own `litmus.yaml`.
+  collection and data, isolated by the example's own `testerkit.yaml`.
 - **Project-aware guard** — refuse to scaffold over an existing project root
   (resolve via `_find_project_config`); no silent merges. The blessed in-project
   path is `.examples/` only.
@@ -625,7 +625,7 @@ Out-of-scope for this entry but likely follow-up: similar capture
 for non-pytest runners (OpenHTF, ``with conn:``) once the runner-
 adapter shape is settled.
 
-### `@litmus.judges` marker — explicit verdict-intent override
+### `@testerkit.judges` marker — explicit verdict-intent override
 
 The runner's pass-vs-done decision for a step that ends without an
 exception or a measurement-level verdict relies on a static AST
@@ -638,7 +638,7 @@ semantic.
 The AST scan handles the common cases:
 - bare asserts in the test body or a same-module helper
 - `logger.measure(..., limit=...)` anywhere in the same module
-- Litmus wrappers that internally record limits — the cascade
+- TesterKit wrappers that internally record limits — the cascade
   from the measurement layer surfaces the real verdict regardless
 
 The gap: a test that delegates judgment to a **cross-module**
@@ -649,14 +649,14 @@ test.
 The escape hatch:
 
 ```python
-@litmus.judges
+@testerkit.judges
 def test_with_imported_helper(measure):
     _check_thing(measure)  # asserts live in another module
 ```
 
-`@litmus.judges` flips the inference to "this test makes a verdict";
+`@testerkit.judges` flips the inference to "this test makes a verdict";
 clean exit → `PASSED`, no AST guessing. The complementary
-`@litmus.records_only` would force `DONE` for a setup-style step
+`@testerkit.records_only` would force `DONE` for a setup-style step
 that explicitly opts out of a verdict even when its module has
 asserts elsewhere.
 
@@ -665,7 +665,7 @@ in `_stamp_step_from_call_outcome` (`hooks.py:642`-ish) ahead of
 the AST cache lookup, and the corresponding rows in
 `tests/test_pytest_plugin/test_outcome_inference.py`.
 
-This is what makes Litmus's combination of pytest's organic style
+This is what makes TesterKit's combination of pytest's organic style
 and OpenHTF's typed verdict semantics actually robust — pytest
 gives you fixtures / parametrize / conftest / plugins; OpenHTF's
 declarative-intent story is recovered via these two markers when
@@ -673,7 +673,7 @@ the AST inference can't reach.
 
 ### UI Extensions API — third-party Python plugins ship as native UI
 
-The "Litmus is Python-only" pitch has a hidden second beat: a test
+The "TesterKit is Python-only" pitch has a hidden second beat: a test
 author writing Python should get a **native UI extension surface**
 for free. They `pip install my_power_dashboard` and a new page
 shows up in the operator UI — no JS toolchain, no separate build,
@@ -698,11 +698,11 @@ What needs to land:
   - `@register_results_column(name, render_fn)` — extra column
     in run lists
   - Start narrow (page + run_tab); widen on demand.
-- **Discovery via entry points** — `[project.entry-points."litmus.ui_extensions"]`
-  in the extension's `pyproject.toml`. Litmus walks the group at
+- **Discovery via entry points** — `[project.entry-points."testerkit.ui_extensions"]`
+  in the extension's `pyproject.toml`. TesterKit walks the group at
   server startup and imports each module; registration happens via
   decorator side-effects, same as pytest plugins.
-- **Versioning handshake** — extension declares the Litmus minor
+- **Versioning handshake** — extension declares the TesterKit minor
   version it was built against; mismatch → warning + load anyway,
   link to migration notes.
 - **Theme helpers** — surface the small set of consistent UI
@@ -719,7 +719,7 @@ What needs to land:
 Decision points: which contribution points ship in v1 (page +
 tab is enough; resist the urge to ship all five at once); how
 strict to be on extension API stability (semver minor for breaking
-changes feels right); whether to bundle a starter `litmus-extension-template`
+changes feels right); whether to bundle a starter `testerkit-extension-template`
 repo so authors get a working example without cargo-culting from
 the main repo.
 
@@ -747,7 +747,7 @@ reimplementing debounce + cancel + decimation differently.
 
 What needs to land:
 
-- `litmus.ui.shared.reactive_chart.ReactiveChart` taking
+- `testerkit.ui.shared.reactive_chart.ReactiveChart` taking
   `query=Callable[[XRange], list[Row]]`, `decimate=...`,
   `debounce_ms=...`, `chart_type=...`. Wraps `ui.echart` and
   manages the zoom listener internally.
@@ -859,7 +859,7 @@ profile-binds-station_type+fixture work:
   requirements.
 - Match against catalog capabilities (`signals.dc_voltage`,
   `conditions.range`, etc.).
-- CLI: `litmus check --test=<test_id>` returns "can this station run
+- CLI: `testerkit check --test=<test_id>` returns "can this station run
   it" + missing-role explanations. Optionally `--all-stations` to
   list every station_type that could run the test.
 
@@ -900,13 +900,13 @@ requires duplicating type+driver per role, which is fine for one
 bench but tedious for a fleet. Adopters with multi-bench setups
 will hit this within a week of the multi-station plan landing.
 
-### `litmus plan --profile=X` — dry-run what a profile resolves to
+### `testerkit plan --profile=X` — dry-run what a profile resolves to
 
 Profiles declaratively override vectors, limits, markers/facets, and
 addopts. Today the only way to see what a profile *actually does* to a
 given test suite is to run it.
 
-A `litmus plan` subcommand would shell out to `pytest --collect-only`
+A `testerkit plan` subcommand would shell out to `pytest --collect-only`
 under the given profile/station, then annotate each collected node
 with:
 
@@ -932,19 +932,19 @@ flags to pass: `pytest --test-phase=production --part=tps54302`.
 Forget one and you get a `UsageError` listing the available facet
 combinations — workable for a developer, friction for a lab tech.
 
-`required_inputs` (`src/litmus/execution/profiles.py:422-470`) already
+`required_inputs` (`src/testerkit/execution/profiles.py:422-470`) already
 solves the same problem for things like `serial_number`: at session
 start, walk the declared keys and resolve each via a three-step chain:
 
 1. CLI flag `--<key>`
-2. Env var `LITMUS_<KEY>`
-3. Operator prompt via `litmus.prompts.ask(PromptConfig)` — respects
-   `LITMUS_AUTO_CONFIRM=1`, custom handlers, TTY
+2. Env var `TESTERKIT_<KEY>`
+3. Operator prompt via `testerkit.prompts.ask(PromptConfig)` — respects
+   `TESTERKIT_AUTO_CONFIRM=1`, custom handlers, TTY
    fall-through; raises `ProfileError` if it can't resolve.
 
 Extend the same chain to **facets**: the auto-registered
 `--<facet>` flags (`hooks.py:450-458`) already gate step 1; add env
-var lookup (`LITMUS_TEST_PHASE`, `LITMUS_PART`, …) as step 2; then
+var lookup (`TESTERKIT_TEST_PHASE`, `TESTERKIT_PART`, …) as step 2; then
 prompt the operator with the union of declared values across the
 profile catalog as the choice list as step 3. Only invoke the prompt
 when no flag and no env var supplied a value — CI runs and explicit
@@ -955,8 +955,8 @@ Conflict detection (`profiles.py:262-271`) already handles
 doesn't touch it.
 
 **Out of scope:**
-- A `litmus run` subcommand. Pytest IS the test-execution interface;
-  the existing `litmus` subcommands (`runs`, `show`, `serve`,
+- A `testerkit run` subcommand. Pytest IS the test-execution interface;
+  the existing `testerkit` subcommands (`runs`, `show`, `serve`,
   `discover`, `mcp`) are all observability / infrastructure. Adding
   the fallback inside the pytest invocation keeps the model coherent.
 - Changing the way profiles are written or facets declared.
@@ -967,33 +967,33 @@ exists for `required_inputs`; reusing it for facets is a small
 extension that closes the friction without introducing a new CLI
 surface.
 
-### Split into `pytest-litmus` + `litmus-test` (monorepo, two wheels)
+### Split into `pytest-testerkit` + `testerkit` (monorepo, two wheels)
 
-Today `litmus-test` bundles CLI + platform + pytest plugin + UI + MCP
+Today `testerkit` bundles CLI + platform + pytest plugin + UI + MCP
 + all deps (NiceGUI, FastAPI, uvicorn, duckdb, …). Users who only
 want pytest integration pull in the full surface.
 
 Split into:
 
-- **`pytest-litmus`** — thin plugin wheel. `pytest_generate_tests`,
+- **`pytest-testerkit`** — thin plugin wheel. `pytest_generate_tests`,
   marker registration, `context` / `verify` / `logger` / `spec` /
-  `limits` fixtures, sidecar parsing. Depends on `litmus-test`.
-- **`litmus-test`** — CLI, config/store, instruments, results/parquet,
+  `limits` fixtures, sidecar parsing. Depends on `testerkit`.
+- **`testerkit`** — CLI, config/store, instruments, results/parquet,
   limits/derivation, models. Server + MCP gated as `[server]` /
   `[mcp]` extras.
 
-Layout: `packages/pytest-litmus/` + `packages/litmus-test/` under a
+Layout: `packages/pytest-testerkit/` + `packages/testerkit/` under a
 uv workspace. Shared tests stay at repo root (or split per-package
 for independent CI). Watch for circular imports — models
 (`TestConfig`, `SpecContext`, `Limit`, `PartCharacteristic`) must
-live in `litmus-test`; the plugin is strictly a consumer.
+live in `testerkit`; the plugin is strictly a consumer.
 
 Two steps — low-risk first:
 
 1. Move UI/MCP/server deps into extras on the current single wheel
-   (`litmus-test[server]`, `litmus-test[mcp]`). Captures ~80% of the
+   (`testerkit[server]`, `testerkit[mcp]`). Captures ~80% of the
    install-weight benefit.
-2. Carve `pytest-litmus` into its own wheel under the workspace.
+2. Carve `pytest-testerkit` into its own wheel under the workspace.
 
 **Why:** "platform, not framework" story — pytest is one consumer of
 the platform, not the platform itself. Matches the
@@ -1020,33 +1020,33 @@ the operator doesn't act on the wrong unit. Resolution path:
   or fails loudly — never blocks silently.
 
 **Why:** the bench-user / lab-tech path without the UI is
-first-class; operator prompts shouldn't require running `litmus
+first-class; operator prompts shouldn't require running `testerkit
 serve`. Terminal is a perfectly good UI for one-operator-one-bench.
 
 ### Alternate runner wrappers — OpenHTF, unittest, Robot
 
 The two-wheel split (above) carves pytest integration into
-`pytest-litmus`. The same pattern extends to other test runners —
-each one becomes a thin wrapper that consumes `litmus-test` core:
+`pytest-testerkit`. The same pattern extends to other test runners —
+each one becomes a thin wrapper that consumes `testerkit` core:
 
-- **`openhtf-litmus`** — OpenHTF phase/plug wrapper. Primary
+- **`openhtf-testerkit`** — OpenHTF phase/plug wrapper. Primary
   migration path for existing OpenHTF suites. Phases call into the
   same `verify` / `logger` / `spec` surface; results land in the
   same parquet store.
-- **`litmus-unittest`** — unittest `TestCase` mixin (`LitmusTestCase`)
+- **`testerkit-unittest`** — unittest `TestCase` mixin (`TesterKitTestCase`)
   that exposes `self.verify(...)` / `self.logger.measure(...)`.
   For shops already on unittest who don't want to adopt pytest.
-- **`litmus-robot`** — Robot Framework library that wraps the same
+- **`testerkit-robot`** — Robot Framework library that wraps the same
   verbs as keywords.
 
-All three depend on `litmus-test`, share config/store/instruments/
+All three depend on `testerkit`, share config/store/instruments/
 results, and produce identical parquet rows. Differences are surface
 only — how the test author declares a step and how the runner
 dispatches it. Different entrypoints, same platform.
 
 **Why:** reinforces the "platform, not framework" story. Existing
 investments in OpenHTF / unittest / Robot shouldn't force a full
-rewrite to benefit from Litmus's config system, instrument layer,
+rewrite to benefit from TesterKit's config system, instrument layer,
 and results store. Each wrapper is a week or two of work once the
 two-wheel split lands.
 
@@ -1154,7 +1154,7 @@ What needs to land:
 - Call sites pass the count through to ``_mark_ingested``.
 
 Useful for ingest-progress monitoring + per-file diagnostics
-(``litmus data status`` could surface "indexed N rows from
+(``testerkit data status`` could surface "indexed N rows from
 ``<file>``"). Doesn't gate any current functionality; safe to
 defer.
 
@@ -1243,7 +1243,7 @@ honor this. When checking whether an instrument's ``signals[v].range``
 covers a part's required range, treat ``guaranteed`` qualifiers
 as warranted (must satisfy with margin) and ``typical`` qualifiers
 as advisory (warn but don't block). The matcher in
-``litmus.matching`` ignores ``qualifier`` today; when a station has
+``testerkit.matching`` ignores ``qualifier`` today; when a station has
 only typical-spec instruments for a critical signal, we should
 surface that.
 
@@ -1327,7 +1327,7 @@ Remaining gaps (re-scoped 2026-06):
 
 - **Reports**: HTML/PDF still embed the literal ref string instead of a
   rendered waveform plot.
-- **CLI**: `litmus show <run> --waveform <name>` round-trip through
+- **CLI**: `testerkit show <run> --waveform <name>` round-trip through
   `load_ref`.
 - **RunView eager-vs-lazy**: decide whether run-detail materializes
   waveforms inline or on demand.
@@ -1450,7 +1450,7 @@ with the existing Yield Analytics page so we don't duplicate.
 The ``Transport`` abstraction (``data/transports/``) currently
 handles **upload only**: parquet / event files / refs are flushed to
 S3 / GCS / Azure / SFTP / HTTP via background workers. There's no
-counterpart for **reading back** — `litmus serve` and the analytics
+counterpart for **reading back** — `testerkit serve` and the analytics
 layer can only see what's on the local disk.
 
 What needs to land:
@@ -1464,7 +1464,7 @@ What needs to land:
 - API parity: ``/api/runs/{id}/ref?uri=s3://bucket/run123/...`` should
   work the same as the local-file path. The endpoint dispatches on
   URI scheme.
-- Sync helper: ``litmus pull <run_id>`` to fetch a remote run into
+- Sync helper: ``testerkit pull <run_id>`` to fetch a remote run into
   the local results dir for offline analysis.
 
 Decision points: do we cache full files locally on first read, or
@@ -1554,7 +1554,7 @@ per-store Pydantic options in `models/data_options.py` — `ChannelOptions`
 (sink/writer flush rows + interval, push relay), `FileOptions` (frame relay),
 `SessionOptions` (the liveness will), and a shared `StreamTuning` (`cadence`)
 reused by both the channel and file checkpoint paths — all settable in
-`litmus.yaml` under `channels:` / `files:` / `session:` / `stream:`.
+`testerkit.yaml` under `channels:` / `files:` / `session:` / `stream:`.
 `StreamTuning` keeps its name ("stream" = the streaming activity, a verb),
 and the cadence field is already `cadence` (the `checkpoint_cadence` rename
 was considered and declined — redundant under the `stream:` block). Landed
@@ -1673,7 +1673,7 @@ Profile portability is preserved — profiles bind a *type*, never a
 concrete station instance. Same `production` profile runs on any
 bench whose `station_type` matches.
 
-The `litmus_connections(connections=[...])` narrowing mode stays a
+The `testerkit_connections(connections=[...])` narrowing mode stays a
 niche escape hatch — fixtures + characteristics auto-derive
 connections per phase via this work; the explicit narrowing mode is
 for rare deliberate scoping.
@@ -1686,13 +1686,13 @@ fixture compatibility, profile binding). Examples 01-04 untouched
 ### Runner-neutral logic extracted from plugin.py — 2026-04-26
 
 Pulled the test-execution code that doesn't depend on pytest into a
-new `litmus.runner` package. The pytest plugin now delegates to it
-through thin pytest-shaped adapters; `pytest-litmus` as a separate
-distribution depending on `litmus-test` is one rename + entry-point
+new `testerkit.runner` package. The pytest plugin now delegates to it
+through thin pytest-shaped adapters; `pytest-testerkit` as a separate
+distribution depending on `testerkit` is one rename + entry-point
 edit away. OpenHTF / Robot / unittest wrappers consume the same
 shared modules.
 
-New modules under `litmus.runner`:
+New modules under `testerkit.runner`:
 
 | Module | Surface |
 |---|---|
@@ -1716,21 +1716,21 @@ around `RetryPolicy.model_validate`. Pydantic owns YAML / kwargs
 validation; helper functions that re-implement it are dead weight.
 
 **Followups (separate Backlog entries):**
-- Rename `litmus.pytest_plugin` → `litmus.pytest_plugin` (clearer
+- Rename `testerkit.pytest_plugin` → `testerkit.pytest_plugin` (clearer
   it's the pytest adapter; touches ~20 references).
-- Concrete `pytest-litmus` package split — entry-point + wheel
+- Concrete `pytest-testerkit` package split — entry-point + wheel
   packaging only; the code is already organized.
 - First non-pytest runner wrapper (OpenHTF preferred) to validate the
-  `litmus.runner` interface against a second consumer.
+  `testerkit.runner` interface against a second consumer.
 
 ### YAML schema generalization — flat marker scope, typed sub-models — 2026-04-26
 
 Sidecar / profile / per-test entries now share one flat shape.
 `SidecarConfig`, `ProfileConfig`, and `TestEntry` are all the same
-marker-scope model: Litmus marker fields (`limits`, `sweeps`, `mocks`,
+marker-scope model: TesterKit marker fields (`limits`, `sweeps`, `mocks`,
 `specs`, `connections`, `retry`, `prompts`) live directly at each
 entry's root, alongside the reserved `runner:` and `tests:` keys.
-Reserved keys are the only namespacing; everything else is a Litmus
+Reserved keys are the only namespacing; everything else is a TesterKit
 marker name with a typed Pydantic sub-model.
 
 ```yaml
@@ -1753,7 +1753,7 @@ tests:
           v_rail: {low: 3.25, high: 3.35}
 ```
 
-**Typed end-to-end.** Every Litmus-marker field is a Pydantic model
+**Typed end-to-end.** Every TesterKit-marker field is a Pydantic model
 (`MeasurementLimitConfig`, `SweepEntry` with zip-coherence validator,
 `MockEntry` with target shape validator, `ConnectionsBinding`,
 `RetryPolicy`, `PromptConfig`). Pydantic validates at YAML load —
@@ -1773,19 +1773,19 @@ validates the whole runner block. `PytestRunner` (Pydantic,
 `extra="forbid"`) catches `addopst:`-style typos at session start.
 Ecosystem markers go under `runner.markers:` per scope.
 
-**No-stacking enforcement.** Multiple `@pytest.mark.litmus_X(...)`
+**No-stacking enforcement.** Multiple `@pytest.mark.testerkit_X(...)`
 decorators on one function raise `pytest.UsageError`. Multi-axis
 goes in the single payload list; `parametrize` is the explicit
 exception via `runner.markers`.
 
 All 1496 tests pass; all 7 example chapters pass end-to-end. Inline
-`@pytest.mark.litmus_X` syntax unchanged in user code; YAML drops the
-prefix because the entry's root is already Litmus-scoped. Pre-release,
+`@pytest.mark.testerkit_X` syntax unchanged in user code; YAML drops the
+prefix because the entry's root is already TesterKit-scoped. Pre-release,
 no shims.
 
 JSON Schema falls out of every model (`Model.model_json_schema()`),
 ready for VS Code autocomplete via the Red Hat YAML extension once
-schema-export is wired into `litmus init`.
+schema-export is wired into `testerkit init`.
 
 **Followups:**
 - Schema export → `.vscode/settings.json` for autocomplete in user

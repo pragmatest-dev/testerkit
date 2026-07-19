@@ -1,8 +1,8 @@
 """Tests for part specification models."""
 
-from litmus.models.capability import AccuracySpec, RangeSpec, SpecBand
-from litmus.models.enums import Direction, MeasurementFunction
-from litmus.models.part import (
+from testerkit.models.capability import AccuracySpec, RangeSpec, SpecBand
+from testerkit.models.enums import Direction, MeasurementFunction
+from testerkit.models.part import (
     Part,
     PartCharacteristic,
 )

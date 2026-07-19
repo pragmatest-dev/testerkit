@@ -20,7 +20,7 @@ import math
 import random
 from datetime import UTC, datetime, timedelta
 
-from litmus import Waveform
+from testerkit import Waveform
 
 
 class Scope:

@@ -6,7 +6,7 @@ A session is the window from connect to disconnect — the time a process is act
 
 A session begins when a process calls `connect()` and ends when the connection is released. During a session, all events share the same `session_id`, making it easy to group and query related activity.
 
-There's no sessions table. A session is simply every event that shares one `session_id` — Litmus groups them when you query. It "begins" and "ends" because the first and last events (`SessionStarted` / `SessionEnded`) mark the boundaries.
+There's no sessions table. A session is simply every event that shares one `session_id` — TesterKit groups them when you query. It "begins" and "ends" because the first and last events (`SessionStarted` / `SessionEnded`) mark the boundaries.
 
 Sessions are broader than test runs. A single session might contain multiple test runs (e.g., retesting the same UUT), or no test runs at all (e.g., a calibration script or manual instrument exploration).
 
@@ -31,7 +31,7 @@ Sessions are broader than test runs. A single session might contain multiple tes
 | **Site** | `site_index`, `site_name` |
 | **Test context** | `fixture_id`, `test_phase`, `project_name` |
 | **Git** | `git_commit`, `git_branch`, `git_remote` |
-| **Environment** | `environment_json` (Python version, litmus version, top-level deps, lockfile hash) |
+| **Environment** | `environment_json` (Python version, testerkit version, top-level deps, lockfile hash) |
 | **Custom** | `custom_metadata` dict |
 
 Config files (station, fixture, part spec) are tracked via git — the `git_commit` field on each `RunStarted` identifies the exact code and config state.
@@ -49,7 +49,7 @@ Sessions solve three problems:
 ## The `connect()` API
 
 ```python
-from litmus import connect
+from testerkit import connect
 
 # Using a `with` block (scripts, notebooks)
 with connect("cell-7", mock=True) as station:

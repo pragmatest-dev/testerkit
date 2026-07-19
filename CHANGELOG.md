@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Litmus are documented in this file.
+All notable changes to TesterKit are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -12,27 +12,27 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ## [0.3.1] - 2026-07-06
 
-Out-of-the-box: a fresh `litmus init --starter` runs, surfaces live and finished runs
+Out-of-the-box: a fresh `testerkit init --starter` runs, surfaces live and finished runs
 across every reader, and enables the VS Code Test Explorer with no setup.
 
 ### Added
 
-- Live in-flight runs: the runs materializer launches with the pytest session, so a run materializes without a reader. `litmus runs`, the HTTP API, and MCP tools show in-flight runs as `RUNNING`.
-- `litmus init` enables the VS Code pytest Test Explorer in the generated `.vscode/settings.json`.
-- `litmus init` gains `--no-input` / `--no-ai` for headless scaffolding.
+- Live in-flight runs: the runs materializer launches with the pytest session, so a run materializes without a reader. `testerkit runs`, the HTTP API, and MCP tools show in-flight runs as `RUNNING`.
+- `testerkit init` enables the VS Code pytest Test Explorer in the generated `.vscode/settings.json`.
+- `testerkit init` gains `--no-input` / `--no-ai` for headless scaffolding.
 
 ### Changed
 
-- Starter is one vectorized test now: a single inline `litmus_sweeps` + `litmus_limits(characteristic=…)` test (`test_output_voltage[3.3]/[5.0]/[5.5]`), no sidecar, spec-driven limit, swept `vin` recorded as an input.
-- Starter `litmus.yaml` drops internal tuning knobs it never sets.
+- Starter is one vectorized test now: a single inline `testerkit_sweeps` + `testerkit_limits(characteristic=…)` test (`test_output_voltage[3.3]/[5.0]/[5.5]`), no sidecar, spec-driven limit, swept `vin` recorded as an input.
+- Starter `testerkit.yaml` drops internal tuning knobs it never sets.
 
 ### Fixed
 
-- `litmus init` no longer hangs in Codespaces/CI (skips the AI-setup prompt under `--no-input`/`--no-ai`/`CI`/`CODESPACES`).
-- `litmus init --starter` instrument assets use `id == role` so calibration joins the station.
-- `litmus validate` detects file types by structural shape — bare `litmus validate` on a fresh starter used to fail 3 of 6 files.
+- `testerkit init` no longer hangs in Codespaces/CI (skips the AI-setup prompt under `--no-input`/`--no-ai`/`CI`/`CODESPACES`).
+- `testerkit init --starter` instrument assets use `id == role` so calibration joins the station.
+- `testerkit validate` detects file types by structural shape — bare `testerkit validate` on a fresh starter used to fail 3 of 6 files.
 - Per-test route cleanup no longer requests a fixture during teardown (`PytestRemovedIn10Warning`).
-- `litmus-tests` skill: `observe` is for output evidence, `stream` its live sibling, never an input.
+- `testerkit-tests` skill: `observe` is for output evidence, `stream` its live sibling, never an input.
 - Stale `psu.yaml`/`dmm.yaml` asset names in `docs/tutorial/quickstart.md`.
 
 ## [0.3.0] - 2026-07-06
@@ -63,13 +63,13 @@ fresh `0.1` artifacts; older parquet is read via version dispatch or quarantined
 
 - At-rest schema versioning: a `0.1` baseline registry, whitelist-dispatch readers at all four store boundaries, and an opt-in forward-migrate sink. Newer-stamped files are deferred (a newer daemon re-reads them); unreadable ones are quarantined — never a hard crash.
 - Instrument reservations: re-entrant, timeout-aware resource locks, per-step reserve/release auto-wrap, step-duration server leases, and `instrument.reserved` / `instrument.released` events. Per-step/vector instrument sets are recorded at rest.
-- AI-skills reimagined: 11 focused Agent Skills (`litmus-<domain>/SKILL.md`) installed per-tool by `litmus setup` (Claude Code/Codex/Cursor/Copilot, native); a new `litmus docs show` CLI streaming the shipped docs; removal of the old `litmus refs` CLI / workflows / command stubs.
+- AI-skills reimagined: 11 focused Agent Skills (`testerkit-<domain>/SKILL.md`) installed per-tool by `testerkit setup` (Claude Code/Codex/Cursor/Copilot, native); a new `testerkit docs show` CLI streaming the shipped docs; removal of the old `testerkit refs` CLI / workflows / command stubs.
 
 ### Fixed
 
 - Parts page shows run counts and "Observed" rows — observation now keys on the hardware `uut_part_number`, not the config-slug `part_id`.
 - Run-detail measurement counts (Overview + Steps tabs) under the reshaped grain.
-- Channel-detail live refresh under the default `litmus serve` (the channels Flight→UI bridge was previously wired only on `--reload`).
+- Channel-detail live refresh under the default `testerkit serve` (the channels Flight→UI bridge was previously wired only on `--reload`).
 - The runs daemon self-heals a corrupt `_index.duckdb` at boot (rebuild from parquet) instead of crash-looping to a blank UI.
 - `/explore` defaults its X axis to a per-measurement occurrence `index` and centers a single-valued axis, so non-swept measurements plot instead of showing an empty chart.
 - `/explore` no longer emits Quasar "Anchor: target not found" console errors.
@@ -82,11 +82,11 @@ how-to, and operator-UI docs, plus the bug fixes it surfaced.
 ### Fixed
 
 - Catalog variant `bands:` now append to the base signal instead of replacing it.
-- `data_dir` no longer falls back to a hardcoded `./results`; it resolves through `litmus.yaml`.
+- `data_dir` no longer falls back to a hardcoded `./results`; it resolves through `testerkit.yaml`.
 - Events filter and Channels list subscribe to `channel.started` (the retired `instrument.read` returned nothing).
 - Grafana measurement views and dashboards work against the schema-2.0 layout.
 - MCP and skill prompts no longer use a retired event type or invalid sidecar YAML.
-- `litmus setup copilot` writes installer-agnostic `litmus mcp serve` to `.vscode/mcp.json`.
+- `testerkit setup copilot` writes installer-agnostic `testerkit mcp serve` to `.vscode/mcp.json`.
 
 ### Changed
 
@@ -109,7 +109,7 @@ DPMO/DPPM).
 
 ### Added
 
-- **FileStore** at `litmus.data.files` — session-keyed artifact store
+- **FileStore** at `testerkit.data.files` — session-keyed artifact store
   with `files.write(name, value)` returning a `file://` URI. Typed
   serializer registry (bytes, Pydantic, ndarray, Waveform, PIL.Image,
   DataFrame, Arrow IPC) with `register_serializer(...)` for custom
@@ -150,7 +150,7 @@ DPMO/DPPM).
   detail page with mime-switched viewers (image, JSON pretty-print,
   JSONL table, CSV table, NPZ Waveform chart, NPY stats, hex
   download). `?download=1` forces Content-Disposition save.
-- **`litmus_files` MCP tool + `GET /api/files/catalog`** — list
+- **`testerkit_files` MCP tool + `GET /api/files/catalog`** — list
   FileStore artifacts (uri / session / run filters, newest-first) from
   agents and HTTP, mirroring the existing `/files` byte-server.
 - **Mock noise spec** — a station `mock_config` value shaped
@@ -180,11 +180,11 @@ DPMO/DPPM).
   to `LaunchRequest.test_profile` and `--test-profile=` on the pytest
   cmdline. New "Profile" dropdown on the launch form.
 - **User-facing API surface re-organization.** 22 names promoted
-  across `litmus` top-level + new `litmus.queries` submodule + new
-  `litmus.ui` helpers:
-  - `from litmus import connect, observe, verify, stream, Mock, Waveform, XYData, Outcome, LitmusClient`
-  - `from litmus.queries import RunsQuery, StepsQuery, MeasurementsQuery, EventStore`
-  - `from litmus.ui import page_layout, data_table, subscribe, channel_data, bind_channel_store, ...`
+  across `testerkit` top-level + new `testerkit.queries` submodule + new
+  `testerkit.ui` helpers:
+  - `from testerkit import connect, observe, verify, stream, Mock, Waveform, XYData, Outcome, TesterKitClient`
+  - `from testerkit.queries import RunsQuery, StepsQuery, MeasurementsQuery, EventStore`
+  - `from testerkit.ui import page_layout, data_table, subscribe, channel_data, bind_channel_store, ...`
 
   Deep paths still work; docs / examples / tutorials swept (47
   files) to use the shallow paths. Verbs (`observe` / `verify` /
@@ -226,7 +226,7 @@ DPMO/DPPM).
 
 ### Changed
 
-- **`litmus benchmark` reports concurrency per store, measured honestly.**
+- **`testerkit benchmark` reports concurrency per store, measured honestly.**
   The write-throughput sweep (1 → 2 → 4 writers) now runs for **events,
   channels, files, and runs** — each with its own scaling curve and
   per-writer efficiency — instead of a single runs-only sweep collapsed into
@@ -355,7 +355,7 @@ DPMO/DPPM).
   min over 11 calls so transient spikes don't trip the gate.
 - **`StepBuilder` propagates `PASSED` step outcomes** on the default-vector
   (`step.measure()`) path. Previously only `FAILED` propagated, so a passing
-  step written via the catch-all `LitmusClient` results API ended
+  step written via the catch-all `TesterKitClient` results API ended
   `outcome=None` — excluded from step counts and leaving the run outcome
   `None`. Now consistent with the explicit `step.vector()` path.
 - **Yield headline cards are pooled.** They previously combined the
@@ -373,7 +373,7 @@ DPMO/DPPM).
 - **Local shared-memory transport** (item 22) — PoC measured 2×
   latency over Flight loopback, not the 3–10× estimated. Revisit on
   symptoms (UI lag traced to transport; >10 kHz capture saturation).
-- **Consumer SDK `litmus.live`** (item 20) — store APIs are
+- **Consumer SDK `testerkit.live`** (item 20) — store APIs are
   available; higher-level consumer surface not yet designed.
 - **Hardware video encoder formats** (item 23) — `mp4` / `wav` /
   `flac` handlers on top of the streaming-sink machinery.
@@ -402,7 +402,7 @@ predictable `<quadrant>/<category>/<topic>.md` cell, with cross-quadrant
   documented from the running source. Each carries a cropped
   testid-anchored screenshot.
 - **Cropped UI screenshots** via new `scripts/regenerate-ui-screenshots.py`
-  (Playwright + headless `litmus serve`) — manifest-driven, PNGs commit
+  (Playwright + headless `testerkit serve`) — manifest-driven, PNGs commit
   into `docs/_assets/operator-ui/`.
 - **Tour bridge** at `docs/how-to/overview/operator-ui-tour.md` —
   orientation map of all 14 sidebar entries.
@@ -426,7 +426,7 @@ predictable `<quadrant>/<category>/<topic>.md` cell, with cross-quadrant
   quadrants. Same path tail across quadrants gives natural cross-links:
   `concepts/configuration/fixtures.md` ↔
   `how-to/configuration/configuring-stations.md` ↔
-  `reference/configuration.md`. Filename prefixes (`litmus-`,
+  `reference/configuration.md`. Filename prefixes (`testerkit-`,
   `catalog-`, `why-`) dropped — directory carries the namespace. Three
   former "why-" concept pages rewritten to read as concept references,
   not blog posts.
@@ -461,7 +461,7 @@ predictable `<quadrant>/<category>/<topic>.md` cell, with cross-quadrant
 ## [0.1.2] - 2026-05-19
 
 First installable PyPI release. Both 0.1.0 and 0.1.1 wheels shipped without
-`litmus/data/` due to an over-broad `data` exclude pattern in
+`testerkit/data/` due to an over-broad `data` exclude pattern in
 `pyproject.toml`, so the bundled pytest plugin failed to import on every
 fresh install; those releases are yanked.
 
@@ -469,27 +469,27 @@ fresh install; those releases are yanked.
 
 - `verify(...)` and `logger.measure(...)` accept a plain dict for `limit=`
   (coerced via `Limit.model_validate`). Tutorials and examples now use the
-  dict form; `from litmus import Limit` stays available for the model object.
+  dict form; `from testerkit import Limit` stays available for the model object.
 - `verify_requires_limit: bool | None` on `ProfileConfig` — set to `False`
   on a characterization profile to route `verify()` to record-only
   semantics when no limit resolves (instead of `MissingLimitError`).
-- `litmus refs list` / `litmus refs show <topic>` — stream curated reference
+- `testerkit refs list` / `testerkit refs show <topic>` — stream curated reference
   docs (`tiers`, `verify`, `mocks`, `profiles`) to stdout. CLAUDE.md
   templates now point agents at this CLI instead of baking absolute paths.
 
 ### Fixed
 
 - Packaging: scoped the `data` exclude pattern in `pyproject.toml` to
-  `/data` (top-level only) so `src/litmus/data/` ships in the wheel.
+  `/data` (top-level only) so `src/testerkit/data/` ships in the wheel.
 - Run outcome stamping is now retry-aware. A test that errors on attempt 1
-  and passes on the `litmus_retry` retry stamps the RUN as `passed`
+  and passes on the `testerkit_retry` retry stamps the RUN as `passed`
   (matching pytest-rerunfailures, STDF MIR.RTST_COD, and Jenkins flaky-
   test-handler conventions). The errored attempt's step row stays in
   the run for retest / flake analysis.
 
 ## [0.1.0] - 2026-04-15
 
-Initial public release on PyPI as `litmus-test`.
+Initial public release on PyPI as `testerkit`.
 
 ### Added
 
@@ -504,18 +504,18 @@ Initial public release on PyPI as `litmus-test`.
 - Parquet result storage with per-step instrument traceability
   (serial, cal due date, firmware)
 - DuckDB-backed analytics layer over the Parquet silver/gold layout
-- Operator UI (`litmus serve`) built on NiceGUI
+- Operator UI (`testerkit serve`) built on NiceGUI
 - FastAPI HTTP API and MCP server, with parity between the two
-- Capability matching (`litmus_match`) against an instrument catalog
-- CLI: `litmus init`, `discover`, `station init`, `new-test`, `serve`, `runs`,
+- Capability matching (`testerkit_match`) against an instrument catalog
+- CLI: `testerkit init`, `discover`, `station init`, `new-test`, `serve`, `runs`,
   `show`, `instrument list`, `mcp serve`, `setup`
 - Optional extras for output formats (`stdf`, `hdf5`, `tdms`, `mdf4`),
   transports (`s3`, `gcs`, `azure`, `sftp`), and integrations (`pymeasure`,
   `ni`, `lxi`, `grafana`, `pdf`, `sbom`)
 
-[Unreleased]: https://github.com/pragmatest-dev/litmus/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/pragmatest-dev/litmus/compare/v0.1.3...v0.2.0
-[0.1.3]: https://github.com/pragmatest-dev/litmus/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/pragmatest-dev/litmus/releases/tag/v0.1.2
-[0.1.1]: https://github.com/pragmatest-dev/litmus/releases/tag/v0.1.1
-[0.1.0]: https://github.com/pragmatest-dev/litmus/releases/tag/v0.1.0
+[Unreleased]: https://github.com/pragmatest-dev/testerkit/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/pragmatest-dev/testerkit/compare/v0.1.3...v0.2.0
+[0.1.3]: https://github.com/pragmatest-dev/testerkit/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/pragmatest-dev/testerkit/releases/tag/v0.1.2
+[0.1.1]: https://github.com/pragmatest-dev/testerkit/releases/tag/v0.1.1
+[0.1.0]: https://github.com/pragmatest-dev/testerkit/releases/tag/v0.1.0

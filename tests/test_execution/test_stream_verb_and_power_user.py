@@ -8,11 +8,11 @@ fixture — share one implementation.
 
 Item 8: explicit power-user surface for each store.
 
-- ``litmus.channels.write(name, sample)`` — one-shot channel append
-- ``with litmus.channels.stream(name) as sink:`` — context-managed
+- ``testerkit.channels.write(name, sample)`` — one-shot channel append
+- ``with testerkit.channels.stream(name) as sink:`` — context-managed
   channel sink with ``.write(sample)`` / ``.close()``
-- ``litmus.files.write(name, value)`` — one-shot file write
-- ``with litmus.files.stream(name, format=...) as sink:`` —
+- ``testerkit.files.write(name, value)`` — one-shot file write
+- ``with testerkit.files.stream(name, format=...) as sink:`` —
   signature-only stub; real sink lands in build item 2 (C5).
 
 The verb-symmetry pattern from C3a-followup is followed: ``stream``
@@ -26,15 +26,15 @@ from uuid import uuid4
 
 import pytest
 
-from litmus import channels, files
-from litmus.data.channels.store import ChannelStore
-from litmus.data.files import _reset_for_tests
-from litmus.execution._state import (
+from testerkit import channels, files
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.files import _reset_for_tests
+from testerkit.execution._state import (
     push_current_context,
     reset_current_context,
     set_channel_store,
 )
-from litmus.execution.harness import Context, TestHarness
+from testerkit.execution.harness import Context, TestHarness
 
 
 @pytest.fixture(autouse=True)
@@ -114,14 +114,14 @@ class TestContextStreamMethod:
 
 class TestStreamBareFixture:
     def test_stream_fixture_registered_in_plugin(self) -> None:
-        from litmus import pytest_plugin
+        from testerkit import pytest_plugin
 
         assert hasattr(pytest_plugin, "stream")
         assert callable(pytest_plugin.stream)
 
 
 # --------------------------------------------------------------------- #
-# Item 8 — litmus.channels (power-user)                                  #
+# Item 8 — testerkit.channels (power-user)                                  #
 # --------------------------------------------------------------------- #
 
 
@@ -170,14 +170,14 @@ class TestChannelsStream:
 
 
 # --------------------------------------------------------------------- #
-# Item 8 — litmus.files (power-user)                                 #
+# Item 8 — testerkit.files (power-user)                                 #
 # --------------------------------------------------------------------- #
 
 
 class TestFilesWrite:
     def test_write_with_explicit_session_id(self, tmp_path: Path) -> None:
         """Power users can pass session_id explicitly (no Context required)."""
-        from litmus.data.files import store as store_module
+        from testerkit.data.files import store as store_module
 
         # Bind FileStore singleton to tmp_path for isolation.
         original = store_module.resolve_data_dir
@@ -200,11 +200,11 @@ class TestFilesWrite:
         """No session_id arg + no active Context = clear error.
 
         The pytest ``context`` fixture (pulled in autouse via
-        ``_litmus_push_params``) pushes a Context onto the
+        ``_testerkit_push_params``) pushes a Context onto the
         ContextVar — so to exercise the "no context" error path we
         explicitly clear the var for the duration of the assertion.
         """
-        from litmus.execution._state import _current_context_var  # noqa: PLC0415
+        from testerkit.execution._state import _current_context_var  # noqa: PLC0415
 
         token = _current_context_var.set(None)
         try:
@@ -219,7 +219,7 @@ class TestFilesStreamSignature:
 
     Format-specific behavior tested in ``test_filestore_streaming.py``
     (FileStore.open_stream class method) and ``test_files_stream_verb.py``
-    (litmus.files.stream verb integration).
+    (testerkit.files.stream verb integration).
     """
 
     def test_stream_signature_includes_format_and_session_id(self) -> None:
@@ -253,7 +253,7 @@ class TestThreeVerbsSymmetric:
 
     def test_all_three_verbs_in_pytest_plugin(self) -> None:
         """All three are exposed as pytest fixtures."""
-        from litmus import pytest_plugin
+        from testerkit import pytest_plugin
 
         for verb in ("observe", "verify", "stream"):
             assert hasattr(pytest_plugin, verb), f"pytest_plugin missing {verb!r}"

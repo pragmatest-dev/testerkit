@@ -32,11 +32,11 @@ import pyarrow as pa
 import pytest
 from pydantic import BaseModel
 
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.events import ChannelStarted
-from litmus.data.files import _reset_for_tests
-from litmus.data.ref import classify_value
-from litmus.instruments.observer import InstrumentEventBuilder
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.events import ChannelStarted
+from testerkit.data.files import _reset_for_tests
+from testerkit.data.ref import classify_value
+from testerkit.instruments.observer import InstrumentEventBuilder
 
 
 class CollectingLog:
@@ -50,7 +50,7 @@ class CollectingLog:
 class FakeChannelStore:
     """Captures the writes InstrumentEventBuilder routes through it.
 
-    Mimics the parts of ``litmus.data.channels.ChannelStore.write``
+    Mimics the parts of ``testerkit.data.channels.ChannelStore.write``
     that InstrumentEventBuilder touches: takes (channel_id, value, source),
     returns a synthesized ``channel://`` URI, records the args.
     Also mirrors item-4b consolidation: when ``event_log`` is wired,
@@ -82,7 +82,7 @@ class FakeChannelStore:
         if channel_id not in self._started:
             self._started.add(channel_id)
             if self._event_log is not None and self._session_id is not None:
-                from litmus.data.events import ChannelStarted
+                from testerkit.data.events import ChannelStarted
 
                 self._event_log.emit(
                     ChannelStarted(
@@ -305,7 +305,7 @@ def test_blob_uri_stamps_active_vectors_out_column() -> None:
     materialization path: a verify row in this vector now references
     the screenshot via ``out_scope.screenshot``.
     """
-    from litmus.execution._state import (
+    from testerkit.execution._state import (
         push_current_context,
         reset_current_context,
     )

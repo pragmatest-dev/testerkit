@@ -1,6 +1,6 @@
 """Unit tests for RunsQuery — typed run-level queries over the daemon's ``runs`` table.
 
-Tests use the canonical singleton runs daemon (every Litmus
+Tests use the canonical singleton runs daemon (every TesterKit
 process shares it). Each fixture writes synthetic step parquets
 into the canonical runs dir under unique uuid run_ids /
 session_ids, then asserts via session-scoped queries so the
@@ -18,10 +18,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.analysis.runs_query import RunRow, RunsQuery
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.run_store import RunStore
-from litmus.data.schemas import RUN_ROW_SCHEMA
+from testerkit.analysis.runs_query import RunRow, RunsQuery
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.run_store import RunStore
+from testerkit.data.schemas import RUN_ROW_SCHEMA
 
 _INGEST_TIMEOUT_S = 10.0
 
@@ -471,7 +471,7 @@ class TestListForSession:
 class TestDescribeColumns:
     def test_returns_table_columns(self, fixture_data):
         """``DESCRIBE runs`` exposes the expected schema columns."""
-        from litmus.analysis.measurement_facets import ColumnSchema
+        from testerkit.analysis.measurement_facets import ColumnSchema
 
         with RunsQuery() as q:
             schema = q.describe_columns()

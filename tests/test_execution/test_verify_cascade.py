@@ -28,8 +28,8 @@ from uuid import uuid4
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.run_store import RunStore
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.run_store import RunStore
 
 pytest_plugins = ["pytester"]
 
@@ -37,13 +37,13 @@ pytest_plugins = ["pytester"]
 _INI = textwrap.dedent(
     """
     [pytest]
-    addopts = -p no:litmus -p litmus.pytest_plugin
+    addopts = -p no:testerkit -p testerkit.pytest_plugin
     asyncio_default_fixture_loop_scope = function
     """
 )
 
 
-# Project-local results via repo ``litmus.yaml``.
+# Project-local results via repo ``testerkit.yaml``.
 _CANONICAL_RESULTS = resolve_data_dir()
 
 
@@ -126,7 +126,7 @@ def test_verify_cascade_to_streaming_row(
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             f"""
-            from litmus.models.test_config import Limit
+            from testerkit.models.test_config import Limit
 
             def test_rail(verify):
                 verify("v_rail", {value}, limit=Limit(low=3.0, high=3.6, unit="V"))
@@ -198,7 +198,7 @@ def test_in_test_vector_iteration_allows_repeat_name(pytester: pytest.Pytester) 
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
-            from litmus.models.test_config import Limit
+            from testerkit.models.test_config import Limit
 
             def test_rails(vectors, verify):
                 for v in vectors:

@@ -66,13 +66,13 @@ that's a separate, smaller call.)
 2. **Confirm no consumer special-cases `stream.checkpoint`.** As of this writing, the session
    reaper uses *generic* max-recency (any durable event renews the session lease), so it needs
    no change — both new events renew the lease exactly as `StreamCheckpoint` did. Re-verify:
-   `grep -rn "stream.checkpoint\|StreamCheckpoint" src/litmus/data/_session_reaper.py src/litmus/data/_duckdb_daemon.py src/litmus/data/_runs_duckdb_daemon.py` → expect none. If a special-case has appeared, update it to read both event types.
+   `grep -rn "stream.checkpoint\|StreamCheckpoint" src/testerkit/data/_session_reaper.py src/testerkit/data/_duckdb_daemon.py src/testerkit/data/_runs_duckdb_daemon.py` → expect none. If a special-case has appeared, update it to read both event types.
 3. **Use targeted edits, never `git checkout`** — shared tree; confirm the human says the
    concurrent agent is paused before editing shared files.
 
 ## Method (order matters)
 
-1. **`src/litmus/data/events.py`** — replace the `StreamCheckpoint` class with `ChannelCheckpoint`
+1. **`src/testerkit/data/events.py`** — replace the `StreamCheckpoint` class with `ChannelCheckpoint`
    (`channel.checkpoint`, `uri: str`, `sample_offset: int = 0`) and `FileCheckpoint`
    (`file.checkpoint`, `uri: str`, `byte_offset: int = 0`). Add each to the right group set
    (`CHANNEL_EVENTS` / `FILE_EVENTS`), update the `Event` discriminated union, and the section
@@ -82,7 +82,7 @@ that's a separate, smaller call.)
    is already in hand; this also retires the last generic `offset=offset` on the channel side).
 3. **File emitter** — `data/files/streaming.py`: emit `FileCheckpoint(uri=..., byte_offset=self._byte_offset)`.
    Update `files.py` references.
-4. **Ontology** — `src/litmus/ontology/litmus.yaml`: split the `stream.checkpoint` entry into
+4. **Ontology** — `src/testerkit/ontology/testerkit.yaml`: split the `stream.checkpoint` entry into
    `channel.checkpoint` + `file.checkpoint`.
 5. **Generator + generated docs** — update class references in `scripts/generate_reference_docs.py`
    if any, then regenerate: `uv run python scripts/generate_reference_docs.py --all`. Never hand-edit
@@ -100,12 +100,12 @@ that's a separate, smaller call.)
 # zero stale checkpoint identifiers:
 grep -rn "StreamCheckpoint\|stream\.checkpoint" src tests scripts docs
 # new events present + correctly grouped:
-grep -n "ChannelCheckpoint\|FileCheckpoint\|channel\.checkpoint\|file\.checkpoint" src/litmus/data/events.py
+grep -n "ChannelCheckpoint\|FileCheckpoint\|channel\.checkpoint\|file\.checkpoint" src/testerkit/data/events.py
 # per-store offset fields:
-grep -n "sample_offset" src/litmus/data/events.py   # ChannelCheckpoint
-grep -n "byte_offset"   src/litmus/data/events.py   # FileCheckpoint
+grep -n "sample_offset" src/testerkit/data/events.py   # ChannelCheckpoint
+grep -n "byte_offset"   src/testerkit/data/events.py   # FileCheckpoint
 # reaper unchanged + still generic:
-grep -rn "checkpoint" src/litmus/data/_session_reaper.py   # expect none / generic only
+grep -rn "checkpoint" src/testerkit/data/_session_reaper.py   # expect none / generic only
 ```
 Then:
 ```

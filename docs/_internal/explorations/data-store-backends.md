@@ -1,7 +1,7 @@
 # Data-store architecture & backend-swap targets
 
 > What's shared across the four stores, what differs, and — per store — the
-> proven server-grade systems each can be swapped out for if/when Litmus
+> proven server-grade systems each can be swapped out for if/when TesterKit
 > runs with real infrastructure (requirement #6). Recorded so the embedded
 > tier is built to a contract that keeps these doors open, not painted into
 > a corner.
@@ -113,7 +113,7 @@ local I/O, which leaked a `Path` and would have forced a rewrite for S3.)
 
 **Recipe** (≈ one helper + four one-line hooks + a test):
 
-1. `src/litmus/data/_daemon_lifecycle.py`:
+1. `src/testerkit/data/_daemon_lifecycle.py`:
    ```python
    def configured_remote_location(env_key: str) -> str | None:
        loc = os.environ.get(env_key, "").strip()
@@ -121,21 +121,21 @@ local I/O, which leaked a `Path` and would have forced a rewrite for S3.)
    ```
 2. At the top of each module `acquire(dir)`, before `mgr = ...; mgr.acquire()`:
    ```python
-   remote = configured_remote_location("LITMUS_<STORE>_DAEMON")
+   remote = configured_remote_location("TESTERKIT_<STORE>_DAEMON")
    if remote:
        return remote
    ```
 
    | store | module | env var |
    |---|---|---|
-   | events | `duckdb_manager.py` | `LITMUS_EVENTS_DAEMON` |
-   | runs | `runs_duckdb_manager.py` | `LITMUS_RUNS_DAEMON` |
-   | channels | `channels/flight_manager.py` | `LITMUS_CHANNELS_DAEMON` |
-   | files | `files/catalog_manager.py` | `LITMUS_FILES_DAEMON` |
+   | events | `duckdb_manager.py` | `TESTERKIT_EVENTS_DAEMON` |
+   | runs | `runs_duckdb_manager.py` | `TESTERKIT_RUNS_DAEMON` |
+   | channels | `channels/flight_manager.py` | `TESTERKIT_CHANNELS_DAEMON` |
+   | files | `files/catalog_manager.py` | `TESTERKIT_FILES_DAEMON` |
 3. Proof `tests/test_data/test_daemon_swap_seam.py`: parametrize over the four
    `acquire` functions — env set → the address is returned and **no local daemon
    is spawned** (`not list(dir.iterdir())`); unset/empty → `None` (local path).
-4. Landing for real also gets a `litmus.yaml` / `ProjectConfig` field (mirroring
-   F1's `files_backend` + `LITMUS_FILES_BACKEND`) and one end-to-end test against
+4. Landing for real also gets a `testerkit.yaml` / `ProjectConfig` field (mirroring
+   F1's `files_backend` + `TESTERKIT_FILES_BACKEND`) and one end-to-end test against
    an actual remote daemon. The remote daemon is externally managed — the client
    connects, it does not spawn or supervise it.

@@ -99,7 +99,7 @@ decoder (`_decode_dynamic_attrs_map`) and use it in both.
 
 ## 3c. Pass C — module naming (`logger.py` → `run_scope.py`)
 
-`src/litmus/execution/logger.py` is **misnamed**. Its contents are `RunScope` (run lifecycle +
+`src/testerkit/execution/logger.py` is **misnamed**. Its contents are `RunScope` (run lifecycle +
 event emission + measurement recording + step management — lines ~376-1186), `RunContext`
 (run-level `custom_metadata`), and measurement/limit/traceability helpers. None of it is a
 "logger" in the `logging` sense (that's the unrelated per-module `_log = logging.getLogger`).
@@ -163,7 +163,7 @@ Branch `feat/0.2.0-interface-consistency`. Each phase: full suite + `uv run pyri
 behavior unchanged; design-review the branch before merge to `feat/0.2.0-data-improvements`.
 
 **Phase C — module rename `logger.py` → `run_scope.py`** *(first; safest, no decision)*
-- `git mv src/litmus/execution/logger.py src/litmus/execution/run_scope.py`; update the ~8
+- `git mv src/testerkit/execution/logger.py src/testerkit/execution/run_scope.py`; update the ~8
   import sites (`execution/__init__.py`, `instrument_events.py`, `verify.py`, `harness.py`,
   `_state.py`, `pytest_plugin/autouse.py` + `__init__.py`) + the `_row_helpers.py` comment.
 - Pure rename, no behavior change.

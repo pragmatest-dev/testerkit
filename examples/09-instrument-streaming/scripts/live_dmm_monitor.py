@@ -2,7 +2,7 @@
 
 Run this script in one terminal, then open
 ``http://localhost:8000/channels/dmm.voltage`` in your browser (after
-starting ``litmus serve``). The chart updates push-style as samples
+starting ``testerkit serve``). The chart updates push-style as samples
 arrive — same primitive (``channels.stream``) that feeds the live UI
 on the real test bench.
 
@@ -10,14 +10,14 @@ Usage::
 
     # terminal 1
     cd examples/09-instrument-streaming
-    uv run litmus serve --reload
+    uv run testerkit serve --reload
 
     # terminal 2
     cd examples/09-instrument-streaming
     uv run python scripts/live_dmm_monitor.py
 
 The script runs for 60 seconds at 50 samples/second (3000 samples) —
-set ``LITMUS_STREAM_SECONDS`` to run a shorter slice. Stop early with
+set ``TESTERKIT_STREAM_SECONDS`` to run a shorter slice. Stop early with
 Ctrl-C. Reopen the channel panel — your samples stay on the timeline
 (ChannelStore is persisted, not just live).
 """
@@ -34,13 +34,13 @@ from pathlib import Path
 # puts ``scripts/`` on sys.path, not the example root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import litmus.channels  # noqa: E402
-from litmus import connect  # noqa: E402
+import testerkit.channels  # noqa: E402
+from testerkit import connect  # noqa: E402
 
 RATE_HZ = 50.0
 # Default 60 s for the live demo; the example-scripts test runs a 1 s slice
-# via LITMUS_STREAM_SECONDS so CI still exercises the full streaming path.
-DURATION_S = float(os.environ.get("LITMUS_STREAM_SECONDS", "60"))
+# via TESTERKIT_STREAM_SECONDS so CI still exercises the full streaming path.
+DURATION_S = float(os.environ.get("TESTERKIT_STREAM_SECONDS", "60"))
 
 
 def main() -> None:
@@ -52,7 +52,7 @@ def main() -> None:
         dmm = station.instrument("dmm")
 
         n = int(RATE_HZ * DURATION_S)
-        with litmus.channels.stream("dmm.voltage") as sink:
+        with testerkit.channels.stream("dmm.voltage") as sink:
             for i in range(n):
                 sink.write(dmm.measure_voltage())
                 if i % 50 == 0:

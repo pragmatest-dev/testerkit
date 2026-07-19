@@ -29,20 +29,20 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.data.backends._row_helpers import RunParquetRow, encode_lane_structs
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.events import Observation
-from litmus.data.models import TestVector
-from litmus.data.run_store import RunStore
-from litmus.data.schemas import RUN_ROW_SCHEMA
-from litmus.execution._state import (
+from testerkit.data.backends._row_helpers import RunParquetRow, encode_lane_structs
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.events import Observation
+from testerkit.data.models import TestVector
+from testerkit.data.run_store import RunStore
+from testerkit.data.schemas import RUN_ROW_SCHEMA
+from testerkit.execution._state import (
     push_active_connection,
     push_current_vector,
     reset_active_connection,
     reset_current_vector,
 )
-from litmus.execution.harness import Context, TestHarness
-from litmus.models.test_config import FixtureConnection
+from testerkit.execution.harness import Context, TestHarness
+from testerkit.models.test_config import FixtureConnection
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -82,7 +82,7 @@ def _ctx_with_logger(_event_log: _FakeEventLog) -> Iterator[Context]:
     harness = TestHarness(session_id=session_id)
     ctx = Context(harness=harness)
     scope = _FakeRunScope(event_log=_event_log, run_id=run_id)
-    import litmus.execution.harness as harness_mod
+    import testerkit.execution.harness as harness_mod
 
     orig = harness_mod.get_current_run_scope
     harness_mod.get_current_run_scope = lambda: scope  # type: ignore[attr-defined]
@@ -281,8 +281,8 @@ def _pin_data() -> dict[str, str]:
 
 
 def _query_eav(run_id: str) -> list[dict]:
-    from litmus.data import runs_duckdb_manager
-    from litmus.data._flight_query import FlightQueryClient
+    from testerkit.data import runs_duckdb_manager
+    from testerkit.data._flight_query import FlightQueryClient
 
     runs_dir = resolve_data_dir() / "runs"
     location = runs_duckdb_manager.acquire(runs_dir)

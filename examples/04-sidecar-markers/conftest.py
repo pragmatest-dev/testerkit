@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 from drivers import DMM, PSU
 
-from litmus import Mock
+from testerkit import Mock
 
 
 @pytest.fixture(scope="session")

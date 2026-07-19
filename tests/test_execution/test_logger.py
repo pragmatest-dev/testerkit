@@ -2,8 +2,8 @@
 
 from uuid import uuid4
 
-from litmus.data.models import Measurement, Outcome, TestStep, TestVector
-from litmus.execution._state import (
+from testerkit.data.models import Measurement, Outcome, TestStep, TestVector
+from testerkit.execution._state import (
     get_current_step,
     get_current_vector,
     push_current_step,
@@ -11,7 +11,7 @@ from litmus.execution._state import (
     reset_current_step,
     reset_current_vector,
 )
-from litmus.execution.run_scope import RunScope
+from testerkit.execution.run_scope import RunScope
 
 
 class TestRunScope:
@@ -164,7 +164,7 @@ class TestRunScope:
         """A failing attempt followed by a passing retry stamps PASSED.
 
         Same node_id across two steps means pytest-rerunfailures /
-        ``litmus_retry`` reran the test. Final attempt wins — matches
+        ``testerkit_retry`` reran the test. Final attempt wins — matches
         pytest-rerunfailures, STDF retest, Jenkins flaky-handler.
         """
         logger = RunScope(
@@ -300,7 +300,7 @@ class TestEventLogIntegration:
     def test_event_log_emits_events(self, tmp_path):
         """Logger emits StepStarted, MeasurementRecorded, StepEnded, RunEnded."""
 
-        from litmus.data.event_log import EventLog
+        from testerkit.data.event_log import EventLog
 
         run_id = uuid4()
         logger = RunScope(
@@ -331,7 +331,7 @@ class TestEventLogIntegration:
     def test_measurement_event_is_normalized(self, tmp_path):
         """MeasurementRecorded should NOT contain run-level metadata."""
 
-        from litmus.data.event_log import EventLog
+        from testerkit.data.event_log import EventLog
 
         run_id = uuid4()
         logger = RunScope(

@@ -2,7 +2,7 @@
 
 Task recipes for specific jobs. Each group below mirrors the same axis used by [concepts](../concepts/) and [reference](../reference/): the recipe you want is at `how-to/<category>/<task>.md`, the explanation is at `concepts/<category>/<topic>.md`, the lookup is at `reference/<category>/<item>.md`.
 
-If you're new to Litmus, work through the [tutorial](../tutorial/) first — these guides assume you can already run a simple test.
+If you're new to TesterKit, work through the [tutorial](../tutorial/) first — these guides assume you can already run a simple test.
 
 ## Overview
 
@@ -32,7 +32,7 @@ Author and run tests.
 - [Managing sessions](execution/managing-sessions.md) — connect/disconnect lifecycle for instrument usage
 - [Multi-UUT testing](execution/multi-uut-testing.md) — run multiple UUTs in parallel, with shared instruments
 - [Measurement traceability](execution/traceability.md) — UUT / part / pin / instrument identity captured automatically
-- [Operator prompts](execution/operator-prompts.md) — pause a test for operator input with the `litmus_prompts` marker and `prompt` fixture
+- [Operator prompts](execution/operator-prompts.md) — pause a test for operator input with the `testerkit_prompts` marker and `prompt` fixture
 
 ## Data
 
@@ -46,11 +46,11 @@ Capture, query, debug, export, and dashboard the data a run produces.
 - [Capture an artifact](data/capture-an-artifact.md) — attach an image / capture file / record to a measurement
 - [Find flaky tests](data/find-flaky-tests.md) — use Metrics → Retest and Results detail to spot intermittents
 - [Compare two runs](data/compare-runs.md) — diff known-good vs failing with two tabs + a DuckDB query
-- [Export results](data/export-results.md) — `litmus show -f` for reports (HTML/PDF/JSON/CSV) and `litmus export -f` for interchange (STDF/HDF5/TDMS/MDF4)
-- [Query runs and metrics via MCP](data/mcp-query-runs.md) — `litmus_runs` / `litmus_steps` / `litmus_metrics` recipes
+- [Export results](data/export-results.md) — `testerkit show -f` for reports (HTML/PDF/JSON/CSV) and `testerkit export -f` for interchange (STDF/HDF5/TDMS/MDF4)
+- [Query runs and metrics via MCP](data/mcp-query-runs.md) — `testerkit_runs` / `testerkit_steps` / `testerkit_metrics` recipes
 - [Debug failures via MCP](data/mcp-debug-failures.md) — chained investigative workflow when a run fails
 - [Grafana dashboards](data/grafana-dashboards.md) — pre-built dashboards for results, events, channels
-- [Benchmark your machine](data/benchmarking.md) — `litmus benchmark` measures per-store throughput
+- [Benchmark your machine](data/benchmarking.md) — `testerkit benchmark` measures per-store throughput
 
 ## Catalog
 

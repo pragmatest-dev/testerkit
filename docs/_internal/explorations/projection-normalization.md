@@ -33,11 +33,11 @@ Consequences:
 
 ## Blast radius (from grep 2026-07-03)
 
-- `src/litmus/data/_runs_duckdb_daemon.py` — table CREATEs, `_*_PERSISTED_COLUMNS`, the ingest INSERTs (drop identity from steps/measurements INSERTs; split the EAV UNNEST into two tables; drop the `dynamic_attrs` map expr), the `runs`/`steps`/`step_vectors`/`measurements` views (join identity from `runs`; drop `dynamic_attrs`).
-- `src/litmus/analysis/measurements_query.py` (13 `measurements_dynamic` refs) — `_EAVJoins`, `_VECTOR_KEY`, `_resolve_value_type`, `distinct_values` role path: `JOIN measurements_dynamic ... role=X` → `JOIN inputs`/`JOIN outputs`; identity filters (`uut_part_number` etc.) now need a `runs` join; the metrics SQL templates (`_YIELD_SQL`, `_PARETO_SQL`, `_PPK_SQL`, …) that read identity off `measurements` add a `runs` join.
-- `src/litmus/analysis/steps_query.py` — reads `dynamic_attrs`; switch to aggregating `inputs`/`outputs`.
-- `src/litmus/data/_accumulator_pool.py` / `backends/_event_accumulator.py` — the inflight overlay: split inflight EAV into two, drop `dynamic_attrs` snapshot, drop identity from inflight step/measurement snapshots (or keep the inflight rows joinable to inflight_runs).
-- `src/litmus/data/backends/_row_helpers.py`, `parquet.py`, `run_store.py`, `schemas.py`, `api/schemas.py` — `dynamic_attrs` producers/consumers.
+- `src/testerkit/data/_runs_duckdb_daemon.py` — table CREATEs, `_*_PERSISTED_COLUMNS`, the ingest INSERTs (drop identity from steps/measurements INSERTs; split the EAV UNNEST into two tables; drop the `dynamic_attrs` map expr), the `runs`/`steps`/`step_vectors`/`measurements` views (join identity from `runs`; drop `dynamic_attrs`).
+- `src/testerkit/analysis/measurements_query.py` (13 `measurements_dynamic` refs) — `_EAVJoins`, `_VECTOR_KEY`, `_resolve_value_type`, `distinct_values` role path: `JOIN measurements_dynamic ... role=X` → `JOIN inputs`/`JOIN outputs`; identity filters (`uut_part_number` etc.) now need a `runs` join; the metrics SQL templates (`_YIELD_SQL`, `_PARETO_SQL`, `_PPK_SQL`, …) that read identity off `measurements` add a `runs` join.
+- `src/testerkit/analysis/steps_query.py` — reads `dynamic_attrs`; switch to aggregating `inputs`/`outputs`.
+- `src/testerkit/data/_accumulator_pool.py` / `backends/_event_accumulator.py` — the inflight overlay: split inflight EAV into two, drop `dynamic_attrs` snapshot, drop identity from inflight step/measurement snapshots (or keep the inflight rows joinable to inflight_runs).
+- `src/testerkit/data/backends/_row_helpers.py`, `parquet.py`, `run_store.py`, `schemas.py`, `api/schemas.py` — `dynamic_attrs` producers/consumers.
 - Tests: `test_measurements_query_sql.py`, `test_observation_pin.py`, `test_perf_daemon.py`, `test_overlay_schema_consistency.py`, `test_ingestion_drift.py` (simplify), `test_steps_query`, metrics tests.
 
 ## Phases (each green before the next)

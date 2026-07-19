@@ -1,7 +1,7 @@
 """Tests for the ``/api/runs/{run_id}/steps[/tree]`` endpoints.
 
 Storage: canonical singleton (project-local via repo's
-``litmus.yaml``). Per-test isolation is by uuid4 ``run_id``;
+``testerkit.yaml``). Per-test isolation is by uuid4 ``run_id``;
 the API routes through ``RunsQuery.get(run_id)`` / typed step
 queries which find the test's run by id without scanning
 other tests' data.
@@ -16,10 +16,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from litmus.api.app import create_api_router
-from litmus.data.backends.parquet import ParquetBackend
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.models import (
+from testerkit.api.app import create_api_router
+from testerkit.data.backends.parquet import ParquetBackend
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.models import (
     UUT,
     Measurement,
     Outcome,
@@ -27,7 +27,7 @@ from litmus.data.models import (
     TestStep,
     TestVector,
 )
-from litmus.data.run_store import RunStore
+from testerkit.data.run_store import RunStore
 
 
 def _make_run(*, run_id, step_specs):
@@ -75,7 +75,7 @@ def client_with_nested_run():
 
     # Notify the canonical daemon directly so the typed queries
     # the API uses (RunsQuery / StepsQuery) can find this run.
-    # ``LITMUS_SKIP_DAEMON_NOTIFY`` is set in conftest for tests
+    # ``TESTERKIT_SKIP_DAEMON_NOTIFY`` is set in conftest for tests
     # that don't need the daemon — these do.
     notifier = RunStore()
     try:

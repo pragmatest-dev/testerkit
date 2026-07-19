@@ -26,7 +26,7 @@ def _write_sequence(
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
 """
         )
@@ -135,7 +135,7 @@ def test_sequence_without_sidecar_runs_once(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
 """
         )
@@ -159,7 +159,7 @@ def test_plain_tests_ignored_by_plugin(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
 """
         )
@@ -215,7 +215,7 @@ def test_decorator_parametrize_populates_context(pytester: pytest.Pytester) -> N
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -301,8 +301,8 @@ def test_method_vec_id_uses_param_values(pytester: pytest.Pytester) -> None:
 _MEASURE_CONFTEST = textwrap.dedent(
     """
     import pytest
-    from litmus.execution._state import get_current_run_scope, set_current_run_scope
-    from litmus.execution.run_scope import RunScope
+    from testerkit.execution._state import get_current_run_scope, set_current_run_scope
+    from testerkit.execution.run_scope import RunScope
 
     # Session-scoped so the main plugin's session-scoped fixtures that
     # depend on ``_run_scope`` (e.g. ``instruments``) can resolve it without
@@ -337,7 +337,7 @@ def _write_measure_test(
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -359,8 +359,8 @@ def test_measure_records_outcome_without_raising(pytester: pytest.Pytester) -> N
         pytester,
         textwrap.dedent(
             """
-            from litmus.data.models import Outcome
-            from litmus.models.test_config import Limit
+            from testerkit.data.models import Outcome
+            from testerkit.models.test_config import Limit
 
             class TestSeq:
                 def test_records(self, measure):
@@ -386,7 +386,7 @@ def test_verify_raises_on_fail(pytester: pytest.Pytester) -> None:
         pytester,
         textwrap.dedent(
             """
-            from litmus.models.test_config import Limit
+            from testerkit.models.test_config import Limit
 
             class TestSeq:
                 def test_fails(self, verify):
@@ -406,7 +406,7 @@ def test_duplicate_measurement_name_in_step_errors(
         pytester,
         textwrap.dedent(
             """
-            from litmus.models.test_config import Limit
+            from testerkit.models.test_config import Limit
 
             class TestSeq:
                 def test_dup(self, measure):
@@ -434,8 +434,8 @@ def test_allow_repeat_streams_same_name(pytester: pytest.Pytester) -> None:
         pytester,
         textwrap.dedent(
             """
-            from litmus.execution._state import get_current_run_scope
-            from litmus.models.test_config import Limit
+            from testerkit.execution._state import get_current_run_scope
+            from testerkit.models.test_config import Limit
 
             class TestSeq:
                 def test_stream(self):
@@ -511,13 +511,13 @@ def test_changed_chains_across_parametrize_cases(pytester: pytest.Pytester) -> N
     result.assert_outcomes(passed=3)
 
 
-def test_pure_pytest_assert_no_litmus_machinery(pytester: pytest.Pytester) -> None:
+def test_pure_pytest_assert_no_testerkit_machinery(pytester: pytest.Pytester) -> None:
     """A sequence can fall back to plain ``assert`` when no sidecar / spec exists."""
     pytester.makeini(
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -536,13 +536,13 @@ def test_pure_pytest_assert_no_litmus_machinery(pytester: pytest.Pytester) -> No
     result.assert_outcomes(passed=1)
 
 
-def test_litmus_limits_marker_on_method_resolves(pytester: pytest.Pytester) -> None:
-    """Method-level ``@pytest.mark.litmus_limits`` feeds ``verify`` resolution."""
+def test_testerkit_limits_marker_on_method_resolves(pytester: pytest.Pytester) -> None:
+    """Method-level ``@pytest.mark.testerkit_limits`` feeds ``verify`` resolution."""
     pytester.makeini(
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -554,13 +554,13 @@ def test_litmus_limits_marker_on_method_resolves(pytester: pytest.Pytester) -> N
             import pytest
 
             class TestSeq:
-                @pytest.mark.litmus_limits(
+                @pytest.mark.testerkit_limits(
                     output_voltage={"low": 3.2, "high": 3.4, "unit": "V"},
                 )
                 def test_passes(self, verify):
                     verify("output_voltage", 3.3)
 
-                @pytest.mark.litmus_limits(
+                @pytest.mark.testerkit_limits(
                     output_voltage={"low": 3.2, "high": 3.4, "unit": "V"},
                 )
                 def test_fails(self, verify):
@@ -572,13 +572,13 @@ def test_litmus_limits_marker_on_method_resolves(pytester: pytest.Pytester) -> N
     result.assert_outcomes(passed=1, failed=1)
 
 
-def test_litmus_limits_marker_method_overrides_class(pytester: pytest.Pytester) -> None:
-    """Method-level ``litmus_limits`` overrides class-level for the same name."""
+def test_testerkit_limits_marker_method_overrides_class(pytester: pytest.Pytester) -> None:
+    """Method-level ``testerkit_limits`` overrides class-level for the same name."""
     pytester.makeini(
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -589,14 +589,14 @@ def test_litmus_limits_marker_method_overrides_class(pytester: pytest.Pytester) 
             """
             import pytest
 
-            @pytest.mark.litmus_limits(
+            @pytest.mark.testerkit_limits(
                 rail={"low": 3.2, "high": 3.4, "unit": "V"},  # tight (class default)
             )
             class TestSeq:
                 def test_tight_class_limit(self, verify):
                     verify("rail", 3.5)  # fails tight class limit
 
-                @pytest.mark.litmus_limits(
+                @pytest.mark.testerkit_limits(
                     rail={"low": 3.0, "high": 3.6, "unit": "V"},  # loose override
                 )
                 def test_loose_method_limit(self, verify):
@@ -614,7 +614,7 @@ def test_limits_fixture_destructured_access(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -626,7 +626,7 @@ def test_limits_fixture_destructured_access(pytester: pytest.Pytester) -> None:
             import pytest
 
             class TestSeq:
-                @pytest.mark.litmus_limits(
+                @pytest.mark.testerkit_limits(
                     rail={"low": 3.2, "high": 3.4, "unit": "V"},
                 )
                 def test_reads_limits(self, limits):
@@ -646,7 +646,7 @@ def test_context_last_returns_prior_param(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )

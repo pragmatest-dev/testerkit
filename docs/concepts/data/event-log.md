@@ -1,6 +1,6 @@
 # The Event Log
 
-The event log is Litmus's unified record of everything that happens during testing — sessions, instrument connections, measurements, diagnostics, and more.
+The event log is TesterKit's unified record of everything that happens during testing — sessions, instrument connections, measurements, diagnostics, and more.
 
 ## One stream, in order
 
@@ -22,7 +22,7 @@ Each event also carries an `event_type` string (e.g. `test.measurement`) naming 
 
 ## Event Categories
 
-Litmus defines events across 12 categories.
+TesterKit defines events across 12 categories.
 
 ### Session (2 events)
 | Event | Type String | Description |
@@ -135,10 +135,10 @@ SessionStarted          # Session-wide metadata (station, operator)
 When an event is written:
 
 1. **`received_at` is stamped** and the event is buffered for batched writes to an Arrow file (a fast columnar on-disk format)
-2. **On `RunEnded`** the run's Parquet file is written. The same path runs when you replay stored events with `litmus export`.
+2. **On `RunEnded`** the run's Parquet file is written. The same path runs when you replay stored events with `testerkit export`.
 3. **Flush** happens every 50 events (configurable), writing a batch to the Arrow file
 
-The set of writers (Parquet, the live UI feed) is built in; adding a new output format is a change to Litmus itself, not a drop-in plugin.
+The set of writers (Parquet, the live UI feed) is built in; adding a new output format is a change to TesterKit itself, not a drop-in plugin.
 
 ## Storage
 

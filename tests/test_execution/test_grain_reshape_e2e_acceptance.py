@@ -1,7 +1,7 @@
 """ACCEPTANCE / VERIFICATION — step/vector grain model at-rest, real end-to-end.
 
 Every permutation here is a REAL pytest subprocess run through the real
-litmus plugin (same harness as ``test_class_step_containers.py``'s
+testerkit plugin (same harness as ``test_class_step_containers.py``'s
 ``_run_pytest``), materialized through the REAL runs daemon, then read
 back by globbing the actual parquet files on disk and querying them with
 DuckDB directly — the at-rest ground truth. No ``_FakeLog``, no hand-built
@@ -36,9 +36,9 @@ from uuid import uuid4
 
 import duckdb
 
-from litmus.analysis.runs_query import RunsQuery
-from litmus.data.backends._row_helpers import decode_lane_structs
-from litmus.data.data_dir import resolve_data_dir
+from testerkit.analysis.runs_query import RunsQuery
+from testerkit.data.backends._row_helpers import decode_lane_structs
+from testerkit.data.data_dir import resolve_data_dir
 
 
 def _write_test(path: Path, body: str) -> None:
@@ -46,7 +46,7 @@ def _write_test(path: Path, body: str) -> None:
 
 
 def _run_pytest(test_file: Path, *, session_id: str) -> subprocess.CompletedProcess:
-    env = {**os.environ, "_LITMUS_SESSION_ID": session_id}
+    env = {**os.environ, "_TESTERKIT_SESSION_ID": session_id}
     return subprocess.run(
         [sys.executable, "-m", "pytest", str(test_file), "-v"],
         capture_output=True,
@@ -226,7 +226,7 @@ def test_p3_mode2_inbody_loop_pure(tmp_path: Path) -> None:
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"vin": [1, 2, 3]}])
+        @pytest.mark.testerkit_sweeps([{"vin": [1, 2, 3]}])
         def test_x(vectors, measure):
             for v in vectors:
                 measure("vout", v["vin"])
@@ -260,7 +260,7 @@ def test_p3_mode2_inbody_loop_with_preloop_ambient(tmp_path: Path) -> None:
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"vin": [1, 2, 3]}])
+        @pytest.mark.testerkit_sweeps([{"vin": [1, 2, 3]}])
         def test_x(vectors, measure, context):
             context.configure("setup_key", 99)
             measure("preflight", 1.0)
@@ -307,7 +307,7 @@ def test_p3_mode2_inbody_loop_with_preloop_observe_ambient(tmp_path: Path) -> No
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"vin": [1, 2, 3]}])
+        @pytest.mark.testerkit_sweeps([{"vin": [1, 2, 3]}])
         def test_x(vectors, observe, context):
             observe("ambient_temp", 22.5)
             for v in vectors:
@@ -388,7 +388,7 @@ def test_p4_mode1_plain_class_parametrized_method(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# P5 — @litmus_sweeps class + plain (unswept) method.
+# P5 — @testerkit_sweeps class + plain (unswept) method.
 # ---------------------------------------------------------------------------
 
 
@@ -400,7 +400,7 @@ def test_p5_swept_class_plain_method(tmp_path: Path) -> None:
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
+        @pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])
         class TestC:
             def test_m(self, voltage, measure):
                 measure("vout", voltage)
@@ -442,7 +442,7 @@ def test_p5_swept_class_plain_method(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# P6 — @litmus_sweeps class (outer) + method with its OWN inner sweep.
+# P6 — @testerkit_sweeps class (outer) + method with its OWN inner sweep.
 # Two sub-variants: inner via @parametrize (Mode1) and inner via vectors
 # fixture in-body loop (Mode2).
 # ---------------------------------------------------------------------------
@@ -456,9 +456,9 @@ def test_p6_swept_class_parametrized_method_mode1(tmp_path: Path) -> None:
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
+        @pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])
         class TestC:
-            @pytest.mark.litmus_sweeps([{"current": [4, 5]}])
+            @pytest.mark.testerkit_sweeps([{"current": [4, 5]}])
             def test_m(self, voltage, current, measure):
                 measure("vout", voltage * current)
         """,
@@ -467,7 +467,7 @@ def test_p6_swept_class_parametrized_method_mode1(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
     rows = _read_raw_rows(session_id)
-    _print_rows("P6 swept class + Mode1 (@litmus_sweeps) inner method", rows)
+    _print_rows("P6 swept class + Mode1 (@testerkit_sweeps) inner method", rows)
     kinds = _by_kind(rows)
     steps_by_path: dict[str, list[dict[str, Any]]] = {}
     for s in kinds["step"]:
@@ -504,9 +504,9 @@ def test_p6_swept_class_vectors_fixture_inner_mode2(tmp_path: Path) -> None:
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
+        @pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])
         class TestC:
-            @pytest.mark.litmus_sweeps([{"current": [4, 5]}])
+            @pytest.mark.testerkit_sweeps([{"current": [4, 5]}])
             def test_m(self, voltage, vectors, measure):
                 for v in vectors:
                     measure("vout", voltage * v["current"])
@@ -620,7 +620,7 @@ def test_configure_io_lands_on_vector_row_when_swept(tmp_path: Path) -> None:
 
 
 def test_swept_vectors_visible_through_stepsquery(tmp_path: Path) -> None:
-    from litmus.analysis.steps_query import StepsQuery
+    from testerkit.analysis.steps_query import StepsQuery
 
     session_id = str(uuid4())
     test_file = tmp_path / "test_sq_sweep.py"
@@ -670,7 +670,7 @@ def test_inloop_context_configure_lands_on_vector(tmp_path: Path) -> None:
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"vin": [1, 2]}])
+        @pytest.mark.testerkit_sweeps([{"vin": [1, 2]}])
         def test_x(vectors, context, measure):
             for v in vectors:
                 context.configure("trim", v["vin"] + 100)
@@ -706,7 +706,7 @@ def test_inloop_context_get_param_reads_iteration_value(tmp_path: Path) -> None:
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"vin": [10, 20, 30]}])
+        @pytest.mark.testerkit_sweeps([{"vin": [10, 20, 30]}])
         def test_x(vectors, context, measure):
             for v in vectors:
                 # context.get_param must resolve to THIS iteration's scope.

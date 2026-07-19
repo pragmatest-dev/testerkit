@@ -32,7 +32,7 @@ enclosing parent iteration.** Three sweep sources unify onto that one path:
 | Sweep source | Today | After |
 |---|---|---|
 | function `@parametrize` (Mode-1) | fuses into step row; `step.vector_index = variant` | emits a vector per variant; step is the logical group, `step.vector_index = enclosing` (null at top) |
-| class-outer `litmus_sweeps` (hooks.py:1269) | container `C.vector_index = vi` | `C` emits a vector per outer point (`vector_index = vi`); methods get `step.vector_index = vi` |
+| class-outer `testerkit_sweeps` (hooks.py:1269) | container `C.vector_index = vi` | `C` emits a vector per outer point (`vector_index = vi`); methods get `step.vector_index = vi` |
 | in-body `vectors` (Mode-2) | already emits vector events | unchanged shape; gains child-context hygiene (Phase 4) |
 
 Rejected alternative: accumulator-*synthesizes* variant vectors from `StepStarted` — that is the
@@ -64,7 +64,7 @@ next until the current one's own targeted tests pass (full-suite green is a Phas
 - **Vector emission for Mode-1 + class-outer:** bracket the swept item/container body with
   `VectorStarted`/`VectorEnded` carrying the variant's own `vector_index` + params. Mode-1 leaf
   variants: emit in **`pytest_runtest_call`** around the `yield`, after `start_step` — NOT in
-  `_litmus_push_params` (fixtures run in the *setup* phase, before `start_step` fires in the *call*
+  `_testerkit_push_params` (fixtures run in the *setup* phase, before `start_step` fires in the *call*
   hookwrapper, so emitting there would put `VectorStarted` *before* `StepStarted` — wrong nesting).
   Class-outer: emit at the container open/close (hooks.py:1253-1276) per outer point, via a **separate
   `_outer_vector_tokens` stack** (a class-outer vector must survive multiple nested method `end_step`s;
@@ -191,7 +191,7 @@ next until the current one's own targeted tests pass (full-suite green is a Phas
 
 `ruff check .` · `ruff format .` · `pyright`/`mypy src/` · `pytest -q` (full suite is the Phase-5
 deliverable; per-phase, run the phase's targeted tests + the layer's existing tests). **Kill stray
-`litmus mcp serve` + daemons before daemon-spawning tests** (memory: they hang otherwise). `--no-verify`
+`testerkit mcp serve` + daemons before daemon-spawning tests** (memory: they hang otherwise). `--no-verify`
 is BANNED. NO code comments beyond a genuine one-line non-obvious *why*.
 
 ## Blast-radius reference (verified 2026-06-30, source-grounded)

@@ -2,10 +2,10 @@
 
 import pytest
 
-from litmus.data.models import Outcome, TestVector
-from litmus.execution.harness import Context, TestHarness
-from litmus.execution.vectors import Vector
-from litmus.models.test_config import Limit, RetryConfig
+from testerkit.data.models import Outcome, TestVector
+from testerkit.execution.harness import Context, TestHarness
+from testerkit.execution.vectors import Vector
+from testerkit.models.test_config import Limit, RetryConfig
 
 
 # Fake instrument classes for testing Mock factory
@@ -385,7 +385,7 @@ class TestHarnessMockConfiguration:
 
     def test_configure_mocks_calls_set_mock_value(self):
         """Test that _configure_mocks calls set_mock_value on instruments."""
-        from litmus.instruments.mocks import Mock
+        from testerkit.instruments.mocks import Mock
 
         dmm = Mock(FakeDMM)
         psu = Mock(FakePSU)
@@ -399,7 +399,7 @@ class TestHarnessMockConfiguration:
 
     def test_run_vector_configures_mocks_when_simulating(self):
         """Test that run_vector applies _mock config from vector."""
-        from litmus.instruments.mocks import Mock
+        from testerkit.instruments.mocks import Mock
 
         dmm = Mock(FakeDMM)
         instruments = {"dmm": dmm}
@@ -417,7 +417,7 @@ class TestHarnessMockConfiguration:
 
     def test_per_vector_mock_config(self):
         """Test that each vector gets its own mock values."""
-        from litmus.instruments.mocks import Mock
+        from testerkit.instruments.mocks import Mock
 
         dmm = Mock(FakeDMM)
         instruments = {"dmm": dmm}
@@ -441,7 +441,7 @@ class TestHarnessMockConfiguration:
 
     def test_test_level_mock_fallback(self):
         """Test that test-level _mock is used when vector has none."""
-        from litmus.instruments.mocks import Mock
+        from testerkit.instruments.mocks import Mock
 
         dmm = Mock(FakeDMM)
         instruments = {"dmm": dmm}
@@ -458,7 +458,7 @@ class TestHarnessMockConfiguration:
 
     def test_no_mock_config_when_not_mocking(self):
         """Test that mocks are not configured when mock_instruments=False."""
-        from litmus.instruments.mocks import Mock
+        from testerkit.instruments.mocks import Mock
 
         dmm = Mock(FakeDMM, measure_voltage=0.0)
         instruments = {"dmm": dmm}
@@ -476,7 +476,7 @@ class TestHarnessMockConfiguration:
 
     def test_callable_mock_receives_context(self):
         """Test that callable mock values receive the current context."""
-        from litmus.instruments.mocks import Mock
+        from testerkit.instruments.mocks import Mock
 
         dmm = Mock(FakeDMM)
         instruments = {"dmm": dmm}
@@ -507,7 +507,7 @@ class TestHarnessMockConfiguration:
 
     def test_dict_mock_for_scpi(self):
         """Test that dict mock values work for SCPI-style mocking."""
-        from litmus.instruments.mocks import Mock
+        from testerkit.instruments.mocks import Mock
 
         dmm = Mock(FakeDMM)
         instruments = {"dmm": dmm}
@@ -534,7 +534,7 @@ class TestHarnessPrompt:
     """Tests for TestHarness.prompt method."""
 
     def test_prompt_formats_message(self):
-        from litmus.prompts import set_prompt_handler
+        from testerkit.prompts import set_prompt_handler
 
         harness = TestHarness()
         captured_config = None
@@ -556,7 +556,7 @@ class TestHarnessPrompt:
         assert captured_config.message == "Set temperature to 25C"
 
     def test_prompt_type_choice(self):
-        from litmus.prompts import set_prompt_handler
+        from testerkit.prompts import set_prompt_handler
 
         harness = TestHarness()
         result = None

@@ -34,9 +34,9 @@ from uuid import uuid4
 import pyarrow as pa
 import pyarrow.flight as flight
 
-from litmus.data import duckdb_manager
-from litmus.data._duckdb_flight_server import FlightPutStream
-from litmus.data.events import TYPED_PAYLOAD_COLUMNS
+from testerkit.data import duckdb_manager
+from testerkit.data._duckdb_flight_server import FlightPutStream
+from testerkit.data.events import TYPED_PAYLOAD_COLUMNS
 
 
 def _events_batch(event_id: str, session_id: str) -> pa.RecordBatch:

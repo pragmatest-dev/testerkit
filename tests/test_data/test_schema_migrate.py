@@ -18,12 +18,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.data import schema_dispatch, schema_versions
-from litmus.data.files.models import FileArtifactMetadata
-from litmus.data.schema_dispatch import SchemaVersionRefused
-from litmus.data.schema_migrate import migrate_parquet_file, migrate_sidecar_file
-from litmus.data.schema_versions import SchemaStore
-from litmus.data.schemas import RUN_ROW_SCHEMA
+from testerkit.data import schema_dispatch, schema_versions
+from testerkit.data.files.models import FileArtifactMetadata
+from testerkit.data.schema_dispatch import SchemaVersionRefused
+from testerkit.data.schema_migrate import migrate_parquet_file, migrate_sidecar_file
+from testerkit.data.schema_versions import SchemaStore
+from testerkit.data.schemas import RUN_ROW_SCHEMA
 
 
 def _register_legacy(monkeypatch, store: SchemaStore, version: str, adapter) -> None:

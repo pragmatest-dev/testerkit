@@ -31,13 +31,13 @@ import pyarrow as pa
 import pyarrow.ipc as ipc
 import pytest
 
-from litmus.data.backends._row_helpers import save_ref_to_dir
-from litmus.data.backends.parquet import (
+from testerkit.data.backends._row_helpers import save_ref_to_dir
+from testerkit.data.backends.parquet import (
     _resolve_ref_to_path,
     load_file,
     load_ref,
 )
-from litmus.data.files import FileStore, _reset_for_tests, find_serializer
+from testerkit.data.files import FileStore, _reset_for_tests, find_serializer
 
 
 def _sid() -> str:
@@ -47,7 +47,7 @@ def _sid() -> str:
 @pytest.fixture
 def filestore(tmp_path: Path, monkeypatch) -> FileStore:
     """Per-test FileStore singleton bound to tmp_path."""
-    from litmus.data.files import store as store_module
+    from testerkit.data.files import store as store_module
 
     monkeypatch.setattr(store_module, "resolve_data_dir", lambda _=None: tmp_path)
     _reset_for_tests()
@@ -209,12 +209,12 @@ class TestEventLogVestigialRemoval:
         All blob storage now routes through FileStore at the verb
         layer; EventLog has nothing of its own to claim-check.
         """
-        from litmus.data.event_log import EventLog
+        from testerkit.data.event_log import EventLog
 
         assert not hasattr(EventLog, "save_ref")
 
     def test_eventlog_has_no_ref_dir_attribute(self, tmp_path: Path) -> None:
-        from litmus.data.event_log import EventLog
+        from testerkit.data.event_log import EventLog
 
         log = EventLog(tmp_path / "events", uuid4())
         try:
@@ -230,11 +230,11 @@ class TestEventLogVestigialRemoval:
 
 class TestParquetBackendVestigialRemoval:
     def test_parquet_backend_has_no_get_ref_dir(self) -> None:
-        from litmus.data.backends.parquet import ParquetBackend
+        from testerkit.data.backends.parquet import ParquetBackend
 
         assert not hasattr(ParquetBackend, "_get_ref_dir")
 
     def test_parquet_backend_has_no_save_file(self) -> None:
-        from litmus.data.backends.parquet import ParquetBackend
+        from testerkit.data.backends.parquet import ParquetBackend
 
         assert not hasattr(ParquetBackend, "_save_file")

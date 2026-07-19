@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from types import SimpleNamespace
 
-from litmus.ui.shared import services
+from testerkit.ui.shared import services
 
 
 def _fake_asset(asset_id: str, manufacturer: str = "", model: str = "", driver: str = ""):

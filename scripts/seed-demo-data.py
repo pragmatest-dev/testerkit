@@ -14,7 +14,7 @@ without extra flags.
 Dataset shape
 -------------
 - 2 parts: DEMO-BUCK-3V3 (A) and DEMO-BUCK-5V0 (B)
-- 2 stations: bench_01 (hostname litmus-station-01), bench_02 (litmus-station-02)
+- 2 stations: bench_01 (hostname testerkit-station-01), bench_02 (testerkit-station-02)
 - 15 serials (SN-B3-001..010 for 3V3, SN-B5-001..005 for 5V0)
 - ~50 runs across a 2-week window, ~87% pass rate
 - Failures concentrated on ``v_rail`` (out-of-spec) and ``i_idle`` (overcurrent)
@@ -34,8 +34,8 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
-from litmus.client import LitmusClient, RunBuilder  # noqa: E402
-from litmus.data.models import Outcome, escalate_outcome  # noqa: E402
+from testerkit.client import RunBuilder, TesterKitClient  # noqa: E402
+from testerkit.data.models import Outcome, escalate_outcome  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Script configuration
@@ -73,13 +73,13 @@ _STATIONS = [
     {
         "station_id": "bench_01",
         "station_name": "Bench 01",
-        "station_hostname": "litmus-station-01",
+        "station_hostname": "testerkit-station-01",
         "station_type": "bench",
     },
     {
         "station_id": "bench_02",
         "station_name": "Bench 02",
-        "station_hostname": "litmus-station-02",
+        "station_hostname": "testerkit-station-02",
         "station_type": "bench",
     },
 ]
@@ -239,7 +239,7 @@ def _build_run_plan(rng: random.Random, window_days: int) -> list[dict]:
 
 
 def _emit_run(
-    client: LitmusClient,
+    client: TesterKitClient,
     rng: random.Random,
     entry: dict,
 ) -> str:
@@ -361,7 +361,7 @@ def _clear_runs(data_dir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Seed representative analytics demo data into a Litmus data dir."
+        description="Seed representative analytics demo data into a TesterKit data dir."
     )
     parser.add_argument(
         "--data-dir",
@@ -385,7 +385,7 @@ def main() -> None:
     rng = random.Random(_RNG_SEED)
     plan = _build_run_plan(rng, _WINDOW_DAYS)
 
-    client = LitmusClient(data_dir=data_dir)
+    client = TesterKitClient(data_dir=data_dir)
 
     total = len(plan)
     passed = 0

@@ -355,7 +355,7 @@ Load the file through the store — if it parses and validates, the entry is wel
 ```bash
 uv run python -c "
 from pathlib import Path
-from litmus.store import load_catalog_entry
+from testerkit.store import load_catalog_entry
 entry = load_catalog_entry(Path('catalog/keysight/n5183b.yaml'))
 print(f'OK: {entry.manufacturer} {entry.model} — {len(entry.capabilities)} capability/-ies')
 "

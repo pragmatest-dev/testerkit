@@ -11,15 +11,15 @@ from __future__ import annotations
 import time
 from uuid import uuid4
 
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.files.catalog_manager import (
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.files.catalog_manager import (
     acquire,
     list_recent,
     release,
     resolve_uri,
     subscribe_frames,
 )
-from litmus.data.files.store import FileStore
+from testerkit.data.files.store import FileStore
 
 _CANONICAL = resolve_data_dir()
 
@@ -115,7 +115,7 @@ class TestFileRangeRead:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from litmus.api.app import create_api_router
+        from testerkit.api.app import create_api_router
 
         app = FastAPI()
         app.include_router(create_api_router())

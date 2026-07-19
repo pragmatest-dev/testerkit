@@ -10,14 +10,14 @@ def test_rails(self, context, psu, dmm, verify):
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-UUT identity is at `context.run.uut` — the bare `uut` fixture is a different thing (the live driver). See [Litmus fixtures](../../reference/pytest/fixtures.md) for the full per-test entry points.
+UUT identity is at `context.run.uut` — the bare `uut` fixture is a different thing (the live driver). See [TesterKit fixtures](../../reference/pytest/fixtures.md) for the full per-test entry points.
 
 ## Skip expensive setup across a sweep
 
 `context.changed("name")` returns `True` only when that parameter rolled over from the previous iteration. Gate slow hardware reconfig on it so a 30-minute thermal soak runs twice, not twelve times.
 
 ```python
-@pytest.mark.litmus_sweeps([
+@pytest.mark.testerkit_sweeps([
     {"temperature": [25, 85]},        # outer (slow)
     {"vin": [4.5, 5.0, 5.5]},          # middle
     {"load": [0.1, 0.4]},              # inner (fast)
@@ -36,11 +36,11 @@ The 2 × 3 × 2 sweep above runs 12 cases. Without `changed("temperature")`, the
 
 `changed("name")` is `True` on the first iteration — there is no previous value to compare against. If you want "second iteration onward", check `context.last("name") is not None` instead.
 
-See [Test vectors](vector-expansion.md) for sweep shapes, axis ordering, and how `litmus_sweeps` cross-products into iterations.
+See [Test vectors](vector-expansion.md) for sweep shapes, axis ordering, and how `testerkit_sweeps` cross-products into iterations.
 
 ## Read sweep / parametrize values
 
-The fixture is source-agnostic — `litmus_sweeps`, `pytest.mark.parametrize`, and `@pytest.fixture(params=...)` all land in `context.params` the same way.
+The fixture is source-agnostic — `testerkit_sweeps`, `pytest.mark.parametrize`, and `@pytest.fixture(params=...)` all land in `context.params` the same way.
 
 ```python
 def test_rails(self, context, psu, dmm, verify):
@@ -145,10 +145,10 @@ See [Limits](limits.md) for limit resolution order and [Spec-driven testing](spe
 
 ## Iterate active fixture connections
 
-To take the same measurement on every rail, iterate `context.connections` (after declaring `@pytest.mark.litmus_characteristics([...])` or `@pytest.mark.litmus_connections(...)`). Each step of the loop closes the switch matrix to that connection's pin, so the same `dmm.measure_dc_voltage()` call lands on a different rail every time around — and the platform stamps the row with the connection's `uut_pin` and the matching characteristic id automatically. (What a fixture connection is: see [Fixtures](../../concepts/configuration/fixtures.md).)
+To take the same measurement on every rail, iterate `context.connections` (after declaring `@pytest.mark.testerkit_characteristics([...])` or `@pytest.mark.testerkit_connections(...)`). Each step of the loop closes the switch matrix to that connection's pin, so the same `dmm.measure_dc_voltage()` call lands on a different rail every time around — and the platform stamps the row with the connection's `uut_pin` and the matching characteristic id automatically. (What a fixture connection is: see [Fixtures](../../concepts/configuration/fixtures.md).)
 
 ```python
-@pytest.mark.litmus_characteristics(["rail_3v3", "rail_5v"])
+@pytest.mark.testerkit_characteristics(["rail_3v3", "rail_5v"])
 def test_all_rails(self, context, dmm, verify):
     for conn in context.connections:
         # Switch matrix is now routed to conn.uut_pin; verify stamps the row
@@ -161,7 +161,7 @@ The loop variable `conn` carries the connection's `uut_pin`, `instrument`, `inst
 To walk one characteristic at a time when several are in scope, scope the iteration with `for_characteristic`:
 
 ```python
-@pytest.mark.litmus_characteristics(["rail_3v3", "rail_5v"])
+@pytest.mark.testerkit_characteristics(["rail_3v3", "rail_5v"])
 def test_all_rails(self, context, dmm, verify):
     for char_id in context.characteristics:
         for conn in context.connections.for_characteristic(char_id):
@@ -174,7 +174,7 @@ See [Spec-driven testing](spec-driven-testing.md) for the characteristic / conne
 
 ## Keep mutable state across sweep iterations
 
-`context.params` is read-only — assigning to it has no effect. For a writable scratchpad shared across iterations of the same class, use a `scope="class"` pytest fixture — no Litmus-specific API needed:
+`context.params` is read-only — assigning to it has no effect. For a writable scratchpad shared across iterations of the same class, use a `scope="class"` pytest fixture — no TesterKit-specific API needed:
 
 ```python
 import time
@@ -207,6 +207,6 @@ class TestPowerBoard:
 - [Test vectors](vector-expansion.md) — sweep shapes, axis ordering, `changed()` patterns
 - [Traceability](traceability.md) — how `configure` / `observe` land as inputs and outputs on measurement rows, and how to query them by role and name
 - [Limits](limits.md) — resolution order for `get_limit()`
-- [Litmus fixtures](../../reference/pytest/fixtures.md) — every plugin fixture with signature
+- [TesterKit fixtures](../../reference/pytest/fixtures.md) — every plugin fixture with signature
 - [Parquet schema](../../reference/data/parquet-schema.md) — the row shape that holds these values
 - [Fixtures concept](../../concepts/configuration/fixtures.md) — hardware fixtures vs pytest fixtures

@@ -12,8 +12,8 @@ pytest.importorskip("Semi_ATE")
 from Semi_ATE.STDF import FAR, MIR, MRR, PIR, PRR, PTR  # pyright: ignore[reportMissingImports]
 from Semi_ATE.STDF.STDR import STDR  # pyright: ignore[reportMissingImports]
 
-from litmus.data.exporters.stdf import StdfSubscriber
-from litmus.data.models import TestRun
+from testerkit.data.exporters.stdf import StdfSubscriber
+from testerkit.data.models import TestRun
 
 
 def _read_records(path: Path) -> list[STDR]:
@@ -229,7 +229,7 @@ class TestStdfSubscriber:
 
 def test_build_ptr_threads_site_num_for_multi_site():
     """A multi-site worker's site_index flows straight into PTR SITE_NUM."""
-    from litmus.data.exporters.stdf import _build_ptr
+    from testerkit.data.exporters.stdf import _build_ptr
 
     raw = _build_ptr(1, 3, "step", "meas", 1.0, "passed", None, 0.0, 2.0, "V")
     ptr = PTR()

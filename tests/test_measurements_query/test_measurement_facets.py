@@ -14,7 +14,7 @@ from enum import StrEnum
 
 import pytest
 
-from litmus.analysis.measurement_facets import (
+from testerkit.analysis.measurement_facets import (
     MEASUREMENT_FACETS,
     FacetKind,
     FacetOption,
@@ -25,9 +25,9 @@ from litmus.analysis.measurement_facets import (
     SummaryCounts,
     facets_by_kind,
 )
-from litmus.data.backends._row_helpers import RunParquetRow
-from litmus.data.models import Outcome
-from litmus.models.enums import Comparator
+from testerkit.data.backends._row_helpers import RunParquetRow
+from testerkit.data.models import Outcome
+from testerkit.models.enums import Comparator
 
 
 class TestRegistry:

@@ -5,14 +5,14 @@
 ## Prerequisites
 
 - Completed [Step 7: Real Instruments](07-real-instruments.md) or using mock mode
-- `litmus serve` running
+- `testerkit serve` running
 
 ## Start a Station Session
 
 Open a Python script or Jupyter notebook:
 
 ```python
-from litmus import connect
+from testerkit import connect
 
 # Connect to your station (mock mode for this tutorial)
 with connect("bench_1", mock=True) as station:
@@ -32,7 +32,7 @@ This creates a session and records what happens — instrument reads land in the
 In another terminal:
 
 ```bash
-litmus serve --reload
+testerkit serve --reload
 ```
 
 Open `http://localhost:8000` — the operator UI shows live session activity, including:
@@ -112,14 +112,14 @@ curl http://localhost:8000/api/channels
 Or with the MCP tools:
 
 ```
-litmus_sessions()
-litmus_events(session_id="...")
-litmus_channels(channel_id="dmm.voltage")
+testerkit_sessions()
+testerkit_events(session_id="...")
+testerkit_channels(channel_id="dmm.voltage")
 ```
 
 ## Channel Data from Instrument Reads
 
-Instrument reads route to the [`ChannelStore`](../concepts/data/data-stores.md) — Litmus's time-series store for sample data, both scalar readings and arrays like waveforms. A `ChannelStarted` event marks each channel; the event carries a `channel://` reference (a URI string) pointing at the channel, not the samples themselves:
+Instrument reads route to the [`ChannelStore`](../concepts/data/data-stores.md) — TesterKit's time-series store for sample data, both scalar readings and arrays like waveforms. A `ChannelStarted` event marks each channel; the event carries a `channel://` reference (a URI string) pointing at the channel, not the samples themselves:
 
 ```python
 with connect("bench_1", mock=True) as station:
@@ -135,11 +135,11 @@ Query channel data by channel id:
 curl "http://localhost:8000/api/channels/scope.waveform?max_points=500"
 ```
 
-See also: [Step 12: Continuous Monitoring](12-continuous-monitoring.md) — streaming into ChannelStore directly from an interactive script using `litmus.channels.stream`.
+See also: [Step 12: Continuous Monitoring](12-continuous-monitoring.md) — streaming into ChannelStore directly from an interactive script using `testerkit.channels.stream`.
 
 ## How live monitoring works
 
-When you connect to a station, Litmus records every instrument read and step result as it happens and makes it available to the operator UI in real time. Large arrays like waveforms are downsampled before display, so big captures still draw quickly.
+When you connect to a station, TesterKit records every instrument read and step result as it happens and makes it available to the operator UI in real time. Large arrays like waveforms are downsampled before display, so big captures still draw quickly.
 
 For the mechanics, see [Data stores](../concepts/data/data-stores.md) and [Flight streaming](../concepts/data/flight-streaming.md).
 

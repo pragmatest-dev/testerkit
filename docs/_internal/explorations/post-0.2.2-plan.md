@@ -20,7 +20,7 @@ serial. Migration: regen pre-release (`rm -rf data/`); read-time-adapt later. Se
 - **C4: `uut_serial` → `uut_serial_number`** (task #4) — `0.3.0-at-rest-reshape.md`.
 - **Drop `parent_path`** (derive from `step_path − step_name`) (task #8).
 - **File-metadata cruft** (task #10): drop `profile_facets_json` (dead), `step_results`
-  redundancy, `litmus_version`/`schema_version` dups in the blob.
+  redundancy, `testerkit_version`/`schema_version` dups in the blob.
 - **C3: `schema_version` as migration key + version-aware ingest** (task #5) —
   `schema-versioning-migration.md`. Stamp per store; structure ingest to branch on version
   (additive-later is fine; don't foreclose it).
@@ -46,9 +46,9 @@ retry-model discussion), prior art compared:
   calling the same code module at two steps → **two GUIDs**. Identity is a property of
   the sequence, separate from the code module *and* from position.
 - **OpenHTF:** phases identified by **name** (the code) — repeat-ambiguous, the same
-  limitation Litmus has today.
+  limitation TesterKit has today.
 
-Litmus today keys retry on `step_path` (the **code** identity), which is correct *because*
+TesterKit today keys retry on `step_path` (the **code** identity), which is correct *because*
 pytest can't place the same code twice (parametrize collapses to vectors, reruns carry
 `step_retry`). A future sequence that runs the same module at two positions breaks that —
 `assign_indices` would fold the second placement into the first as extra vectors. So when

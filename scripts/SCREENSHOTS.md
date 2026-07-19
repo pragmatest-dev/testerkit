@@ -2,7 +2,7 @@
 
 The cropped PNGs under `docs/_assets/operator-ui/` are produced by
 `scripts/regenerate-ui-screenshots.py`. The script starts a local
-`litmus serve` on port 8765, drives Playwright through every entry in
+`testerkit serve` on port 8765, drives Playwright through every entry in
 its `MANIFEST`, and writes one PNG per shot. The PNGs are committed;
 the script regenerates them in-place when the UI changes.
 
@@ -44,15 +44,15 @@ uv run playwright install chromium
 ```
 
 The script spawns its own server on port 8765 to avoid colliding with a
-running `litmus serve` on the default 8000.
+running `testerkit serve` on the default 8000.
 
 ## Adding a shot
 
-1. Open the screen in `litmus serve` and pick the element you want to
+1. Open the screen in `testerkit serve` and pick the element you want to
    crop to.
 2. Inspect the element. If it doesn't already have a stable
    `data-testid` attribute, add one to the relevant module under
-   `src/litmus/ui/pages/`. Choose a name shaped like
+   `src/testerkit/ui/pages/`. Choose a name shaped like
    `<screen>-<region>`: e.g. `results-table`, `metrics-tabs`,
    `launch-station-picker`. Commit the testid addition separately from
    the docs commit so reviewers see them in isolation.
@@ -84,7 +84,7 @@ changed; commit only those.
 The pre-commit hook `screenshot-drift-reminder` (in
 `.pre-commit-config.yaml`, implementation at
 `scripts/check-screenshot-drift.py`) helps you remember: when you
-commit a file under `src/litmus/ui/pages/` that contains a
+commit a file under `src/testerkit/ui/pages/` that contains a
 `data-testid` referenced in this script's `MANIFEST`, the hook prints
 the rerun command. It's a reminder, not a gate — it exits 0 either
 way. The author still has to actually re-run the script and commit
@@ -126,7 +126,7 @@ against; until then PNGs render bare against the page background.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `litmus serve did not respond at http://127.0.0.1:8765 within 45s` | Server failed to start (port in use, missing dep, …) | Run `uv run litmus serve --port 8765` manually and see the real error |
+| `testerkit serve did not respond at http://127.0.0.1:8765 within 45s` | Server failed to start (port in use, missing dep, …) | Run `uv run testerkit serve --port 8765` manually and see the real error |
 | `selector "[data-testid='foo']" did not resolve on /bar` | Testid not present on the element, or wrong page | Open the page in a browser, verify the testid exists |
 | PNG looks empty / mostly white | Element rendered but content loaded after `networkidle` | Add an explicit wait selector for the content you care about, or capture a more specific child element |
 

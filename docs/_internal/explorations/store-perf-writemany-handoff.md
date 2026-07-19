@@ -43,7 +43,7 @@ uniform `sample_interval`). Same-looking call, opposite meaning.
   86k samp/s early read **21k** later (`measure_truth.py`, serve=False, same
   code). **Absolute numbers across time are not comparable.** Only **same-run,
   back-to-back ratios** are trustworthy.
-- For real absolutes, use the official `litmus benchmark` (warmup + min_rounds +
+- For real absolutes, use the official `testerkit benchmark` (warmup + min_rounds +
   gc-disable — built for this) on a **cooled** machine. Don't quote `.tmp/`
   one-shot absolutes as proof.
 
@@ -75,10 +75,10 @@ uniform `sample_interval`). Same-looking call, opposite meaning.
 
 ## What is built on this branch (WIP, unproven)
 
-- `src/litmus/data/_ipc_writer.py` — `BufferedIPCWriter.append_batch(batch)`:
+- `src/testerkit/data/_ipc_writer.py` — `BufferedIPCWriter.append_batch(batch)`:
   bulk path, drains the dict buffer then writes a pre-built batch, fires
   `_on_flush`.
-- `src/litmus/data/channels/store.py`:
+- `src/testerkit/data/channels/store.py`:
   - `_flight_push` refactored to delegate to **`_flight_push_batch(channel_id,
     batch)`** (the batched-transport core — one `write_batch` for the whole
     batch on the held stream).

@@ -10,9 +10,9 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from litmus.api.app import _serialize_ref, create_api_router
-from litmus.data.backends.parquet import ParquetBackend
-from litmus.data.models import (
+from testerkit.api.app import _serialize_ref, create_api_router
+from testerkit.data.backends.parquet import ParquetBackend
+from testerkit.data.models import (
     UUT,
     Measurement,
     Outcome,
@@ -109,8 +109,8 @@ def app_with_run():
     Per-test isolation is by uuid4 ``run_id`` — API endpoints query
     by id, so other tests' canonical rows don't leak in.
     """
-    from litmus.data.data_dir import resolve_data_dir
-    from litmus.data.run_store import RunStore
+    from testerkit.data.data_dir import resolve_data_dir
+    from testerkit.data.run_store import RunStore
 
     run = TestRun(
         id=uuid4(),

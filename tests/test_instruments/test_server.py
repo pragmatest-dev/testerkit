@@ -6,8 +6,8 @@ import time
 
 import pytest
 
-from litmus.instruments.locks import ResourceInUse
-from litmus.instruments.server import (
+from testerkit.instruments.locks import ResourceInUse
+from testerkit.instruments.server import (
     InstrumentServer,
     RemoteInstrumentProxy,
     connect_to_server,
@@ -327,16 +327,16 @@ class TestPoolIntegration:
         """Pool.acquire() returns RemoteInstrumentProxy for shared roles."""
         from uuid import uuid4
 
-        from litmus.instruments.pool import InstrumentPool
-        from litmus.models.instrument import InstrumentRecord
+        from testerkit.instruments.pool import InstrumentPool
+        from testerkit.models.instrument import InstrumentRecord
 
         driver = FakeDriver()
         server = InstrumentServer({"dmm": driver})
         server.start()
         try:
             # Set env vars as SiteRunner would
-            os.environ["_LITMUS_INSTRUMENT_SERVER"] = server.address_str
-            os.environ["_LITMUS_SHARED_ROLES"] = "dmm"
+            os.environ["_TESTERKIT_INSTRUMENT_SERVER"] = server.address_str
+            os.environ["_TESTERKIT_SHARED_ROLES"] = "dmm"
 
             pool = InstrumentPool(
                 session_id=uuid4(),
@@ -364,20 +364,20 @@ class TestPoolIntegration:
 
             pool.disconnect_all()
         finally:
-            os.environ.pop("_LITMUS_INSTRUMENT_SERVER", None)
-            os.environ.pop("_LITMUS_SHARED_ROLES", None)
+            os.environ.pop("_TESTERKIT_INSTRUMENT_SERVER", None)
+            os.environ.pop("_TESTERKIT_SHARED_ROLES", None)
             server.stop(force=True)
 
     def test_acquire_local_without_env_vars(self):
         """Pool.acquire() falls back to local connection without env vars."""
         from uuid import uuid4
 
-        from litmus.instruments.pool import InstrumentPool
-        from litmus.models.instrument import InstrumentRecord
+        from testerkit.instruments.pool import InstrumentPool
+        from testerkit.models.instrument import InstrumentRecord
 
         # Ensure env vars are NOT set
-        os.environ.pop("_LITMUS_INSTRUMENT_SERVER", None)
-        os.environ.pop("_LITMUS_SHARED_ROLES", None)
+        os.environ.pop("_TESTERKIT_INSTRUMENT_SERVER", None)
+        os.environ.pop("_TESTERKIT_SHARED_ROLES", None)
 
         pool = InstrumentPool(
             session_id=uuid4(),
@@ -418,7 +418,7 @@ class TestSubprocessSerialization:
             # Worker script: connect, measure, print result
             worker_script = f"""
 import sys
-from litmus.instruments.server import RemoteInstrumentProxy, connect_to_server
+from testerkit.instruments.server import RemoteInstrumentProxy, connect_to_server
 addr = connect_to_server("{server.address_str}")
 proxy = RemoteInstrumentProxy(addr, "dmm")
 v = proxy.measure_voltage()
@@ -466,7 +466,7 @@ proxy._disconnect()
         try:
             # Worker 1: set voltage to 9.9
             set_script = f"""
-from litmus.instruments.server import RemoteInstrumentProxy, connect_to_server
+from testerkit.instruments.server import RemoteInstrumentProxy, connect_to_server
 addr = connect_to_server("{server.address_str}")
 proxy = RemoteInstrumentProxy(addr, "dmm")
 proxy.set_voltage(9.9)
@@ -474,7 +474,7 @@ proxy._disconnect()
 """
             # Worker 2: read voltage (runs after worker 1)
             read_script = f"""
-from litmus.instruments.server import RemoteInstrumentProxy, connect_to_server
+from testerkit.instruments.server import RemoteInstrumentProxy, connect_to_server
 addr = connect_to_server("{server.address_str}")
 proxy = RemoteInstrumentProxy(addr, "dmm")
 v = proxy.measure_voltage()
@@ -726,7 +726,7 @@ class TestServerLeases:
 
     def test_meta_lock_guards_dead_client_rebind(self, monkeypatch):
         """Concurrent dead-client lock reclaims end up on one shared replacement lock."""
-        import litmus.instruments.server as srv_mod
+        import testerkit.instruments.server as srv_mod
 
         monkeypatch.setattr(srv_mod, "_DEAD_CLIENT_TIMEOUT", 0.05)
 

@@ -17,10 +17,10 @@ from pathlib import Path
 
 import duckdb
 
-from litmus.data import schema_dispatch, schema_versions
-from litmus.data.files.catalog import ensure_schema, scan_sidecars
-from litmus.data.files.models import FileArtifactMetadata
-from litmus.data.schema_versions import SchemaStore
+from testerkit.data import schema_dispatch, schema_versions
+from testerkit.data.files.catalog import ensure_schema, scan_sidecars
+from testerkit.data.files.models import FileArtifactMetadata
+from testerkit.data.schema_versions import SchemaStore
 
 
 def _register_legacy(monkeypatch, store: SchemaStore, version: str, adapter) -> None:

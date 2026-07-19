@@ -12,8 +12,8 @@ import pytest
 pytest.importorskip("h5py")
 import h5py  # pyright: ignore[reportMissingImports]
 
-from litmus.data.exporters.hdf5 import Hdf5Subscriber
-from litmus.data.models import TestRun
+from testerkit.data.exporters.hdf5 import Hdf5Subscriber
+from testerkit.data.models import TestRun
 
 
 def _dataset(obj: object) -> h5py.Dataset:

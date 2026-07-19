@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from litmus.models.test_config import FixtureConnection, SwitchRoute
+from testerkit.models.test_config import FixtureConnection, SwitchRoute
 
 
 class TestSwitchRoute:

@@ -21,7 +21,7 @@ than the means here.
 
 To measure these numbers on **your own** machine — and get a result
 file you can send in when you hit a performance problem — run
-[`litmus benchmark`](../../how-to/data/benchmarking.md). It runs the
+[`testerkit benchmark`](../../how-to/data/benchmarking.md). It runs the
 same store workloads against a throwaway directory and reports durable
 throughput per store, parallel-writer scaling, and the run's RAM/CPU
 footprint.
@@ -183,7 +183,7 @@ linear scaling; 50 % at N=4 = pretending 4 workers run as 2.)
   accordingly if many stations finalize runs at once.
 
 To reproduce all of this on your own machine, run
-[`litmus benchmark --full`](../../how-to/data/benchmarking.md): it runs
+[`testerkit benchmark --full`](../../how-to/data/benchmarking.md): it runs
 the same 1/2/4 writer sweep per store and reports the speedup, plus the
 single-writer throughput and the run's RAM/CPU footprint.
 
@@ -206,13 +206,13 @@ but no shared mutex state. The concurrency benchmarks above use
 `multiprocessing.Process()` after the EventStore singleton is alive
 in the parent will deadlock the children. The multi-site subprocess
 mode is safe because each pytest worker is spawned by pytest itself before
-the parent imports Litmus heavily; ad-hoc helpers in test code that
+the parent imports TesterKit heavily; ad-hoc helpers in test code that
 fork their own subprocesses **after** emitting any events must
 opt in to `spawn` explicitly.
 
 This is the single most important concurrency caveat in v0.2.0. It
-is not a Litmus bug — it is the standard Python `fork` + threads
-hazard — but the v0.2.0 docs surface it here because Litmus's
+is not a TesterKit bug — it is the standard Python `fork` + threads
+hazard — but the v0.2.0 docs surface it here because TesterKit's
 singleton stores make it easy to hit.
 
 ## Hardware envelope used to produce these numbers

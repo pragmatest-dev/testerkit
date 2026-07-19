@@ -9,15 +9,15 @@ from __future__ import annotations
 
 import pytest
 
-from litmus.execution.profiles import ProfileError, validate_phase_wiring
-from litmus.models.project import ProfileConfig
-from litmus.models.station import (
+from testerkit.execution.profiles import ProfileError, validate_phase_wiring
+from testerkit.models.project import ProfileConfig
+from testerkit.models.station import (
     InstrumentConfig,
     StationConfig,
     StationInstrumentConfig,
     StationType,
 )
-from litmus.models.test_config import FixtureConfig
+from testerkit.models.test_config import FixtureConfig
 
 
 def _station(station_type: str | None = None, **roles: str) -> StationConfig:
@@ -177,8 +177,8 @@ class TestProfileCascade:
     """Profile cascade should merge station_type / fixture last-wins."""
 
     def test_child_overrides_parent_station_type(self) -> None:
-        from litmus.execution.profiles import flatten_profile_chain
-        from litmus.models.project import ProjectConfig
+        from testerkit.execution.profiles import flatten_profile_chain
+        from testerkit.models.project import ProjectConfig
 
         project = ProjectConfig(
             name="test",
@@ -191,8 +191,8 @@ class TestProfileCascade:
         assert merged.station_type == "child_type"
 
     def test_child_inherits_parent_fixture_when_unset(self) -> None:
-        from litmus.execution.profiles import flatten_profile_chain
-        from litmus.models.project import ProjectConfig
+        from testerkit.execution.profiles import flatten_profile_chain
+        from testerkit.models.project import ProjectConfig
 
         project = ProjectConfig(
             name="test",

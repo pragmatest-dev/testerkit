@@ -26,8 +26,8 @@ When a test runs, it records three kinds of named value on each measurement:
   Written by `verify("v_rail", 3.31, limit=...)` / `measure(...)`.
 
 To analyze that data afterwards you use the **query API** — the `MeasurementsQuery`
-client (`src/litmus/analysis/measurements_query.py`). It's what the operator UI, the
-`litmus metrics` CLI, and the `litmus_metrics` MCP tool all read through.
+client (`src/testerkit/analysis/measurements_query.py`). It's what the operator UI, the
+`testerkit metrics` CLI, and the `testerkit_metrics` MCP tool all read through.
 
 **Today's problem:** inputs and outputs are stored twice — once in a clean typed table
 keyed by `(role, name)`, and *again* as flattened columns named `in_vin`, `out_v_rail`,
@@ -131,7 +131,7 @@ was rejected because "parameter" connotes input. It avoids `pydantic.Field`, whi
 imported in the same module.)
 
 ```python
-from litmus.queries import MeasurementsQuery, FieldRef
+from testerkit.queries import MeasurementsQuery, FieldRef
 
 FieldRef.measurement("v_rail")   # the judged result named v_rail
 FieldRef.output("v_rail")        # the observed output named v_rail
@@ -342,8 +342,8 @@ portability) — a VARIANT would tie it to DuckDB.
 
 The read surface is **resource-centric** (resource-oriented / RESTful best practice): one
 query surface per *resource* — a distinct entity with its own storage and row shape. The
-MCP layer already does this uniformly (`litmus_runs` / `litmus_steps` / `litmus_events` /
-`litmus_sessions` / `litmus_channels` / `litmus_files` / `litmus_metrics`).
+MCP layer already does this uniformly (`testerkit_runs` / `testerkit_steps` / `testerkit_events` /
+`testerkit_sessions` / `testerkit_channels` / `testerkit_files` / `testerkit_metrics`).
 
 That fixes `FieldRef`'s boundary:
 
@@ -363,7 +363,7 @@ That fixes `FieldRef`'s boundary:
 ## 5. Surfaces — the `(role, name)` shape on each one
 
 The query API isn't only Python. The **aggregates** already cross Python + MCP
-(`litmus_metrics`) + CLI (`litmus metrics`), all via flat scalar params (`part`, `station`,
+(`testerkit_metrics`) + CLI (`testerkit metrics`), all via flat scalar params (`part`, `station`,
 …). Adding `role=` as one more flat scalar enum works on every one of those with no trouble.
 
 `parametric`/`FieldRef` is **Python-client + UI-internal only today** — not in MCP, CLI, or
@@ -416,19 +416,19 @@ such constraint.) Parquet schema change → `rm -rf data/` migration (pre-1.0, n
 
 | File | Change |
 |---|---|
-| `src/litmus/data/schemas.py` | **(was missing)** drop the `custom` lane (`("custom", _LANE_LIST)`); rename `_LANE_STRUCT` field `kind`→`value_type` |
-| `src/litmus/data/backends/_row_helpers.py` | drop `custom=` plumbing; rename `LANE_FIELDS` `kind`→`value_type` + the encoder's `entry["kind"]` (`observation_kind()` producer name is cosmetic — left unless swept) |
-| `src/litmus/data/_runs_duckdb_daemon.py` | drop `custom` + fused-column emission. **Kill "side" entirely — it's internal-only jargon (EAV column + this plumbing; nothing at-rest or user-facing is called "side"):** EAV column `side`→`role` (values `in`/`out`→`input`/`output`); rename identifiers `_IO_SIDES`→`_IO_ROLES`, `_DYNAMIC_SIDES`→`_DYNAMIC_ROLES`, loop vars + `'{side}' AS side`→`'{role}' AS role`, `_dynamic_attrs_map_expr(sides=)`→`roles=`, comments. Also EAV `kind`→`value_type` + `_LANE_SELECT` (`u.kind`), `_LANE_VALUE_VARCHAR` (`CASE e.kind`), `_dynamic_attrs_map_expr` CASE; review `measurement_io_schema` (see open points) |
-| `src/litmus/analysis/measurements_query.py` | add `FieldRole`, `FieldRef` (members mirror EAV: `role`, `name`, optional `value_type`); `parametric(y/x: str\|FieldRef)` returns points; new `histogram(...)`; joins key on `(role, name)` from `FieldRef` not a prefix split; **resolver dispatch by role: `measurement`→fixed `measurement_value` column, `input`/`output`→EAV join** (EAV `role` domain is `{input, output}` only — there are NO `role='measurement'` EAV rows); **type coherence: auto-resolve single value_type, fail-loud on mixed (no silent `TRY_CAST`→NULL), `value_type=` to disambiguate**; `describe_columns` → fixed strings + `(role,name)` + per-name value_type set; `distinct_values` reports value_types; `cpk`/`pareto`/`distinct_values`/`summary_counts` gain `role=` |
-| `src/litmus/analysis/measurement_facets.py` | new models live here (`FieldRef` etc.); `role` facet spec |
-| `src/litmus/data/events.py` | drop `MeasurementRecorded.custom` |
-| `src/litmus/data/backends/_event_accumulator.py` | drop `custom=` plumbing |
-| `src/litmus/api/schemas.py` | drop `custom_*` read-back |
+| `src/testerkit/data/schemas.py` | **(was missing)** drop the `custom` lane (`("custom", _LANE_LIST)`); rename `_LANE_STRUCT` field `kind`→`value_type` |
+| `src/testerkit/data/backends/_row_helpers.py` | drop `custom=` plumbing; rename `LANE_FIELDS` `kind`→`value_type` + the encoder's `entry["kind"]` (`observation_kind()` producer name is cosmetic — left unless swept) |
+| `src/testerkit/data/_runs_duckdb_daemon.py` | drop `custom` + fused-column emission. **Kill "side" entirely — it's internal-only jargon (EAV column + this plumbing; nothing at-rest or user-facing is called "side"):** EAV column `side`→`role` (values `in`/`out`→`input`/`output`); rename identifiers `_IO_SIDES`→`_IO_ROLES`, `_DYNAMIC_SIDES`→`_DYNAMIC_ROLES`, loop vars + `'{side}' AS side`→`'{role}' AS role`, `_dynamic_attrs_map_expr(sides=)`→`roles=`, comments. Also EAV `kind`→`value_type` + `_LANE_SELECT` (`u.kind`), `_LANE_VALUE_VARCHAR` (`CASE e.kind`), `_dynamic_attrs_map_expr` CASE; review `measurement_io_schema` (see open points) |
+| `src/testerkit/analysis/measurements_query.py` | add `FieldRole`, `FieldRef` (members mirror EAV: `role`, `name`, optional `value_type`); `parametric(y/x: str\|FieldRef)` returns points; new `histogram(...)`; joins key on `(role, name)` from `FieldRef` not a prefix split; **resolver dispatch by role: `measurement`→fixed `measurement_value` column, `input`/`output`→EAV join** (EAV `role` domain is `{input, output}` only — there are NO `role='measurement'` EAV rows); **type coherence: auto-resolve single value_type, fail-loud on mixed (no silent `TRY_CAST`→NULL), `value_type=` to disambiguate**; `describe_columns` → fixed strings + `(role,name)` + per-name value_type set; `distinct_values` reports value_types; `cpk`/`pareto`/`distinct_values`/`summary_counts` gain `role=` |
+| `src/testerkit/analysis/measurement_facets.py` | new models live here (`FieldRef` etc.); `role` facet spec |
+| `src/testerkit/data/events.py` | drop `MeasurementRecorded.custom` |
+| `src/testerkit/data/backends/_event_accumulator.py` | drop `custom=` plumbing |
+| `src/testerkit/api/schemas.py` | drop `custom_*` read-back |
 
 ### Phase 2 — UI (explore page + facets)
 | File | Change |
 |---|---|
-| `src/litmus/ui/pages/explore.py` | axis pickers emit `FieldRef` (label `"name (role)"`); "value" (the measurement) is selectable only when a measurement is scoped, else hidden (designs out the unscoped-mixing footgun); `_default_x/_default_y` stop string-matching `in_`/`out_`; role facet in the filter row |
+| `src/testerkit/ui/pages/explore.py` | axis pickers emit `FieldRef` (label `"name (role)"`); "value" (the measurement) is selectable only when a measurement is scoped, else hidden (designs out the unscoped-mixing footgun); `_default_x/_default_y` stop string-matching `in_`/`out_`; role facet in the filter row |
 
 ### Phase 3 — EXPORTERS
 CSV / HDF5 / JSON column naming → `name` (+ `role`), dropping `in_`/`out_` prefixes.
@@ -449,7 +449,7 @@ Re-point every `out_<name>` / `in_<name>` assertion → `(role, name)` / `FieldR
 1. **`dynamic_attrs` MAP keys — RESOLVED (A), 2026-06-20.** Blast-radius check found: the MAP
    (fused `in_`/`out_` keys) is read by `steps_query` (which *already* un-fuses → clean
    `StepRow.inputs`/`outputs` dicts) and `run_store.get_measurements` (which exposes fused
-   `out_*`/`in_*` keys verbatim → `LitmusClient` / HTTP API / reports / UI). `measurements_query`
+   `out_*`/`in_*` keys verbatim → `TesterKitClient` / HTTP API / reports / UI). `measurements_query`
    does NOT use the MAP (reads the EAV). **Decision (A): keep the MAP fused as internal
    plumbing; #1 fixes only the `measurements_query`/EAV path.** A coupling landmine must be
    handled either way: `_DYNAMIC_SIDES` drove BOTH the EAV value projection AND the MAP key

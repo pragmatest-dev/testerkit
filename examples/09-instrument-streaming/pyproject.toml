@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "litmus-example-09-instrument-streaming"
+name = "testerkit-example-09-instrument-streaming"
 version = "0.0.0"
 description = "Stage 9: continuous instrument streaming via channels.stream() + live operator UI"
 requires-python = ">=3.11"
-dependencies = ["litmus-test"]
+dependencies = ["testerkit"]
 
 [tool.uv.sources]
-litmus-test = { workspace = true }
+testerkit = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 bypass-selection = true

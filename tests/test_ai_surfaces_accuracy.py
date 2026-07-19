@@ -1,10 +1,10 @@
 """Anti-drift guard for the AI-facing test-writing surfaces (#66).
 
-The 12 `litmus-*` skills (`src/litmus/skills/<name>/SKILL.md`) tell a
-generative AI how to use Litmus. They drifted from the real API once (a
+The 12 `testerkit-*` skills (`src/testerkit/skills/<name>/SKILL.md`) tell a
+generative AI how to use TesterKit. They drifted from the real API once (a
 phantom `logger.measure` verb, `psu`/`dmm` assumed without a station,
 limit-less `verify`, sidecar `ref:`/`vectors:`/dict-`mocks:`, deleted
-`sequence` refs, a since-deleted `litmus refs` CLI, dead doc citations) — and
+`sequence` refs, a since-deleted `testerkit refs` CLI, dead doc citations) — and
 nothing caught it because nothing *ran* or *resolved* the examples.
 
 This test runs / validates the canonical snippets against the real plugin +
@@ -20,26 +20,26 @@ from pathlib import Path
 
 import pytest
 
-import litmus
+import testerkit
 
-_SKILLS = Path(litmus.__file__).parent / "skills"
-_MCP = Path(litmus.__file__).parent / "mcp"
+_SKILLS = Path(testerkit.__file__).parent / "skills"
+_MCP = Path(testerkit.__file__).parent / "mcp"
 
-_SKILL_NAME_RE = re.compile(r"^litmus-[a-z-]+$")
+_SKILL_NAME_RE = re.compile(r"^testerkit-[a-z-]+$")
 
 _EXPECTED_SKILL_NAMES = {
-    "litmus-tests",
-    "litmus-mocks",
-    "litmus-stations",
-    "litmus-parts",
-    "litmus-profiles",
-    "litmus-sites",
-    "litmus-capture",
-    "litmus-data",
-    "litmus-analysis",
-    "litmus-debug",
-    "litmus-interactive",
-    "litmus-datasheets",
+    "testerkit-tests",
+    "testerkit-mocks",
+    "testerkit-stations",
+    "testerkit-parts",
+    "testerkit-profiles",
+    "testerkit-sites",
+    "testerkit-capture",
+    "testerkit-data",
+    "testerkit-analysis",
+    "testerkit-debug",
+    "testerkit-interactive",
+    "testerkit-datasheets",
 }
 
 _SKILL_DIRS = sorted(p for p in _SKILLS.iterdir() if p.is_dir() and (p / "SKILL.md").exists())
@@ -64,10 +64,10 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
 def test_record_only_verbs_exist() -> None:
     """observe/measure/stream are the real record-only verbs; there is no
     `logger` object (the docs' old `logger.measure` was always a phantom)."""
-    from litmus import verbs
+    from testerkit import verbs
 
     assert set(verbs.__all__) == {"observe", "verify", "measure", "stream"}
-    assert not hasattr(litmus, "logger")
+    assert not hasattr(testerkit, "logger")
 
 
 # ── The zero-config examples from the skills must RUN ──────────────────────
@@ -87,10 +87,10 @@ def test_generated_claude_md_zero_config_observe(observe) -> None:
 
 
 def test_canonical_sidecar_shapes_validate() -> None:
-    """The shapes shown in litmus-tests / litmus-mocks / litmus-datasheets
+    """The shapes shown in testerkit-tests / testerkit-mocks / testerkit-datasheets
     must pass SidecarConfig (extra=forbid) — catches a drift back to `ref:`,
     `vectors:`, or dict-`mocks:`."""
-    from litmus.models.test_config import SidecarConfig
+    from testerkit.models.test_config import SidecarConfig
 
     SidecarConfig.model_validate(
         {
@@ -105,11 +105,11 @@ def test_canonical_sidecar_shapes_validate() -> None:
 
 
 def test_guardband_sidecar_shape_validates() -> None:
-    """The guardband form (`{characteristic: X, guardband_pct: N}`, litmus-tests
-    §4 and litmus-parts) must pass both the sidecar-level model and the
+    """The guardband form (`{characteristic: X, guardband_pct: N}`, testerkit-tests
+    §4 and testerkit-parts) must pass both the sidecar-level model and the
     per-measurement limit model directly — catches a drift in either the
     field names or their nesting under `limits:`."""
-    from litmus.models.test_config import MeasurementLimitConfig, SidecarConfig
+    from testerkit.models.test_config import MeasurementLimitConfig, SidecarConfig
 
     shape = {"characteristic": "rail_voltage", "guardband_pct": 5}
 
@@ -142,7 +142,7 @@ def test_exactly_eleven_skills_named_correctly() -> None:
         f"extra={names - _EXPECTED_SKILL_NAMES}"
     )
     for name in names:
-        assert _SKILL_NAME_RE.match(name), f"skill dir {name!r} doesn't match ^litmus-[a-z-]+$"
+        assert _SKILL_NAME_RE.match(name), f"skill dir {name!r} doesn't match ^testerkit-[a-z-]+$"
 
 
 @pytest.mark.parametrize("skill_dir", _SKILL_DIRS, ids=lambda p: p.name)
@@ -166,12 +166,12 @@ def test_skill_md_is_spec_valid(skill_dir: Path) -> None:
 # ── No dead tokens anywhere under skills/ ───────────────────────────────────
 
 _DEAD_TOKEN_PATTERNS: dict[str, re.Pattern[str]] = {
-    "deleted 'litmus refs' CLI": re.compile(r"litmus refs\b"),
+    "deleted 'testerkit refs' CLI": re.compile(r"testerkit refs\b"),
     "phantom 'logger' fixture": re.compile(r"\blogger\b"),
     "removed in_* prefixed column": re.compile(r"\bin_[a-z][a-z0-9_]*\b"),
     "removed out_* prefixed column": re.compile(r"\bout_[a-z][a-z0-9_]*\b"),
     "pre-rename 'slot' terminology": re.compile(r"\bslot\b"),
-    "deleted monolith skill name": re.compile(r"name:\s*litmus-skills\b"),
+    "deleted monolith skill name": re.compile(r"name:\s*testerkit-skills\b"),
 }
 
 
@@ -196,9 +196,9 @@ def test_no_dead_tokens_in_skill_files(md: Path) -> None:
         assert m is None, f"{md.relative_to(_SKILLS)}: {label} (found {m and m.group(0)!r})"
 
 
-# ── Every cited `litmus docs show <path>` must resolve ──────────────────────
+# ── Every cited `testerkit docs show <path>` must resolve ──────────────────────
 
-_DOCS_SHOW_RE = re.compile(r"litmus docs show\s+([a-zA-Z0-9_/-]+)")
+_DOCS_SHOW_RE = re.compile(r"testerkit docs show\s+([a-zA-Z0-9_/-]+)")
 
 
 def _cited_doc_paths() -> list[tuple[Path, str]]:
@@ -218,11 +218,11 @@ _CITED_DOC_PATHS = _cited_doc_paths()
     ids=lambda t: f"{t[0].relative_to(_SKILLS)}::{t[1]}",
 )
 def test_cited_doc_paths_resolve(md_and_path: tuple[Path, str]) -> None:
-    """Every `litmus docs show <path>` cited from a skill must resolve to a
-    real shipped doc page, via the same resolver `litmus docs show` itself
-    uses (not a hardcoded `litmus/_docs` guess) — so a skill citing a
+    """Every `testerkit docs show <path>` cited from a skill must resolve to a
+    real shipped doc page, via the same resolver `testerkit docs show` itself
+    uses (not a hardcoded `testerkit/_docs` guess) — so a skill citing a
     nonexistent page fails CI instead of dead-ending an agent at runtime."""
-    from litmus.cli.docs_cmd import KNOWN_SECTIONS, _docs_dir
+    from testerkit.cli.docs_cmd import KNOWN_SECTIONS, _docs_dir
 
     md, path = md_and_path
     root = _docs_dir()

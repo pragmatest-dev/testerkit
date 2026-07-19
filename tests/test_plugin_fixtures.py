@@ -4,8 +4,8 @@ import textwrap
 
 import pytest
 
-from litmus.models.instrument import InstrumentRecord
-from litmus.pytest_plugin import InstrumentAccessor
+from testerkit.models.instrument import InstrumentRecord
+from testerkit.pytest_plugin import InstrumentAccessor
 
 pytest_plugins = ["pytester"]
 
@@ -191,7 +191,7 @@ class TestAutoRegistration:
         pytester.makeini(
             textwrap.dedent("""\
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             filterwarnings =
                 default
         """)

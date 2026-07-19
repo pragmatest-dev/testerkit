@@ -1,1 +1,1 @@
-"""Tests for the Litmus configuration system."""
+"""Tests for the TesterKit configuration system."""

@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from drivers import PSU, Scope, synthesize_psu_step_response
 
-from litmus import Mock
+from testerkit import Mock
 
 
 @pytest.fixture(scope="session")

@@ -1,41 +1,41 @@
 # Stream Continuous Instrument Data into a Live Channel
 
-Stream continuous instrument readings from a Python script or REPL into a named Litmus channel, and watch the operator UI panel update push-style as samples land.
+Stream continuous instrument readings from a Python script or REPL into a named TesterKit channel, and watch the operator UI panel update push-style as samples land.
 
-> **Prerequisites.** A station YAML at `stations/{station_id}.yaml` with at least one instrument role declared; a concrete driver class with a single-sample read method (or a self-simulating one like the example below); `litmus serve` running in a separate terminal for the live UI.
+> **Prerequisites.** A station YAML at `stations/{station_id}.yaml` with at least one instrument role declared; a concrete driver class with a single-sample read method (or a self-simulating one like the example below); `testerkit serve` running in a separate terminal for the live UI.
 
 ## Step 1: Connect to the station
 
 ```python
-from litmus import connect
+from testerkit import connect
 
 with connect("bench_01") as station:
     ...
 ```
 
-`connect` reads `bench_01` from `stations/bench_01.yaml` (or the `default_station` in `litmus.yaml` when no argument is passed). The `with` block opens and closes the session for you; Ctrl-C mid-stream closes it cleanly and leaves the samples already written on disk. See [sessions](../../concepts/data/sessions.md) for how session scope works.
+`connect` reads `bench_01` from `stations/bench_01.yaml` (or the `default_station` in `testerkit.yaml` when no argument is passed). The `with` block opens and closes the session for you; Ctrl-C mid-stream closes it cleanly and leaves the samples already written on disk. See [sessions](../../concepts/data/sessions.md) for how session scope works.
 
 Outside pytest, this is the entry point. The pytest plugin handles the equivalent session bookkeeping for you during a test run; here you own it directly.
 
 ## Step 2: Open a channel to stream into
 
 ```python
-import litmus.channels
+import testerkit.channels
 
-with litmus.channels.stream("dmm.voltage") as ch:
+with testerkit.channels.stream("dmm.voltage") as ch:
     ...
 ```
 
-`litmus.channels.stream(...)` opens a named channel inside a `with` block. The channel name (`dmm.voltage`) is what you'll see in the operator UI and query with `channels.query`. Open it inside the `connect` block so the session is active when samples land.
+`testerkit.channels.stream(...)` opens a named channel inside a `with` block. The channel name (`dmm.voltage`) is what you'll see in the operator UI and query with `channels.query`. Open it inside the `connect` block so the session is active when samples land.
 
-Inside a pytest test, use the `stream(name, sample)` fixture instead — it writes one sample per call and is wired to the active run. The `litmus.channels.stream(...)` shown here is the same channel, opened directly from a script or REPL outside a test.
+Inside a pytest test, use the `stream(name, sample)` fixture instead — it writes one sample per call and is wired to the active run. The `testerkit.channels.stream(...)` shown here is the same channel, opened directly from a script or REPL outside a test.
 
 ## Step 3: Push samples in a loop
 
 ```python
 import time
-import litmus.channels
-from litmus import connect
+import testerkit.channels
+from testerkit import connect
 
 RATE_HZ = 50.0
 DURATION_S = 60.0
@@ -47,7 +47,7 @@ def main() -> None:
         dmm = station.instrument("dmm")
 
         n = int(RATE_HZ * DURATION_S)
-        with litmus.channels.stream("dmm.voltage") as ch:
+        with testerkit.channels.stream("dmm.voltage") as ch:
             for i in range(n):
                 ch.write(dmm.measure_voltage())
                 if i % 50 == 0:
@@ -81,7 +81,7 @@ Run the script a second time and both sessions' samples appear on the same `dmm.
 The operator UI is one consumer; your own script or agent can watch the channel with the same verbs the UI uses. Run this while the producer above is streaming:
 
 ```python
-import litmus.channels as channels
+import testerkit.channels as channels
 
 # the newest value, conflated — a gauge (fires when the value changes)
 stop_gauge = channels.latest("dmm.voltage", lambda s: print("now:", s.value))
@@ -102,10 +102,10 @@ stop_window()
 
 ## Writing without a sink: one-shot and batch
 
-The `stream` sink is the right tool for a live producer loop — it buffers samples and flushes them as columnar blocks (up to a size cap or a flush interval, set in `litmus.yaml` under `channels:`), trading a little per-sample latency for throughput. When you're not running a sample-by-sample loop, two explicit module-level verbs cover the rest:
+The `stream` sink is the right tool for a live producer loop — it buffers samples and flushes them as columnar blocks (up to a size cap or a flush interval, set in `testerkit.yaml` under `channels:`), trading a little per-sample latency for throughput. When you're not running a sample-by-sample loop, two explicit module-level verbs cover the rest:
 
 ```python
-import litmus.channels as channels
+import testerkit.channels as channels
 
 # one sample, one message — the explicit form of the stream verb
 channels.write("dmm.voltage", dmm.measure_voltage())

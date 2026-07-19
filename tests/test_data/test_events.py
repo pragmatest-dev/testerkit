@@ -2,7 +2,7 @@
 
 from uuid import uuid4
 
-from litmus.data.events import (
+from testerkit.data.events import (
     ALL_EVENTS,
     CHANNEL_EVENTS,
     DIAGNOSTIC_EVENTS,
@@ -122,7 +122,7 @@ class TestEventModels:
         assert e.station_hostname is not None
 
     def test_session_started_stamps_will(self):
-        from litmus.data._process import process_uuid
+        from testerkit.data._process import process_uuid
 
         e = SessionStarted.from_station(
             session_id=uuid4(),
@@ -139,12 +139,12 @@ class TestEventModels:
         assert e.abandon_reason == "ci_timeout"
 
     def test_process_uuid_stable_within_process(self):
-        from litmus.data._process import process_uuid
+        from testerkit.data._process import process_uuid
 
         assert process_uuid() == process_uuid()
 
     def test_session_started_from_station_reads_env(self, monkeypatch):
-        monkeypatch.setenv("_LITMUS_SITE_COUNT", "4")
+        monkeypatch.setenv("_TESTERKIT_SITE_COUNT", "4")
         e = SessionStarted.from_station(
             session_id=uuid4(),
             station_id="st1",
@@ -160,7 +160,7 @@ class TestEventModels:
     def test_session_ended_rejects_run_id(self):
         import pytest as _pytest
 
-        from litmus.data.events import SessionEnded
+        from testerkit.data.events import SessionEnded
 
         with _pytest.raises(ValueError, match="must not have run_id"):
             SessionEnded(run_id=uuid4())
@@ -170,7 +170,7 @@ class TestEventModels:
         assert e.run_id is None
 
     def test_session_ended_has_no_run_id(self):
-        from litmus.data.events import SessionEnded
+        from testerkit.data.events import SessionEnded
 
         e = SessionEnded()
         assert e.run_id is None
@@ -253,7 +253,7 @@ class TestVectorEvents:
         # containing them fails validation on replay.
         from pydantic import TypeAdapter
 
-        from litmus.data.events import Event
+        from testerkit.data.events import Event
 
         adapter: TypeAdapter = TypeAdapter(Event)
         for cls in (VectorStarted, VectorEnded):
@@ -262,7 +262,7 @@ class TestVectorEvents:
             assert type(back) is cls
 
     def test_accumulator_pool_reconstructs_vector_events(self):
-        from litmus.data._accumulator_pool import _EVENT_CLASSES
+        from testerkit.data._accumulator_pool import _EVENT_CLASSES
 
         assert _EVENT_CLASSES["test.vector_started"] is VectorStarted
         assert _EVENT_CLASSES["test.vector_ended"] is VectorEnded

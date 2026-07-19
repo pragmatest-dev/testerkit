@@ -1,1 +1,1 @@
-"""Tests for litmus.utils module."""
+"""Tests for testerkit.utils module."""

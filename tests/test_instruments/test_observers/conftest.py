@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from litmus.instruments.observer import DriverObserver, InstrumentEventBuilder
+from testerkit.instruments.observer import DriverObserver, InstrumentEventBuilder
 
 
 class CollectingLog:

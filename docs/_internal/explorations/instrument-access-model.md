@@ -8,10 +8,10 @@ and #12 (read-only observe). Verified findings against current source noted inli
 
 - **Lock substrate:** `instruments/locks.py` — per-resource `FileLock` (`acquire_resource` /
   `release_resource`), `ResourceMeta` (pid, session, station, role, acquired_at), lock files
-  under `LITMUS_HOME/locks/`, robust to process death (SIGKILL releases). `instruments/pool.py`
+  under `TESTERKIT_HOME/locks/`, robust to process death (SIGKILL releases). `instruments/pool.py`
   holds `self._locks` and acquires on connect.
 - **Two paths**, routed in `pool.acquire`:
-  - **Shared role + `_LITMUS_INSTRUMENT_SERVER` set →** `RemoteInstrumentProxy` to the
+  - **Shared role + `_TESTERKIT_INSTRUMENT_SERVER` set →** `RemoteInstrumentProxy` to the
     **`InstrumentServer`** (`instruments/server.py`): a *shared pool* of connected drivers,
     served to worker sessions via TCP RPC, ref-counted shutdown. Locks **per-resource, acquired
     PER RPC CALL** (per command) in `_handle_client` (`:188`) with a `_HEARTBEAT_TIMEOUT`

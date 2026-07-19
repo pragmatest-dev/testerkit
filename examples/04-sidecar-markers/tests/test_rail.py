@@ -3,13 +3,13 @@
 Compare ``tests/test_rail.py`` (this file) to ``tests/test_rail.yaml``.
 The YAML declares:
 
-* a file-wide ``litmus_limits`` for ``v_rail``
-* a per-test ``litmus_sweeps`` on ``vin`` for the sweep
-* a class-level ``litmus_limits`` for ``i_idle`` that every method in ``TestIdle`` inherits
-* a per-test ``litmus_retry`` on ``test_intermittent_glitch`` (sidecar
+* a file-wide ``testerkit_limits`` for ``v_rail``
+* a per-test ``testerkit_sweeps`` on ``vin`` for the sweep
+* a class-level ``testerkit_limits`` for ``i_idle`` that every method in ``TestIdle`` inherits
+* a per-test ``testerkit_retry`` on ``test_intermittent_glitch`` (sidecar
   form of the marker introduced inline in stage 2)
 
-Nothing in this file imports Litmus. The test function signatures
+Nothing in this file imports TesterKit. The test function signatures
 alone drive execution; config lives in YAML.
 """
 
@@ -34,7 +34,7 @@ _attempts = [0]
 
 
 def test_intermittent_glitch(verify, psu, dmm) -> None:
-    """First execution raises; sidecar's litmus_retry catches it."""
+    """First execution raises; sidecar's testerkit_retry catches it."""
     _attempts[0] += 1
     if _attempts[0] == 1:
         raise OSError("simulated VISA timeout")

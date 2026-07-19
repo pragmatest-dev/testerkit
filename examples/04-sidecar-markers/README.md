@@ -1,7 +1,7 @@
 # Stage 4 — Sidecar config
 
 Test config moved out of Python into a sibling YAML file. Same
-vocabulary as pytest decorators — minus the `litmus_` prefix. The
+vocabulary as pytest decorators — minus the `testerkit_` prefix. The
 sidecar mirrors pytest's node-id structure: file-level marker fields
 (`limits`, `sweeps`, …) plus a recursive `tests:` tree where classes
 are branches and functions are leaves.
@@ -34,7 +34,7 @@ File-level marker fields plus a recursive `tests:` tree. Each entry
 under `tests:` is a function (leaf — just marker fields) or a class
 (branch — marker fields plus its own nested `tests:`). Reserved
 keys at every level are `runner:` (opaque per-runner config) and
-`tests:` (nested tree); everything else is a Litmus marker name.
+`tests:` (nested tree); everything else is a TesterKit marker name.
 
 ```yaml
 limits:                           # file-wide: applies to every test

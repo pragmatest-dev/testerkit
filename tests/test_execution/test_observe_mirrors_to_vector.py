@@ -17,7 +17,7 @@ Bridge contract:
   no crash, no warning.
 
 These tests push an active vector IN-BODY (not via a setup-phase fixture):
-the litmus plugin's ``pytest_runtest_call`` hookwrapper runs ``start_step``
+the testerkit plugin's ``pytest_runtest_call`` hookwrapper runs ``start_step``
 for the test itself in the CALL phase, which can auto-close a prior step and
 reset the ``_current_vector`` contextvar — clobbering any vector a setup-phase
 autouse fixture pushed. Pushing inside the body, after the hookwrapper has
@@ -30,13 +30,13 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from uuid import uuid4
 
-from litmus.data.models import TestVector
-from litmus.execution._state import (
+from testerkit.data.models import TestVector
+from testerkit.execution._state import (
     _current_vector_var,
     push_current_vector,
     reset_current_vector,
 )
-from litmus.execution.harness import Context
+from testerkit.execution.harness import Context
 
 
 @contextmanager
@@ -106,7 +106,7 @@ def test_observe_none_value_mirrors_to_vector() -> None:
 
 def test_blob_observe_writes_uri_to_vector() -> None:
     """PIL/bytes/Pydantic blobs land as ``file://`` URIs on the vector."""
-    from litmus.data.files import _reset_for_tests
+    from testerkit.data.files import _reset_for_tests
 
     _reset_for_tests()
     sid = uuid4()

@@ -28,8 +28,8 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.channels.store import ChannelStore
-from litmus.execution.harness import Context, TestHarness
+from testerkit.data.channels.store import ChannelStore
+from testerkit.execution.harness import Context, TestHarness
 
 
 @pytest.fixture
@@ -91,7 +91,7 @@ class TestVerifyCallableDelegates:
         Pin the indirection so a future refactor doesn't accidentally
         diverge the two surfaces.
         """
-        from litmus.execution.verify import _perform_verify, build_verify_callable
+        from testerkit.execution.verify import _perform_verify, build_verify_callable
 
         verify_fn = build_verify_callable()
         assert verify_fn is _perform_verify
@@ -114,7 +114,7 @@ class TestObserveBareFixture:
 
     def test_observe_fixture_is_defined_in_plugin(self) -> None:
         """``observe`` is registered as a pytest fixture in the plugin module."""
-        from litmus import pytest_plugin
+        from testerkit import pytest_plugin
 
         assert hasattr(pytest_plugin, "observe")
         # Pytest's @fixture decorator wraps the function; the marker
@@ -168,6 +168,6 @@ class TestVerifySymmetricSurfaces:
         assert "_perform_verify" in source
 
     def test_build_verify_callable_returns_perform_verify_directly(self) -> None:
-        from litmus.execution.verify import _perform_verify, build_verify_callable
+        from testerkit.execution.verify import _perform_verify, build_verify_callable
 
         assert build_verify_callable() is _perform_verify

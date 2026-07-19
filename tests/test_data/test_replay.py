@@ -6,16 +6,16 @@ from typing import Any
 
 import pytest
 
-from litmus.data.event_log import EventSubscriber
-from litmus.data.models import TestRun
-from litmus.data.subscribers.replay import replay_to_subscriber
+from testerkit.data.event_log import EventSubscriber
+from testerkit.data.models import TestRun
+from testerkit.data.subscribers.replay import replay_to_subscriber
 from tests.test_data.conftest import _replay_events
 
 
 class TestReplayToSubscriber:
     def test_roundtrip_events(self, realistic_test_run: TestRun):
         """Events from TestRun serialize to dicts and replay correctly."""
-        from litmus.data.events import (
+        from testerkit.data.events import (
             MeasurementRecorded,
             RunEnded,
             RunStarted,
@@ -76,7 +76,7 @@ class TestReplayToSubscriber:
 
     def test_filters_by_event_types(self, realistic_test_run: TestRun):
         """Subscriber only receives events in its event_types set."""
-        from litmus.data.events import (
+        from testerkit.data.events import (
             MeasurementRecorded,
             RunEnded,
             RunStarted,
@@ -127,7 +127,7 @@ class TestReplayToSubscriber:
 
     def test_invalid_event_skipped(self):
         """Invalid event dicts are skipped without crashing."""
-        from litmus.data.events import RunStarted
+        from testerkit.data.events import RunStarted
 
         received: list[Any] = []
 

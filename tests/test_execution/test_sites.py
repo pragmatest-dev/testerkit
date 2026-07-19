@@ -2,14 +2,14 @@
 
 import pytest
 
-from litmus.execution.sites import (
+from testerkit.execution.sites import (
     ResolvedSite,
     detect_shared_instruments,
     format_known_sites,
     resolve_fixture_sites,
     resolve_site_token,
 )
-from litmus.models.test_config import FixtureConfig, FixtureConnection, FixtureSite
+from testerkit.models.test_config import FixtureConfig, FixtureConnection, FixtureSite
 
 
 class TestSingleUUTFixture:

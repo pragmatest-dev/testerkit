@@ -1,8 +1,8 @@
 """Tests for enum metadata registry and abbreviation lookup."""
 
-from litmus.models.capability import ConditionKey
-from litmus.models.enums import MeasurementFunction
-from litmus.utils.enum_meta import (
+from testerkit.models.capability import ConditionKey
+from testerkit.models.enums import MeasurementFunction
+from testerkit.utils.enum_meta import (
     CONDITION_KEY_META,
     MEASUREMENT_FUNCTION_META,
     LookupResult,

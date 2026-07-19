@@ -4,20 +4,20 @@ from __future__ import annotations
 
 import pytest
 
-from litmus.instruments.observer import DriverObserver
-from litmus.instruments.observers import detect_protocol, get_observer_class
-from litmus.instruments.observers.daqmx import DaqmxObserver
-from litmus.instruments.observers.generic import GenericObserver
-from litmus.instruments.observers.lantz import LantzObserver
-from litmus.instruments.observers.modbus import ModbusObserver
-from litmus.instruments.observers.motion import MotionObserver
-from litmus.instruments.observers.ni_modular import NiModularObserver
-from litmus.instruments.observers.ophyd import OphydObserver
-from litmus.instruments.observers.pymeasure import PyMeasureObserver
-from litmus.instruments.observers.qcodes import QCodesObserver
-from litmus.instruments.observers.scpi import ScpiObserver
-from litmus.instruments.observers.tektronix import TektronixObserver
-from litmus.instruments.observers.visa import VisaObserver
+from testerkit.instruments.observer import DriverObserver
+from testerkit.instruments.observers import detect_protocol, get_observer_class
+from testerkit.instruments.observers.daqmx import DaqmxObserver
+from testerkit.instruments.observers.generic import GenericObserver
+from testerkit.instruments.observers.lantz import LantzObserver
+from testerkit.instruments.observers.modbus import ModbusObserver
+from testerkit.instruments.observers.motion import MotionObserver
+from testerkit.instruments.observers.ni_modular import NiModularObserver
+from testerkit.instruments.observers.ophyd import OphydObserver
+from testerkit.instruments.observers.pymeasure import PyMeasureObserver
+from testerkit.instruments.observers.qcodes import QCodesObserver
+from testerkit.instruments.observers.scpi import ScpiObserver
+from testerkit.instruments.observers.tektronix import TektronixObserver
+from testerkit.instruments.observers.visa import VisaObserver
 
 
 def _make_class(module: str) -> type:

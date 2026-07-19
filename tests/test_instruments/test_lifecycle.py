@@ -4,13 +4,13 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.instruments.lifecycle import (
+from testerkit.instruments.lifecycle import (
     disconnect,
     load_and_connect,
     load_driver_class,
     verify_and_wrap,
 )
-from litmus.models.instrument import InstrumentInfo, InstrumentRecord
+from testerkit.models.instrument import InstrumentInfo, InstrumentRecord
 
 
 class TestLoadDriverClass:
@@ -55,7 +55,7 @@ class TestVerifyAndWrap:
         assert result is driver
 
     def test_wraps_with_event_log(self, tmp_path):
-        from litmus.data.event_log import EventLog
+        from testerkit.data.event_log import EventLog
 
         session_id = uuid4()
         event_log = EventLog(tmp_path / "events", session_id)
@@ -67,13 +67,13 @@ class TestVerifyAndWrap:
         )
         driver = object()
 
-        from litmus.instruments.observer import DriverObserver, InstrumentEventBuilder
+        from testerkit.instruments.observer import DriverObserver, InstrumentEventBuilder
 
         emitter = InstrumentEventBuilder(event_log, session_id, "dmm")
         observer = DriverObserver(object, "dmm", emitter)
         result = verify_and_wrap(driver, "dmm", record, event_log, session_id, observer=observer)
 
-        from litmus.instruments.proxy import InstrumentProxy
+        from testerkit.instruments.proxy import InstrumentProxy
 
         assert isinstance(result, InstrumentProxy)
         event_log.close()

@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from uuid import uuid4
 
-from litmus.data.event_log import EVENT_LOG_SCHEMA_VERSION
-from litmus.data.events import (
+from testerkit.data.event_log import EVENT_LOG_SCHEMA_VERSION
+from testerkit.data.events import (
     EVENT_CATALOG_VERSION,
     ChannelStarted,
     InstrumentConfigure,

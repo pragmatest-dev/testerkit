@@ -22,9 +22,9 @@ import numpy as np
 import pytest
 from pydantic import BaseModel
 
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.files import FileStore
-from litmus.data.models import Waveform
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.files import FileStore
+from testerkit.data.models import Waveform
 
 # --------------------------------------------------------------------- #
 # helpers                                                               #
@@ -154,7 +154,7 @@ def test_waveform_round_trip_through_load_file_preserves_t0_and_attributes(
     ISO-string serialization and the ``datetime.fromisoformat`` parse
     in ``parquet.py:_load_file``.
     """
-    from litmus.data.backends.parquet import load_file  # noqa: PLC0415
+    from testerkit.data.backends.parquet import load_file  # noqa: PLC0415
 
     sid = _session_id()
     t0 = datetime(2026, 6, 3, 12, 34, 56, tzinfo=UTC)
@@ -180,7 +180,7 @@ def test_waveform_round_trip_with_t0_none_preserves_none(store: FileStore) -> No
     """Round-trip of a Waveform without t0 → load_file returns t0=None
     (the empty ISO string in the npz parses cleanly to None).
     """
-    from litmus.data.backends.parquet import load_file  # noqa: PLC0415
+    from testerkit.data.backends.parquet import load_file  # noqa: PLC0415
 
     sid = _session_id()
     wf = Waveform(Y=[1.0, 2.0], dt=1e-6)
@@ -424,14 +424,14 @@ def test_write_atomic_no_partial_on_serializer_failure(store: FileStore, monkeyp
     crash mid-serialize leaves (at most) a stray ``.part-`` temp, never a
     partial file the catalog could point at.
     """
-    from litmus.data.files.serializers import Serializer
+    from testerkit.data.files.serializers import Serializer
 
     def _boom_write(value: object, dest: Path) -> None:
         dest.write_bytes(b"partial-bytes")  # land bytes in the temp...
         raise RuntimeError("boom mid-serialize")  # ...then fail
 
     monkeypatch.setattr(
-        "litmus.data.files.store.find_serializer",
+        "testerkit.data.files.store.find_serializer",
         lambda _v: Serializer(extension=".bin", mime="application/octet-stream", write=_boom_write),
     )
 

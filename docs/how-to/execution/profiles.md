@@ -3,11 +3,11 @@
 A **profile** is a named set of overrides that applies across a
 session. You select one per run: validation on Monday, production on
 Tuesday, a quick debug profile for bench work. Profiles live as one file
-per scenario under `profiles/*.yaml` (or inline under `litmus.yaml`) and
+per scenario under `profiles/*.yaml` (or inline under `testerkit.yaml`) and
 are selected by matching selection tags — `--test-phase=production --part=tps54302`
 picks exactly one profile whose declared `facets:` tags match.
 
-Profiles speak the **same language as sidecars**: Litmus marker
+Profiles speak the **same language as sidecars**: TesterKit marker
 fields (`limits`, `sweeps`, …) at the profile root and a recursive
 `tests:` tree mirroring pytest's node-id structure (classes are
 branches with their own marker fields plus nested `tests:`; functions
@@ -29,7 +29,7 @@ know how to write a profile — same shape, session scope.
 
 The file's stem (`validation`) is the profile name. The `facets:` block
 declares the selection tags that `--test-phase=validation` must match.
-Bare `pytest` with no flags runs on `default_profile` from `litmus.yaml`
+Bare `pytest` with no flags runs on `default_profile` from `testerkit.yaml`
 (or no profile if none is declared).
 
 ## Why profiles?
@@ -61,7 +61,7 @@ pytest                                           # no tags → baseline
 pytest --test-profile=validation               # select by name directly (bypassing facet matching)
 ```
 
-Litmus auto-synthesizes a `--<key>=<value>` CLI flag for every `facets:`
+TesterKit auto-synthesizes a `--<key>=<value>` CLI flag for every `facets:`
 key declared under any profile. The query must match exactly one profile:
 
 - Zero or multiple matches → the run errors and lists the declared facet combinations.
@@ -79,15 +79,15 @@ plus these profile-only fields:
 |----------------------|--------------------------------------|---------------------------------------------|
 | `facets`             | `dict[str, str]`                     | Exact-match selection tags for CLI          |
 | `extends`            | `str \| None`                        | Parent profile name (single parent)         |
-| `description`        | `str \| None`                        | Documentation in the YAML; not displayed by `litmus show` |
+| `description`        | `str \| None`                        | Documentation in the YAML; not displayed by `testerkit show` |
 | `station_type`       | `str \| None`                        | Require a matching station type at session start |
 | `fixture`            | `str \| None`                        | Declare the fixture this profile targets    |
 | `verify_requires_limit` | `bool \| None`                    | When `false`, `verify()` records without judging when no limit resolves |
 | `runner`             | `dict[str, Any]`                     | Runner-specific options (e.g. pytest `addopts`, ecosystem markers) |
-| `limits` / `sweeps` / `mocks` / `characteristics` / `connections` / `retry` / `prompts` | (Litmus marker fields) | Applied to **every** test in the session |
+| `limits` / `sweeps` / `mocks` / `characteristics` / `connections` / `retry` / `prompts` | (TesterKit marker fields) | Applied to **every** test in the session |
 | `tests`              | `dict[str, TestEntry]`               | Per-class / per-test overrides (recursive)  |
 
-Litmus marker fields live directly on the profile. Ecosystem markers
+TesterKit marker fields live directly on the profile. Ecosystem markers
 (`flaky`, `skipif`, `parametrize`, …) live under `runner.markers:`;
 the active runner plugin applies them.
 
@@ -126,7 +126,7 @@ One file per facet combination lives under `profiles/`. Each file's
 
 ```
 project/
-├── litmus.yaml
+├── testerkit.yaml
 ├── profiles/
 │   ├── power_family.yaml              # family base (no facets → unselectable)
 │   ├── production-tps54302.yaml       # extends: power_family
@@ -137,7 +137,7 @@ project/
 └── tests/
 ```
 
-The loader reads **both** `litmus.yaml`'s inline `profiles:` block and
+The loader reads **both** `testerkit.yaml`'s inline `profiles:` block and
 every `profiles/*.yaml` file. A name conflict across the two sources
 raises an error at project load.
 
@@ -219,7 +219,7 @@ as run metadata (`profile_facets_json`) for reproducibility.
 ## Worked example
 
 ```yaml
-# litmus.yaml — inline profiles (small projects)
+# testerkit.yaml — inline profiles (small projects)
 name: power_board_project
 default_station: bench_1
 ```

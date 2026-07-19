@@ -9,7 +9,7 @@ pytest session's binding for every test after it).
 
 from __future__ import annotations
 
-from litmus.execution._state import (
+from testerkit.execution._state import (
     get_channel_store,
     get_event_store,
     push_channel_store,

@@ -2,14 +2,14 @@
 
 Attach a file artifact (scope screenshot, camera frame, vendor capture file, IV curve, or a Pydantic record) to a test run so it lands in the operator UI as a clickable, viewable file.
 
-> **Prerequisites.** The `observe` fixture from the bundled pytest plugin, and a value that isn't a scalar or array — an image, a byte capture, or a record. For continuous byte streams, `files.stream` from `litmus.files`.
+> **Prerequisites.** The `observe` fixture from the bundled pytest plugin, and a value that isn't a scalar or array — an image, a byte capture, or a record. For continuous byte streams, `files.stream` from `testerkit.files`.
 
 ## Step 1: Single-shot — `observe(name, value)` with a file value
 
 ```python
 from PIL import Image
 from pydantic import BaseModel
-from litmus.data.models import XYData
+from testerkit.data.models import XYData
 
 
 class Report(BaseModel):
@@ -38,11 +38,11 @@ def test_thing(observe, verify, ...):
 ## Step 2: Continuous byte stream — `files.stream(name, format=...)`
 
 ```python
-import litmus.files
+import testerkit.files
 
 
 def test_thing(verify, psu):
-    with litmus.files.stream("event_log", format="jsonl") as log:
+    with testerkit.files.stream("event_log", format="jsonl") as log:
         log.write({"event": "psu_on", "voltage": 5.0})
         psu.set_voltage(5.0)
         log.write({"event": "psu_off"})
@@ -52,7 +52,7 @@ def test_thing(verify, psu):
 
 Available formats today: `raw` (binary append), `jsonl` (one JSON value per line), `tdms` (requires `[tdms]` extra), `h5` (requires `[hdf5]` extra). `format=` is the one place the platform makes you be explicit — it can't infer `mp4` vs `wav` vs `tdms` from opaque bytes.
 
-When the `with` block exits, the finished file's `file://...` URI is recorded as an output named `<name>` on the active measurement. (Litmus brackets the capture with `FileStarted` / `FileEnded` events.)
+When the `with` block exits, the finished file's `file://...` URI is recorded as an output named `<name>` on the active measurement. (TesterKit brackets the capture with `FileStarted` / `FileEnded` events.)
 
 ## Step 3: Read it back
 
@@ -63,7 +63,7 @@ Open `/results/{run_id}` in the operator UI. Each measurement row shows its name
 For types the platform doesn't recognize yet:
 
 ```python
-from litmus.data.files import register_serializer
+from testerkit.data.files import register_serializer
 
 
 register_serializer(

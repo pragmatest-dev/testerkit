@@ -2,13 +2,13 @@
 
 Tests call ``psu.set_voltage(...)`` / ``dmm.measure_dc_voltage()`` on
 the real ``PSU`` / ``DMM`` driver classes from ``drivers/``. When
-``--mock-instruments`` is set, Litmus's ``Mock`` factory wraps each
+``--mock-instruments`` is set, TesterKit's ``Mock`` factory wraps each
 driver class with explicit return values so the suite runs without
 a bench. Without the flag, the fixtures connect to the configured
 VISA resources.
 
-Same conditional shape Litmus uses internally (see
-``litmus/pytest_plugin.py``). Stage 5 lifts this conditional out
+Same conditional shape TesterKit uses internally (see
+``testerkit/pytest_plugin.py``). Stage 5 lifts this conditional out
 of ``conftest.py`` and into station YAML.
 """
 
@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 from drivers import DMM, PSU
 
-from litmus import Mock
+from testerkit import Mock
 
 
 @pytest.fixture(scope="session")

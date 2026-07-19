@@ -1,8 +1,8 @@
 # Integration — Runtime
 
-Bring existing test code, runners, or hardware under Litmus's runtime. Mirrors [reference/runtime](../../reference/runtime/index.md) on the other axis: where the reference describes `LitmusClient` / `connect()` / the HTTP+MCP API, this section is the playbook for adopting each.
+Bring existing test code, runners, or hardware under TesterKit's runtime. Mirrors [reference/runtime](../../reference/runtime/index.md) on the other axis: where the reference describes `TesterKitClient` / `connect()` / the HTTP+MCP API, this section is the playbook for adopting each.
 
-- [Existing pytest projects](pytest-existing.md) — adopt Litmus from a working pytest suite
+- [Existing pytest projects](pytest-existing.md) — adopt TesterKit from a working pytest suite
 - [Harness](harness.md) — the imperative `TestHarness` API for non-pytest runners (OpenHTF bridges, hand-written loops)
 - [Instruments](instruments.md) — bring your own drivers (PyVISA / PyMeasure / vendor SDKs)
 

@@ -1,4 +1,4 @@
-"""Generate enumerative sections of the Litmus reference docs from source.
+"""Generate enumerative sections of the TesterKit reference docs from source.
 
 The five reference pages listed below contain large field / endpoint /
 command tables that drift the moment source moves. Each table is wrapped
@@ -32,12 +32,12 @@ runs that form so source / docs drift fails the commit.
 from __future__ import annotations
 
 # Keep the daemon-notify hop from firing when this script imports
-# litmus.api.app (ParquetBackend) or litmus.mcp.server — the script
+# testerkit.api.app (ParquetBackend) or testerkit.mcp.server — the script
 # just walks routes / tools, it does not run a session. Must run
-# BEFORE any litmus import.
+# BEFORE any testerkit import.
 import os as _os
 
-_os.environ.setdefault("LITMUS_SKIP_DAEMON_NOTIFY", "1")
+_os.environ.setdefault("TESTERKIT_SKIP_DAEMON_NOTIFY", "1")
 
 import argparse
 import ast
@@ -276,7 +276,7 @@ def _event_type_value(cls: type[BaseModel]) -> str:
 
 
 def _generate_event_types(*, check: bool) -> bool:
-    from litmus.data import events as events_mod
+    from testerkit.data import events as events_mod
 
     target = DOCS_DIR / "data" / "event-types.md"
 
@@ -350,22 +350,22 @@ def _generate_event_types(*, check: bool) -> bool:
 # Display order for source files. Each entry is (heading, dotted-module).
 # Order matters — readers walk top-to-bottom.
 _MODELS_MODULES: list[tuple[str, str]] = [
-    ("Project & station YAML", "litmus.models.project"),
-    ("Station", "litmus.models.station"),
-    ("Part", "litmus.models.part"),
-    ("Part manifest", "litmus.models.part_manifest"),
-    ("Test config (sidecar, markers, limits, fixtures)", "litmus.models.test_config"),
-    ("Capabilities (catalog signal/condition/control/attribute)", "litmus.models.capability"),
-    ("Catalog entry", "litmus.models.catalog"),
-    ("Instrument record", "litmus.models.instrument"),
-    ("Instrument asset", "litmus.models.instrument_asset"),
-    ("Runtime data (events, runs, steps, measurements)", "litmus.data.models"),
-    ("Channel store records", "litmus.data.channels.models"),
-    ("HTTP API request shapes", "litmus.api.models"),
-    ("HTTP API response shapes", "litmus.api.responses"),
-    ("Query API row records", "litmus.analysis.runs_query"),
-    ("Query API row records (steps)", "litmus.analysis.steps_query"),
-    ("Query API facets & filters", "litmus.analysis.measurement_facets"),
+    ("Project & station YAML", "testerkit.models.project"),
+    ("Station", "testerkit.models.station"),
+    ("Part", "testerkit.models.part"),
+    ("Part manifest", "testerkit.models.part_manifest"),
+    ("Test config (sidecar, markers, limits, fixtures)", "testerkit.models.test_config"),
+    ("Capabilities (catalog signal/condition/control/attribute)", "testerkit.models.capability"),
+    ("Catalog entry", "testerkit.models.catalog"),
+    ("Instrument record", "testerkit.models.instrument"),
+    ("Instrument asset", "testerkit.models.instrument_asset"),
+    ("Runtime data (events, runs, steps, measurements)", "testerkit.data.models"),
+    ("Channel store records", "testerkit.data.channels.models"),
+    ("HTTP API request shapes", "testerkit.api.models"),
+    ("HTTP API response shapes", "testerkit.api.responses"),
+    ("Query API row records", "testerkit.analysis.runs_query"),
+    ("Query API row records (steps)", "testerkit.analysis.steps_query"),
+    ("Query API facets & filters", "testerkit.analysis.measurement_facets"),
 ]
 
 
@@ -458,10 +458,10 @@ def _generate_models(*, check: bool) -> bool:
 
     models_body = "\n".join(parts).rstrip() + "\n"
 
-    # The shared enums module (litmus.models.enums) is rendered as one
+    # The shared enums module (testerkit.models.enums) is rendered as one
     # standalone block so it isn't duplicated under every module that
     # imports from it.
-    import litmus.models.enums as enums_mod
+    import testerkit.models.enums as enums_mod
 
     enum_parts: list[str] = []
     for enum_cls in _classes_defined_in(enums_mod, Enum):
@@ -482,39 +482,39 @@ def _generate_models(*, check: bool) -> bool:
 # (yaml-file-pattern, validating-model-dotted-path, one-line-purpose)
 _CONFIG_FILES: list[tuple[str, str, str]] = [
     (
-        "`litmus.yaml`",
-        "litmus.models.project.ProjectConfig",
+        "`testerkit.yaml`",
+        "testerkit.models.project.ProjectConfig",
         "Project root — names, defaults, profiles, multi-site knobs.",
     ),
     (
         "`stations/<id>.yaml`",
-        "litmus.models.station.StationConfig",
+        "testerkit.models.station.StationConfig",
         "Concrete station deployment — instruments, drivers, resources.",
     ),
     (
         "`stations/types/<id>.yaml`",
-        "litmus.models.station.StationType",
+        "testerkit.models.station.StationType",
         "Abstract station-type template — required roles, capabilities.",
     ),
     (
         "`fixtures/<id>.yaml`",
-        "litmus.models.test_config.FixtureConfig",
+        "testerkit.models.test_config.FixtureConfig",
         "UUT-pin ↔ instrument-channel routing (single-UUT) or per-site routing (multi-UUT).",
     ),
     (
         "`parts/<id>.yaml`",
-        "litmus.models.part.Part",
+        "testerkit.models.part.Part",
         "Part specification — pins, signal groups, characteristics.",
     ),
     (
         "`tests/test_<name>.yaml`",
-        "litmus.models.test_config.SidecarConfig",
+        "testerkit.models.test_config.SidecarConfig",
         "Sidecar test config co-located with `tests/test_<name>.py`"
         " — sweeps, limits, mocks, retry, prompts.",
     ),
     (
         "`catalog/<vendor>/<model>.yaml`",
-        "litmus.models.catalog.InstrumentCatalogEntry",
+        "testerkit.models.catalog.InstrumentCatalogEntry",
         "Instrument capability catalog"
         " — see [the catalog schema](catalog/schema.md) for the full reference.",
     ),
@@ -600,7 +600,7 @@ def _generate_api(*, check: bool) -> bool:
     # notify is suppressed by the env var set at module load.
     from fastapi.routing import APIRoute
 
-    from litmus.api.app import create_api_router
+    from testerkit.api.app import create_api_router
 
     router = create_api_router()
 
@@ -630,7 +630,7 @@ def _generate_api(*, check: bool) -> bool:
     http_body = "\n".join(parts).rstrip() + "\n"
 
     # ---- MCP tools + prompts -------------------------------------------
-    from litmus.mcp.server import create_mcp_server
+    from testerkit.mcp.server import create_mcp_server
 
     mcp = create_mcp_server()
     import asyncio
@@ -717,7 +717,7 @@ def _render_click_command(cmd: Any, dotted: str, *, level: int = 4) -> list[str]
     import click
 
     hashes = "#" * level
-    out = [f"{hashes} `litmus {dotted}` {{#cli-{dotted.replace(' ', '-')}}}"]
+    out = [f"{hashes} `testerkit {dotted}` {{#cli-{dotted.replace(' ', '-')}}}"]
     summary = (cmd.help or cmd.short_help or "").strip()
     summary_first = summary.split("\n\n", 1)[0] if summary else ""
     summary_first = " ".join(line.strip() for line in summary_first.splitlines() if line.strip())
@@ -765,7 +765,7 @@ def _walk_commands(group: Any, prefix: str = "") -> list[tuple[str, Any]]:
 def _generate_cli(*, check: bool) -> bool:
     import click
 
-    from litmus.cli import main
+    from testerkit.cli import main
 
     parts: list[str] = []
     for dotted, cmd in _walk_commands(main):
@@ -773,7 +773,9 @@ def _generate_cli(*, check: bool) -> bool:
         if isinstance(cmd, click.Group):
             # ### for top-level groups (under `## Commands`), #### for nested.
             hashes = "#" * (depth + 3)
-            parts.append(f"{hashes} `litmus {dotted}` (group) {{#cli-{dotted.replace(' ', '-')}}}")
+            parts.append(
+                f"{hashes} `testerkit {dotted}` (group) {{#cli-{dotted.replace(' ', '-')}}}"
+            )
             help_first = (cmd.help or cmd.short_help or "").splitlines()[0].strip()
             if help_first:
                 parts.append("")
@@ -862,7 +864,7 @@ def _extract_addoption_calls(func: ast.FunctionDef) -> list[dict[str, Any]]:
 
 def _generate_pytest_native(*, check: bool) -> bool:
     target = DOCS_DIR / "overview" / "pytest-native.md"
-    source = (REPO_ROOT / "src/litmus/pytest_plugin/hooks.py").read_text()
+    source = (REPO_ROOT / "src/testerkit/pytest_plugin/hooks.py").read_text()
     tree = ast.parse(source)
 
     func: ast.FunctionDef | None = None
@@ -871,7 +873,9 @@ def _generate_pytest_native(*, check: bool) -> bool:
             func = node
             break
     if func is None:
-        raise SystemExit("error: pytest_addoption not found in src/litmus/pytest_plugin/hooks.py")
+        raise SystemExit(
+            "error: pytest_addoption not found in src/testerkit/pytest_plugin/hooks.py"
+        )
 
     addoptions = _extract_addoption_calls(func)
 
@@ -901,7 +905,7 @@ def _generate_pytest_native(*, check: bool) -> bool:
 
     parts.append("")
     parts.append(
-        "Plus dynamic flags generated from `litmus.yaml`:"
+        "Plus dynamic flags generated from `testerkit.yaml`:"
         " every `profiles[*].facets:` key becomes `--<facet-key>` and"
         " every `required_inputs:` key becomes `--<required-input-key>`."
         " See [how-to/profiles.md](../../how-to/execution/profiles.md) for the resolution"
@@ -921,9 +925,9 @@ def _generate_pytest_native(*, check: bool) -> bool:
 
 
 _QUERY_CLASSES: list[tuple[str, str]] = [
-    ("`RunsQuery`", "litmus.analysis.runs_query.RunsQuery"),
-    ("`StepsQuery`", "litmus.analysis.steps_query.StepsQuery"),
-    ("`MeasurementsQuery`", "litmus.analysis.measurements_query.MeasurementsQuery"),
+    ("`RunsQuery`", "testerkit.analysis.runs_query.RunsQuery"),
+    ("`StepsQuery`", "testerkit.analysis.steps_query.StepsQuery"),
+    ("`MeasurementsQuery`", "testerkit.analysis.measurements_query.MeasurementsQuery"),
 ]
 
 
@@ -978,11 +982,13 @@ def _generate_query_api(*, check: bool) -> bool:
         if blurb:
             parts.append(blurb)
             parts.append("")
-        # The three Query classes are re-exported from ``litmus.queries`` —
+        # The three Query classes are re-exported from ``testerkit.queries`` —
         # show the shallow user-facing path in the Import: line, not the
         # implementation module. The source-module is still surfaced so
         # contributors know where the implementation lives.
-        parts.append(f"Source: `{module_name}`. Import: `from litmus.queries import {cls_name}`.\n")
+        parts.append(
+            f"Source: `{module_name}`. Import: `from testerkit.queries import {cls_name}`.\n"
+        )
 
         for name, method in _public_methods(cls):
             sig = _render_method_signature(name, method)

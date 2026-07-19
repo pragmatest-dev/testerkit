@@ -39,7 +39,7 @@ Each item in `items` contains the pytest identity and collection-time manifest d
 
 ## How it flows
 
-When the run ends, Litmus writes one row per planned step — executed steps with their real outcome and timing, and a placeholder row for any step that never started.
+When the run ends, TesterKit writes one row per planned step — executed steps with their real outcome and timing, and a placeholder row for any step that never started.
 
 ## Storage
 
@@ -62,7 +62,7 @@ Key step-row columns (full list in [Parquet schema](../../reference/data/parquet
 
 ## Steps that never ran {#never-ran}
 
-A run can finish before every planned step executes — an early abort, `--maxfail`, or a skip. Litmus still records those steps so the run shows the full plan, not just what ran. Each unrun step gets a placeholder row with a blank outcome and no start/end time (query hint: `step_outcome IS NULL`).
+A run can finish before every planned step executes — an early abort, `--maxfail`, or a skip. TesterKit still records those steps so the run shows the full plan, not just what ran. Each unrun step gets a placeholder row with a blank outcome and no start/end time (query hint: `step_outcome IS NULL`).
 
 - `step_outcome`: NULL
 - Timing fields: NULL
@@ -95,7 +95,7 @@ HAVING never_ran > 0;
 From Python (via `RunStore`):
 
 ```python
-from litmus.data.run_store import RunStore
+from testerkit.data.run_store import RunStore
 
 steps = RunStore().get_steps("abc123")
 for step in steps:

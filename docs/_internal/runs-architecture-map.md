@@ -7,7 +7,7 @@ in-scope here.
 
 ## Precedence — what to trust when sources disagree
 
-1. **Source code is ground truth for what is BUILT.** `src/litmus/data/schemas.py`
+1. **Source code is ground truth for what is BUILT.** `src/testerkit/data/schemas.py`
    (`RUN_ROW_SCHEMA`) is the at-rest contract; `_runs_duckdb_daemon.py` is the projection
    contract. Read these first.
 2. **Design docs are intent + rationale, and they LAG the code.**
@@ -41,7 +41,7 @@ Load-bearing facts (verified against source):
   inputs. The `inputs`/`outputs` lanes on a step row are the step-scope data (conditions from
   sweep params AND any `configure()` call in the step body).
 - **A non-looping step has ZERO vectors.** A vector row exists ONLY for an actual sweep/loop
-  point: a Mode-1 `@parametrize` variant, a class-outer `litmus_sweeps` iteration, or a
+  point: a Mode-1 `@parametrize` variant, a class-outer `testerkit_sweeps` iteration, or a
   Mode-2 in-body `vectors`/`context.vector()` iteration. The synthesized scope vector is
   **deleted** (`_build_scope_vector_results_from_events` and `build_scope_vector_row` are gone).
 - **`vector_index` is nullable on step rows.** NULL means the step's parent did not emit any

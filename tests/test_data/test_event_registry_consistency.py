@@ -17,9 +17,9 @@ import inspect
 import re
 from typing import get_args
 
-from litmus.data._accumulator_pool import _EVENT_CLASSES
-from litmus.data.backends._event_accumulator import EventAccumulator
-from litmus.data.events import ALL_EVENTS, Event, EventBase
+from testerkit.data._accumulator_pool import _EVENT_CLASSES
+from testerkit.data.backends._event_accumulator import EventAccumulator
+from testerkit.data.events import ALL_EVENTS, Event, EventBase
 
 
 def _concrete_event_classes() -> set[type]:

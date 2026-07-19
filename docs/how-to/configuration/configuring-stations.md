@@ -57,7 +57,7 @@ def test_rail_voltage(dmm, psu):
     assert 3.2 < reading < 3.4
 ```
 
-The fixtures are session-scoped — Litmus connects each instrument once and shares the driver instance across all tests in the run.
+The fixtures are session-scoped — TesterKit connects each instrument once and shares the driver instance across all tests in the run.
 
 ## VISA Addresses
 
@@ -302,7 +302,7 @@ A missing required field or a type mismatch raises a `pydantic.ValidationError` 
 
 ## Shared Instruments (Multi-UUT)
 
-When a multi-UUT fixture runs sites in parallel and more than one site uses the same instrument role, Litmus connects that instrument once and shares it across sites — no extra config. See [Multi-UUT testing](../execution/multi-uut-testing.md).
+When a multi-UUT fixture runs sites in parallel and more than one site uses the same instrument role, TesterKit connects that instrument once and shares it across sites — no extra config. See [Multi-UUT testing](../execution/multi-uut-testing.md).
 
 ## Best Practices
 

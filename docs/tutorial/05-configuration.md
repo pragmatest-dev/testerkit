@@ -7,7 +7,7 @@
 Test configuration (vectors, limits, mocks) can come from two places, listed
 lowest-priority first:
 
-1. **Inline pytest markers** — `@pytest.mark.parametrize(...)`, `@pytest.mark.litmus_limits`
+1. **Inline pytest markers** — `@pytest.mark.parametrize(...)`, `@pytest.mark.testerkit_limits`
 2. **Sidecar YAML** — a `test_<module>.yaml` next to the test file
 
 When a marker and a sidecar entry set the same value, the **sidecar wins** —
@@ -55,17 +55,17 @@ import pytest
 
 
 @pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
-@pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "unit": "V"})
+@pytest.mark.testerkit_limits(output_voltage={"low": 3.135, "high": 3.465, "unit": "V"})
 def test_output_voltage(vin, context, psu, dmm, measure):
     psu.set_voltage(vin)
     psu.enable_output()
     measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-The [`@pytest.mark.litmus_sweeps(...)`](../reference/pytest/markers.md#litmus_sweeps) marker defines the same sweeps inline:
+The [`@pytest.mark.testerkit_sweeps(...)`](../reference/pytest/markers.md#testerkit_sweeps) marker defines the same sweeps inline:
 
 ```python
-@pytest.mark.litmus_sweeps([{"vin": [4.5, 5.0, 5.5], "load": [0.1, 0.4, 0.8]}])
+@pytest.mark.testerkit_sweeps([{"vin": [4.5, 5.0, 5.5], "load": [0.1, 0.4, 0.8]}])
 def test_sweep(vin, load, psu, dmm, measure):
     ...
 ```
@@ -156,13 +156,13 @@ def test_temp_sweep(context, chamber, dmm, measure):
 
 ## Retries
 
-A measurement can occasionally fail for a genuinely transient reason — a slow-settling rail, an intermittent comms link. The `litmus_retry` marker re-runs the test before recording a fail:
+A measurement can occasionally fail for a genuinely transient reason — a slow-settling rail, an intermittent comms link. The `testerkit_retry` marker re-runs the test before recording a fail:
 
 ```python
 import pytest
 
 
-@pytest.mark.litmus_retry(max_retries=2, delay=0.5)
+@pytest.mark.testerkit_retry(max_retries=2, delay=0.5)
 def test_voltage(dmm, measure):
     measure("voltage", dmm.measure_voltage())
 ```
@@ -175,7 +175,7 @@ tests:
     retry: {max_retries: 2, delay: 0.5}
 ```
 
-Retries are for transient hardware conditions — not for masking a test that fails because something is genuinely wrong. (Under the hood, `litmus_retry` drives `pytest-rerunfailures`, a Litmus dependency.)
+Retries are for transient hardware conditions — not for masking a test that fails because something is genuinely wrong. (Under the hood, `testerkit_retry` drives `pytest-rerunfailures`, a TesterKit dependency.)
 
 ## What You Learned
 
@@ -185,7 +185,7 @@ Retries are for transient hardware conditions — not for masking a test that fa
 - Range expanders (`linspace`, `arange`, `logspace`, …) for compact sweeps
 - Accessing vector parameters via `context.get_param()` and `context.params`
 - Using `context.changed()` for outer-loop detection
-- Retries via the `litmus_retry` marker
+- Retries via the `testerkit_retry` marker
 
 ## Continue
 

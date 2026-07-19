@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build skill zip for Claude Desktop.
 
-Copies source-of-truth docs into litmus/skills/refs/ and generates
+Copies source-of-truth docs into testerkit/skills/refs/ and generates
 enums.md from models.py before zipping.
 """
 
@@ -15,7 +15,7 @@ from enum import StrEnum
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-SKILLS_DIR = REPO_ROOT / "litmus" / "skills"
+SKILLS_DIR = REPO_ROOT / "testerkit" / "skills"
 REFS_DIR = SKILLS_DIR / "refs"
 DOCS_DIR = REPO_ROOT / "docs"
 OUTPUT_DIR = REPO_ROOT / "dist"
@@ -38,11 +38,11 @@ DOCS_TO_COPY = {
 
 
 def generate_enums_md() -> str:
-    """Generate enums.md from litmus.models.enums."""
+    """Generate enums.md from testerkit.models.enums."""
     sys.path.insert(0, str(REPO_ROOT))
-    models = importlib.import_module("litmus.models.enums")
+    models = importlib.import_module("testerkit.models.enums")
 
-    lines = ["# Enum Reference", "", "Generated from `litmus/models/enums.py`.", ""]
+    lines = ["# Enum Reference", "", "Generated from `testerkit/models/enums.py`.", ""]
 
     enum_classes = [
         ("MeasurementFunction", "What's being measured/sourced. Use the MOST SPECIFIC value."),
@@ -164,8 +164,8 @@ def main():
     print("Building refs/...")
     build_refs()
 
-    output_path = OUTPUT_DIR / "litmus-skills.zip"
-    skill_name = "litmus-skills"
+    output_path = OUTPUT_DIR / "testerkit-skills.zip"
+    skill_name = "testerkit-skills"
     print("\nCreating ZIP...")
     with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for file in SKILLS_DIR.rglob("*"):

@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from litmus.instruments.routed_proxy import RoutedProxy
+from testerkit.instruments.routed_proxy import RoutedProxy
 
 
 class TestRoutedProxy:

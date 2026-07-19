@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from litmus.data.events import ChannelStarted, InstrumentSet
-from litmus.instruments.observers.visa import VisaObserver, parse_scpi
+from testerkit.data.events import ChannelStarted, InstrumentSet
+from testerkit.instruments.observers.visa import VisaObserver, parse_scpi
 
 from .conftest import make_observer
 

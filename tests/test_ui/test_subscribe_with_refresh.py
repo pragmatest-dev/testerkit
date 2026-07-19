@@ -68,7 +68,7 @@ class TestSubscribeWithRefresh:
 
     async def test_burst_collapses_into_single_refresh(self):
         """A burst of 50 events coalesces into a few refreshes, not ~50."""
-        from litmus.ui.shared.components import subscribe_with_refresh
+        from testerkit.ui.shared.components import subscribe_with_refresh
 
         store = _FakeEventStore()
         calls: list[int] = []
@@ -96,7 +96,7 @@ class TestSubscribeWithRefresh:
 
     async def test_only_subscribed_event_types_fire_refresh(self):
         """Events the page didn't ask for don't trigger refresh."""
-        from litmus.ui.shared.components import subscribe_with_refresh
+        from testerkit.ui.shared.components import subscribe_with_refresh
 
         store = _FakeEventStore()
         calls: list[int] = []
@@ -116,7 +116,7 @@ class TestSubscribeWithRefresh:
 
     async def test_unsubscribe_releases_all_event_types(self):
         """Calling the returned unsubscribe drops every subscription."""
-        from litmus.ui.shared.components import subscribe_with_refresh
+        from testerkit.ui.shared.components import subscribe_with_refresh
 
         store = _FakeEventStore()
         unsub = subscribe_with_refresh(
@@ -131,7 +131,7 @@ class TestSubscribeWithRefresh:
 
     async def test_refresh_callback_exception_does_not_break_subscription(self):
         """A broken refresh function doesn't prevent later events from arriving."""
-        from litmus.ui.shared.components import subscribe_with_refresh
+        from testerkit.ui.shared.components import subscribe_with_refresh
 
         store = _FakeEventStore()
         calls: list[int] = []

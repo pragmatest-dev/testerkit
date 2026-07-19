@@ -1,4 +1,4 @@
-"""Unit tests for litmus.cli._time — pure functions, no daemons, no I/O."""
+"""Unit tests for testerkit.cli._time — pure functions, no daemons, no I/O."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from litmus.cli._time import format_ts, parse_cli_duration, resolve_since_until
+from testerkit.cli._time import format_ts, parse_cli_duration, resolve_since_until
 
 # ---------------------------------------------------------------------------
 # parse_cli_duration

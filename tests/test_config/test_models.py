@@ -1,11 +1,11 @@
-"""Tests for Litmus configuration models."""
+"""Tests for TesterKit configuration models."""
 
 import pytest
 
-from litmus.models.capability import Capability, Condition, Control, RangeSpec, Signal
-from litmus.models.enums import Direction, MeasurementFunction
-from litmus.models.station import InstrumentConfig, StationType
-from litmus.models.test_config import (
+from testerkit.models.capability import Capability, Condition, Control, RangeSpec, Signal
+from testerkit.models.enums import Direction, MeasurementFunction
+from testerkit.models.station import InstrumentConfig, StationType
+from testerkit.models.test_config import (
     FixtureConfig,
     FixtureConnection,
     Limit,

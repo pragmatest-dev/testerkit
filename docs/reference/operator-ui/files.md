@@ -64,7 +64,7 @@ URL is the artifact's full key — `/files/{date}/{session_id}/{filename}`.
 
 ## Underlying data
 
-Rows come from the **FileStore catalog** (the `litmus_files` MCP tool and
+Rows come from the **FileStore catalog** (the `testerkit_files` MCP tool and
 `GET /api/files/catalog` expose the same list), never from a directory scan.
 
 ## See also

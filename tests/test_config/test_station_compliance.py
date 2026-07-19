@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from litmus.models.station import (
+from testerkit.models.station import (
     InstrumentConfig,
     StationConfig,
     StationInstrumentConfig,

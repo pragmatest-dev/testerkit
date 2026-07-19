@@ -1,18 +1,18 @@
 # Step 2: Running Without Hardware
 
-**Goal:** Run your tests without real instruments by wrapping your driver classes with Litmus's `Mock` helper.
+**Goal:** Run your tests without real instruments by wrapping your driver classes with TesterKit's `Mock` helper.
 
 In step 1 you wrote vanilla pytest tests against `psu` and `dmm` fixtures defined in `conftest.py`. This step shows the smallest change that lets the same tests run on a laptop with no hardware attached.
 
 ## The conftest pattern
 
-Your `conftest.py` already returns driver instances. Wrap them in `litmus.instruments.mocks.Mock` when the `--mock-instruments` flag is set:
+Your `conftest.py` already returns driver instances. Wrap them in `testerkit.instruments.mocks.Mock` when the `--mock-instruments` flag is set:
 
 ```python
 # tests/conftest.py
 import pytest
 from drivers import DMM, PSU
-from litmus import Mock
+from testerkit import Mock
 
 
 @pytest.fixture(scope="session")
@@ -29,11 +29,11 @@ def dmm(mock_instruments) -> DMM:
     return DMM(resource="TCPIP::192.168.1.102::INSTR")
 ```
 
-`mock_instruments` is a fixture Litmus provides — it returns `True` whenever `--mock-instruments` is on the command line or `LITMUS_MOCK_INSTRUMENTS=1` is set.
+`mock_instruments` is a fixture TesterKit provides — it returns `True` whenever `--mock-instruments` is on the command line or `TESTERKIT_MOCK_INSTRUMENTS=1` is set.
 
 `Mock(DMM, measure_dc_voltage=3.31)` returns a stand-in `DMM` — every method call does nothing and returns `None` unless you give it a return value. Pass a literal for a constant reading, a `dict` to map an argument value to a reading, or a function for dynamic behavior.
 
-This is exactly what [`examples/01-vanilla`](https://github.com/pragmatest-dev/litmus/tree/main/examples/01-vanilla) and [`examples/02-verify`](https://github.com/pragmatest-dev/litmus/tree/main/examples/02-verify) ship.
+This is exactly what [`examples/01-vanilla`](https://github.com/pragmatest-dev/testerkit/tree/main/examples/01-vanilla) and [`examples/02-verify`](https://github.com/pragmatest-dev/testerkit/tree/main/examples/02-verify) ship.
 
 ## Running with mocks
 
@@ -45,7 +45,7 @@ Same test code as step 1, no hardware required.
 
 ```bash
 # Or via env var
-LITMUS_MOCK_INSTRUMENTS=1 pytest tests/ -v
+TESTERKIT_MOCK_INSTRUMENTS=1 pytest tests/ -v
 ```
 
 ## Mock cheat sheet
@@ -83,6 +83,6 @@ In later steps you'll move this real-vs-mock choice out of `conftest.py` and int
 
 ## Continue
 
-Now let's adopt three of [Litmus's per-test fixtures](../reference/pytest/fixtures.md) — `context`, `verify`, `measure` — to start recording measurements with limits.
+Now let's adopt three of [TesterKit's per-test fixtures](../reference/pytest/fixtures.md) — `context`, `verify`, `measure` — to start recording measurements with limits.
 
 ← [Step 1: Run Something](01-first-test.md)  |  [Step 3: pytest-native tests →](03-fixtures.md)

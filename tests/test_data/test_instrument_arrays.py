@@ -1,6 +1,6 @@
 """Tests for instruments list<struct> in Parquet schema."""
 
-from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from testerkit.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 
 
 class TestInstrumentsColumn:
@@ -8,9 +8,9 @@ class TestInstrumentsColumn:
 
     def test_run_row_has_instruments_list(self):
         """_build_run_row should have an instruments key with a list value."""
-        from litmus.data.backends.parquet import ParquetBackend
+        from testerkit.data.backends.parquet import ParquetBackend
 
-        backend = ParquetBackend(data_dir="/tmp/litmus_test_run_row")
+        backend = ParquetBackend(data_dir="/tmp/testerkit_run_row")
 
         test_run = TestRun(
             uut=UUT(serial="SN001"),
@@ -29,7 +29,7 @@ class TestParquetRoundTrip:
 
     def test_parquet_round_trip(self, tmp_path):
         """Save TestRun with instrument_records, read back, verify nested struct."""
-        from litmus.data.backends.parquet import ParquetBackend
+        from testerkit.data.backends.parquet import ParquetBackend
 
         backend = ParquetBackend(data_dir=tmp_path)
 

@@ -1,6 +1,6 @@
 # Writing Tests
 
-Litmus tests are **plain pytest** — pytest classes or loose module-level functions that consume a few Litmus-provided fixtures. For everything that isn't Litmus-specific (fixtures, conftest, CLI, markers, the basics of parametrize for vanilla projects), refer to the official pytest docs at <https://docs.pytest.org/>.
+TesterKit tests are **plain pytest** — pytest classes or loose module-level functions that consume a few TesterKit-provided fixtures. For everything that isn't TesterKit-specific (fixtures, conftest, CLI, markers, the basics of parametrize for vanilla projects), refer to the official pytest docs at <https://docs.pytest.org/>.
 
 ## `verify` vs `measure` — pick one
 
@@ -42,7 +42,7 @@ A pytest test class is a hardware-test **sequence** — a named, ordered group o
 It's the sequence you'd write by hand: `for each voltage: warmup → load test → cooldown`.
 
 ```python
-@pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])      # class becomes the outer loop
+@pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])      # class becomes the outer loop
 class TestPowerSequence:
     def test_warmup(self, voltage, psu, uut):
         psu.set_voltage(voltage)
@@ -65,7 +65,7 @@ See the [step hierarchy concepts page](../../concepts/execution/step-hierarchy.m
 
 ## Sweeping inputs (test vectors)
 
-`@pytest.mark.litmus_sweeps(...)` declares one or more nested loops
+`@pytest.mark.testerkit_sweeps(...)` declares one or more nested loops
 that drive the test through every combination of conditions. Each
 combination is one **test vector** — pytest runs the test once per
 combination, and `context.get_param("name")` reads the active value:
@@ -74,18 +74,18 @@ combination, and `context.get_param("name")` reads the active value:
 import pytest
 
 # Single loop
-@pytest.mark.litmus_sweeps([{"vin": [4.5, 5.0, 5.5]}])
+@pytest.mark.testerkit_sweeps([{"vin": [4.5, 5.0, 5.5]}])
 def test_rails(vin, context, verify, psu, dmm): ...
 
 # Nested loops (cross-product). Top entry = outer/slowest.
-@pytest.mark.litmus_sweeps([
+@pytest.mark.testerkit_sweeps([
     {"temp": [25, 85]},              # outer (slow to change)
     {"vin": [4.5, 5.0, 5.5]},        # inner (fast to change)
 ])
 def test_rails(temp, vin, context, verify, psu, chamber, dmm): ...
 
 # Paired values (input/expected lists step together). List lengths must match.
-@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0, 5.5], "expected": [3.30, 3.31, 3.30]}])
+@pytest.mark.testerkit_sweeps([{"vin": [3.3, 5.0, 5.5], "expected": [3.30, 3.31, 3.30]}])
 def test_rails(vin, expected, ...): ...
 ```
 
@@ -109,7 +109,7 @@ note for migrating projects from `@pytest.mark.parametrize`.
 Hardware reconfig dominates multi-parameter sweeps (PSU settle 500 ms, DMM range switch 1 s, chamber soak 5–30 min). `context.changed(key)` returns `True` only when the parameter differs from the previous test case. Pair this with the top-to-bottom outer-to-inner ordering so the slow setup only runs when it actually rolls over:
 
 ```python
-@pytest.mark.litmus_sweeps([
+@pytest.mark.testerkit_sweeps([
     {"temp": [25, 85]},               # outer (3 changes)
     {"vin": [5.0, 5.5]},              # middle
     {"load": [0.1, 0.4]},             # inner
@@ -129,12 +129,12 @@ def test_rails(temp, vin, load, context, psu, chamber, uut_load, dmm, verify):
 Sometimes you want to own the iteration yourself: amortize an expensive
 per-test setup, stream samples into one measurement, or skip interior
 rows conditionally. Ask for the ``vectors`` fixture in your signature
-and Litmus consolidates every source (inline + sidecar + profile) into
+and TesterKit consolidates every source (inline + sidecar + profile) into
 one matrix. The test executes as **one** pytest case; you iterate the
 matrix inside:
 
 ```python
-@pytest.mark.litmus_sweeps([{"vin": [4.5, 5.0, 5.5]}])
+@pytest.mark.testerkit_sweeps([{"vin": [4.5, 5.0, 5.5]}])
 def test_rails_sweep(vectors, psu, dmm, verify):
     for v in vectors:
         psu.set_voltage(v["vin"])
@@ -148,16 +148,16 @@ and row stamping behave the same as in parametrized mode.
 
 When `measure(name, value)` is called without `limit=`, resolution
 walks the marker merge cascade (see *Merge cascade* below) looking for
-the closest `litmus_limits` entry by measurement name, falling back to:
+the closest `testerkit_limits` entry by measurement name, falling back to:
 
 1. Explicit limit — `measure("v", val, limit={"low": ..., "high": ..., "unit": "V"})` (dict literal or `Limit(...)` both work)
-2. Any `litmus_limits` marker (inline decorator, sidecar, profile) whose
+2. Any `testerkit_limits` marker (inline decorator, sidecar, profile) whose
    key matches `name`
 3. Part spec via `characteristic: "<name>"` delegation
 4. None — unchecked, recorded anyway (characterization mode)
 
 ```python
-@pytest.mark.litmus_limits(
+@pytest.mark.testerkit_limits(
     output_voltage={"low": 3.234, "high": 3.366, "unit": "V"},
     efficiency={"characteristic": "efficiency"},   # delegate to part spec
 )
@@ -166,21 +166,21 @@ def test_rails(context, verify, measure, dmm):
     verify("efficiency", compute_eff(...))
 ```
 
-## Litmus markers
+## TesterKit markers
 
 | Marker                            | Purpose                                                       |
 |-----------------------------------|---------------------------------------------------------------|
-| `litmus_sweeps([{argname: values, ...}, ...])` | Sweep one or more parameters across values (multiple keys in one dict = zipped; multiple dicts = cross-product) |
-| `litmus_limits(**by_name)`        | Limits by measurement name (supports `when:`-keyed bands)     |
-| `litmus_characteristics([<id>, ...])` | Attach the test to one or more part characteristics (limits + UUT pin auto-resolve) |
-| `litmus_connections([name, ...])` or `litmus_connections(**by_instrument)` | Select fixture-connection names (positional list, like `litmus_characteristics`) or raw instrument channels (kwargs by instrument, like `litmus_limits`) |
-| `litmus_mocks([{target: ..., ...}, ...])` | Patch one or more methods for the test (uses `unittest.mock.patch.object`) |
-| `litmus_prompts(message=...)`      | Pause for manual operator setup before, during, or after a test |
-| `litmus_retry(max_retries=N)`     | Retry on transient failure (N retries beyond original; translates to `flaky` for pytest) |
+| `testerkit_sweeps([{argname: values, ...}, ...])` | Sweep one or more parameters across values (multiple keys in one dict = zipped; multiple dicts = cross-product) |
+| `testerkit_limits(**by_name)`        | Limits by measurement name (supports `when:`-keyed bands)     |
+| `testerkit_characteristics([<id>, ...])` | Attach the test to one or more part characteristics (limits + UUT pin auto-resolve) |
+| `testerkit_connections([name, ...])` or `testerkit_connections(**by_instrument)` | Select fixture-connection names (positional list, like `testerkit_characteristics`) or raw instrument channels (kwargs by instrument, like `testerkit_limits`) |
+| `testerkit_mocks([{target: ..., ...}, ...])` | Patch one or more methods for the test (uses `unittest.mock.patch.object`) |
+| `testerkit_prompts(message=...)`      | Pause for manual operator setup before, during, or after a test |
+| `testerkit_retry(max_retries=N)`     | Retry on transient failure (N retries beyond original; translates to `flaky` for pytest) |
 
 Markers can be authored three ways and all merge into the same cascade:
 
-1. Inline Python — `@pytest.mark.litmus_limits(...)` on the method/class
+1. Inline Python — `@pytest.mark.testerkit_limits(...)` on the method/class
 2. Sidecar YAML — marker fields at file / class / per-test scope
 3. Profile YAML — marker fields in a profile under `profiles/*.yaml`
 
@@ -190,7 +190,7 @@ For pytest's own markers and ecosystem plugins:
 |----------------------------|-------------------------------------------------------------|
 | Vanilla pytest sweeps      | `@pytest.mark.parametrize(...)` — kept working unchanged    |
 | Test-to-test dependencies  | `@pytest.mark.dependency(...)` — `pytest-dependency`        |
-| Retry transient failures   | `@pytest.mark.flaky(reruns=N)` — `pytest-rerunfailures` (or use `litmus_retry` for runner-neutral form) |
+| Retry transient failures   | `@pytest.mark.flaky(reruns=N)` — `pytest-rerunfailures` (or use `testerkit_retry` for runner-neutral form) |
 
 Part is session-global: pick it with `--part=<id>` (looks up
 `parts/<id>.yaml`) or `--part=<path>` (explicit path). There is no
@@ -198,20 +198,20 @@ per-test part override marker.
 
 ## Binding a test to characteristics or connections
 
-`litmus_characteristics` and `litmus_connections` select which pins/connections a test iterates over via `context.connections`. The common bindings:
+`testerkit_characteristics` and `testerkit_connections` select which pins/connections a test iterates over via `context.connections`. The common bindings:
 
 - **Bind to a part characteristic** — limits and UUT pins resolve from the part spec:
-  `@pytest.mark.litmus_characteristics(["output_voltage"])`
+  `@pytest.mark.testerkit_characteristics(["output_voltage"])`
 - **Bind to named fixture connections** — needs a fixture YAML so the names resolve:
-  `@pytest.mark.litmus_connections(["vout_1", "vout_2"])`
+  `@pytest.mark.testerkit_connections(["vout_1", "vout_2"])`
 - **Early bringup, before a fixture YAML exists** — bind raw instrument channels:
-  `@pytest.mark.litmus_connections(dmm=["1", "2"])`
+  `@pytest.mark.testerkit_connections(dmm=["1", "2"])`
 
-The two markers compose — a characteristic constrains which connections are valid. If you declare `litmus_connections` but never iterate `context.connections` in the test body, the test fails, so the binding can't be silently ignored. For the full resolution rules — every combination of marker presence and fixture state — see the [markers reference](../../reference/pytest/markers.md).
+The two markers compose — a characteristic constrains which connections are valid. If you declare `testerkit_connections` but never iterate `context.connections` in the test body, the test fails, so the binding can't be silently ignored. For the full resolution rules — every combination of marker presence and fixture state — see the [markers reference](../../reference/pytest/markers.md).
 
 ## Sidecar YAML
 
-A sibling `test_<module>.yaml` adds marker config without touching code. Fields at the top apply to every test in the file; nest under `tests:` to scope to a class or method. (`runner:` and `tests:` are reserved keys; everything else is a Litmus marker name.)
+A sibling `test_<module>.yaml` adds marker config without touching code. Fields at the top apply to every test in the file; nest under `tests:` to scope to a class or method. (`runner:` and `tests:` are reserved keys; everything else is a TesterKit marker name.)
 
 ```yaml
 # test_power_board.yaml
@@ -278,7 +278,7 @@ The conftest shim is the fastest route from "I have a folder of tests" to "green
 
 ## Retries & test dependencies — use the pytest ecosystem
 
-Litmus **does not** ship its own retry or skip-on-failure markers. Use the mature ecosystem plugins instead:
+TesterKit **does not** ship its own retry or skip-on-failure markers. Use the mature ecosystem plugins instead:
 
 | Concern                  | Use                                                                 |
 |--------------------------|---------------------------------------------------------------------|
@@ -301,7 +301,7 @@ All three config sources are independent — tests work under any combination:
 | —       | ✓    | `verify("output_voltage", val)`                            |
 | ✓       | —    | `measure("efficiency", eff)` — auto-resolves            |
 | ✓       | ✓    | `verify` for characteristics; `measure` for procedure |
-| —       | —    | `assert 3.2 <= val <= 3.4` — pure pytest, no Litmus machinery  |
+| —       | —    | `assert 3.2 <= val <= 3.4` — pure pytest, no TesterKit machinery  |
 
 ## Instrument access
 
@@ -338,11 +338,11 @@ Everything else is standard pytest — see <https://docs.pytest.org/en/stable/re
 ## Best practices
 
 1. Prefer `verify(name, v)` when a part spec exists — limits, UUT pin, and spec ref resolve automatically
-2. Use `measure` with inline kwargs or a sidecar `litmus_limits` marker for procedure-only measurements
+2. Use `measure` with inline kwargs or a sidecar `testerkit_limits` marker for procedure-only measurements
 3. Use `context.changed()` to skip expensive reconfig across sweep iterations
-4. Prefer inline `@pytest.mark.litmus_limits` for code-owned sweeps; sidecar YAML for operator-edited sweeps
-5. Keep one measurement focus per test — let `litmus_sweeps` expand sweeps, not in-function loops
-6. Never hardcode limits in `assert` — put them in a `litmus_limits` marker, sidecar, or part spec
+4. Prefer inline `@pytest.mark.testerkit_limits` for code-owned sweeps; sidecar YAML for operator-edited sweeps
+5. Keep one measurement focus per test — let `testerkit_sweeps` expand sweeps, not in-function loops
+6. Never hardcode limits in `assert` — put them in a `testerkit_limits` marker, sidecar, or part spec
 
 ## Same tests, different labs
 
@@ -354,9 +354,9 @@ flags (e.g. `--test-phase=production`) select exactly one. See
 
 ## Next Steps
 
-- [Litmus fixtures](../../reference/pytest/fixtures.md) — all the fixtures with signatures and examples
-- [Litmus markers](../../reference/pytest/markers.md) — the seven `litmus_*` markers
-- [pytest-native reference](../../reference/overview/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
+- [TesterKit fixtures](../../reference/pytest/fixtures.md) — all the fixtures with signatures and examples
+- [TesterKit markers](../../reference/pytest/markers.md) — the seven `testerkit_*` markers
+- [pytest-native reference](../../reference/overview/pytest-native.md) — how TesterKit tests use pytest's own collection / fixtures / markers
 - [Profiles](profiles.md) — named config sets for the same test tree
 - [Limits guide](limits.md) — all limit forms and resolution order
 - [Simulation Mode](../configuration/mock-mode.md) — running without hardware

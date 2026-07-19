@@ -10,11 +10,11 @@ Pull data out of the runtime. Query the event log and channel store, debug failu
 - [Capture an artifact](capture-an-artifact.md) — observe(image / bytes / Pydantic record) + files.stream for byte streams
 - [Find flaky tests](find-flaky-tests.md) — use Metrics → Retest and Results detail to spot intermittents
 - [Compare two runs](compare-runs.md) — diff known-good vs failing with two tabs + a DuckDB query
-- [Export results](export-results.md) — `litmus show -f` for reports (HTML/PDF/JSON/CSV) and `litmus export -f` for interchange (STDF/HDF5/TDMS/MDF4)
-- [Query runs and metrics via MCP](mcp-query-runs.md) — `litmus_runs` / `litmus_steps` / `litmus_metrics` recipes
+- [Export results](export-results.md) — `testerkit show -f` for reports (HTML/PDF/JSON/CSV) and `testerkit export -f` for interchange (STDF/HDF5/TDMS/MDF4)
+- [Query runs and metrics via MCP](mcp-query-runs.md) — `testerkit_runs` / `testerkit_steps` / `testerkit_metrics` recipes
 - [Debug failures via MCP](mcp-debug-failures.md) — chained investigative workflow when a run fails
 - [Grafana dashboards](grafana-dashboards.md) — pre-built dashboards for results, events, channels
-- [Benchmark your machine](benchmarking.md) — `litmus benchmark` measures per-store throughput and writes a sendable result file
+- [Benchmark your machine](benchmarking.md) — `testerkit benchmark` measures per-store throughput and writes a sendable result file
 
 ## See also
 

@@ -1,4 +1,4 @@
-"""Tests for StationConnection and litmus.connect().
+"""Tests for StationConnection and testerkit.connect().
 
 Storage is the canonical singleton data_dir — every test writes
 events to the same shared events daemon. Per-test isolation is by
@@ -8,7 +8,7 @@ through the IPC file at ``conn.event_log.path``, which is keyed
 by session+pid so tests never see each other's events.
 
 Locks and station/instrument config still use ``tmp_path`` via
-the ``LITMUS_HOME`` redirect in ``_use_tmp_dirs`` — those don't
+the ``TESTERKIT_HOME`` redirect in ``_use_tmp_dirs`` — those don't
 spawn daemons.
 """
 
@@ -20,16 +20,16 @@ import pyarrow as pa
 import pyarrow.ipc as ipc
 import pytest
 
-from litmus.connect import StationConnection
-from litmus.data.data_dir import resolve_data_dir
-from litmus.instruments.locks import ResourceInUse
-from litmus.models.station import StationConfig, StationInstrumentConfig
+from testerkit.connect import StationConnection
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.instruments.locks import ResourceInUse
+from testerkit.models.station import StationConfig, StationInstrumentConfig
 
 # Canonical data dir — resolved through the project's
-# ``litmus.yaml`` (at repo root) so storage stays project-local
+# ``testerkit.yaml`` (at repo root) so storage stays project-local
 # (``<repo>/data``) instead of polluting the global
-# ``~/.local/share/litmus/data`` store. ``resolve_data_dir``
-# walks CWD ancestors for ``litmus.yaml`` and returns its
+# ``~/.local/share/testerkit/data`` store. ``resolve_data_dir``
+# walks CWD ancestors for ``testerkit.yaml`` and returns its
 # ``data_dir`` field; here CWD is the repo root because pytest
 # is invoked from there.
 _CANONICAL_DATA = resolve_data_dir()
@@ -60,7 +60,7 @@ def _make_station(**instruments) -> StationConfig:
 @pytest.fixture(autouse=True)
 def _use_tmp_dirs(tmp_path, monkeypatch):
     """autouse — pyright can't see fixture wiring, but pytest does."""
-    monkeypatch.setenv("LITMUS_HOME", str(tmp_path / "litmus_home"))
+    monkeypatch.setenv("TESTERKIT_HOME", str(tmp_path / "testerkit_home"))
 
 
 # Re-export so pyright sees the autouse fixture as referenced. Pytest
@@ -192,7 +192,7 @@ class TestSessionStartedFields:
         assert started["session_type"] == "interactive"
 
     def test_interactive_session_stamps_patient_will(self):
-        from litmus.data._process import process_uuid
+        from testerkit.data._process import process_uuid
 
         station = _make_station()
         with StationConnection(
@@ -274,11 +274,11 @@ def _make_station_locking(**instruments) -> StationConfig:
 def _patch_driver_loading(monkeypatch):
     """Replace load_and_connect + verify_and_wrap to avoid real hardware."""
     monkeypatch.setattr(
-        "litmus.instruments.pool.load_and_connect",
+        "testerkit.instruments.pool.load_and_connect",
         lambda *a, **kw: object(),
     )
     monkeypatch.setattr(
-        "litmus.instruments.pool.verify_and_wrap",
+        "testerkit.instruments.pool.verify_and_wrap",
         lambda driver, *a, **kw: driver,
     )
 

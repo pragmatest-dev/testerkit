@@ -1,4 +1,4 @@
-"""Tests for the unified reference protocol (litmus.data.ref)."""
+"""Tests for the unified reference protocol (testerkit.data.ref)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from litmus.data.ref import (
+from testerkit.data.ref import (
     classify_value,
     is_ref,
     make_channel_uri,

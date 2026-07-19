@@ -5,7 +5,7 @@
 ## Function signature
 
 ```python
-from litmus import connect
+from testerkit import connect
 
 connect(
     station: str | None = None,
@@ -17,8 +17,8 @@ connect(
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `station` | `str \| None` | `None` | Station id. `None` reads `default_station` from `litmus.yaml` in the CWD ancestors. |
-| `data_dir` | `Path \| None` | `None` | Where to write events / channels. Resolution: explicit arg → `litmus.yaml` `data_dir:` → `LITMUS_HOME` → the platform default user-data directory. |
+| `station` | `str \| None` | `None` | Station id. `None` reads `default_station` from `testerkit.yaml` in the CWD ancestors. |
+| `data_dir` | `Path \| None` | `None` | Where to write events / channels. Resolution: explicit arg → `testerkit.yaml` `data_dir:` → `TESTERKIT_HOME` → the platform default user-data directory. |
 | `mock` | `bool` | `False` | Use mock instruments. Skips resource locking — multiple mock connections can hold the same role. |
 
 Returns a `StationConnection`. Usable as a context manager (`with connect(...) as station:`) or with the explicit `start()` / `stop()` calls.
@@ -26,7 +26,7 @@ Returns a `StationConnection`. Usable as a context manager (`with connect(...) a
 ## Quick start
 
 ```python
-from litmus import connect
+from testerkit import connect
 
 # Context-manager form — typical for scripts
 with connect("cell-7", mock=True) as station:
@@ -109,7 +109,7 @@ psu = station_b.instrument("psu")      # locks GPIB::17::INSTR — works
 dmm = station_b.instrument("dmm")      # raises ResourceInUse
 ```
 
-Lock files live in `~/.local/share/litmus/locks/` (Linux) and use an OS file lock. They auto-release when the process exits, even on `SIGKILL` — single-machine only; cross-machine coordination is future work.
+Lock files live in `~/.local/share/testerkit/locks/` (Linux) and use an OS file lock. They auto-release when the process exits, even on `SIGKILL` — single-machine only; cross-machine coordination is future work.
 
 `mock=True` connections skip locking entirely; multiple mock sessions can hold the same role.
 
@@ -128,13 +128,13 @@ This is what lets the operator UI tail events from a running pytest process — 
 `connect("cell-7")` finds the station YAML in this order:
 
 1. `./stations/cell-7.yaml` (project-local)
-2. `~/.local/share/litmus/stations/cell-7.yaml` (machine-global)
+2. `~/.local/share/testerkit/stations/cell-7.yaml` (machine-global)
 
-If `station` is `None`, it reads `default_station` from `litmus.yaml` in the CWD ancestors.
+If `station` is `None`, it reads `default_station` from `testerkit.yaml` in the CWD ancestors.
 
 ## See also
 
 - [Sessions](../../concepts/data/sessions.md) — why sessions exist and what they capture
 - [Managing sessions](../../how-to/execution/managing-sessions.md) — practical workflows
 - [Flight streaming](../../concepts/data/flight-streaming.md) — the DuckDB daemon `connect()` rides on
-- [Litmus fixtures](../pytest/fixtures.md) — the pytest equivalents (every fixture is backed by the same `StationConnection` machinery)
+- [TesterKit fixtures](../pytest/fixtures.md) — the pytest equivalents (every fixture is backed by the same `StationConnection` machinery)

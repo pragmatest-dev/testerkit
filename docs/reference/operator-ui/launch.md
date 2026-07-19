@@ -17,7 +17,7 @@ Profile, optional Operator name, and a Mock Hardware checkbox.
 |---|---|---|
 | Part | The UUT part / part the test targets. Dropdown is populated from the project's `parts/` directory. Selecting a part filters the Station dropdown to compatible stations. | optional |
 | UUT Serial Number | The serial number stamped on the unit you're about to test (e.g. `DPB001-0001`). Free-text. | yes |
-| Test Path | Which test directory to run. Dropdown is populated from the test directories Litmus discovered in the project. | yes |
+| Test Path | Which test directory to run. Dropdown is populated from the test directories TesterKit discovered in the project. | yes |
 | Station | Which station to run on. Dropdown is filtered by the selected Part when one is selected; otherwise shows every station. A hint line below the dropdown tells you what's filtered ("3 compatible station(s)" / "Showing all stations. Select a part to filter." / "No compatible stations - consider mock mode"). | yes |
 | Profile | Which test profile to apply for the session (its limits, markers, and fixtures). Dropdown lists the project's discovered profiles; defaults to `(none)`. | optional |
 | Mock Hardware | When checked, runs against mock-instrument stand-ins instead of real hardware. Useful for dry runs and CI. | optional |

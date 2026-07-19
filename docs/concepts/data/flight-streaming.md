@@ -1,6 +1,6 @@
 # Flight Cross-Process Model
 
-Litmus uses Apache Arrow Flight for cross-process data access. This enables real-time queries from any process — the operator UI, CLI tools, AI agents, or Grafana — without file locking or polling.
+TesterKit uses Apache Arrow Flight for cross-process data access. This enables real-time queries from any process — the operator UI, CLI tools, AI agents, or Grafana — without file locking or polling.
 
 ## Why Arrow Flight
 
@@ -18,13 +18,13 @@ Reading the files directly from each process works, but processes can collide on
 ```mermaid
 flowchart LR
     A["pytest run"] -->|write + read| svc["Shared background service"]
-    B["litmus serve / UI"] -->|read| svc
-    C["litmus runs / your script"] -->|read| svc
+    B["testerkit serve / UI"] -->|read| svc
+    C["testerkit runs / your script"] -->|read| svc
     svc --> disk["Persistent index on disk"]
     svc --> live["Live in-memory overlay\n(in-progress runs)"]
 ```
 
-Your pytest run, `litmus serve`, `litmus runs`, and any script you write all talk to the same shared background service. The service keeps data in two places: a persistent index on disk (a DuckDB file) and a live in-memory overlay for in-progress runs. The overlay is what lets a query see a result the instant after it's written — before the run is even complete.
+Your pytest run, `testerkit serve`, `testerkit runs`, and any script you write all talk to the same shared background service. The service keeps data in two places: a persistent index on disk (a DuckDB file) and a live in-memory overlay for in-progress runs. The overlay is what lets a query see a result the instant after it's written — before the run is even complete.
 
 The first tool that needs the data starts the shared background service automatically; everything else just connects to it. You never manage it yourself. The service shuts itself down after it has been idle for a while.
 

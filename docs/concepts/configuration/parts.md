@@ -257,7 +257,7 @@ In Python:
 ```python
 from pathlib import Path
 
-from litmus.store import load_part
+from testerkit.store import load_part
 
 part = load_part(Path("parts/power_board.yaml"))
 print(part.id)

@@ -72,7 +72,7 @@ Both are scalar-only. Passing a `Waveform`, array, or blob to `verify` or `measu
 Because role is stored with every field, the query API lets you reference any field by its role and name — you don't have to guess a prefixed column name like `in_vin`:
 
 ```python
-from litmus.queries import MeasurementsQuery, FieldRef
+from testerkit.queries import MeasurementsQuery, FieldRef
 
 q = MeasurementsQuery()
 
@@ -120,7 +120,7 @@ What breaks if you mix them up:
 To associate a streamed channel with a measurement vector, pass the sink to `observe`:
 
 ```python
-with litmus.channels.stream("scope.continuous") as cap:
+with testerkit.channels.stream("scope.continuous") as cap:
     for _ in range(n_samples):
         cap.write(scope.read_trace())
     observe("scope.snapshot", cap)   # stamps cap.uri as an output on the active vector
@@ -128,7 +128,7 @@ with litmus.channels.stream("scope.continuous") as cap:
 
 ## Two layers — test-author verbs vs store-direct
 
-Litmus exposes data writing at two layers:
+TesterKit exposes data writing at two layers:
 
 | Layer | Use when | Discrete | Continuous |
 |---|---|---|---|
@@ -151,12 +151,12 @@ verify("output_voltage", dmm.measure_dc_voltage(), Limit(low=4.75, high=5.25, un
 measure("quiescent_current", psu.measure_current(), unit="A")
 ```
 
-For `verify`, the unit can come from `unit=` on the call, from `Limit(unit=)`, or from both when they agree. If both are provided and they differ, Litmus raises `ValueError` immediately — it does not silently let one override the other.
+For `verify`, the unit can come from `unit=` on the call, from `Limit(unit=)`, or from both when they agree. If both are provided and they differ, TesterKit raises `ValueError` immediately — it does not silently let one override the other.
 
 For multi-axis data (IV curves, S-parameter sweeps, optical spectra), use `XYData` — it carries `x_unit` and `y_unit` as separate per-axis fields:
 
 ```python
-from litmus.data.models import XYData
+from testerkit.data.models import XYData
 
 iv = XYData(x=[0.0, 0.5, 1.0, 1.5], y=[0.0, 2.1, 4.3, 6.8],
             x_unit="V", y_unit="mA", x_name="Bias", y_name="Current")
@@ -188,20 +188,20 @@ Both `rise_time_us` and `overshoot_v` measurement rows carry the `scope_cap` cha
 For continuous capture across the test body, use the context-managed sink:
 
 ```python
-import litmus.channels
+import testerkit.channels
 
-with litmus.channels.stream("scope.continuous") as cap:
+with testerkit.channels.stream("scope.continuous") as cap:
     for _ in range(n_samples):
         cap.write(scope.read_trace())
     observe("scope.snapshot", cap)   # stamps cap.uri as an output on the active vector
 ```
 
-For byte-stream artifacts (video / audio / vendor capture), use `litmus.files.stream`:
+For byte-stream artifacts (video / audio / vendor capture), use `testerkit.files.stream`:
 
 ```python
-import litmus.files
+import testerkit.files
 
-with litmus.files.stream("camera", format="mp4") as cam:
+with testerkit.files.stream("camera", format="mp4") as cam:
     for frame in camera.read_frames():
         cam.write(frame)
 ```
@@ -238,7 +238,7 @@ The instrument lock orders captures in time; storage isolation is independent. T
 Unknown value types fall back to pickle with a `RuntimeWarning` that names the type and points at `register_serializer`. Register once and your type is auto-routed thereafter:
 
 ```python
-from litmus.data.files import register_serializer
+from testerkit.data.files import register_serializer
 
 register_serializer(
     MyInstrumentFrame,
@@ -248,7 +248,7 @@ register_serializer(
 )
 ```
 
-Alternatively, implement `litmus_serialize(dest: Path) -> Path` on your type — no registration call needed.
+Alternatively, implement `testerkit_serialize(dest: Path) -> Path` on your type — no registration call needed.
 
 ## See also
 

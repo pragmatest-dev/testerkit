@@ -19,10 +19,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.run_store import RunStore
-from litmus.data.schemas import RUN_ROW_SCHEMA
-from litmus.ui.shared.services import aggregate_run_stats, get_run_detail
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.run_store import RunStore
+from testerkit.data.schemas import RUN_ROW_SCHEMA
+from testerkit.ui.shared.services import aggregate_run_stats, get_run_detail
 
 
 def test_aggregate_run_stats_counts_measurement_outcome() -> None:

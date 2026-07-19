@@ -1,4 +1,4 @@
-"""CLI tests for litmus yield/metrics commands.
+"""CLI tests for testerkit yield/metrics commands.
 
 Uses the canonical singleton runs daemon. Synthetic measurement
 parquets land at ``canonical/runs/test-yield-cli/`` under a unique
@@ -14,11 +14,11 @@ import pyarrow.parquet as pq
 import pytest
 from click.testing import CliRunner
 
-from litmus.cli import main
-from litmus.data.backends._row_helpers import RunParquetRow
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.run_store import RunStore
-from litmus.data.schemas import _build_write_schema, table_from_rows
+from testerkit.cli import main
+from testerkit.data.backends._row_helpers import RunParquetRow
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.run_store import RunStore
+from testerkit.data.schemas import _build_write_schema, table_from_rows
 
 
 def _row(

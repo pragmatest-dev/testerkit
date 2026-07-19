@@ -29,15 +29,15 @@ from pathlib import Path
 
 import duckdb
 
-from litmus.data import _runs_duckdb_daemon as daemon
-from litmus.data import schema_dispatch, schema_versions
-from litmus.data._runs_duckdb_daemon import (
+from testerkit.data import _runs_duckdb_daemon as daemon
+from testerkit.data import schema_dispatch, schema_versions
+from testerkit.data._runs_duckdb_daemon import (
     _current_provenance,
     _open_index,
     _projection_fingerprint,
     _read_index_meta,
 )
-from litmus.data.schema_versions import SchemaStore
+from testerkit.data.schema_versions import SchemaStore
 
 
 def _count(conn: duckdb.DuckDBPyConnection, table: str) -> int:
@@ -92,9 +92,9 @@ def test_fresh_build_stamps_index_meta(tmp_path: Path) -> None:
     try:
         assert is_fresh is True
         # A fresh build records full provenance and marks itself complete.
-        litmus_version, schema_version, fingerprint = _current_provenance()
+        testerkit_version, schema_version, fingerprint = _current_provenance()
         meta = _read_index_meta(conn)
-        assert meta["litmus_version"] == litmus_version
+        assert meta["testerkit_version"] == testerkit_version
         assert meta["schema_version"] == schema_version
         assert meta["projection_fingerprint"] == fingerprint
         assert "built_at" in meta
@@ -258,13 +258,15 @@ def test_epochs_ledger_accumulates_seen_by_as_a_set(tmp_path: Path) -> None:
 
 
 def test_epochs_ledger_tolerates_legacy_single_version_shape(tmp_path: Path) -> None:
-    """A pre-P5 ledger entry (``{litmus_version, last_seen}``, no ``seen_by``
+    """A pre-P5 ledger entry (``{testerkit_version, last_seen}``, no ``seen_by``
     set yet) must not crash a later stamp — it folds into a 1-element
     ``seen_by`` before the new version is appended."""
     ledger_path = tmp_path / "_epochs.json"
     fp = "f" * 64
     ledger_path.write_text(
-        json.dumps({fp[:12]: {"litmus_version": "0.3.0", "last_seen": "2026-01-01T00:00:00+00:00"}})
+        json.dumps(
+            {fp[:12]: {"testerkit_version": "0.3.0", "last_seen": "2026-01-01T00:00:00+00:00"}}
+        )
     )
 
     daemon._stamp_epochs_ledger(tmp_path, fp, "0.3.1")
@@ -284,7 +286,12 @@ def test_read_epochs_ledger_normalizes_legacy_shape(tmp_path: Path) -> None:
     ledger_path = tmp_path / "_epochs.json"
     ledger_path.write_text(
         json.dumps(
-            {"abc123def456": {"litmus_version": "0.3.0", "last_seen": "2026-01-01T00:00:00+00:00"}}
+            {
+                "abc123def456": {
+                    "testerkit_version": "0.3.0",
+                    "last_seen": "2026-01-01T00:00:00+00:00",
+                }
+            }
         )
     )
 

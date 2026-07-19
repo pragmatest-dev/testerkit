@@ -1,4 +1,4 @@
-"""Seed a Litmus run with one of every viewable artifact type.
+"""Seed a TesterKit run with one of every viewable artifact type.
 
 Usage:
 
@@ -6,7 +6,7 @@ Usage:
 
 Then start the operator UI and click through to the seeded run:
 
-    uv run litmus serve
+    uv run testerkit serve
 
 In the browser:
     Runs → most recent run ("Artifact Viewing Demo") → Measurements tab
@@ -21,7 +21,7 @@ What the script writes:
   rendered inline via ``<img>``.
 * ``schematic`` — an SVG drawn inline; served as ``image/svg+xml``.
 * ``calibration_cert`` — a minimal valid PDF saying "Hello from
-  Litmus"; served as ``application/pdf`` for the browser PDF reader.
+  TesterKit"; served as ``application/pdf`` for the browser PDF reader.
 * ``debug_log`` — a few lines of UTF-8 text; served as
   ``text/plain``.
 
@@ -37,14 +37,14 @@ import math
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from litmus import Outcome, Waveform
-from litmus.data.backends.parquet import ParquetBackend
+from testerkit import Outcome, Waveform
+from testerkit.data.backends.parquet import ParquetBackend
 
 # UUT / Measurement / TestRun / TestStep / TestVector are framework
 # internals — this demo script is the only user code that constructs
 # them directly. Real test code uses the top-level verbs (observe,
 # verify) and never touches these classes.
-from litmus.data.models import (
+from testerkit.data.models import (
     UUT,
     Measurement,
     TestRun,
@@ -69,7 +69,7 @@ SVG_DEMO: bytes = b"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 1
   <rect width="240" height="100" fill="#0f172a"/>
   <circle cx="50" cy="50" r="32" fill="#22d3ee"/>
   <text x="100" y="58" fill="white" font-family="sans-serif" font-size="22">
-    Litmus
+    TesterKit
   </text>
 </svg>"""
 
@@ -80,7 +80,7 @@ PDF_DEMO: bytes = (
     b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]"
     b"/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n"
     b"4 0 obj<</Length 44>>stream\n"
-    b"BT /F1 16 Tf 30 50 Td (Hello from Litmus) Tj ET\n"
+    b"BT /F1 16 Tf 30 50 Td (Hello from TesterKit) Tj ET\n"
     b"endstream\nendobj\n"
     b"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n"
     b"xref\n"
@@ -121,10 +121,10 @@ def _sine_waveform(freq_hz: float = 100.0, sample_rate_hz: float = 100_000.0) ->
 
 
 def main() -> None:
-    from litmus.data.data_dir import resolve_data_dir
+    from testerkit.data.data_dir import resolve_data_dir
 
     # Writer convention: ``runs/`` lives under the project / platformdirs
-    # results dir; the read side (``ParquetBackend`` used by ``litmus
+    # results dir; the read side (``ParquetBackend`` used by ``testerkit
     # serve``) constructs ``RunStore`` which itself appends ``runs/``.
     # Match the existing writer call sites in
     # ``output_runner.py`` and ``client.py``.
@@ -178,7 +178,7 @@ def main() -> None:
     print(f"Sidecar: {parquet_path.parent / (parquet_path.stem + '_ref')}")
     print()
     print("Next:")
-    print("  uv run litmus serve")
+    print("  uv run testerkit serve")
     print(f"  Open http://localhost:8000/results/{run.id}")
     print("  Click the Measurements tab → 'View ...' buttons under Artifacts")
 

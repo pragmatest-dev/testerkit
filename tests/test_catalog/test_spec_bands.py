@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from litmus.models.capability import RangeSpec, Signal
-from litmus.store import load_catalog_entry
+from testerkit.models.capability import RangeSpec, Signal
+from testerkit.store import load_catalog_entry
 
 
 def _range(cond: object) -> RangeSpec:

@@ -20,7 +20,7 @@ pytest_plugins = ["pytester"]
 _INI = textwrap.dedent(
     """
     [pytest]
-    addopts = -p no:litmus -p litmus.pytest_plugin
+    addopts = -p no:testerkit -p testerkit.pytest_plugin
     asyncio_default_fixture_loop_scope = function
     """
 )
@@ -229,7 +229,7 @@ def test_no_band_matches_measure_records_done(pytester: pytest.Pytester) -> None
         test_seq=textwrap.dedent(
             """
             import pytest
-            from litmus.data.models import Outcome
+            from testerkit.data.models import Outcome
 
             @pytest.mark.parametrize("vin", [12.0])
             def test_rail(measure, vin):

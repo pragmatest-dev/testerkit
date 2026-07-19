@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from testerkit.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 
 
 @pytest.fixture
@@ -267,7 +267,7 @@ def _replay_events(
     Generates: RunStarted → StepStarted → MeasurementRecorded* →
     StepEnded → ... → RunEnded, feeding each to subscriber.on_event().
     """
-    from litmus.data.events import (
+    from testerkit.data.events import (
         MeasurementRecorded,
         RunEnded,
         RunStarted,

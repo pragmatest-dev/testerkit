@@ -16,9 +16,9 @@ from uuid import uuid4
 
 import pyarrow.parquet as pq
 
-from litmus.data.backends._event_accumulator import EventAccumulator
-from litmus.data.backends.parquet import materialize_run_to_parquet
-from litmus.data.events import (
+from testerkit.data.backends._event_accumulator import EventAccumulator
+from testerkit.data.backends.parquet import materialize_run_to_parquet
+from testerkit.data.events import (
     MeasurementRecorded,
     RunStarted,
     StepEnded,

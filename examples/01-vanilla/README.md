@@ -1,15 +1,15 @@
 # Stage 1 — Vanilla pytest
 
-Plain-pytest tests. The Litmus plugin is loaded but it stays out of
+Plain-pytest tests. The TesterKit plugin is loaded but it stays out of
 your way: you get a UUT-serial prompt and a run record on day one
-without writing any Litmus-specific code. Every later stage layers
+without writing any TesterKit-specific code. Every later stage layers
 measurement features on top of this same setup.
 
 ## Layout
 
 ```
 01-vanilla/
-├── pyproject.toml        # pytest + litmus
+├── pyproject.toml        # pytest + testerkit
 ├── pytest.ini            # plugin enabled; --mock-instruments default-on
 ├── conftest.py           # `psu` + `dmm` fixtures: real drivers, mocked when flagged
 ├── drivers/              # PSU + DMM driver classes (PyVISA-shaped)
@@ -30,7 +30,7 @@ measurement features on top of this same setup.
 
 ## Where drivers come from
 
-Litmus does **not** ship instrument drivers. Use any of:
+TesterKit does **not** ship instrument drivers. Use any of:
 
 - **[PyMeasure](https://pymeasure.readthedocs.io/)** — 100+ ready-made
   drivers (`from pymeasure.instruments.keysight import Keysight34461A`)
@@ -40,14 +40,14 @@ Litmus does **not** ship instrument drivers. Use any of:
 - **Hand-rolled** — what `drivers/dmm.py` + `drivers/psu.py` demonstrate
   here (PyVISA-shaped placeholders with `NotImplementedError` bodies)
 
-`litmus.instruments.Mock(cls, **return_values)` works against any of
-the above — Litmus doesn't care whether `cls` came from PyMeasure or
+`testerkit.instruments.Mock(cls, **return_values)` works against any of
+the above — TesterKit doesn't care whether `cls` came from PyMeasure or
 your `drivers/` folder.
 
 ## Drivers + optional mocks
 
 You always write tests against the real driver classes. When the bench
-isn't attached yet, Litmus mocks them for you — same fixture, same test
+isn't attached yet, TesterKit mocks them for you — same fixture, same test
 code, just a different runtime instance:
 
 ```python
@@ -62,7 +62,7 @@ The `--mock-instruments` flag in `pytest.ini` makes that branch fire
 for the demo run. Drop the flag (or pass `--no-mock-instruments`) once
 you have hardware to point at — the test code below doesn't change.
 
-This is the same conditional shape Litmus uses internally. Stage 5
+This is the same conditional shape TesterKit uses internally. Stage 5
 lifts it out of `conftest.py` and into station YAML.
 
 ## Run it

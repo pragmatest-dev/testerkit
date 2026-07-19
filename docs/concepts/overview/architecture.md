@@ -1,8 +1,8 @@
-# Litmus Architecture
+# TesterKit Architecture
 
-## How Litmus Works
+## How TesterKit Works
 
-> **Vocabulary primer.** This page packs several concepts into one diagram. If you haven't seen them yet: **[part](../configuration/parts.md)** and **[station](../configuration/stations.md)** are YAML definitions; **[sidecar](../../reference/configuration.md)** is the per-test YAML carrying limits / sweeps / mocks; **`verify` / `context` / `measure`** are three of the pytest fixtures Litmus adds — the common per-test entry points (see [reference/litmus-fixtures](../../reference/pytest/fixtures.md)); **[characteristic](../configuration/capabilities.md)** is a measurable property on a part; **[capability](../configuration/capabilities.md)** is what an instrument can do.
+> **Vocabulary primer.** This page packs several concepts into one diagram. If you haven't seen them yet: **[part](../configuration/parts.md)** and **[station](../configuration/stations.md)** are YAML definitions; **[sidecar](../../reference/configuration.md)** is the per-test YAML carrying limits / sweeps / mocks; **`verify` / `context` / `measure`** are three of the pytest fixtures TesterKit adds — the common per-test entry points (see [reference/testerkit-fixtures](../../reference/pytest/fixtures.md)); **[characteristic](../configuration/capabilities.md)** is a measurable property on a part; **[capability](../configuration/capabilities.md)** is what an instrument can do.
 
 ```mermaid
 flowchart LR
@@ -13,7 +13,7 @@ flowchart LR
         T[Test code<br/>tests/test_*.py<br/>verify / context / measure]
     end
 
-    subgraph Plugin[Litmus pytest plugin]
+    subgraph Plugin[TesterKit pytest plugin]
         L[Load specs] --> EX[Expand vectors]
         EX --> RUN[Run test code]
         RUN --> CHK[Check limits]

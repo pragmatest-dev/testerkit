@@ -1,11 +1,11 @@
 """End-to-end workflow tests verifying documented user journeys.
 
 Each test exercises a complete user workflow as described in docs/:
-init → pytest → litmus runs → litmus show → litmus yield.
+init → pytest → testerkit runs → testerkit show → testerkit yield.
 
 The starter project relies on the global results directory under
-``platformdirs.user_data_dir("litmus")``. To keep tests isolated, each
-test sets ``LITMUS_HOME=<tmp_path>/home`` so the global root is
+``platformdirs.user_data_dir("testerkit")``. To keep tests isolated, each
+test sets ``TESTERKIT_HOME=<tmp_path>/home`` so the global root is
 redirected into a per-test directory. Test bodies read parquet from
 ``home / "results" / ...``.
 """
@@ -20,34 +20,34 @@ from pathlib import Path
 import pytest
 import yaml
 
-_LITMUS_BIN = shutil.which("litmus") or "litmus"
+_TESTERKIT_BIN = shutil.which("testerkit") or "testerkit"
 _PYTEST_BIN = shutil.which("pytest") or "pytest"
 
 
-def _litmus_env(home: Path) -> dict[str, str]:
-    """Return env with LITMUS_HOME pointed at a per-test global results dir.
+def _testerkit_env(home: Path) -> dict[str, str]:
+    """Return env with TESTERKIT_HOME pointed at a per-test global results dir.
 
-    Starter projects pin ``data_dir: data`` in their ``litmus.yaml``
-    (see ``src/litmus/init.py:234-248``) so learning runs stay
+    Starter projects pin ``data_dir: data`` in their ``testerkit.yaml``
+    (see ``src/testerkit/init.py:234-248``) so learning runs stay
     project-local instead of polluting the shared global store.
-    ``litmus.yaml`` wins over ``LITMUS_HOME`` per the resolution
-    chain in ``src/litmus/data/data_dir.py``, so LITMUS_HOME here
+    ``testerkit.yaml`` wins over ``TESTERKIT_HOME`` per the resolution
+    chain in ``src/testerkit/data/data_dir.py``, so TESTERKIT_HOME here
     is a belt-and-braces isolation guard for any code path that
     falls through to the global default.
     """
     import os
 
     env = dict(os.environ)
-    env["LITMUS_HOME"] = str(home)
+    env["TESTERKIT_HOME"] = str(home)
     return env
 
 
-def _litmus(
+def _testerkit(
     *args: str, cwd: Path | None = None, home: Path | None = None
 ) -> subprocess.CompletedProcess:
-    env = _litmus_env(home) if home is not None else None
+    env = _testerkit_env(home) if home is not None else None
     return subprocess.run(
-        [_LITMUS_BIN, *args],
+        [_TESTERKIT_BIN, *args],
         cwd=cwd,
         capture_output=True,
         text=True,
@@ -57,7 +57,7 @@ def _litmus(
 
 
 def _pytest(*args: str, cwd: Path, home: Path | None = None) -> subprocess.CompletedProcess:
-    env = _litmus_env(home) if home is not None else None
+    env = _testerkit_env(home) if home is not None else None
     return subprocess.run(
         [_PYTEST_BIN, *args],
         cwd=cwd,
@@ -70,17 +70,17 @@ def _pytest(*args: str, cwd: Path, home: Path | None = None) -> subprocess.Compl
 
 @pytest.fixture()
 def starter_project(tmp_path: Path) -> tuple[Path, Path]:
-    """Create a starter project + isolated LITMUS_HOME, run its tests once.
+    """Create a starter project + isolated TESTERKIT_HOME, run its tests once.
 
     Returns ``(project_dir, home_dir)``. Starter pins ``data_dir:
-    data`` in litmus.yaml so parquet lands in
+    data`` in testerkit.yaml so parquet lands in
     ``project_dir / "data" / "runs" / .../*.parquet`` — read via the
     standard CLI / API surface, which auto-resolves the data dir
-    from the litmus.yaml in cwd ancestors.
+    from the testerkit.yaml in cwd ancestors.
     """
     home = tmp_path / "home"
     home.mkdir()
-    result = _litmus(
+    result = _testerkit(
         "init",
         "proj",
         "--starter",
@@ -91,7 +91,7 @@ def starter_project(tmp_path: Path) -> tuple[Path, Path]:
         home=home,
     )
     project = tmp_path / "proj"
-    assert result.returncode == 0, f"litmus init failed:\n{result.stderr}"
+    assert result.returncode == 0, f"testerkit init failed:\n{result.stderr}"
 
     result = _pytest("tests/", "-q", cwd=project, home=home)
     assert result.returncode == 0, f"pytest failed:\n{result.stdout}\n{result.stderr}"
@@ -99,14 +99,14 @@ def starter_project(tmp_path: Path) -> tuple[Path, Path]:
     # Pytest exits as soon as test functions return, but parquet
     # materialization happens in the runs daemon — which is only
     # spawned on first read from a RunsQuery / StepsQuery / etc. Poll
-    # `litmus runs` until it surfaces the row; that both triggers the
+    # `testerkit runs` until it surfaces the row; that both triggers the
     # daemon spawn AND verifies materialization has caught up.
-    # Otherwise downstream `litmus runs` / `litmus show` calls in the
+    # Otherwise downstream `testerkit runs` / `testerkit show` calls in the
     # individual tests race the materializer and see "No test runs
     # found."
     deadline = time.monotonic() + 30.0
     while time.monotonic() < deadline:
-        probe = _litmus("runs", cwd=project, home=home)
+        probe = _testerkit("runs", cwd=project, home=home)
         if probe.returncode == 0 and "STARTER001" in probe.stdout:
             break
         time.sleep(0.5)
@@ -124,7 +124,7 @@ class TestQuickstart:
 
     def test_init_creates_expected_structure(self, tmp_path: Path):
         project = tmp_path / "my_project"
-        result = _litmus(
+        result = _testerkit(
             "init",
             "my_project",
             "--starter",
@@ -135,23 +135,23 @@ class TestQuickstart:
         )
         assert result.returncode == 0
 
-        assert (project / "litmus.yaml").exists()
+        assert (project / "testerkit.yaml").exists()
         assert (project / "tests" / "test_example.py").exists()
         assert (project / "stations" / "starter_station.yaml").exists()
         assert (project / "parts" / "example_part.yaml").exists()
         assert (project / "fixtures" / "example_fixture.yaml").exists()
         assert (project / "pyproject.toml").exists()
 
-        cfg = yaml.safe_load((project / "litmus.yaml").read_text())
+        cfg = yaml.safe_load((project / "testerkit.yaml").read_text())
         assert cfg["name"] == "my_project"
         # Starter pins data_dir locally so learning runs stay out of
-        # the shared global store. See src/litmus/init.py:234-248.
+        # the shared global store. See src/testerkit/init.py:234-248.
         assert cfg["data_dir"] == "data"
 
     def test_starter_tests_pass_with_mocks(self, tmp_path: Path):
         home = tmp_path / "home"
         home.mkdir()
-        _litmus(
+        _testerkit(
             "init",
             "proj",
             "--starter",
@@ -168,7 +168,7 @@ class TestQuickstart:
 
     def test_results_stored_locally(self, starter_project: tuple[Path, Path]):
         project, _home = starter_project
-        # Starter writes to the project-local data dir (litmus.yaml's
+        # Starter writes to the project-local data dir (testerkit.yaml's
         # data_dir: data setting). The global store is left alone so
         # learning runs don't pollute it.
         runs_dir = project / "data" / "runs"
@@ -178,38 +178,38 @@ class TestQuickstart:
 
 
 class TestRunsAndShow:
-    """Verify litmus runs and litmus show produce correct output."""
+    """Verify testerkit runs and testerkit show produce correct output."""
 
     def test_runs_lists_results(self, starter_project: tuple[Path, Path]):
         project, home = starter_project
-        result = _litmus("runs", cwd=project, home=home)
+        result = _testerkit("runs", cwd=project, home=home)
         assert result.returncode == 0
         assert "STARTER001" in result.stdout
         assert "pass" in result.stdout
 
     def test_runs_shows_station(self, starter_project: tuple[Path, Path]):
         project, home = starter_project
-        result = _litmus("runs", cwd=project, home=home)
+        result = _testerkit("runs", cwd=project, home=home)
         assert "starter_station" in result.stdout
 
     def test_show_displays_run_details(self, starter_project: tuple[Path, Path]):
         project, home = starter_project
-        runs = _litmus("runs", cwd=project, home=home)
+        runs = _testerkit("runs", cwd=project, home=home)
         assert runs.returncode == 0
         run_id = runs.stdout.strip().split("\n")[-1].split()[0]
 
-        result = _litmus("show", run_id, cwd=project, home=home)
+        result = _testerkit("show", run_id, cwd=project, home=home)
         assert result.returncode == 0
         assert "Outcome: pass" in result.stdout
         assert "Measurements:" in result.stdout
 
     def test_show_no_none_values(self, starter_project: tuple[Path, Path]):
-        """Bug regression: litmus show must not print 'None' for unit/limits."""
+        """Bug regression: testerkit show must not print 'None' for unit/limits."""
         project, home = starter_project
-        runs = _litmus("runs", cwd=project, home=home)
+        runs = _testerkit("runs", cwd=project, home=home)
         run_id = runs.stdout.strip().split("\n")[-1].split()[0]
 
-        result = _litmus("show", run_id, cwd=project, home=home)
+        result = _testerkit("show", run_id, cwd=project, home=home)
         assert result.returncode == 0
         for line in result.stdout.split("\n"):
             if line.strip().startswith(("output_voltage:", "Measurements:")):
@@ -219,14 +219,14 @@ class TestRunsAndShow:
 
 
 class TestReindex:
-    """Verify litmus data reindex works."""
+    """Verify testerkit data reindex works."""
 
     def test_reindex_and_requery(self, starter_project: tuple[Path, Path]):
         project, home = starter_project
-        runs_before = _litmus("runs", cwd=project, home=home)
+        runs_before = _testerkit("runs", cwd=project, home=home)
         assert runs_before.returncode == 0
 
-        result = _litmus("data", "reindex", cwd=project, home=home)
+        result = _testerkit("data", "reindex", cwd=project, home=home)
         assert result.returncode == 0
         assert "rebuild" in result.stdout.lower()
 
@@ -236,7 +236,7 @@ class TestReindex:
         deadline = time.monotonic() + 30.0
         runs_after = None
         while time.monotonic() < deadline:
-            runs_after = _litmus("runs", cwd=project, home=home)
+            runs_after = _testerkit("runs", cwd=project, home=home)
             if runs_after.returncode == 0 and "STARTER001" in runs_after.stdout:
                 break
             time.sleep(0.5)
@@ -252,18 +252,18 @@ class TestMetricsAnalytics:
 
     def test_metrics_summary(self, starter_project: tuple[Path, Path]):
         project, home = starter_project
-        result = _litmus("metrics", "summary", "--phase", "all", cwd=project, home=home)
+        result = _testerkit("metrics", "summary", "--phase", "all", cwd=project, home=home)
         assert result.returncode == 0
         assert "Runs" in result.stdout or "FPY" in result.stdout or "No data" in result.stdout
 
     def test_metrics_pareto(self, starter_project: tuple[Path, Path]):
         project, home = starter_project
-        result = _litmus("metrics", "pareto", "--phase", "all", cwd=project, home=home)
+        result = _testerkit("metrics", "pareto", "--phase", "all", cwd=project, home=home)
         assert result.returncode == 0
 
     def test_metrics_ppk(self, starter_project: tuple[Path, Path]):
         project, home = starter_project
-        result = _litmus(
+        result = _testerkit(
             "metrics",
             "ppk",
             "--phase",
@@ -277,10 +277,10 @@ class TestMetricsAnalytics:
 
 
 class TestInitVariants:
-    """Verify litmus init works for non-starter projects."""
+    """Verify testerkit init works for non-starter projects."""
 
     def test_bare_init(self, tmp_path: Path):
-        result = _litmus(
+        result = _testerkit(
             "init",
             "bare",
             "--no-git",
@@ -291,17 +291,17 @@ class TestInitVariants:
         )
         project = tmp_path / "bare"
         assert result.returncode == 0
-        assert (project / "litmus.yaml").exists()
+        assert (project / "testerkit.yaml").exists()
 
-        cfg = yaml.safe_load((project / "litmus.yaml").read_text())
+        cfg = yaml.safe_load((project / "testerkit.yaml").read_text())
         assert cfg["name"] == "bare_proj"
         assert cfg.get("data_dir") is None
 
     def test_init_idempotent(self, tmp_path: Path):
-        _litmus("init", "idem", "--no-git", "--name", "first", cwd=tmp_path)
+        _testerkit("init", "idem", "--no-git", "--name", "first", cwd=tmp_path)
         project = tmp_path / "idem"
-        (project / "litmus.yaml").write_text("name: custom\n")
+        (project / "testerkit.yaml").write_text("name: custom\n")
 
-        _litmus("init", cwd=project)
-        cfg = yaml.safe_load((project / "litmus.yaml").read_text())
+        _testerkit("init", cwd=project)
+        cfg = yaml.safe_load((project / "testerkit.yaml").read_text())
         assert cfg["name"] == "custom"

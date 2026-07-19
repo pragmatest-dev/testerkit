@@ -1,4 +1,4 @@
-"""`litmus data promote` carries a run's referenced data — no dangling refs.
+"""`testerkit data promote` carries a run's referenced data — no dangling refs.
 
 Promotion is the *fine* portability grain: a run + the channel slices and files
 it references (reachability via the run's own ``out_*`` columns), not the whole
@@ -12,8 +12,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from litmus.cli import _copy_run_references
-from litmus.data.backends.parquet import extract_refs
+from testerkit.cli import _copy_run_references
+from testerkit.data.backends.parquet import extract_refs
 
 _SID = "abcdef1234567890"  # session_id; short = abcdef12
 _DATE = "2026-01-01"

@@ -2,8 +2,8 @@
 
 import pytest
 
-from litmus.instruments.base import Instrument
-from litmus.instruments.visa import VisaInstrument
+from testerkit.instruments.base import Instrument
+from testerkit.instruments.visa import VisaInstrument
 
 
 class TestInstrumentBase:

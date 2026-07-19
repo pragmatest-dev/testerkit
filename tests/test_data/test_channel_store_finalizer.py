@@ -20,15 +20,15 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.channels.store import ChannelStore
-from litmus.data.data_dir import resolve_data_dir
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.data_dir import resolve_data_dir
 
 
 @pytest.fixture(autouse=True)
 def _async_push(monkeypatch: pytest.MonkeyPatch) -> None:
     # The relay only exists when async push is on (the default); make it explicit
     # so this test is independent of the ambient env.
-    monkeypatch.delenv("LITMUS_CHANNELS_SYNC_PUSH", raising=False)
+    monkeypatch.delenv("TESTERKIT_CHANNELS_SYNC_PUSH", raising=False)
 
 
 def _serve_store() -> ChannelStore:
@@ -65,7 +65,7 @@ def test_finalizer_stops_pusher() -> None:
     store stays referenced through its in-process Flight/gRPC objects until
     ``close()``, so prompt collection is not deterministic across
     environments (it collects by refcount locally but not on a loaded CI
-    runner). The invariant Litmus owns is that the finalizer, once it fires,
+    runner). The invariant TesterKit owns is that the finalizer, once it fires,
     stops the thread — which this exercises without a GC dependency.
     """
     store = _serve_store()

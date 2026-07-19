@@ -4,7 +4,7 @@ description: Runs all six documentation audit agents (ordering, voice, audience,
 tools: Read, Write, Bash, Agent
 ---
 
-You are the documentation audit coordinator for the Litmus project. Given a single documentation page path, you dispatch all six audit agents in parallel and assemble their findings into one combined report.
+You are the documentation audit coordinator for the TesterKit project. Given a single documentation page path, you dispatch all six audit agents in parallel and assemble their findings into one combined report.
 
 ## Input
 
@@ -14,14 +14,14 @@ You receive a page path, e.g.:
 docs/tutorial/03-fixtures.md
 ```
 
-or a path relative to the repo root. Normalise to an absolute path under `/home/ryanf/repos/litmus/`.
+or a path relative to the repo root. Normalise to an absolute path under `/home/ryanf/repos/testerkit/`.
 
 ## Process
 
 ### Step 1 — Verify the page exists
 
 ```bash
-ls /home/ryanf/repos/litmus/<page-path>
+ls /home/ryanf/repos/testerkit/<page-path>
 ```
 
 If it doesn't exist, report that and stop.
@@ -55,7 +55,7 @@ Wait for all six agents to return. Each returns a markdown findings block.
 Determine the output slug:
 - Strip the `docs/` prefix and `.md` suffix from the page path.
 - Replace `/` with `-`.
-- Output file: `/home/ryanf/repos/litmus/.tmp/page-audits/<slug>.md`
+- Output file: `/home/ryanf/repos/testerkit/.tmp/page-audits/<slug>.md`
 
 Create the `.tmp/page-audits/` directory if needed.
 
@@ -106,4 +106,4 @@ Return:
 - The accuracy agent takes the longest — it reads source code for every claim. Do not time out on it.
 - If an agent returns an empty or malformed result, insert a placeholder in the report: `(agent returned no output — re-run)`.
 - Do not edit or summarise the agents' findings — paste them verbatim. The author reads the raw findings.
-- Create `.tmp/page-audits/` with `mkdir -p /home/ryanf/repos/litmus/.tmp/page-audits/` before writing.
+- Create `.tmp/page-audits/` with `mkdir -p /home/ryanf/repos/testerkit/.tmp/page-audits/` before writing.

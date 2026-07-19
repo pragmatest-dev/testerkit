@@ -14,10 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from litmus.data.models import Outcome
-from litmus.execution.harness import TestHarness
-from litmus.models.capability import RangeSpec
-from litmus.parts.context import PartContext
+from testerkit.data.models import Outcome
+from testerkit.execution.harness import TestHarness
+from testerkit.models.capability import RangeSpec
+from testerkit.parts.context import PartContext
 
 # Path to fixture specs (used for integration testing, not value assertions).
 # Lives under tests/fixtures so the e2e suite never depends on the layout
@@ -236,7 +236,7 @@ class TestHarnessSpecIntegration:
 
     def test_explicit_limit_overrides_spec(self):
         """Explicit limit parameter overrides spec-derived limit."""
-        from litmus.models.test_config import Limit
+        from testerkit.models.test_config import Limit
 
         spec = PartContext.from_file(SPEC_PATH)
 

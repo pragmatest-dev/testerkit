@@ -1,6 +1,6 @@
 """Tests for condition-aware matching (SpecBand, accuracy, resolution, compare modes)."""
 
-from litmus.matching.service import (
+from testerkit.matching.service import (
     CapabilityRequirement,
     StationCapability,
     _accuracy_sufficient,
@@ -8,7 +8,7 @@ from litmus.matching.service import (
     capability_satisfies,
     get_spec_at,
 )
-from litmus.models.capability import (
+from testerkit.models.capability import (
     AccuracySpec,
     Condition,
     Control,
@@ -20,8 +20,8 @@ from litmus.models.capability import (
     Signal,
     SpecBand,
 )
-from litmus.models.enums import Direction, MatchDepth, MeasurementFunction
-from litmus.models.part import PartCharacteristic
+from testerkit.models.enums import Direction, MatchDepth, MeasurementFunction
+from testerkit.models.part import PartCharacteristic
 
 
 def _spec_with_units(cond: object) -> RangeSpec | PointSpec | ListSpec:

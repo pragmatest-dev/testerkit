@@ -16,7 +16,7 @@ are unit-testable without a browser:
 
 from __future__ import annotations
 
-from litmus.ui.shared.components import _invoke_change_callback, _parse_emitted_utc
+from testerkit.ui.shared.components import _invoke_change_callback, _parse_emitted_utc
 
 
 class TestParseEmittedUtc:

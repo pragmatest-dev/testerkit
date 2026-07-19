@@ -1,0 +1,77 @@
+{
+  "uid": "testerkit-channel-explorer",
+  "title": "Channel Explorer",
+  "description": "Time-series visualization of instrument channel data by session",
+  "tags": ["testerkit"],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": { "from": "now-1d", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "channel",
+        "type": "query",
+        "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TESTERKIT}" },
+        "query": "SELECT DISTINCT source_method FROM channels WHERE value IS NOT NULL ORDER BY source_method",
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Scalar: $channel",
+      "type": "timeseries",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TESTERKIT}" },
+      "targets": [
+        {
+          "rawSql": "SELECT received_at AS time, value, session_id FROM channels WHERE source_method = '${channel}' AND value IS NOT NULL AND received_at BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10, "pointSize": 3 } } }
+    },
+    {
+      "id": 4,
+      "title": "Sessions for $channel",
+      "type": "table",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 12 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TESTERKIT}" },
+      "targets": [
+        {
+          "rawSql": "SELECT session_id, count(*) AS samples, round(avg(value), 4) AS mean, round(min(value), 4) AS min_val, round(max(value), 4) AS max_val, round(stddev(value), 4) AS stddev, min(received_at) AS first_sample, max(received_at) AS last_sample FROM channels WHERE source_method = '${channel}' AND value IS NOT NULL AND received_at BETWEEN '${__from:date}' AND '${__to:date}' GROUP BY session_id ORDER BY first_sample DESC",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Channel Statistics",
+      "type": "table",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 18 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TESTERKIT}" },
+      "targets": [
+        {
+          "rawSql": "SELECT source_method, count(*) AS samples, count(DISTINCT session_id) AS sessions, round(avg(value), 4) AS mean, round(min(value), 4) AS min_val, round(max(value), 4) AS max_val, round(stddev(value), 4) AS stddev FROM channels WHERE value IS NOT NULL AND received_at BETWEEN '${__from:date}' AND '${__to:date}' GROUP BY source_method ORDER BY samples DESC",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Channel Volume Over Time",
+      "type": "barchart",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 18 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TESTERKIT}" },
+      "targets": [
+        {
+          "rawSql": "SELECT date_trunc('hour', received_at) AS time, source_method, count(*) AS samples FROM channels WHERE received_at BETWEEN '${__from:date}' AND '${__to:date}' GROUP BY 1, 2 ORDER BY 1, 2",
+          "format": "table"
+        }
+      ],
+      "options": { "stacking": "normal", "legend": { "sortBy": "Name", "sortDesc": false } }
+    }
+  ],
+  "schemaVersion": 39
+}

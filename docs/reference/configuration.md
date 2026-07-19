@@ -1,6 +1,6 @@
 # Configuration reference
 
-Litmus uses YAML files for every config surface, validated by Pydantic models. This page enumerates the files, their canonical locations, and the shape of each. Most models reject unknown fields — typos like `descriptin:` fail the load with a clear error pointing at the offending key. (One exception: per-test `mocks:` entries deliberately allow arbitrary keys so they can be forwarded to the underlying mock.) Filename stems must match the `id:` field for id-keyed entities.
+TesterKit uses YAML files for every config surface, validated by Pydantic models. This page enumerates the files, their canonical locations, and the shape of each. Most models reject unknown fields — typos like `descriptin:` fail the load with a clear error pointing at the offending key. (One exception: per-test `mocks:` entries deliberately allow arbitrary keys so they can be forwarded to the underlying mock.) Filename stems must match the `id:` field for id-keyed entities.
 
 For the full field-by-field reference of each model, see [models.md](data/models.md). For deep-dive references on catalog YAML and profile resolution, see the dedicated pages linked from each section.
 
@@ -9,7 +9,7 @@ For the full field-by-field reference of each model, see [models.md](data/models
 <!-- GENERATED:configuration-file-index:start -->
 | File | Pydantic model | What it carries |
 |---|---|---|
-| `litmus.yaml` | [`ProjectConfig`](data/models.md#model-projectconfig) | Project root — names, defaults, profiles, multi-site knobs. |
+| `testerkit.yaml` | [`ProjectConfig`](data/models.md#model-projectconfig) | Project root — names, defaults, profiles, multi-site knobs. |
 | `stations/<id>.yaml` | [`StationConfig`](data/models.md#model-stationconfig) | Concrete station deployment — instruments, drivers, resources. |
 | `stations/types/<id>.yaml` | [`StationType`](data/models.md#model-stationtype) | Abstract station-type template — required roles, capabilities. |
 | `fixtures/<id>.yaml` | [`FixtureConfig`](data/models.md#model-fixtureconfig) | UUT-pin ↔ instrument-channel routing (single-UUT) or per-site routing (multi-UUT). |
@@ -18,7 +18,7 @@ For the full field-by-field reference of each model, see [models.md](data/models
 | `catalog/<vendor>/<model>.yaml` | [`InstrumentCatalogEntry`](data/models.md#model-instrumentcatalogentry) | Instrument capability catalog — see [the catalog schema](catalog/schema.md) for the full reference. |
 <!-- GENERATED:configuration-file-index:end -->
 
-## Project — `litmus.yaml` {#project-litmus-yaml}
+## Project — `testerkit.yaml` {#project-testerkit-yaml}
 
 The project root. Lives at the repo root; every other YAML resolves relative to it. Validated by [`ProjectConfig`](data/models.md#model-projectconfig).
 
@@ -367,16 +367,16 @@ Variant SKUs use a separate file with `base:` pointing at the parent — the loa
 
 ## Loading a YAML file
 
-Most loaders live in `litmus.store`:
+Most loaders live in `testerkit.store`:
 
 ```python
 from pathlib import Path
-from litmus.store import (
+from testerkit.store import (
     load_project, load_station, load_station_type,
     load_fixture, load_part, load_catalog_entry,
 )
 
-project = load_project(Path("litmus.yaml"))
+project = load_project(Path("testerkit.yaml"))
 station = load_station(Path("stations/bench_1.yaml"))
 ```
 
@@ -384,7 +384,7 @@ The sidecar loader is separate, because the sidecar is keyed by the **test modul
 
 ```python
 from pathlib import Path
-from litmus.execution.sidecar import load_sidecar
+from testerkit.execution.sidecar import load_sidecar
 
 sidecar = load_sidecar(Path("tests/test_power.py"))   # reads tests/test_power.yaml
 ```
@@ -402,5 +402,5 @@ Every loader raises with the offending field path on type / shape errors and a c
 - [Multi-UUT testing (how-to)](../how-to/execution/multi-uut-testing.md) — fixture `sites:` workflow
 - [Mock mode (how-to)](../how-to/configuration/mock-mode.md) — station `mock_config:` and sidecar `mocks:`
 - [Pytest-native (reference)](overview/pytest-native.md) — node IDs, marker surface
-- [Litmus markers (reference)](pytest/markers.md) — every marker with payload shape
+- [TesterKit markers (reference)](pytest/markers.md) — every marker with payload shape
 - [Fixtures (concept)](../concepts/configuration/fixtures.md) — design rationale for fixtures

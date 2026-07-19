@@ -2,8 +2,8 @@
 
 import pytest
 
-from litmus.instruments.route_manager import RouteConflictError, RouteManager
-from litmus.models.test_config import FixtureConnection, SwitchRoute
+from testerkit.instruments.route_manager import RouteConflictError, RouteManager
+from testerkit.models.test_config import FixtureConnection, SwitchRoute
 
 
 class FakeSwitch:
@@ -61,7 +61,7 @@ def _make_manager(connections=None, instruments=None, **kwargs):
 @pytest.fixture(autouse=True)
 def _use_tmp_lock_dir(tmp_path, monkeypatch):
     """Redirect lock dir to tmp_path for test isolation."""
-    monkeypatch.setenv("LITMUS_HOME", str(tmp_path / "litmus_home"))
+    monkeypatch.setenv("TESTERKIT_HOME", str(tmp_path / "testerkit_home"))
 
 
 class TestHasRoutes:
@@ -277,7 +277,7 @@ class TestSettling:
     def test_settling_time(self, monkeypatch):
         """Verify settling delay is applied."""
         sleep_calls: list[float] = []
-        monkeypatch.setattr("litmus.instruments.route_manager.time.sleep", sleep_calls.append)
+        monkeypatch.setattr("testerkit.instruments.route_manager.time.sleep", sleep_calls.append)
 
         connections = {
             "vout": FixtureConnection(
@@ -299,7 +299,7 @@ class TestSettling:
 
     def test_no_settling_when_zero(self, monkeypatch):
         sleep_calls: list[float] = []
-        monkeypatch.setattr("litmus.instruments.route_manager.time.sleep", sleep_calls.append)
+        monkeypatch.setattr("testerkit.instruments.route_manager.time.sleep", sleep_calls.append)
 
         rm = _make_manager()
         rm.activate("vout_measure")

@@ -1,10 +1,10 @@
-"""Tests for catalog recommendation mode of litmus_match."""
+"""Tests for catalog recommendation mode of testerkit_match."""
 
 from pathlib import Path
 from unittest.mock import patch
 
-from litmus.matching.service import recommend_from_catalog
-from litmus.models.capability import (
+from testerkit.matching.service import recommend_from_catalog
+from testerkit.models.capability import (
     AccuracySpec,
     Condition,
     InstrumentCapability,
@@ -13,8 +13,8 @@ from litmus.models.capability import (
     Signal,
     SpecBand,
 )
-from litmus.models.catalog import InstrumentCatalogEntry
-from litmus.models.enums import Direction, MeasurementFunction
+from testerkit.models.catalog import InstrumentCatalogEntry
+from testerkit.models.enums import Direction, MeasurementFunction
 
 
 def _make_entry(
@@ -91,14 +91,14 @@ FAKE_SCOPE = _make_entry(
 def _patch_catalog(entries: dict[str, InstrumentCatalogEntry]):
     """Patch catalog loading to return given entries."""
     return patch(
-        "litmus.store.load_catalog_from_directory",
+        "testerkit.store.load_catalog_from_directory",
         return_value=entries,
     )
 
 
 def _patch_dirs():
     return patch(
-        "litmus.store.find_catalog_dirs",
+        "testerkit.store.find_catalog_dirs",
         return_value=[Path("/fake/catalog")],
     )
 

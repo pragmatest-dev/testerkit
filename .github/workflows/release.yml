@@ -45,11 +45,11 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --all-extras --dev
-      - name: "Smoke: litmus init --starter"
+      - name: "Smoke: testerkit init --starter"
         run: |
           cd /tmp
-          uv run litmus init smoke_project --starter --no-git --name smoke_test
-          test -f /tmp/smoke_project/litmus.yaml
+          uv run testerkit init smoke_project --starter --no-git --name smoke_test
+          test -f /tmp/smoke_project/testerkit.yaml
           test -f /tmp/smoke_project/tests/test_example.py
           test -f /tmp/smoke_project/stations/starter_station.yaml
       - name: "Smoke: pytest with mock instruments"
@@ -58,14 +58,14 @@ jobs:
           uv run --project ${{ github.workspace }} pytest tests/ -q \
             --station=starter_station \
             --mock-instruments --uut-serial=SMOKE001
-      - name: "Smoke: litmus runs"
+      - name: "Smoke: testerkit runs"
         run: |
           cd /tmp/smoke_project
-          uv run --project ${{ github.workspace }} litmus runs 2>&1 | head -20
-      - name: "Smoke: litmus data reindex"
+          uv run --project ${{ github.workspace }} testerkit runs 2>&1 | head -20
+      - name: "Smoke: testerkit data reindex"
         run: |
           cd /tmp/smoke_project
-          uv run --project ${{ github.workspace }} litmus data reindex
+          uv run --project ${{ github.workspace }} testerkit data reindex
 
   upgrade-test:
     runs-on: ubuntu-latest
@@ -92,7 +92,7 @@ jobs:
           git checkout "$PREV_TAG"
           uv sync --all-extras --dev
           mkdir -p /tmp/upgrade_project
-          uv run litmus init /tmp/upgrade_project --starter --no-git --name upgrade_test || true
+          uv run testerkit init /tmp/upgrade_project --starter --no-git --name upgrade_test || true
           if [ -f /tmp/upgrade_project/tests/test_example.py ]; then
             cd /tmp/upgrade_project
             uv run --project ${{ github.workspace }} pytest tests/ -q \
@@ -103,20 +103,20 @@ jobs:
           git checkout "${GITHUB_REF_NAME}"
       - name: Install current and verify old data readable
         run: |
-          if [ ! -f /tmp/upgrade_project/litmus.yaml ]; then
+          if [ ! -f /tmp/upgrade_project/testerkit.yaml ]; then
             echo "No previous project — skipping"
             exit 0
           fi
           uv sync --all-extras --dev
-          uv run litmus data reindex --data-dir /tmp/upgrade_project/results || true
-          uv run litmus runs --data-dir /tmp/upgrade_project/results 2>&1 | head -20
+          uv run testerkit data reindex --data-dir /tmp/upgrade_project/results || true
+          uv run testerkit runs --data-dir /tmp/upgrade_project/results 2>&1 | head -20
 
   publish-pypi:
     needs: [build, correctness, smoke-test, upgrade-test]
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/litmus-test
+      url: https://pypi.org/p/testerkit
     permissions:
       id-token: write
     steps:

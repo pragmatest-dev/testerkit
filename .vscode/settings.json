@@ -4,7 +4,7 @@
             "previewLimit": 50,
             "driver": "DuckDB",
             "database": ":memory:",
-            "name": "Litmus Repo Results"
+            "name": "TesterKit Repo Results"
         }
     ],
     "sqltools.useNodeRuntime": true,

@@ -18,7 +18,7 @@
 | Auto-association of streams | "auto-observe on first write per vector" floated | **dropped** — `stream` and `observe` are strictly orthogonal | streams genuinely span vectors / sessions; auto-association would surprise |
 | Row timestamp column | `timestamp` (ambiguous) | **rename `timestamp` → `received_at`; add nullable `acquired_at`** | consistency with EventStore envelope; capture instrument-provided times when available |
 | FileStore typing | "attributes captured at put" (vague) | **MIME type + extension + attributes dict**, reusing existing format libraries | universal standard; don't reinvent encoders |
-| Consumer surface | implicit (UIs read events + Flight + range-read directly) | **new `litmus.live` SDK** wrapping all three subscription primitives | give consumers one ergonomic entry point |
+| Consumer surface | implicit (UIs read events + Flight + range-read directly) | **new `testerkit.live` SDK** wrapping all three subscription primitives | give consumers one ergonomic entry point |
 
 The remainder of this note expands each.
 
@@ -209,7 +209,7 @@ class FileArtifactMetadata:
     attributes: dict[str, Any]     # format-specific extras: width/height, duration, codec, …
 ```
 
-Standard IANA types cover most cases. T&M-specific formats need a small Litmus convention table for vendor / scientific types without registered MIMEs:
+Standard IANA types cover most cases. T&M-specific formats need a small TesterKit convention table for vendor / scientific types without registered MIMEs:
 
 | Format | MIME |
 |---|---|
@@ -295,7 +295,7 @@ Channels earn their weight specifically for **live + queryable + high-rate**. Dr
 
 ---
 
-## Consumer SDK — `litmus.live`
+## Consumer SDK — `testerkit.live`
 
 > **New surface.** v1 had "events as the spine" abstractly; this gives consumers (UIs, MCP tools, external integrations, custom dashboards) one place to subscribe / dereference, regardless of underlying store.
 
@@ -313,7 +313,7 @@ Channels earn their weight specifically for **live + queryable + high-rate**. Dr
 ### Three subscription primitives
 
 ```python
-from litmus.live import LiveClient, EventFilter
+from testerkit.live import LiveClient, EventFilter
 
 client = LiveClient.connect(url="http://localhost:8000")
 
@@ -355,7 +355,7 @@ img = client.deref("file://_ref/front.png")
 |---|---|---|
 | Stores | `ChannelStore.write/query`, `FileStore.put/range_read`, `EventLog.emit` | platform-internal |
 | Verbs (writes) | `observe` / `verify` / `stream`, `observer.read`, `channels.*`, `filestore.*` | producers |
-| **Consumer SDK (reads)** | `litmus.live.LiveClient` | **consumers** |
+| **Consumer SDK (reads)** | `testerkit.live.LiveClient` | **consumers** |
 | Transport | Arrow Flight, HTTP + range, IPC | platform-internal |
 
 The SDK is the read-side counterpart to the verbs. Verbs make writing ergonomic without exposing the stores; the SDK makes reading ergonomic without exposing the stores.
@@ -379,12 +379,12 @@ The baseline's items 1–9 (MVP) and 10–12 (long-term) still stand. This adds 
 15. **`observe` / `verify` accept references** — channel handle, file URI, Path-already-in-FileStore. Recognize and stamp the claim without re-write/re-store.
 16. **Sharpen the dispatch policy** (modifies baseline item 6): channel-shaped numerics → ChannelStore; arbitrary bytes/formats → FileStore. `Waveform` → ChannelStore as ARRAY_SCHEMA row.
 17. **Rename ChannelStore row `timestamp` → `received_at`**; add nullable `acquired_at`. Pre-1.0 mechanical rename + one new column on both schemas.
-18. **FileStore typing: MIME + extension + attributes dict**. Add the Litmus MIME convention table for vendor formats (NPZ, NPY, TDMS, pickle).
+18. **FileStore typing: MIME + extension + attributes dict**. Add the TesterKit MIME convention table for vendor formats (NPZ, NPY, TDMS, pickle).
 19. **Format library reuse for FileStore streaming sinks.** Wrap PyAV / soundfile / tifffile / nptdms / h5py / pyarrow rather than implementing encoders. Extend the serializer registry contract with `open_writer(...)` for streaming.
 
 ### New long-term items
 
-20. **Consumer SDK (`litmus.live`)** — typed event objects, `subscribe_events` / `subscribe_channel` / `subscribe_file` / `subscribe_run_live` / `deref`. Hides transport + URI dispatch; doesn't hide data shape.
+20. **Consumer SDK (`testerkit.live`)** — typed event objects, `subscribe_events` / `subscribe_channel` / `subscribe_file` / `subscribe_run_live` / `deref`. Hides transport + URI dispatch; doesn't hide data shape.
 
 ### Naming smell flagged (not blocking)
 

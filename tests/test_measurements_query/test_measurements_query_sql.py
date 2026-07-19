@@ -1,6 +1,6 @@
 """Unit tests for MeasurementsQuery SQL correctness.
 
-Uses the canonical singleton runs daemon (the only one a Litmus
+Uses the canonical singleton runs daemon (the only one a TesterKit
 process should ever talk to). Each fixture writes synthetic
 measurement parquets into the canonical runs dir under a unique
 ``uut_part_number`` so every aggregation can scope to this test's
@@ -17,7 +17,7 @@ from uuid import uuid4
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.analysis.measurement_facets import (
+from testerkit.analysis.measurement_facets import (
     ColumnSchema,
     FieldRef,
     FilterSet,
@@ -25,12 +25,12 @@ from litmus.analysis.measurement_facets import (
     LimitBandRow,
     ParametricRow,
 )
-from litmus.analysis.measurements_query import MeasurementsQuery
-from litmus.analysis.metrics import calculate_fpy, calculate_ppk
-from litmus.data.backends._row_helpers import RunParquetRow
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.run_store import RunStore
-from litmus.data.schemas import _build_write_schema, table_from_rows
+from testerkit.analysis.measurements_query import MeasurementsQuery
+from testerkit.analysis.metrics import calculate_fpy, calculate_ppk
+from testerkit.data.backends._row_helpers import RunParquetRow
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.run_store import RunStore
+from testerkit.data.schemas import _build_write_schema, table_from_rows
 
 
 def _meas_struct(

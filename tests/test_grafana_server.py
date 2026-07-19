@@ -18,8 +18,8 @@ from uuid import uuid4
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from litmus.data.schemas import RUN_ROW_SCHEMA
-from litmus.grafana.server import create_connection
+from testerkit.data.schemas import RUN_ROW_SCHEMA
+from testerkit.grafana.server import create_connection
 
 _TS = datetime(2026, 6, 25, 12, 0, tzinfo=UTC)
 

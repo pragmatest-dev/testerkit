@@ -164,7 +164,7 @@ implementation detail.**
 Phase 5 does not land until every row here is demonstrably preserved (benchmark
 ratios + the channels test suite green, Phase 7).
 
-## Channel baseline — before the cutover (`litmus benchmark`, WSL2, trust ratios)
+## Channel baseline — before the cutover (`testerkit benchmark`, WSL2, trust ratios)
 
 Captured on `spike/streaming-unification` with channels still on
 `ChannelFlightServer` (Intel Ultra 9 275HX, 24c, duckdb 1.5.0, pyarrow 23.0.0):
@@ -174,7 +174,7 @@ Captured on `spike/streaming-unification` with channels still on
 - channels concurrent-write capacity: 7.28k → 9.04k → 10.1k /s (1/2/4 writers),
   scaling 0.35.
 
-The cutover re-runs the same `litmus benchmark` and compares. Note: this guards
+The cutover re-runs the same `testerkit benchmark` and compares. Note: this guards
 the producer write/query path (what the channel-optimization work tracked); the
 daemon-side live-subscribe filter cost is not in this benchmark — exercise it
 separately if a number looks off.
@@ -220,7 +220,7 @@ lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
 ## Phase plan
 
 0. **Design contract** (this doc). Committed.
-1. **Extract `PushRelay`** — `src/litmus/data/_push_relay.py`, generic over
+1. **Extract `PushRelay`** — `src/testerkit/data/_push_relay.py`, generic over
    item type + a `coalesce(items)->[(descriptor, table)]` hook + a
    `descriptor_for`/group key (channels → `channel_id`; files → constant).
    Keep files' explicit drop-oldest+count. Collapse `_FrameRelay` and
@@ -228,7 +228,7 @@ lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
    *Lowest blast radius — no shared-server change.*
 2. **`StreamTuning`** — collect the 9 knobs; plumb `flush_interval`; both
    relays + writers read it; surface `flush_threshold`/`flush_interval`
-   toward `litmus.yaml`.
+   toward `testerkit.yaml`.
 3. **Replay-derived overflow + drain-coalesce in `DuckDBFlightServer`** — replace
    the plain `queue.Queue` subscriber with a buffer that:
    - **drain-coalesces on read for ALL subscribers** (one read drains every
@@ -263,7 +263,7 @@ lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
    liveness probe; `probe_flights` deleted). `ChannelClient` rewired.
 
    **Two perf regressions caught by `scripts/bench_channel_scaling.py` (before/
-   after; the bundled `litmus benchmark` sweep doesn't cover write_many/stream)
+   after; the bundled `testerkit benchmark` sweep doesn't cover write_many/stream)
    and fixed — the shared server now beats the bespoke one on every write mode:**
    - *Per-batch `_absorb_descriptor`* killed `ingest_batch`'s columnar fast path
      (empty `_registry` → not-scalar → slow per-row path) and churned
@@ -286,7 +286,7 @@ lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
    files' client-close + daemon-release) — no copies of the loop. Removes the
    triplicated thread/stop/try-except boilerplate and the drift between the three.
 7. **Benchmark + docs** — **DONE.** `scripts/bench_channel_scaling.py`
-   before/after (the bundled `litmus benchmark` sweep doesn't cover
+   before/after (the bundled `testerkit benchmark` sweep doesn't cover
    write_many/stream — recorded as a follow-up). Result: shared server beats the
    pre-everything original on every write mode (write_many 154→205k, stream
    150→198k, write scales further). Full suite green: **2084 passed, 17 skipped**.
@@ -320,7 +320,7 @@ lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
   own-IPC-file, ~4×) path — the daemon path has never hit that. Fixing it =
   parallel daemon ingest (per-channel ingest shards / multiple cursors /
   lock-free index append), the open work in `channels-write-scaling.md`.
-- **`litmus benchmark` concurrent sweep only covers `channels.write`.** The
+- **`testerkit benchmark` concurrent sweep only covers `channels.write`.** The
   per-store concurrent-write sweep (`runner.py` `sweep_specs`) measures
   `channels.write` only — NOT `channels.write_many` or the `stream` sink, the
   high-throughput batched paths. The Phase 5 cutover regressed write_many/stream
@@ -330,7 +330,7 @@ lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
   command guards every write path. Until then, run `bench_channel_scaling.py`
   whenever the producer push / daemon do_put / liveness-probe path changes.
 - **Merge worktrees back, return to files.** This effort runs in the
-  `litmus-streaming` worktree off `spike/session-overhaul`. When it lands, merge
+  `testerkit-streaming` worktree off `spike/session-overhaul`. When it lands, merge
   the worktrees back together and resume the files-store work.
 - **Files streaming perf gate is not trusted.**
   `test_perf.py::TestFileStreamPerf::test_stream_raw_near_io_ceiling` is

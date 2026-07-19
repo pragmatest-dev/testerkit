@@ -34,12 +34,12 @@ from uuid import uuid4
 import numpy as np
 import pytest
 
-from litmus.data.channels.store import ChannelStore
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.files import _reset_for_tests, get_filestore
-from litmus.data.models import Waveform
-from litmus.data.ref import classify_value
-from litmus.execution.harness import Context, TestHarness
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.files import _reset_for_tests, get_filestore
+from testerkit.data.models import Waveform
+from testerkit.data.ref import classify_value
+from testerkit.execution.harness import Context, TestHarness
 
 
 @pytest.fixture(autouse=True)
@@ -293,7 +293,7 @@ class TestVerifyNamespaceKwargAccepted:
         is deferred to a follow-up PR per the C3a scope decision; this
         PR only locks the signature so the kwarg is callable.
         """
-        from litmus.execution.verify import VerifyFn
+        from testerkit.execution.verify import VerifyFn
 
         # Protocol __call__ has the namespace parameter in its
         # signature (the type system check). Inspect via the

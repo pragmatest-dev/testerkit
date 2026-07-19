@@ -18,11 +18,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.data.backends._row_helpers import encode_lane_structs
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.ref import make_channel_uri
-from litmus.data.run_store import RunStore
-from litmus.data.schemas import RUN_ROW_SCHEMA
+from testerkit.data.backends._row_helpers import encode_lane_structs
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.ref import make_channel_uri
+from testerkit.data.run_store import RunStore
+from testerkit.data.schemas import RUN_ROW_SCHEMA
 
 
 def _dt(iso: str) -> datetime:

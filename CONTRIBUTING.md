@@ -1,6 +1,6 @@
-# Contributing to Litmus
+# Contributing to TesterKit
 
-This guide is for developers who want to contribute to Litmus itself. It provides a deep-dive into the architecture, key abstractions, and how the major systems interact.
+This guide is for developers who want to contribute to TesterKit itself. It provides a deep-dive into the architecture, key abstractions, and how the major systems interact.
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ This guide is for developers who want to contribute to Litmus itself. It provide
 
 ## Architecture Overview
 
-Litmus is a **hardware test platform** organized into distinct subsystems:
+TesterKit is a **hardware test platform** organized into distinct subsystems:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -72,7 +72,7 @@ Litmus is a **hardware test platform** organized into distinct subsystems:
 
 ### The Context Hierarchy
 
-The `Context` class (`litmus/execution/harness.py`) is the user-facing API for test functions. It provides scoped inheritance:
+The `Context` class (`testerkit/execution/harness.py`) is the user-facing API for test functions. It provides scoped inheritance:
 
 ```
 Run Context          (session-wide metadata)
@@ -112,14 +112,14 @@ class Context:
 
 Test vectors are defined in config and drive test looping. They are a subset of the context a test receives.
 
-- **Vector** (`litmus/execution/vectors.py`): A dict subclass representing one parameter set from config. The harness expands and iterates over these internally.
-- **Context** (`litmus/execution/harness.py`): The user-facing API that test functions receive. Contains vector params plus inherited run/step data, observations, and access to limits.
+- **Vector** (`testerkit/execution/vectors.py`): A dict subclass representing one parameter set from config. The harness expands and iterates over these internally.
+- **Context** (`testerkit/execution/harness.py`): The user-facing API that test functions receive. Contains vector params plus inherited run/step data, observations, and access to limits.
 
 When using the pytest-native `context` fixture, you get a fully-populated `Context` for the active vector. When using `TestHarness` directly, you iterate `Vector` objects and must use `run_vector()` to construct each vector-level context (which auto-populates vector params into it).
 
 ### TestHarness
 
-The `TestHarness` class (`litmus/execution/harness.py`) is the core orchestration engine. It:
+The `TestHarness` class (`testerkit/execution/harness.py`) is the core orchestration engine. It:
 
 1. **Expands vectors** from config (part, zip, nested, range)
 2. **Manages iteration** with `changed()` tracking across vectors
@@ -155,7 +155,7 @@ class TestHarness:
 
 ### pytest-native Fixtures
 
-The pytest plugin (`litmus/pytest_plugin.py`) exposes the user-facing API
+The pytest plugin (`testerkit/pytest_plugin.py`) exposes the user-facing API
 as a set of fixtures. A test function's signature declares which it wants:
 
 - `context` — current-vector `Context` (params, observations, change tracking)
@@ -173,7 +173,7 @@ via `when:`) → active part spec → unchecked.
 
 ### Data Models
 
-The result hierarchy (`litmus/data/models.py`):
+The result hierarchy (`testerkit/data/models.py`):
 
 ```
 TestRun
@@ -231,7 +231,7 @@ limits:
 
 ### SpecContext (Spec-Driven Testing)
 
-`SpecContext` (`litmus/parts/context.py`) bridges part specifications and test execution:
+`SpecContext` (`testerkit/parts/context.py`) bridges part specifications and test execution:
 
 ```python
 class SpecContext:
@@ -325,7 +325,7 @@ Context created for vector
 
 ## Module Guide
 
-### litmus/execution/
+### testerkit/execution/
 
 The core test execution engine.
 
@@ -340,7 +340,7 @@ The core test execution engine.
 
 **Entry point**: `plugin.py` registers with pytest and provides fixtures that create harnesses and loggers.
 
-### litmus/config/
+### testerkit/config/
 
 Configuration models and loading.
 
@@ -355,7 +355,7 @@ Configuration models and loading.
 - `RetryConfig` - Retry behavior settings
 - `VectorConfig` - Vector expansion configuration
 
-### litmus/data/
+### testerkit/data/
 
 Data models and storage backends.
 
@@ -366,7 +366,7 @@ Data models and storage backends.
 
 **Parquet schema**: Results are flattened to rows per measurement with `in_*` and `out_*` columns for context.
 
-### litmus/instruments/
+### testerkit/instruments/
 
 Instrument drivers and mocks.
 
@@ -379,7 +379,7 @@ Instrument drivers and mocks.
 
 **Mock system**: `Mock(DMM, measure_voltage=3.3)` creates a mock that inherits from DMM, passes isinstance checks, and returns configured values.
 
-### litmus/parts/
+### testerkit/parts/
 
 Part specification system.
 
@@ -390,16 +390,16 @@ Part specification system.
 | `loader.py` | YAML loading for part specs |
 | `limits.py` | derive_limit() function |
 
-### litmus/mcp/
+### testerkit/mcp/
 
 MCP server for AI integration.
 
 | File | Purpose |
 |------|---------|
 | `server.py` | FastMCP server definition |
-| `tools.py` | Tool implementations (litmus, discover, match, run, open) |
+| `tools.py` | Tool implementations (testerkit, discover, match, run, open) |
 
-### litmus/ui/
+### testerkit/ui/
 
 NiceGUI operator interface.
 
@@ -409,7 +409,7 @@ NiceGUI operator interface.
 | `shared/` | Layout, components, dialogs |
 | `static/` | CSS assets |
 
-### litmus/api/
+### testerkit/api/
 
 HTTP API endpoints.
 
@@ -424,9 +424,9 @@ HTTP API endpoints.
 
 ### Adding a New Instrument Driver
 
-1. Create `litmus/instruments/new_instrument.py`:
+1. Create `testerkit/instruments/new_instrument.py`:
 ```python
-from litmus.instruments.visa import VisaInstrument
+from testerkit.instruments.visa import VisaInstrument
 
 class NewInstrument(VisaInstrument):
     def measure_something(self) -> float:
@@ -450,7 +450,7 @@ _register_scpi_mapping(
 3. Add to driver lookup in `plugin.py`:
 ```python
 def _get_driver_class(instrument_type: str):
-    from litmus.instruments import NewInstrument
+    from testerkit.instruments import NewInstrument
     drivers = {
         # ...
         "new_instrument": NewInstrument,
@@ -481,7 +481,7 @@ if expand_mode == "custom":
 
 ### Adding a New Storage Backend
 
-1. Create `litmus/data/backends/new_backend.py`:
+1. Create `testerkit/data/backends/new_backend.py`:
 ```python
 class NewBackend:
     def save_test_run(self, test_run: TestRun) -> str:
@@ -508,7 +508,7 @@ def new_tool_impl(arg1: str, arg2: int) -> dict[str, Any]:
 
 2. Register in `mcp/server.py`:
 ```python
-@mcp.tool(name="litmus_new")
+@mcp.tool(name="testerkit_new")
 def new_tool(arg1: str, arg2: int) -> dict[str, Any]:
     """Tool description for AI agents."""
     return new_tool_impl(arg1, arg2)
@@ -524,7 +524,7 @@ def new_tool(arg1: str, arg2: int) -> dict[str, Any]:
 # Clone and install with all optional extras (pyright needs these installed
 # to resolve imports for the exporters, transports, grafana, etc.)
 git clone <repo>
-cd litmus
+cd testerkit
 uv sync --all-extras
 
 # Install the pre-commit hooks once per clone. Hooks run ruff check,
@@ -535,7 +535,7 @@ uv run pre-commit install
 pytest
 
 # Run with coverage
-pytest --cov=litmus
+pytest --cov=testerkit
 
 # Lint, format, type-check (all run by the pre-commit hook too)
 uv run ruff check .
@@ -562,10 +562,10 @@ pytest tests/ --station=demo_station_001 --mock-instruments -v
 **Integration testing**:
 ```bash
 # Start UI
-litmus serve --reload
+testerkit serve --reload
 
 # Run MCP server
-litmus mcp serve
+testerkit mcp serve
 ```
 
 ### Code Style Guidelines

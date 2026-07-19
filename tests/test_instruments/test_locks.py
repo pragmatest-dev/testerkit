@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.instruments.locks import (
+from testerkit.instruments.locks import (
     ResourceInUse,
     ResourceMeta,
     acquire_resource,
@@ -19,7 +19,7 @@ from litmus.instruments.locks import (
 @pytest.fixture(autouse=True)
 def _use_tmp_lock_dir(tmp_path, monkeypatch):
     """Redirect lock dir to tmp_path for test isolation."""
-    monkeypatch.setenv("LITMUS_HOME", str(tmp_path / "litmus_home"))
+    monkeypatch.setenv("TESTERKIT_HOME", str(tmp_path / "testerkit_home"))
 
 
 def _meta(**overrides) -> ResourceMeta:

@@ -10,9 +10,9 @@ import pyarrow as pa
 import pyarrow.ipc as ipc
 import pytest
 
-from litmus.data._event_reader import EventReader, find_session_log
-from litmus.data.event_log import _IPC_SCHEMA
-from litmus.data.events import TYPED_PAYLOAD_COLUMNS
+from testerkit.data._event_reader import EventReader, find_session_log
+from testerkit.data.event_log import _IPC_SCHEMA
+from testerkit.data.events import TYPED_PAYLOAD_COLUMNS
 
 
 @pytest.fixture

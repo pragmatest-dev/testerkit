@@ -1,6 +1,6 @@
 # FileStore Schema
 
-Litmus persists non-numeric artifacts (images, waveforms, data logs, vendor files) as opaque blobs in the FileStore. Each blob is paired with a JSON sidecar that describes the artifact. This page covers the on-disk layout, the URI format, and every field of the sidecar.
+TesterKit persists non-numeric artifacts (images, waveforms, data logs, vendor files) as opaque blobs in the FileStore. Each blob is paired with a JSON sidecar that describes the artifact. This page covers the on-disk layout, the URI format, and every field of the sidecar.
 
 ## On-disk layout
 
@@ -83,7 +83,7 @@ Example sidecar:
 
 ## MIME convention
 
-The MIME type in the sidecar follows the Litmus serialization table. Each value type maps to a fixed MIME:
+The MIME type in the sidecar follows the TesterKit serialization table. Each value type maps to a fixed MIME:
 
 | Python type | Extension | MIME |
 |-------------|-----------|------|
@@ -103,7 +103,7 @@ For `Path` values, the extension on disk follows the source file's suffix, not t
 ## Reading sidecars in Python
 
 ```python
-from litmus.data.files import FileStore, FileArtifactMetadata
+from testerkit.data.files import FileStore, FileArtifactMetadata
 
 store = FileStore()
 
@@ -121,7 +121,7 @@ To read a sidecar directly from disk without going through the store:
 ```python
 import json
 from pathlib import Path
-from litmus.data.files import FileArtifactMetadata
+from testerkit.data.files import FileArtifactMetadata
 
 sidecar_path = Path("data/files/2026-06-28/my-session/artifact.bin.meta.json")
 meta = FileArtifactMetadata.model_validate_json(sidecar_path.read_bytes())

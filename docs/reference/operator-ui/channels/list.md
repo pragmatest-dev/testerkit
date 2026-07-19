@@ -2,7 +2,7 @@
 
 **URL:** `/channels`
 
-Every channel Litmus has seen — streaming numeric / array signals
+Every channel TesterKit has seen — streaming numeric / array signals
 captured during test runs (scope traces, PSU readback, sensor logs).
 Each row shows a live sparkline of the last 50 samples and the
 latest value; values update in place as new samples arrive. Click a
@@ -51,7 +51,7 @@ or instrument observers)."
 
 Channel samples are stored separately from runs and measurements.
 Programmatic access goes through `ChannelStore`
-(`from litmus.data.channels.store import ChannelStore`); there is no
+(`from testerkit.data.channels.store import ChannelStore`); there is no
 first-class CLI equivalent today.
 
 ## Common tasks

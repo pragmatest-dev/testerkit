@@ -10,11 +10,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from litmus.ui.shared import services
+from testerkit.ui.shared import services
 
 
 class _FakeRunsQuery:
-    """Stand-in for ``litmus.analysis.runs_query.RunsQuery``.
+    """Stand-in for ``testerkit.analysis.runs_query.RunsQuery``.
 
     The helper calls the protected ``_query_dicts`` method directly —
     the comment in services.py marks this as the documented escape
@@ -36,7 +36,7 @@ class _FakeRunsQuery:
 
 
 def _install_fake(monkeypatch, payload: list[dict[str, Any]]) -> None:
-    import litmus.analysis.runs_query as rq
+    import testerkit.analysis.runs_query as rq
 
     monkeypatch.setattr(rq, "RunsQuery", lambda *_a, **_kw: _FakeRunsQuery(payload))
 

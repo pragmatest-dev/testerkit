@@ -1,10 +1,10 @@
 # Build a custom operator UI page
 
-Litmus ships its operator UI (`/results`, `/channels`, `/metrics`, ...) as NiceGUI pages. You can add your own page — a bring-up panel, a fixture-specific control screen, a live dashboard for one station — using the same layout primitives and live-update pattern the built-in pages use, without touching Litmus internals.
+TesterKit ships its operator UI (`/results`, `/channels`, `/metrics`, ...) as NiceGUI pages. You can add your own page — a bring-up panel, a fixture-specific control screen, a live dashboard for one station — using the same layout primitives and live-update pattern the built-in pages use, without touching TesterKit internals.
 
 ```python
 from nicegui import ui
-from litmus.ui import page_layout, page_header, data_table, format_datetime
+from testerkit.ui import page_layout, page_header, data_table, format_datetime
 
 @ui.page("/my-bringup")
 def my_panel():
@@ -20,11 +20,11 @@ def my_panel():
         )
 ```
 
-> **Prerequisites.** A working Litmus project (`litmus.yaml`, a station YAML if you're connecting to hardware) and NiceGUI installed (it ships with `litmus-test`). A custom page is a plain Python script — `@ui.page` registers a route the moment the module runs, no `litmus serve` plugin hook required.
+> **Prerequisites.** A working TesterKit project (`testerkit.yaml`, a station YAML if you're connecting to hardware) and NiceGUI installed (it ships with `testerkit`). A custom page is a plain Python script — `@ui.page` registers a route the moment the module runs, no `testerkit serve` plugin hook required.
 
 ## Step 1: Lay out the page with the shared primitives
 
-`litmus.ui` re-exports the primitives the built-in pages are built from, so a custom page matches the site's look without reimplementing it:
+`testerkit.ui` re-exports the primitives the built-in pages are built from, so a custom page matches the site's look without reimplementing it:
 
 - `page_layout()` — the viewport-bound flex-column shell every page with a scrolling table sits in.
 - `page_header(title, *, icon=None, badge=None, actions=None)` — the icon + title strip at the top of the page, with optional badge and right-aligned action buttons.
@@ -32,21 +32,21 @@ def my_panel():
 - `format_datetime(dt)` — renders a UTC timestamp as an HTML span that converts to the browser's local time on load. Stored data stays UTC; only display localizes.
 
 ```python
-from litmus.ui import page_layout, page_header, data_table, format_datetime
+from testerkit.ui import page_layout, page_header, data_table, format_datetime
 ```
 
-Import from `litmus.ui`, not the deeper `litmus.ui.shared.components` path — the deep path is the form the built-in pages themselves use and can move; `litmus.ui` is the stable custom-UI surface.
+Import from `testerkit.ui`, not the deeper `testerkit.ui.shared.components` path — the deep path is the form the built-in pages themselves use and can move; `testerkit.ui` is the stable custom-UI surface.
 
 ## Step 2: Show live channel data safely
 
-Litmus's live data (channel samples, session/instrument events) arrives on background gRPC Flight reader threads, not on NiceGUI's event loop. NiceGUI elements may only be touched from the event loop, so the rule for any live view is:
+TesterKit's live data (channel samples, session/instrument events) arrives on background gRPC Flight reader threads, not on NiceGUI's event loop. NiceGUI elements may only be touched from the event loop, so the rule for any live view is:
 
 > **Only the event loop touches a NiceGUI element.**
 
-`litmus.ui.channel_data(channel_id)` gives you a subscribable handle that already does this marshaling for you — `bind_channel_store` (called once, at startup) bridges the station's `ChannelStore` onto a per-channel [NiceGUI `Event`](https://nicegui.io/documentation/generic_events), and every sample delivered through it lands on the UI event loop. That's safe enough to mutate a single element directly inside the callback:
+`testerkit.ui.channel_data(channel_id)` gives you a subscribable handle that already does this marshaling for you — `bind_channel_store` (called once, at startup) bridges the station's `ChannelStore` onto a per-channel [NiceGUI `Event`](https://nicegui.io/documentation/generic_events), and every sample delivered through it lands on the UI event loop. That's safe enough to mutate a single element directly inside the callback:
 
 ```python
-from litmus.ui import channel_data
+from testerkit.ui import channel_data
 
 reading = ui.label("No reading")
 
@@ -63,7 +63,7 @@ Once you're painting more than a single element per sample — a table of channe
 ```python
 from dataclasses import dataclass
 from nicegui import ui
-from litmus.ui import channel_data
+from testerkit.ui import channel_data
 
 @dataclass
 class _Row:
@@ -87,19 +87,19 @@ def _render():
 ui.timer(0.25, _render)
 ```
 
-The callback never touches an element; the timer is the only renderer. This is the shape `src/litmus/ui/components/channel_values.py` uses for the operator UI's live channel-values panel — reach for it as the reference implementation once your page has more than one live element.
+The callback never touches an element; the timer is the only renderer. This is the shape `src/testerkit/ui/components/channel_values.py` uses for the operator UI's live channel-values panel — reach for it as the reference implementation once your page has more than one live element.
 
 Don't reach for `bind_text_from(data, "latest", ...)` — the channel `Event` handle has no `.latest` attribute to bind to; it's a pure pub/sub emitter, not a value holder. Subscribe with `.subscribe(callback)` as shown above.
 
 ## Step 3: Wire up a station for live data and control
 
-`litmus.connect(station_id)` returns a `StationConnection` — the same connection object pytest uses under the hood, usable directly in a NiceGUI app:
+`testerkit.connect(station_id)` returns a `StationConnection` — the same connection object pytest uses under the hood, usable directly in a NiceGUI app:
 
 ```python
-import litmus
-from litmus.ui import bind_channel_store
+import testerkit
+from testerkit.ui import bind_channel_store
 
-station = litmus.connect("bench_01", mock=True)
+station = testerkit.connect("bench_01", mock=True)
 station.start()
 if station.channel_store:
     bind_channel_store(station.channel_store)   # once, at startup
@@ -115,11 +115,11 @@ Stop the station on shutdown (`app.on_shutdown` → `station.stop()`) so the ses
 
 ## Reading channel data outside a page context
 
-`litmus.ui.channel_data` requires `bind_channel_store` to have bridged the store first, and its subscription is UI-loop-scoped. For a script, notebook, or any code path that isn't a NiceGUI page, use the store-direct functions in `litmus.channels` instead — `channels.latest`, `channels.live`, `channels.window` (see [Stream continuous instrument data](../data/stream-live-channel.md)). Their callbacks deliver on the raw background reader thread with no marshaling, so if you call them from inside a page, treat the callback as background work: write a holder, paint from a `ui.timer`, exactly as in Step 2 — never set an element directly from one of their callbacks.
+`testerkit.ui.channel_data` requires `bind_channel_store` to have bridged the store first, and its subscription is UI-loop-scoped. For a script, notebook, or any code path that isn't a NiceGUI page, use the store-direct functions in `testerkit.channels` instead — `channels.latest`, `channels.live`, `channels.window` (see [Stream continuous instrument data](../data/stream-live-channel.md)). Their callbacks deliver on the raw background reader thread with no marshaling, so if you call them from inside a page, treat the callback as background work: write a holder, paint from a `ui.timer`, exactly as in Step 2 — never set an element directly from one of their callbacks.
 
 ## The full worked example
 
-`examples/interactive_station.py` is the complete station-monitor-and-control page: instrument cards with live readback + set-and-apply controls, a scope waveform card, an instrument-activity log, and a session table — all built from `litmus.connect`, `bind_channel_store`, `channel_data`, and the shared components above. Run it directly:
+`examples/interactive_station.py` is the complete station-monitor-and-control page: instrument cards with live readback + set-and-apply controls, a scope waveform card, an instrument-activity log, and a session table — all built from `testerkit.connect`, `bind_channel_store`, `channel_data`, and the shared components above. Run it directly:
 
 ```bash
 cd examples && uv run python interactive_station.py
@@ -130,7 +130,7 @@ Then, in another terminal, run `pytest` in the same directory to watch its event
 ## See also
 
 - [Reference → Query API](../../reference/data/query-api.md) and [Reference → API](../../reference/runtime/api.md) — read historical run/measurement data into a custom page (as opposed to the live channel data covered here)
-- [Stream continuous instrument data into a live channel](../data/stream-live-channel.md) — the store-direct `litmus.channels` verbs from a script, outside any UI page
+- [Stream continuous instrument data into a live channel](../data/stream-live-channel.md) — the store-direct `testerkit.channels` verbs from a script, outside any UI page
 - [Query channel data](../data/querying-channels.md) — time-range and session-scoped channel queries
 - [Managing sessions](managing-sessions.md) — what `connect()`/`StationConnection` sessions are and how they're scoped
 - [Tour of the operator UI](../overview/operator-ui-tour.md) — the built-in pages this page's primitives are shared with

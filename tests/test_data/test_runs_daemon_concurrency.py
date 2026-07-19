@@ -42,11 +42,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.analysis.runs_query import RunsQuery
-from litmus.data import runs_duckdb_manager
-from litmus.data._runs_duckdb_daemon import _ingest_one_file, _ingest_parquet_files, _open_index
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.schemas import RUN_ROW_SCHEMA
+from testerkit.analysis.runs_query import RunsQuery
+from testerkit.data import runs_duckdb_manager
+from testerkit.data._runs_duckdb_daemon import _ingest_one_file, _ingest_parquet_files, _open_index
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.schemas import RUN_ROW_SCHEMA
 
 
 def _step_row(

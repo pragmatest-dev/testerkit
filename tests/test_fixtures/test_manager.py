@@ -2,9 +2,9 @@
 
 import pytest
 
-from litmus.fixtures.manager import FixtureManager, PinAccessor
-from litmus.instruments.mocks import Mock
-from litmus.models.test_config import FixtureConfig, FixtureConnection
+from testerkit.fixtures.manager import FixtureManager, PinAccessor
+from testerkit.instruments.mocks import Mock
+from testerkit.models.test_config import FixtureConfig, FixtureConnection
 
 
 class FakeDMM:

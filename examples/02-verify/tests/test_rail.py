@@ -1,22 +1,22 @@
 """Same tests, but measurements now flow into a Parquet log.
 
-The Litmus pytest plugin provides the ``verify`` fixture. Every call
+The TesterKit pytest plugin provides the ``verify`` fixture. Every call
 to ``verify(name, value, limit=...)`` writes a row with the name,
 value, unit, limit, and pass/fail outcome — so you get the ``value``
 persisted, not just a pass/fail.
 
-Test vectors are introduced here too: ``@pytest.mark.litmus_sweeps``
+Test vectors are introduced here too: ``@pytest.mark.testerkit_sweeps``
 is the runner-neutral name for declaring sweep axes. Each kwarg is
 one axis; multiple kwargs cross-product — same family shape as
-``litmus_limits``. Limits are still inline in Python here
+``testerkit_limits``. Limits are still inline in Python here
 (``limit={"low": ..., "high": ..., "unit": ...}``); later stages
 move them to YAML.
 
-``litmus_retry`` lands here too. Real benches misbehave — VISA
+``testerkit_retry`` lands here too. Real benches misbehave — VISA
 timeouts, instrument-not-ready blips, thermal-soak races. The
 marker declares a retry budget so a single transient failure
 doesn't kill the run. Pytest-rerunfailures owns the rerun loop;
-``litmus_retry`` is the runner-neutral handle.
+``testerkit_retry`` is the runner-neutral handle.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def test_rail_within_spec(verify, psu, dmm) -> None:
     verify("v_rail", dmm.measure_dc_voltage(), limit=V_RAIL)
 
 
-@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0, 5.5]}])
+@pytest.mark.testerkit_sweeps([{"vin": [3.3, 5.0, 5.5]}])
 def test_rail_holds_across_input(verify, psu, dmm, vin: float) -> None:
     """Sweep input voltage; every reading becomes its own row in the log."""
     psu.set_voltage(vin)
@@ -46,7 +46,7 @@ def test_rail_holds_across_input(verify, psu, dmm, vin: float) -> None:
 _attempts = [0]
 
 
-@pytest.mark.litmus_retry(max_retries=2, delay=0.05)
+@pytest.mark.testerkit_retry(max_retries=2, delay=0.05)
 def test_intermittent_glitch(verify, psu, dmm) -> None:
     """First execution raises; retry catches it; the retry passes.
 

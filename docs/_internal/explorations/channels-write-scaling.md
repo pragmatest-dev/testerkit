@@ -154,15 +154,15 @@ synchronous chokepoint.
 
 ## Relevant files
 
-- `src/litmus/data/channels/store.py` — `write()`, `_flight_push`,
+- `src/testerkit/data/channels/store.py` — `write()`, `_flight_push`,
   `ingest_batch`, `_scan_disk`, `_insert_index_rows`, `_index_open`,
   `_connect_or_serve`
-- `src/litmus/data/channels/server.py` — `ChannelFlightServer`: `do_put`,
+- `src/testerkit/data/channels/server.py` — `ChannelFlightServer`: `do_put`,
   `do_get`, `_on_sample` fan-out, `_flight_subscribers`
-- `src/litmus/data/channels/models.py` — `ChannelSample`, `sample_to_batch`,
+- `src/testerkit/data/channels/models.py` — `ChannelSample`, `sample_to_batch`,
   `sample_schema`, `batch_row_to_sample`
-- `src/litmus/data/channels/_flight_daemon.py` — daemon entrypoint
-- `src/litmus/benchmark/concurrency.py` — `run_concurrency` measurement harness
+- `src/testerkit/data/channels/_flight_daemon.py` — daemon entrypoint
+- `src/testerkit/benchmark/concurrency.py` — `run_concurrency` measurement harness
   (`_channel_worker` is `serve=True`)
 
 ## Reproduce the measurement
@@ -178,7 +178,7 @@ def _now(): return time.clock_gettime(_c)
 
 def sf_worker(args):
     data_dir, scale, seed = args
-    from litmus.data.channels.store import ChannelStore
+    from testerkit.data.channels.store import ChannelStore
     store = ChannelStore(Path(data_dir), uuid4(), flush_threshold=50, serve=False)
     store.open()
     t0 = _now()
@@ -202,7 +202,7 @@ for W in (1, 2, 4):
 shutil.rmtree(dd, ignore_errors=True)
 
 # serve=True via the real harness (spawn, hits the daemon RPC path):
-from litmus.benchmark.concurrency import run_concurrency
+from testerkit.benchmark.concurrency import run_concurrency
 dd2 = Path(tempfile.mkdtemp())
 for W in (1, 2, 4):
     walls = run_concurrency(dd2, "channels.write", SCALE, W, rounds=3)
@@ -333,7 +333,7 @@ since Arrow 10 (shm in Python is immature).
 
 ## 6. Experimental implementation — VALIDATED, env-gated, NOT committed
 
-`store.py`, gated on `LITMUS_CHANNELS_ASYNC_PUSH=1` (default off = current
+`store.py`, gated on `TESTERKIT_CHANNELS_ASYNC_PUSH=1` (default off = current
 behavior): `__init__` adds `_push_queue/_push_thread/_push_stop/_push_drops`;
 `open()` starts a `_push_loop` background thread when serving; `write()`
 enqueues instead of inline `_flight_push` (drop-on-overflow = live from-now);

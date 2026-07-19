@@ -353,7 +353,7 @@ the new events are scoped to the Mode-2 in-body loop only.
 - **A — outer (container) vs inner (step) vectors. LOAD-BEARING — RESOLVED (grain reshape).**
   Resolution: no new field. `step_path` carries the hierarchy (container/method nesting);
   `step.vector_index` is re-meant to the **enclosing parent iteration** (NULL if not nested
-  under a swept parent). A class-outer `litmus_sweeps` iteration emits `VectorStarted`/
+  under a swept parent). A class-outer `testerkit_sweeps` iteration emits `VectorStarted`/
   `VectorEnded` for the container step; a nested method's `StepStarted.vector_index` is the
   enclosing iteration index. Null-vs-0 reconstruction in `_event_accumulator._parent_emitted_vectors`
   distinguishes "no enclosing loop" (→ NULL) from "enclosing loop iteration 0" (→ 0).
@@ -548,7 +548,7 @@ The two relate by grain, not by a floor:
   exactly once per step execution, so its occurrence count *is* the step's — you know it from
   the step, no separate counting (S1, S3 → equal).
 - **Iteration vectors (inner loop):** count occurrences of `(step_index, vector_index)`. Tracks
-  `step_retry` as a baseline but **diverges** — *above* on an in-body `litmus_retry` (S4:
+  `step_retry` as a baseline but **diverges** — *above* on an in-body `testerkit_retry` (S4:
   `(0,1)` runs 3×), *below* on a conditional skip (a vector that doesn't run every attempt). So
   neither bounds the other; they're independent counts that coincide only when a vector runs
   once per step attempt.

@@ -2,7 +2,7 @@
 
 **URL:** `/events`
 
-Browse the event log — the append-only stream of everything Litmus
+Browse the event log — the append-only stream of everything TesterKit
 records: session lifecycle, run lifecycle, test step starts and ends,
 measurements, channel starts, instrument writes, operator dialogs, and
 diagnostics. The Results pages roll events up into runs; this page

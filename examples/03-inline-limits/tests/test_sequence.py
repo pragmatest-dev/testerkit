@@ -1,6 +1,6 @@
 """Class-as-sequence: a swept class whose methods run as an ordered sequence.
 
-When ``@pytest.mark.litmus_sweeps`` decorates the CLASS, every method
+When ``@pytest.mark.testerkit_sweeps`` decorates the CLASS, every method
 in the class runs once per outer iteration in source order. The class
 becomes the outer loop — pytest still produces N pytest items, but
 they're ordered condition-first (full sequence per voltage, not per
@@ -24,18 +24,18 @@ from __future__ import annotations
 import pytest
 
 
-@pytest.mark.litmus_sweeps([{"voltage": [3.3, 5.0]}])
+@pytest.mark.testerkit_sweeps([{"voltage": [3.3, 5.0]}])
 class TestPowerSequence:
     """Sequence: warmup → load test → cooldown, run once per voltage."""
 
-    @pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 5.5, "unit": "V"})
+    @pytest.mark.testerkit_limits(v_rail={"low": 3.2, "high": 5.5, "unit": "V"})
     def test_warmup(self, voltage: float, verify, psu, dmm) -> None:
         psu.set_voltage(voltage)
         psu.enable_output()
         verify("v_rail", dmm.measure_dc_voltage())
 
-    @pytest.mark.litmus_sweeps([{"current": [0.1, 0.5]}])  # method-level inner
-    @pytest.mark.litmus_limits(v_rail={"low": 3.0, "high": 5.5, "unit": "V"})
+    @pytest.mark.testerkit_sweeps([{"current": [0.1, 0.5]}])  # method-level inner
+    @pytest.mark.testerkit_limits(v_rail={"low": 3.0, "high": 5.5, "unit": "V"})
     def test_load_regulation(self, voltage: float, current: float, verify, psu, dmm) -> None:
         # Outer voltage × inner current = 4 executions of this method,
         # interleaved with the surrounding methods condition-first.
@@ -50,7 +50,7 @@ class TestPowerSequence:
         psu.disable_output()
 
 
-@pytest.mark.litmus_sweeps([{"voltage": [3.3, 5.0]}])
+@pytest.mark.testerkit_sweeps([{"voltage": [3.3, 5.0]}])
 class TestPowerSequenceWithInnerLoop:
     """Same outer sweep — but the method body owns the inner loop.
 
@@ -64,8 +64,8 @@ class TestPowerSequenceWithInnerLoop:
     test body for readability.
     """
 
-    @pytest.mark.litmus_sweeps([{"current": [0.1, 0.3, 0.5]}])  # consumed by vectors fixture
-    @pytest.mark.litmus_limits(v_rail={"low": 3.0, "high": 5.5, "unit": "V"})
+    @pytest.mark.testerkit_sweeps([{"current": [0.1, 0.3, 0.5]}])  # consumed by vectors fixture
+    @pytest.mark.testerkit_limits(v_rail={"low": 3.0, "high": 5.5, "unit": "V"})
     def test_load_sweep(self, voltage: float, vectors, verify, psu, dmm) -> None:
         # ``voltage`` arrives via pytest parametrize (outer).
         # ``vectors`` iterates the inner ``current`` matrix.

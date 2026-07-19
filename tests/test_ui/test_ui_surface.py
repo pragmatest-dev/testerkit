@@ -1,33 +1,33 @@
-"""``litmus.ui`` exposes the custom-UI-builder helpers at one shallow path."""
+"""``testerkit.ui`` exposes the custom-UI-builder helpers at one shallow path."""
 
 from __future__ import annotations
 
-import litmus.ui as ui_surface
-from litmus.ui.shared.components import (
+import testerkit.ui as ui_surface
+from testerkit.ui.shared.components import (
     data_table as _data_table,
 )
-from litmus.ui.shared.components import (
+from testerkit.ui.shared.components import (
     format_datetime as _format_datetime,
 )
-from litmus.ui.shared.components import (
+from testerkit.ui.shared.components import (
     info_field as _info_field,
 )
-from litmus.ui.shared.components import (
+from testerkit.ui.shared.components import (
     page_header as _page_header,
 )
-from litmus.ui.shared.components import (
+from testerkit.ui.shared.components import (
     page_layout as _page_layout,
 )
-from litmus.ui.shared.components import (
+from testerkit.ui.shared.components import (
     push_url_state as _push_url_state,
 )
-from litmus.ui.shared.event_binding import (
+from testerkit.ui.shared.event_binding import (
     bind_channel_store as _bind_channel_store,
 )
-from litmus.ui.shared.event_binding import (
+from testerkit.ui.shared.event_binding import (
     ui_channel_data as _ui_channel_data,
 )
-from litmus.ui.shared.event_binding import (
+from testerkit.ui.shared.event_binding import (
     ui_subscribe as _ui_subscribe,
 )
 

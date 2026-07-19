@@ -1,6 +1,6 @@
 """Unit tests for the store-agnostic derived-index epoch primitives (#64).
 
-Extracted from ``_runs_duckdb_daemon.py`` into ``litmus.data._index_epoch`` as
+Extracted from ``_runs_duckdb_daemon.py`` into ``testerkit.data._index_epoch`` as
 the shared spine events/channels/files will reuse later (#53, #64). See
 ``docs/_internal/explorations/derived-index-versioning.md`` §3/§6.
 
@@ -17,7 +17,7 @@ from typing import Any
 import duckdb
 import pytest
 
-from litmus.data import _index_epoch as index_epoch
+from testerkit.data import _index_epoch as index_epoch
 
 # ── index_file_name ──────────────────────────────────────────────────
 
@@ -38,10 +38,10 @@ def test_stamp_and_read_index_meta_round_trip() -> None:
     conn = duckdb.connect(":memory:")
     try:
         index_epoch.stamp_index_meta(
-            conn, litmus_version="1.2.3", schema_version="0.1", fingerprint="f" * 64
+            conn, testerkit_version="1.2.3", schema_version="0.1", fingerprint="f" * 64
         )
         meta = index_epoch.read_index_meta(conn)
-        assert meta["litmus_version"] == "1.2.3"
+        assert meta["testerkit_version"] == "1.2.3"
         assert meta["schema_version"] == "0.1"
         assert meta["projection_fingerprint"] == "f" * 64
         assert "built_at" in meta
@@ -70,7 +70,7 @@ def test_stamp_index_meta_writes_built_at_in_a_separate_last_statement() -> None
     try:
         index_epoch.stamp_index_meta(
             _Recorder(real),  # type: ignore[arg-type]
-            litmus_version="1.0",
+            testerkit_version="1.0",
             schema_version="0.1",
             fingerprint="a" * 64,
         )
@@ -92,13 +92,13 @@ def test_stamp_index_meta_is_idempotent_upsert() -> None:
     conn = duckdb.connect(":memory:")
     try:
         index_epoch.stamp_index_meta(
-            conn, litmus_version="1.0", schema_version="0.1", fingerprint="a" * 64
+            conn, testerkit_version="1.0", schema_version="0.1", fingerprint="a" * 64
         )
         index_epoch.stamp_index_meta(
-            conn, litmus_version="2.0", schema_version="0.2", fingerprint="b" * 64
+            conn, testerkit_version="2.0", schema_version="0.2", fingerprint="b" * 64
         )
         meta = index_epoch.read_index_meta(conn)
-        assert meta["litmus_version"] == "2.0"
+        assert meta["testerkit_version"] == "2.0"
         assert meta["schema_version"] == "0.2"
         assert meta["projection_fingerprint"] == "b" * 64
     finally:
@@ -142,7 +142,9 @@ def test_stamp_epochs_ledger_tolerates_legacy_single_version_shape(tmp_path: Pat
     ledger_path = tmp_path / "_epochs.json"
     fp = "f" * 64
     ledger_path.write_text(
-        json.dumps({fp[:12]: {"litmus_version": "0.3.0", "last_seen": "2026-01-01T00:00:00+00:00"}})
+        json.dumps(
+            {fp[:12]: {"testerkit_version": "0.3.0", "last_seen": "2026-01-01T00:00:00+00:00"}}
+        )
     )
 
     index_epoch.stamp_epochs_ledger(tmp_path, fp, "0.3.1")
@@ -162,7 +164,12 @@ def test_read_epochs_ledger_normalizes_legacy_shape(tmp_path: Path) -> None:
     ledger_path = tmp_path / "_epochs.json"
     ledger_path.write_text(
         json.dumps(
-            {"abc123def456": {"litmus_version": "0.3.0", "last_seen": "2026-01-01T00:00:00+00:00"}}
+            {
+                "abc123def456": {
+                    "testerkit_version": "0.3.0",
+                    "last_seen": "2026-01-01T00:00:00+00:00",
+                }
+            }
         )
     )
 
@@ -248,7 +255,7 @@ def test_reset_index_discards_and_reopens_empty(tmp_path: Path) -> None:
 
 def _fake_stamp_meta(conn: duckdb.DuckDBPyConnection) -> None:
     index_epoch.stamp_index_meta(
-        conn, litmus_version="9.9.9", schema_version="9.9", fingerprint="9" * 64
+        conn, testerkit_version="9.9.9", schema_version="9.9", fingerprint="9" * 64
     )
 
 

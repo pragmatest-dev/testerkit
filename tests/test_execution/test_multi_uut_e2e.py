@@ -96,7 +96,7 @@ class TestMultiUutE2E:
             import os
 
             def test_conditional():
-                site_index = os.environ.get("_LITMUS_SITE_INDEX", "")
+                site_index = os.environ.get("_TESTERKIT_SITE_INDEX", "")
                 if site_index == "1":
                     assert False, "Intentional failure for site 1"
                 assert True

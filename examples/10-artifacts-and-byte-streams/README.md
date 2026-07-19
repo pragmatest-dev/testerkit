@@ -27,7 +27,7 @@ piece of supporting evidence in one click.
 ```
 examples/10-artifacts-and-byte-streams/
 ├── README.md
-├── litmus.yaml
+├── testerkit.yaml
 ├── pyproject.toml
 ├── pytest.ini
 ├── conftest.py
@@ -51,7 +51,7 @@ uv run pytest -v
 Then start the operator UI:
 
 ```bash
-uv run litmus serve --reload
+uv run testerkit serve --reload
 ```
 
 Navigate:
@@ -83,7 +83,7 @@ any caller-supplied attributes (build item 1c).
 
 `drivers/psu.py` is a concrete self-simulating class — no
 `Mock(DriverClass, ...)` wrapping needed. The platform instantiates
-it directly because `litmus.yaml` doesn't set `mock_instruments:
+it directly because `testerkit.yaml` doesn't set `mock_instruments:
 true`. Swap in a real PyMeasure / PyVISA implementation when a
 bench is attached; the test is unchanged.
 

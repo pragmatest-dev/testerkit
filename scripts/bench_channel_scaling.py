@@ -4,7 +4,7 @@ Does `channels.write` / `write_many` / `stream` scale across 1, 2, 4 concurrent
 writer PROCESSES (``serve=True`` — every write pushes to the shared daemon)?
 
 This guards the channel producer's painfully-tuned throughput across all three
-write modes. The bundled ``litmus benchmark`` concurrent sweep only exercises
+write modes. The bundled ``testerkit benchmark`` concurrent sweep only exercises
 ``channels.write``; the high-throughput batched paths (``write_many``, the
 ``stream`` sink) are NOT in it, so a regression there is invisible to the CLI.
 Run this whenever the producer push path, the daemon do_put / ingest path, or
@@ -29,7 +29,7 @@ import shutil
 from pathlib import Path
 from uuid import uuid4
 
-from litmus.benchmark.concurrency import run_concurrency
+from testerkit.benchmark.concurrency import run_concurrency
 
 SCALE = 20_000
 ROUNDS = 3

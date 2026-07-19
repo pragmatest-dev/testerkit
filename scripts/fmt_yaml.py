@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Format Litmus YAML files to enforce consistent style.
+"""Format TesterKit YAML files to enforce consistent style.
 
-Works on any Litmus YAML: catalog, parts, sequences, stations, fixtures.
+Works on any TesterKit YAML: catalog, parts, sequences, stations, fixtures.
 
 Usage:
     python scripts/fmt_yaml.py                      # format all under catalog/
@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from litmus.store import format_file, format_file_inplace
+from testerkit.store import format_file, format_file_inplace
 
 
 def main():

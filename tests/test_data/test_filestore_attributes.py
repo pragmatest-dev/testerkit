@@ -27,8 +27,8 @@ import numpy as np
 import pytest
 from pydantic import BaseModel
 
-from litmus.data.files import FILE_METADATA_SCHEMA_VERSION, FileArtifactMetadata, FileStore
-from litmus.data.models import Waveform
+from testerkit.data.files import FILE_METADATA_SCHEMA_VERSION, FileArtifactMetadata, FileStore
+from testerkit.data.models import Waveform
 
 
 def _session_id() -> str:

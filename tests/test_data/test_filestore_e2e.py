@@ -38,11 +38,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from litmus.api.app import create_api_router
-from litmus.data.backends.parquet import ParquetBackend, load_ref
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.files import _reset_for_tests, get_filestore
-from litmus.data.models import (
+from testerkit.api.app import create_api_router
+from testerkit.data.backends.parquet import ParquetBackend, load_ref
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.files import _reset_for_tests, get_filestore
+from testerkit.data.models import (
     UUT,
     Measurement,
     Outcome,
@@ -51,8 +51,8 @@ from litmus.data.models import (
     TestVector,
     Waveform,
 )
-from litmus.data.run_store import RunStore
-from litmus.execution.harness import Context, TestHarness
+from testerkit.data.run_store import RunStore
+from testerkit.execution.harness import Context, TestHarness
 
 
 @pytest.fixture(autouse=True)
@@ -161,7 +161,7 @@ class TestMaterializeAndLoadBack:
         # observation passes through.
         import pyarrow.parquet as pq
 
-        from litmus.data.backends._row_helpers import decode_lane_structs
+        from testerkit.data.backends._row_helpers import decode_lane_structs
 
         # v2: observations ride on the (scope) vector record's outputs lanes.
         table = pq.read_table(parquet_path)
@@ -191,7 +191,7 @@ class TestMaterializeAndLoadBack:
 
         import pyarrow.parquet as pq
 
-        from litmus.data.backends._row_helpers import decode_lane_structs
+        from testerkit.data.backends._row_helpers import decode_lane_structs
 
         # v2: observations ride on the (scope) vector record's outputs lanes.
         table = pq.read_table(parquet_path)

@@ -27,7 +27,7 @@ What happened instead. Include error messages and relevant log output.
 
 ## Environment
 
-- Litmus version: `python -c "import litmus; print(litmus.__version__)"`
+- TesterKit version: `python -c "import testerkit; print(testerkit.__version__)"`
 - Python version:
 - OS:
 - Installed extras (if any):

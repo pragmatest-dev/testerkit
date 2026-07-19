@@ -1,4 +1,4 @@
-"""``litmus data index list|build|rm|prune`` — runs-index epoch lifecycle tooling
+"""``testerkit data index list|build|rm|prune`` — runs-index epoch lifecycle tooling
 (#53 P4/P5, see docs/_internal/explorations/derived-index-versioning.md §6/§7).
 
 ``list``/``rm``/``prune`` operate purely on-disk (glob epoch files + read-only
@@ -8,7 +8,7 @@ use fake epoch files built directly with ``duckdb.connect`` in ``tmp_path``
 
 ``build`` is the one command that MUST spawn/warm a real daemon; per
 CLAUDE.md's Test Storage Convention, that single integration test uses the
-canonical project data dir (``resolve_data_dir()``, this repo's ``litmus.yaml``
+canonical project data dir (``resolve_data_dir()``, this repo's ``testerkit.yaml``
 points it at ``data/``) instead of a per-test ``tmp_path`` daemon.
 """
 
@@ -22,8 +22,8 @@ from typing import TYPE_CHECKING, cast
 import duckdb
 from click.testing import CliRunner
 
-from litmus.cli import main
-from litmus.cli.data_cmd import (
+from testerkit.cli import main
+from testerkit.cli.data_cmd import (
     _epoch_size_bytes,
     _format_bytes,
     _fp12_from_index_path,
@@ -32,11 +32,11 @@ from litmus.cli.data_cmd import (
     _poll_until_warm,
     old_epoch_hint,
 )
-from litmus.data import _runs_duckdb_daemon as daemon
-from litmus.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
+from testerkit.data import _runs_duckdb_daemon as daemon
+from testerkit.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
 
 if TYPE_CHECKING:
-    from litmus.data._flight_query import FlightQueryClient
+    from testerkit.data._flight_query import FlightQueryClient
 
 
 class _FakeFlight:
@@ -67,13 +67,13 @@ _OTHER_FP12_2 = "112233445566"
 def _write_epoch_file(
     path: Path,
     *,
-    litmus_version: str,
+    testerkit_version: str,
     schema_version: str,
     fingerprint: str,
     n_runs: int,
 ) -> None:
     """Build a minimal-but-real epoch file: ``_index_meta`` + ``runs_materialized``,
-    exactly the two tables ``litmus data index`` reads. No daemon involved —
+    exactly the two tables ``testerkit data index`` reads. No daemon involved —
     a plain ``duckdb.connect`` write, closed before the CLI reads it back.
     """
     conn = duckdb.connect(str(path))
@@ -82,8 +82,8 @@ def _write_epoch_file(
         conn.execute(
             "INSERT INTO _index_meta (key, value) VALUES (?, ?), (?, ?), (?, ?), (?, ?)",
             [
-                "litmus_version",
-                litmus_version,
+                "testerkit_version",
+                testerkit_version,
                 "schema_version",
                 schema_version,
                 "projection_fingerprint",
@@ -157,7 +157,7 @@ def test_poll_until_warm_advances_then_warms() -> None:
 
 def test_poll_until_warm_stalls_on_unreconcilable() -> None:
     """The round-1 stall-guard: a file that never reconciles (e.g. a parquet
-    from a NEWER litmus version — deferred, no ``_ingested`` row) must make the
+    from a NEWER testerkit version — deferred, no ``_ingested`` row) must make the
     poll *settle*, not spin to the timeout ceiling."""
     client = _fake([(2, 2)])  # never reaches disk_count=3
     reconciled, ok, timed_out = _poll_until_warm(
@@ -186,7 +186,7 @@ def test_list_empty_state(tmp_path: Path) -> None:
     result = runner.invoke(main, ["data", "index", "list", "--data-dir", str(tmp_path)])
     assert result.exit_code == 0
     assert "No index epochs yet" in result.output
-    assert "litmus data index build" in result.output
+    assert "testerkit data index build" in result.output
 
 
 def test_list_renders_current_marker_seen_by_and_footer(tmp_path: Path) -> None:
@@ -198,14 +198,14 @@ def test_list_renders_current_marker_seen_by_and_footer(tmp_path: Path) -> None:
 
     _write_epoch_file(
         runs_dir / f"_index.{current_fp12}.duckdb",
-        litmus_version="0.3.1",
+        testerkit_version="0.3.1",
         schema_version=schema,
         fingerprint=current_fp12 + "f" * 52,
         n_runs=3,
     )
     _write_epoch_file(
         runs_dir / f"_index.{_OTHER_FP12}.duckdb",
-        litmus_version="0.3.0",
+        testerkit_version="0.3.0",
         schema_version="0.1",
         fingerprint=_OTHER_FP12 + "0" * 52,
         n_runs=5,
@@ -252,7 +252,7 @@ def test_old_epoch_hint(tmp_path: Path) -> None:
 
     _write_epoch_file(
         runs_dir / f"_index.{current_fp12}.duckdb",
-        litmus_version="0.3.1",
+        testerkit_version="0.3.1",
         schema_version="0.1",
         fingerprint=current_fp12 + "f" * 52,
         n_runs=1,
@@ -261,7 +261,7 @@ def test_old_epoch_hint(tmp_path: Path) -> None:
 
     _write_epoch_file(
         runs_dir / f"_index.{_OTHER_FP12}.duckdb",
-        litmus_version="0.3.0",
+        testerkit_version="0.3.0",
         schema_version="0.1",
         fingerprint=_OTHER_FP12 + "0" * 52,
         n_runs=1,
@@ -272,7 +272,7 @@ def test_old_epoch_hint(tmp_path: Path) -> None:
     hint = old_epoch_hint(str(tmp_path), min_bytes=0)
     assert hint is not None
     assert "1 older index epoch" in hint
-    assert "litmus data index prune" in hint
+    assert "testerkit data index prune" in hint
 
 
 def test_list_falls_back_to_unknown_seen_by_without_ledger(tmp_path: Path) -> None:
@@ -281,7 +281,7 @@ def test_list_falls_back_to_unknown_seen_by_without_ledger(tmp_path: Path) -> No
     runs_dir.mkdir(parents=True)
     _write_epoch_file(
         runs_dir / f"_index.{_OTHER_FP12}.duckdb",
-        litmus_version="0.3.0",
+        testerkit_version="0.3.0",
         schema_version="0.1",
         fingerprint=_OTHER_FP12 + "0" * 52,
         n_runs=1,
@@ -306,21 +306,21 @@ def _prune_fixture(tmp_path: Path) -> tuple[Path, str]:
 
     _write_epoch_file(
         runs_dir / f"_index.{current_fp12}.duckdb",
-        litmus_version="0.3.1",
+        testerkit_version="0.3.1",
         schema_version="0.1",
         fingerprint=current_fp12 + "f" * 52,
         n_runs=1,
     )
     _write_epoch_file(
         runs_dir / f"_index.{_OTHER_FP12}.duckdb",
-        litmus_version="0.3.0",
+        testerkit_version="0.3.0",
         schema_version="0.1",
         fingerprint=_OTHER_FP12 + "0" * 52,
         n_runs=1,
     )
     _write_epoch_file(
         runs_dir / f"_index.{_OTHER_FP12_2}.duckdb",
-        litmus_version="0.2.9",
+        testerkit_version="0.2.9",
         schema_version="0.1",
         fingerprint=_OTHER_FP12_2 + "0" * 52,
         n_runs=1,
@@ -440,14 +440,14 @@ def test_prune_never_reaps_unknown_age(tmp_path: Path) -> None:
     current_fp12 = _current_fp12()
     _write_epoch_file(
         runs_dir / f"_index.{current_fp12}.duckdb",
-        litmus_version="0.3.1",
+        testerkit_version="0.3.1",
         schema_version="0.1",
         fingerprint=current_fp12 + "f" * 52,
         n_runs=1,
     )
     _write_epoch_file(
         runs_dir / f"_index.{_OTHER_FP12}.duckdb",
-        litmus_version="0.3.0",
+        testerkit_version="0.3.0",
         schema_version="0.1",
         fingerprint=_OTHER_FP12 + "0" * 52,
         n_runs=1,
@@ -482,7 +482,7 @@ def test_rm_no_match(tmp_path: Path) -> None:
     runs_dir.mkdir(parents=True)
     _write_epoch_file(
         runs_dir / f"_index.{_OTHER_FP12}.duckdb",
-        litmus_version="0.3.0",
+        testerkit_version="0.3.0",
         schema_version="0.1",
         fingerprint=_OTHER_FP12 + "0" * 52,
         n_runs=1,
@@ -501,7 +501,7 @@ def test_rm_ambiguous_prefix(tmp_path: Path) -> None:
     for fp12 in ("aaaa11111111", "aaaa22222222"):
         _write_epoch_file(
             runs_dir / f"_index.{fp12}.duckdb",
-            litmus_version="0.3.0",
+            testerkit_version="0.3.0",
             schema_version="0.1",
             fingerprint=fp12 + "0" * 52,
             n_runs=1,
@@ -517,7 +517,7 @@ def test_rm_removes_noncurrent_epoch(tmp_path: Path) -> None:
     runs_dir.mkdir(parents=True)
     _write_epoch_file(
         runs_dir / f"_index.{_OTHER_FP12}.duckdb",
-        litmus_version="0.3.0",
+        testerkit_version="0.3.0",
         schema_version="0.1",
         fingerprint=_OTHER_FP12 + "0" * 52,
         n_runs=1,
@@ -542,7 +542,7 @@ def test_rm_refuses_current_without_force(tmp_path: Path) -> None:
     current_fp12 = _current_fp12()
     _write_epoch_file(
         runs_dir / f"_index.{current_fp12}.duckdb",
-        litmus_version="0.3.1",
+        testerkit_version="0.3.1",
         schema_version="0.1",
         fingerprint=current_fp12 + "f" * 52,
         n_runs=1,
@@ -563,7 +563,7 @@ def test_rm_force_removes_current(tmp_path: Path) -> None:
     current_fp12 = _current_fp12()
     _write_epoch_file(
         runs_dir / f"_index.{current_fp12}.duckdb",
-        litmus_version="0.3.1",
+        testerkit_version="0.3.1",
         schema_version="0.1",
         fingerprint=current_fp12 + "f" * 52,
         n_runs=1,
@@ -609,7 +609,7 @@ def test_build_warmth_counts_quarantined_as_reconciled(tmp_path: Path) -> None:
 
 
 def test_build_warms_the_canonical_runs_index() -> None:
-    """Uses the canonical project data dir (this repo's litmus.yaml → ``data/``),
+    """Uses the canonical project data dir (this repo's testerkit.yaml → ``data/``),
     the same shared singleton daemon every other CLI test in the suite uses
     (e.g. tests/test_yield/test_cli.py) — NOT a per-test ``tmp_path`` daemon.
 

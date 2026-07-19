@@ -35,7 +35,7 @@ import shutil
 from pathlib import Path
 from uuid import uuid4
 
-from litmus.benchmark.concurrency import run_concurrency
+from testerkit.benchmark.concurrency import run_concurrency
 
 # Per-op scale — files are heavier than channel samples, and the shapes differ in
 # bytes/op, so each op gets a scale that measures stably without flooding disk.

@@ -11,12 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from litmus.data.backends.parquet import load_ref
+from testerkit.data.backends.parquet import load_ref
 
 
 def test_missing_file_ref_returns_uri(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from litmus.data.files import _reset_for_tests
-    from litmus.data.files import store as fstore_module
+    from testerkit.data.files import _reset_for_tests
+    from testerkit.data.files import store as fstore_module
 
     monkeypatch.setattr(fstore_module, "resolve_data_dir", lambda _=None: tmp_path)
     _reset_for_tests()

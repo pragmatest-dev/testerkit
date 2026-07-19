@@ -1,8 +1,8 @@
 """Test --uut-part-number, --uut-revision, --uut-lot-number pytest options.
 
-Inner pytest subprocesses inherit our ``LITMUS_HOME`` (set in ``conftest.py``)
+Inner pytest subprocesses inherit our ``TESTERKIT_HOME`` (set in ``conftest.py``)
 so they write to the canonical singleton store. Each run is scoped by a unique
-``_LITMUS_SESSION_ID`` driven into the subprocess, then read back through the
+``_TESTERKIT_SESSION_ID`` driven into the subprocess, then read back through the
 public ``RunsQuery`` — which resolves the data dir and reads through the daemon
 (in-flight overlay + parquet). No parquet globbing, no mtime/serial guessing.
 """
@@ -14,7 +14,7 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.analysis.runs_query import RunRow, RunsQuery
+from testerkit.analysis.runs_query import RunRow, RunsQuery
 
 pytest_plugins = ["pytester"]
 
@@ -69,7 +69,7 @@ def test_uut_options_land_in_parquet(pytester_with_test, monkeypatch):
     """UUT part-number, revision, and lot flow through to the stored run."""
     session_id = str(uuid4())
     serial = f"SN-{uuid4().hex[:8]}"
-    monkeypatch.setenv("_LITMUS_SESSION_ID", session_id)
+    monkeypatch.setenv("_TESTERKIT_SESSION_ID", session_id)
     result = pytester_with_test.runpytest_subprocess(
         f"--uut-serial={serial}",
         "--uut-part-number=WIDGET-200",
@@ -91,7 +91,7 @@ def test_uut_options_land_in_parquet(pytester_with_test, monkeypatch):
 def test_uut_options_default_to_none(pytester_with_test, monkeypatch):
     """UUT options default to None (serial itself defaults to UUT001)."""
     session_id = str(uuid4())
-    monkeypatch.setenv("_LITMUS_SESSION_ID", session_id)
+    monkeypatch.setenv("_TESTERKIT_SESSION_ID", session_id)
     result = pytester_with_test.runpytest_subprocess(
         "--mock-instruments",
         "-q",

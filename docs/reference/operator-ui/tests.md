@@ -2,7 +2,7 @@
 
 **URLs:** `/tests` (list), `/tests/{path}` (detail)
 
-A test in Litmus is a `def test_*` function that pytest discovers — either a
+A test in TesterKit is a `def test_*` function that pytest discovers — either a
 top-level function or a method inside a `class Test*`. The Tests pages give you
 a file-level inventory of every `test_*.py` under `tests/`, cross-referenced
 against run history, without importing or executing any test code.
@@ -21,7 +21,7 @@ Each row shows:
 | Filename | The `test_*.py` filename, in monospace |
 | Test count | Number of `def test_*` functions found in the file (top-level and inside `class Test*`) |
 | Class count | Number of `class Test*` definitions, shown inline when non-zero |
-| Vectors | A `~N vectors` badge, present when the file has parametrize, `litmus_sweeps`, or similar list-valued markers. The count is a rough upper-bound estimate from the decorator arguments — not an exact cross-product |
+| Vectors | A `~N vectors` badge, present when the file has parametrize, `testerkit_sweeps`, or similar list-valued markers. The count is a rough upper-bound estimate from the decorator arguments — not an exact cross-product |
 | Markers | Up to four marker chips (decorator names, without the `pytest.mark.` prefix), then `+N` when there are more |
 | Runs | Count of distinct `run_id` values in history where any step from this file executed; omitted when zero |
 | Failed | Count of those runs with at least one failed step; omitted when there are no runs or no failures |
@@ -104,7 +104,7 @@ A table with one row per `def test_*` function found in the file. Columns:
 | Test | Bare function name (`test_foo`) |
 | Class | Parent `class Test*` name, or `—` for top-level functions |
 | Markers | Comma-separated decorator names (without `pytest.mark.` prefix), or `—` |
-| Vectors | Estimated parametrize / `litmus_sweeps` vector count, or `—` when zero |
+| Vectors | Estimated parametrize / `testerkit_sweeps` vector count, or `—` when zero |
 | Sidecar | `✓` when this function (or its parent class) has an entry in the sidecar `tests:` block; `—` otherwise |
 | Runs | Distinct run count from history for this step path; `0` when never run |
 | Passed | Runs with outcome `passed` |
@@ -164,7 +164,7 @@ its class) has an entry in the sidecar's `tests:` block.
 
 - [How-to → Writing Tests](../../how-to/execution/writing-tests.md) — pytest
   classes, sidecar YAML, the `verify` pattern
-- [pytest markers reference](../pytest/markers.md) — every `@litmus.mark.*`
+- [pytest markers reference](../pytest/markers.md) — every `@testerkit.mark.*`
   decorator that appears in the Markers column
 - [Profiles](profiles.md) — how profiles override sidecar config at session
   start (the cascade note on the detail page)

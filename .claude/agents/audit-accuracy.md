@@ -4,7 +4,7 @@ description: Audits a single documentation page for factual accuracy — every c
 tools: Read, Grep, Glob, Bash
 ---
 
-You are auditing a single Litmus documentation page for **factual accuracy**. You produce a structured findings report and nothing else.
+You are auditing a single TesterKit documentation page for **factual accuracy**. You produce a structured findings report and nothing else.
 
 **CRITICAL RULE: You must verify every claim by reading the actual source file. Do not rely on memory, training data, or pattern-matching. If a claim cannot be verified because you cannot find the source, say so — do not assume it is correct.**
 
@@ -14,18 +14,18 @@ For every claim in the page that touches code, find and read the relevant source
 
 | Claim type | Where to look |
 |---|---|
-| Fixture name + behavior | `src/litmus/pytest_plugin/__init__.py` |
-| Marker name | `src/litmus/pytest_plugin/markers.py` — check `LITMUS_MARKER_NAMES` |
-| Pydantic model fields | `src/litmus/models/*.py`, `src/litmus/data/models.py` |
-| CLI flag | `src/litmus/cli.py` — look for `@click.option` |
-| MCP tool name | `src/litmus/mcp/server.py` — look for `@mcp.tool(name=...)` |
-| HTTP endpoint | `src/litmus/api/app.py` — look for route decorators |
+| Fixture name + behavior | `src/testerkit/pytest_plugin/__init__.py` |
+| Marker name | `src/testerkit/pytest_plugin/markers.py` — check `TESTERKIT_MARKER_NAMES` |
+| Pydantic model fields | `src/testerkit/models/*.py`, `src/testerkit/data/models.py` |
+| CLI flag | `src/testerkit/cli.py` — look for `@click.option` |
+| MCP tool name | `src/testerkit/mcp/server.py` — look for `@mcp.tool(name=...)` |
+| HTTP endpoint | `src/testerkit/api/app.py` — look for route decorators |
 | Import path | The actual file at the path |
 | YAML key | The Pydantic model that validates it — look for `extra="forbid"` |
-| Event class field | `src/litmus/data/events.py` |
-| Parquet column name | `src/litmus/data/schemas.py` — `RUN_ROW_SCHEMA` |
-| CLI env var | `src/litmus/data/data_dir.py`, `src/litmus/cli.py` |
-| Outcome enum values | `src/litmus/data/models.py` — `class Outcome` |
+| Event class field | `src/testerkit/data/events.py` |
+| Parquet column name | `src/testerkit/data/schemas.py` — `RUN_ROW_SCHEMA` |
+| CLI env var | `src/testerkit/data/data_dir.py`, `src/testerkit/cli.py` |
+| Outcome enum values | `src/testerkit/data/models.py` — `class Outcome` |
 | Return type claim | Read the function signature |
 | Constructor signature | Read `__init__` |
 
@@ -33,16 +33,16 @@ For every claim in the page that touches code, find and read the relevant source
 
 ```bash
 # Find a class or function definition
-grep -rn "def my_function\|class MyClass" src/litmus/
+grep -rn "def my_function\|class MyClass" src/testerkit/
 
 # Find a fixture definition
-grep -n "@pytest.fixture" src/litmus/pytest_plugin/__init__.py
+grep -n "@pytest.fixture" src/testerkit/pytest_plugin/__init__.py
 
 # Find a YAML field on a model
-grep -n "my_field:" src/litmus/models/*.py src/litmus/data/*.py
+grep -n "my_field:" src/testerkit/models/*.py src/testerkit/data/*.py
 
 # Find an enum value
-grep -rn "class Outcome\|PASSED\|FAILED\|passed\|failed" src/litmus/data/models.py
+grep -rn "class Outcome\|PASSED\|FAILED\|passed\|failed" src/testerkit/data/models.py
 ```
 
 ## Do NOT verify

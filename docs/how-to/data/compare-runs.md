@@ -9,7 +9,7 @@ combine a two-tab browser pass with a parquet query.
 
 - Both run IDs in hand. Get them from
   [`/results`](../../reference/operator-ui/results/list.md) by hovering
-  the row, or from the CLI: `litmus runs`.
+  the row, or from the CLI: `testerkit runs`.
 - `duckdb` installed for the parquet diff (optional but recommended).
 
 ## 1. Two tabs, side by side
@@ -108,7 +108,7 @@ duckdb -c "...query above..." -csv > run_diff.csv
 ```
 
 Or export both runs in full via
-`litmus show <run_id> -f csv -o exports/` and diff the CSVs with
+`testerkit show <run_id> -f csv -o exports/` and diff the CSVs with
 the tool of your choice.
 
 ## Related

@@ -141,7 +141,7 @@ by role + resource, not by run context.
 | Connected (s) | Total seconds the instrument was connected |
 | Share | Percentage of total instrument-connected time in the window |
 
-A blank `Since` means "no lower bound" — Litmus uses every event it
+A blank `Since` means "no lower bound" — TesterKit uses every event it
 has. A blank `Until` means "up to right now."
 
 When the window is empty (no instrument connect/disconnect events
@@ -179,12 +179,12 @@ and `--json` for machine-readable output:
 
 | Tab | CLI |
 |---|---|
-| Yield (cards + Test Time Statistics) | [`litmus metrics summary`](../cli.md#cli-metrics-summary) |
-| Yield Trend Over Time chart | [`litmus metrics trend`](../cli.md#cli-metrics-trend) |
-| Pareto | [`litmus metrics pareto`](../cli.md#cli-metrics-pareto) |
-| Ppk | [`litmus metrics ppk`](../cli.md#cli-metrics-ppk) |
-| Retest | [`litmus metrics retest`](../cli.md#cli-metrics-retest) |
-| Time loss | [`litmus metrics time-loss`](../cli.md#cli-metrics-time-loss) |
+| Yield (cards + Test Time Statistics) | [`testerkit metrics summary`](../cli.md#cli-metrics-summary) |
+| Yield Trend Over Time chart | [`testerkit metrics trend`](../cli.md#cli-metrics-trend) |
+| Pareto | [`testerkit metrics pareto`](../cli.md#cli-metrics-pareto) |
+| Ppk | [`testerkit metrics ppk`](../cli.md#cli-metrics-ppk) |
+| Retest | [`testerkit metrics retest`](../cli.md#cli-metrics-retest) |
+| Time loss | [`testerkit metrics time-loss`](../cli.md#cli-metrics-time-loss) |
 | Assets | (no CLI equivalent yet) |
 
 The same queries are available as Python classes in the analysis
@@ -211,7 +211,7 @@ report.
 ## See also
 
 - [Results list](results/list.md) — the run-level table this rolls up from
-- [`litmus metrics` CLI group](../cli.md#cli-metrics) — per-subcommand
+- [`testerkit metrics` CLI group](../cli.md#cli-metrics) — per-subcommand
   links are in [Underlying data](#underlying-data) above
 - [Concepts → Outcomes](../../concepts/execution/outcomes.md) — how
   pass / fail / error are decided in the first place

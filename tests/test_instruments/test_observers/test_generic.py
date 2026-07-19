@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
-from litmus.instruments.observer import InstrumentEventBuilder
-from litmus.instruments.observers.generic import GenericObserver, classify_by_prefix, strip_prefix
-from litmus.models.instrument import ChannelKind
+from testerkit.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
+from testerkit.instruments.observer import InstrumentEventBuilder
+from testerkit.instruments.observers.generic import (
+    GenericObserver,
+    classify_by_prefix,
+    strip_prefix,
+)
+from testerkit.models.instrument import ChannelKind
 
 
 class CollectingLog:

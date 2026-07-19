@@ -1,17 +1,17 @@
-/* Litmus Station Monitor — table styling */
+/* TesterKit Station Monitor — table styling */
 
 /* ── Shared table defaults ── */
-.litmus-table .q-table__container {
+.testerkit-table .q-table__container {
     font-size: 13px;
 }
-.litmus-table th {
+.testerkit-table th {
     font-weight: 600;
     text-transform: uppercase;
     font-size: 11px;
     letter-spacing: 0.03em;
     color: #64748b;
 }
-.litmus-table td {
+.testerkit-table td {
     font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
     font-size: 12px;
 }
@@ -86,9 +86,9 @@
 }
 
 /* ── Activity table: alternating rows ── */
-.litmus-table .q-table tbody tr:nth-child(even) {
+.testerkit-table .q-table tbody tr:nth-child(even) {
     background: #f8fafc;
 }
-.litmus-table .q-table tbody tr:hover {
+.testerkit-table .q-table tbody tr:hover {
     background: #f1f5f9;
 }

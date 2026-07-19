@@ -92,9 +92,9 @@ synchronous cross-service calls.
 one `SessionStarted` event on the spine, carrying **no outcome**, independent of any connection or
 `with` block (those become best-effort sugar). A run nests inside it and **carries the outcome**
 (pass/fail/abort), N per session, may outlive siblings. The id **propagates across processes as
-explicit data** (the existing `_LITMUS_SESSION_ID` env hand-off is correct — context propagation).
+explicit data** (the existing `_TESTERKIT_SESSION_ID` env hand-off is correct — context propagation).
 
-**Identity & envelope (CloudEvents).** `source = litmus:session/<session_id>`; `subject =
+**Identity & envelope (CloudEvents).** `source = testerkit:session/<session_id>`; `subject =
 <run|channel|stream>/<id>`; `id` unique per source → `(source,id)` is the idempotency key (matches
 `ON CONFLICT DO NOTHING`); `type` = reverse-DNS lifecycle; flat `sessionid`/`runid` extensions for
 cross-store filtering. `traceparent` stays reserved for real transport tracing, never business
@@ -124,7 +124,7 @@ server lease; everything reads the spine:
   the channels `last_updated` pattern); the longer lease + grace governs the synthetic abandonment.
 - **Default:** run orphan-timeout → **900s**; `idle_lease_seconds` anchors to it (900s; comment the
   "never shorter than the run timeout" relationship). **Tunable, layered:** platform default →
-  `litmus.yaml`/`ProjectConfig` (per-project) → the will on `SessionStarted` (per-session) → a marker
+  `testerkit.yaml`/`ProjectConfig` (per-project) → the will on `SessionStarted` (per-session) → a marker
   (per-run). Most-specific wins.
 - **Will pre-registered on `SessionStarted`:** `producer_identity` (host + pid + process_uuid),
   `idle_lease_seconds`, `abandon_grace_seconds`, `abandon_reason`.
@@ -373,7 +373,7 @@ three-way name collision.
   teardown (`__init__.py:402` / `_teardown_logger`). So a **run ending emits `SessionEnded`** —
   the exact session=run coupling this overhaul exists to undo. The class is clean; the fixture is the bug.
 - **`logger` leaks to authors only because two ops were never promoted.** The powerful verbs
-  (`verify`/`observe`/`stream`) are public (`litmus.verbs`, route through `Context`, never the run
+  (`verify`/`observe`/`stream`) are public (`testerkit.verbs`, route through `Context`, never the run
   controller). `measure` (record-only measurement) and `record` (key/value) have no verb, so
   authors reach `logger.measure`/`logger.record` — the sole reason the fixture is author-facing.
 - **Verb relationships (verified):** `verify` = `measure` + judgment — `verify` with no limit
@@ -389,7 +389,7 @@ three-way name collision.
 **Decisions:**
 1. **`TestRunLogger` → `RunScope`** — symmetric with `SessionScope` (trace-owner ↔ span-owner);
    names the parallel in the types. Owns `RunStarted`/`RunEnded` + the `TestRun` record. **`TestRun`
-   stays** the public, queryable record (don't rename — it's what `litmus show`/API/client return).
+   stays** the public, queryable record (don't rename — it's what `testerkit show`/API/client return).
    `RunScope` deliberately drops the `Test*` prefix: it's the live owner, not a peer data model of
    `TestStep`/`TestVector`.
 2. **Session open/close lifts OUT of the run fixture.** Session is established at run-start (the
@@ -513,7 +513,7 @@ runs daemon was blind to channel events). The session reaper is a thread in the 
 **runs daemon keeps its run reaper**; the same-host pid-death **session** sweep moves out (pid-death
 is run-only, per the model). Each reaper lives with the projection it owns.
 
-**Tunables (all producer-side / litmus.yaml, overridable):**
+**Tunables (all producer-side / testerkit.yaml, overridable):**
 
 | knob | home | read by | default |
 | --- | --- | --- | --- |
@@ -524,7 +524,7 @@ is run-only, per the model). Each reaper lives with the projection it owns.
 
 **Build order (each green, each committed) — ALL LANDED:**
 - **D1 — will + SessionOptions** — `180e6d1`.
-- **D-checkpoint** — `StreamTuning` (litmus.yaml `stream:`) + `ChannelCheckpoint` / `FileCheckpoint` spine events + interval-
+- **D-checkpoint** — `StreamTuning` (testerkit.yaml `stream:`) + `ChannelCheckpoint` / `FileCheckpoint` spine events + interval-
   gated emit on the channel producer (`ChannelStore._maybe_checkpoint`) and the file sink
   (`files/streaming.py`, set post-construction so custom formats need not accept it); cadence resolved
   producer-side via `StreamTuning.resolve_cadence` (default `lease/3`, invariant `< lease`). — `a3a185a`.
@@ -661,7 +661,7 @@ terminal finality — STOP at the instrument-lock scope decision.
   retyped `event_log` params to `EventLog`, renamed `InstrumentEventEmitter`→`InstrumentEventBuilder`
   (it builds; EventLog emits); test fakes subclass `EventLog`. Full gate green. See Cross-store consistency.
 - **Wave A — author surface (Step-4 pytest side; `da6b86e`, 2026-06-15).** `measure` promoted to a
-  public verb (top-level `litmus.measure` + bare `measure` fixture + `Context.measure`, all routed
+  public verb (top-level `testerkit.measure` + bare `measure` fixture + `Context.measure`, all routed
   through the runner-neutral `_perform_measure`→`get_current_logger().measure` like `verify`/`observe`;
   `Context.measure` no longer needs a harness). `measure` stays symmetric with `verify` (no
   `allow_repeat` — `vectors` is the loop idiom; `allow_repeat` kept as a run-scope primitive escape

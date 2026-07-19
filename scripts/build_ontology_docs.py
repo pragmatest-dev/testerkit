@@ -1,4 +1,4 @@
-"""Build human + machine-readable views of the Litmus ontology.
+"""Build human + machine-readable views of the TesterKit ontology.
 
 Reads the bundled ontology, cross-validates it against the Pydantic
 source tree, and emits:
@@ -27,7 +27,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from litmus.ontology import Concept, Ontology, Slice, VerbKind, load_ontology
+from testerkit.ontology import Concept, Ontology, Slice, VerbKind, load_ontology
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_OUT = REPO_ROOT / "docs" / "reference" / "ontology"
@@ -36,11 +36,11 @@ SLICES_OUT = DOCS_OUT / "slices"
 # Packages whose BaseModel subclasses must be referenced by the ontology
 # (or explicitly listed in ontology_ignored:).
 COVERED_MODULES = (
-    "litmus.models",
-    "litmus.data.models",
-    "litmus.data.events",
-    "litmus.data.channels.models",
-    "litmus.models.instrument_asset",
+    "testerkit.models",
+    "testerkit.data.models",
+    "testerkit.data.events",
+    "testerkit.data.channels.models",
+    "testerkit.models.instrument_asset",
 )
 
 # Mermaid edge-style mapping per verb category. Thick = semantic / type;
@@ -108,7 +108,7 @@ def cross_validate(ontology: Ontology) -> list[str]:
     # If a concept names a model, it must resolve. Most categories expect a
     # BaseModel; `store` concepts point at runtime data-access classes;
     # `enum` concepts point at StrEnum. Model-less concepts (session,
-    # litmus_marker, pytest_test_function) are permitted in any category.
+    # testerkit_marker, pytest_test_function) are permitted in any category.
     for concept in ontology.concepts:
         if concept.model is None:
             continue
@@ -162,12 +162,12 @@ def render_glossary(ontology: Ontology) -> str:
         by_category.setdefault(c.category.value, []).append(c)
 
     lines: list[str] = []
-    lines.append("# Litmus Ontology — Glossary")
+    lines.append("# TesterKit Ontology — Glossary")
     lines.append("")
     lines.append(
-        "Every Litmus concept, its canonical Pydantic model, and how it "
+        "Every TesterKit concept, its canonical Pydantic model, and how it "
         "relates to the others. Generated from "
-        "`src/litmus/ontology/litmus.yaml`; do not hand-edit."
+        "`src/testerkit/ontology/testerkit.yaml`; do not hand-edit."
     )
     lines.append("")
     lines.append(f"**Version:** {ontology.version}  ·  **Concepts:** {len(ontology.concepts)}")

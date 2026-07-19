@@ -1,13 +1,13 @@
 # Quick Start
 
-Install Litmus, scaffold a starter project, and run a passing test. Requires Python 3.11+.
+Install TesterKit, scaffold a starter project, and run a passing test. Requires Python 3.11+.
 
 ```bash
-# 1. Install Litmus
-pip install litmus-test
+# 1. Install TesterKit
+pip install testerkit
 
 # 2. Create a starter project
-litmus init quick_start --starter
+testerkit init quick_start --starter
 cd quick_start
 
 # 3. Run the test
@@ -16,27 +16,27 @@ pytest
 
 The starter ships a single test (`test_output_voltage`). Run it and pytest reports `1 passed` — the measurement was taken against a mock instrument, checked against its limit, and recorded.
 
-> **Explore without hardware.** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/pragmatest-dev/litmus-starter) opens a browser sandbox to try Litmus with no install — mock-instrument tests, the operator UI, analytics, and AI integration. Real instrument control (PyVISA/serial to a bench) needs a local install, so the sandbox stops there.
+> **Explore without hardware.** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/pragmatest-dev/testerkit-starter) opens a browser sandbox to try TesterKit with no install — mock-instrument tests, the operator UI, analytics, and AI integration. Real instrument control (PyVISA/serial to a bench) needs a local install, so the sandbox stops there.
 
-> **Concepts cheat-sheet.** This quick start runs a complete Litmus project, so it touches nearly every Litmus concept at once — most for the first time. Each term below links forward to the tutorial step that introduces it properly:
+> **Concepts cheat-sheet.** This quick start runs a complete TesterKit project, so it touches nearly every TesterKit concept at once — most for the first time. Each term below links forward to the tutorial step that introduces it properly:
 >
 > - **Part spec** — `parts/*.yaml`. Describes the device under test. → [Step 6](06-specifications.md), [concepts/parts](../concepts/configuration/parts.md)
 > - **Station YAML** — `stations/*.yaml`. Declares the bench's instruments. → [Step 7](07-real-instruments.md), [concepts/stations](../concepts/configuration/stations.md)
 > - **Sidecar YAML** — `tests/test_<module>.yaml`. Carries limits, sweeps, mocks for tests in that module. → [Step 5](05-configuration.md)
-> - **`verify` / `measure` / `context` fixtures** — three of the fixtures Litmus contributes. → [Step 3](03-fixtures.md), [reference/litmus-fixtures](../reference/pytest/fixtures.md)
-> - **`@pytest.mark.litmus_limits`** — one of the seven Litmus markers; pins a limit at the top of a test. → [Step 4](04-limits.md), [reference/litmus-markers](../reference/pytest/markers.md)
+> - **`verify` / `measure` / `context` fixtures** — three of the fixtures TesterKit contributes. → [Step 3](03-fixtures.md), [reference/testerkit-fixtures](../reference/pytest/fixtures.md)
+> - **`@pytest.mark.testerkit_limits`** — one of the seven TesterKit markers; pins a limit at the top of a test. → [Step 4](04-limits.md), [reference/testerkit-markers](../reference/pytest/markers.md)
 > - **`mock_config`** — Per-instrument return values for mock mode. → [Step 2](02-mock-instruments.md), [how-to/mock-mode](../how-to/configuration/mock-mode.md)
 > - **Characteristics, bands, accuracy, `when:`** — Part-spec vocabulary. → [Step 6](06-specifications.md), [reference/catalog-schema](../reference/catalog/schema.md)
-> - **Capability matching** — How Litmus pairs a part to a station. → [Step 8](08-capabilities.md), [concepts/capabilities](../concepts/configuration/capabilities.md)
-> - **MCP** — Model Context Protocol; how AI agents drive Litmus. → [how-to/mcp-integration](../how-to/overview/mcp-integration.md)
+> - **Capability matching** — How TesterKit pairs a part to a station. → [Step 8](08-capabilities.md), [concepts/capabilities](../concepts/configuration/capabilities.md)
+> - **MCP** — Model Context Protocol; how AI agents drive TesterKit. → [how-to/mcp-integration](../how-to/overview/mcp-integration.md)
 
 ## Project Structure
 
-Litmus projects follow a standard folder structure. The UI is driven by these folders.
+TesterKit projects follow a standard folder structure. The UI is driven by these folders.
 
 ```
 quick_start/
-├── litmus.yaml                  # Project config (data_dir, default station, mock mode)
+├── testerkit.yaml                  # Project config (data_dir, default station, mock mode)
 ├── parts/                       # WHAT you're testing
 │   └── example_part.yaml        # Part specification
 ├── stations/                    # WHERE you test
@@ -56,7 +56,7 @@ quick_start/
 
 ## Understanding the Starter Project
 
-When you run `litmus init quick_start --starter`, it generates all of these files. Here's what each one does:
+When you run `testerkit init quick_start --starter`, it generates all of these files. Here's what each one does:
 
 ### Part Spec (`parts/example_part.yaml`)
 
@@ -102,7 +102,7 @@ instruments:
     mock_config: {measure_dc_voltage: 3.3}
 ```
 
-For real hardware, just remove `mock: true`. Litmus uses [PyVISA](https://pyvisa.readthedocs.io/) directly:
+For real hardware, just remove `mock: true`. TesterKit uses [PyVISA](https://pyvisa.readthedocs.io/) directly:
 
 ```yaml
 # stations/bench_1.yaml - Real hardware
@@ -128,7 +128,7 @@ instruments:
 
 ### Test Code (`tests/test_example.py`)
 
-Tests are **plain pytest** — no decorator, no base class. Litmus's pytest integration contributes [fixtures](../reference/pytest/fixtures.md) (the per-test `context` / `verify` / `measure`, plus `pins`, `instruments`, per-role auto-fixtures from the station YAML, etc.) and [seven markers](../reference/pytest/markers.md). For how Litmus tests use pytest's own collection / fixture / marker mechanisms see [pytest-native reference](../reference/overview/pytest-native.md).
+Tests are **plain pytest** — no decorator, no base class. TesterKit's pytest integration contributes [fixtures](../reference/pytest/fixtures.md) (the per-test `context` / `verify` / `measure`, plus `pins`, `instruments`, per-role auto-fixtures from the station YAML, etc.) and [seven markers](../reference/pytest/markers.md). For how TesterKit tests use pytest's own collection / fixture / marker mechanisms see [pytest-native reference](../reference/overview/pytest-native.md).
 
 ```python
 # tests/test_example.py
@@ -163,7 +163,7 @@ Sweeps and mocks live here too — e.g. a module-level `sweeps: [{vin: [5.0]}]` 
 
 ### Running Tests
 
-The starter's `pyproject.toml` bakes the station, mock mode, and a UUT serial into `addopts` (and `litmus.yaml` sets the same defaults), so the everyday command is just:
+The starter's `pyproject.toml` bakes the station, mock mode, and a UUT serial into `addopts` (and `testerkit.yaml` sets the same defaults), so the everyday command is just:
 
 ```bash
 pytest
@@ -188,7 +188,7 @@ pytest tests/ --station=starter_station --uut-serial=SN001 -v
 
 ## The Pattern
 
-Every Litmus test follows this pattern:
+Every TesterKit test follows this pattern:
 
 1. **GET CONDITIONS** from `context.get_param(...)` (not hardcoded)
 2. **SET UP** stimulus (PSU voltage, load current)
@@ -204,7 +204,7 @@ def test_something(context, psu, dmm, verify):
                dmm.measure_dc_voltage())
 ```
 
-**No hardcoded values in code.** Conditions come from `context` (populated by native `@pytest.mark.parametrize` or sidecar YAML). Limits come from the part spec, an inline `@pytest.mark.litmus_limits` decorator, or the sidecar's `limits:` field — never inline asserts.
+**No hardcoded values in code.** Conditions come from `context` (populated by native `@pytest.mark.parametrize` or sidecar YAML). Limits come from the part spec, an inline `@pytest.mark.testerkit_limits` decorator, or the sidecar's `limits:` field — never inline asserts.
 
 For the full reference — markers, sidecar YAML, `context.changed()`, mocks, retries — see the [Writing Tests guide](../how-to/execution/writing-tests.md).
 
@@ -213,14 +213,14 @@ For the full reference — markers, sidecar YAML, `context.changed()`, mocks, re
 ### CLI
 
 ```bash
-litmus runs              # List recent runs
-litmus show <run_id>     # Show run details
+testerkit runs              # List recent runs
+testerkit show <run_id>     # Show run details
 ```
 
 ### Operator UI
 
 ```bash
-litmus serve
+testerkit serve
 # Open http://localhost:8000
 ```
 
@@ -260,17 +260,17 @@ parquet directly.
 
 ## Optional: Set Up AI Assistance
 
-If you use an AI coding tool, Litmus can register its [MCP (Model Context Protocol)](../how-to/overview/mcp-integration.md) server and generate project instructions so your AI understands Litmus:
+If you use an AI coding tool, TesterKit can register its [MCP (Model Context Protocol)](../how-to/overview/mcp-integration.md) server and generate project instructions so your AI understands TesterKit:
 
 ```bash
-litmus setup claude-code       # Claude Code
-litmus setup claude-desktop    # Claude Desktop
-litmus setup copilot           # GitHub Copilot (VS Code + CLI)
+testerkit setup claude-code       # Claude Code
+testerkit setup claude-desktop    # Claude Desktop
+testerkit setup copilot           # GitHub Copilot (VS Code + CLI)
 ```
 
 ## Next: Connect Real Hardware
 
-When you're ready to move from mocks to real instruments, see [Step 7: Real Instruments](07-real-instruments.md). It covers station configuration, `litmus discover`, driver wiring, and common troubleshooting.
+When you're ready to move from mocks to real instruments, see [Step 7: Real Instruments](07-real-instruments.md). It covers station configuration, `testerkit discover`, driver wiring, and common troubleshooting.
 
 ## Next Steps
 

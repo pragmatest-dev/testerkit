@@ -31,9 +31,9 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from litmus.analysis.runs_query import RunRow, RunsQuery
-from litmus.data.event_store import EventStore
-from litmus.data.events import RunEnded, RunStarted, SessionStarted
+from testerkit.analysis.runs_query import RunRow, RunsQuery
+from testerkit.data.event_store import EventStore
+from testerkit.data.events import RunEnded, RunStarted, SessionStarted
 
 _LANDING_TIMEOUT_S = 10.0
 

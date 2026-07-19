@@ -23,13 +23,13 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from litmus.data.channels.client import ChannelClient
-from litmus.data.channels.models import ChannelSample
-from litmus.data.channels.server import start_server_background
-from litmus.data.channels.store import ChannelStore
-from litmus.data.data_dir import resolve_data_dir
+from testerkit.data.channels.client import ChannelClient
+from testerkit.data.channels.models import ChannelSample
+from testerkit.data.channels.server import start_server_background
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.data_dir import resolve_data_dir
 
-# Project-local results via repo ``litmus.yaml`` — daemon-spawning
+# Project-local results via repo ``testerkit.yaml`` — daemon-spawning
 # tests share this so we get exactly one channels daemon for the
 # whole TestDaemonLifecycle class.
 _CANONICAL_RESULTS = resolve_data_dir()

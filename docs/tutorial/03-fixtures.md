@@ -1,8 +1,8 @@
 # Step 3: pytest-native tests
 
-**Goal:** Adopt Litmus's per-test fixtures so measurements get recorded with full [traceability](../how-to/execution/traceability.md).
+**Goal:** Adopt TesterKit's per-test fixtures so measurements get recorded with full [traceability](../how-to/execution/traceability.md).
 
-In step 2, your tests called driver methods and used `assert` for pass/fail. Litmus's `measure` and `verify` fixtures slot in alongside that, recording each measurement to the run record (see [data stores](../concepts/data/data-stores.md)) without changing how your test reads.
+In step 2, your tests called driver methods and used `assert` for pass/fail. TesterKit's `measure` and `verify` fixtures slot in alongside that, recording each measurement to the run record (see [data stores](../concepts/data/data-stores.md)) without changing how your test reads.
 
 You don't need any new YAML for this step. Keep the `conftest.py` from step 2 — the `psu` / `dmm` fixtures still work.
 
@@ -16,7 +16,7 @@ All three are available on every test run — no station, no sidecar, no sweep r
 | `verify` | Records the row, resolves a limit, raises on FAIL      | `verify(name, value, limit=..., characteristic=...)` (`characteristic` = a named measurable property on the part spec — covered in step 6 / [concepts/capabilities](../concepts/configuration/capabilities.md)) |
 | `context`| What's active — the run, UUT, station, and (if parametrized) sweep values | `get_param`, `changed`, `last`, `observe`, `.part`, `.station`, `.run` |
 
-These are the three you'll reach for most. The Litmus plugin for pytest provides more — hardware accessors (`pins`, `instruments`, `uut`), config accessors (`part`, `station_config`), and special-purpose fixtures (`vectors`, `sync`) — see the [Litmus fixtures reference](../reference/pytest/fixtures.md) for the full set.
+These are the three you'll reach for most. The TesterKit plugin for pytest provides more — hardware accessors (`pins`, `instruments`, `uut`), config accessors (`part`, `station_config`), and special-purpose fixtures (`vectors`, `sync`) — see the [TesterKit fixtures reference](../reference/pytest/fixtures.md) for the full set.
 
 ## From assert to measure
 
@@ -41,7 +41,7 @@ def test_output_voltage(psu, dmm, measure):
     assert 3.2 <= v <= 3.4
 ```
 
-Same control flow, but now there's a measurement recorded in the run record — value, units, limits, and outcome — visible to `litmus runs`, the operator UI, and any downstream analysis.
+Same control flow, but now there's a measurement recorded in the run record — value, units, limits, and outcome — visible to `testerkit runs`, the operator UI, and any downstream analysis.
 
 ## Skip the assert with `verify`
 
@@ -59,7 +59,7 @@ For one-off tests, passing `limit=` inline is fine. The cleaner home for limits 
 
 ## Classes group related tests
 
-Grouping related tests in a plain pytest class is the standard way to structure a Litmus test:
+Grouping related tests in a plain pytest class is the standard way to structure a TesterKit test:
 
 ```python
 class TestPowerUp:
@@ -76,7 +76,7 @@ class TestPowerUp:
 
 Methods run in source order. Each emits its own [step](../concepts/execution/step-hierarchy.md) events; the class container's [outcome](../reference/data/models.md#enum-outcome) rolls up from the worst child outcome.
 
-If a downstream test should skip when an upstream one fails, use `@pytest.mark.dependency(depends=["test_input_voltage"])` from the [`pytest-dependency`](https://pytest-dependency.readthedocs.io/) plugin — pytest's ecosystem, not a Litmus addition.
+If a downstream test should skip when an upstream one fails, use `@pytest.mark.dependency(depends=["test_input_voltage"])` from the [`pytest-dependency`](https://pytest-dependency.readthedocs.io/) plugin — pytest's ecosystem, not a TesterKit addition.
 
 ## Parametrize is first-class
 
@@ -94,17 +94,17 @@ def test_output_voltage(vin, psu, dmm, verify):
 
 Each parametrized `vin` value is recorded as an **input** named `vin` on the measurement (its role is `input` — see [traceability](../how-to/execution/traceability.md)), so you can later query "how did output_voltage track vin?" — inputs are addressable by name and role — without adding extra code to the test. Sweeping from YAML instead of inline arrives in step 5.
 
-Litmus also adds a native sweep marker, `@pytest.mark.litmus_sweeps`, that records the same inputs and supports range expanders (`linspace`, `arange`, `logspace`):
+TesterKit also adds a native sweep marker, `@pytest.mark.testerkit_sweeps`, that records the same inputs and supports range expanders (`linspace`, `arange`, `logspace`):
 
 ```python
 import pytest
 
-@pytest.mark.litmus_sweeps([{"vin": [4.5, 5.0, 5.5]}])
+@pytest.mark.testerkit_sweeps([{"vin": [4.5, 5.0, 5.5]}])
 def test_output_voltage(vin, psu, dmm, verify):
     ...
 ```
 
-Use `@pytest.mark.parametrize` when you want pytest's per-row `pytest.param(..., id="...")` metadata; use `@pytest.mark.litmus_sweeps` when you want range expanders (`linspace` / `arange` / `logspace`) or want the sweep to match how you'll define it in YAML (step 5). See [`litmus_sweeps`](../reference/pytest/markers.md#litmus_sweeps) and the [Litmus markers reference](../reference/pytest/markers.md) for all seven `litmus_*` markers.
+Use `@pytest.mark.parametrize` when you want pytest's per-row `pytest.param(..., id="...")` metadata; use `@pytest.mark.testerkit_sweeps` when you want range expanders (`linspace` / `arange` / `logspace`) or want the sweep to match how you'll define it in YAML (step 5). See [`testerkit_sweeps`](../reference/pytest/markers.md#testerkit_sweeps) and the [TesterKit markers reference](../reference/pytest/markers.md) for all seven `testerkit_*` markers.
 
 ## Multiple measurements per test
 
@@ -135,8 +135,8 @@ pytest tests/ --mock-instruments -v
 If you want to see the recorded measurements, list runs from the CLI:
 
 ```bash
-litmus runs
-litmus show <run_id>
+testerkit runs
+testerkit show <run_id>
 ```
 
 ## What a measurement records
@@ -153,7 +153,7 @@ Read a run back and each measurement gives you:
 | `measurement_timestamp` | when it was recorded |
 | `vector_index` | which sweep variant (NULL for non-parametrized tests) |
 
-Read these with `litmus runs` / the operator UI, or the [Query API](../reference/data/query-api.md).
+Read these with `testerkit runs` / the operator UI, or the [Query API](../reference/data/query-api.md).
 
 ## What you learned
 

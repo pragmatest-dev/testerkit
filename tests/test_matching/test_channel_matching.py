@@ -1,14 +1,14 @@
 """Tests for channel-aware capability matching."""
 
-from litmus.matching.service import (
+from testerkit.matching.service import (
     CapabilityRequirement,
     StationCapability,
     capability_satisfies,
     match_capabilities,
 )
-from litmus.models.capability import InstrumentCapability, RangeSpec, Signal
-from litmus.models.enums import Direction, MeasurementFunction
-from litmus.models.part import PartCharacteristic
+from testerkit.models.capability import InstrumentCapability, RangeSpec, Signal
+from testerkit.models.enums import Direction, MeasurementFunction
+from testerkit.models.part import PartCharacteristic
 
 
 def _make_station_cap(
@@ -342,7 +342,7 @@ class TestCatalogChannelParsing:
         """E36312A catalog entry has correct per-channel capabilities."""
         from pathlib import Path
 
-        from litmus.store import load_catalog_entry
+        from testerkit.store import load_catalog_entry
 
         catalog_path = Path("catalog/keysight_e36312a.yaml")
         if not catalog_path.exists():
@@ -440,21 +440,21 @@ class TestPinRole:
 
     def test_pin_role_default_signal(self):
         """Pin role defaults to signal."""
-        from litmus.models.part import Pin
+        from testerkit.models.part import Pin
 
         pin = Pin(name="TP1")
         assert pin.role == "signal"
 
     def test_pin_role_ground(self):
         """Pin role can be set to ground."""
-        from litmus.models.part import Pin, PinRole
+        from testerkit.models.part import Pin, PinRole
 
         pin = Pin(name="J1.2", role=PinRole.GROUND)
         assert pin.role == "ground"
 
     def test_pin_role_power(self):
         """Pin role can be set to power."""
-        from litmus.models.part import Pin, PinRole
+        from testerkit.models.part import Pin, PinRole
 
         pin = Pin(name="J1.1", role=PinRole.POWER, net="VIN_5V")
         assert pin.role == "power"
@@ -466,8 +466,8 @@ class TestChannelTopology:
 
     def test_channel_topology_defaults(self):
         """ChannelTopology has sensible defaults."""
-        from litmus.models.capability import ChannelTopology
-        from litmus.models.enums import GroundTopology
+        from testerkit.models.capability import ChannelTopology
+        from testerkit.models.enums import GroundTopology
 
         ct = ChannelTopology()
         assert ct.terminals == []
@@ -477,8 +477,8 @@ class TestChannelTopology:
 
     def test_channel_topology_custom(self):
         """ChannelTopology with custom values."""
-        from litmus.models.capability import ChannelTopology
-        from litmus.models.enums import ConnectorType, GroundTopology, TerminalRole
+        from testerkit.models.capability import ChannelTopology
+        from testerkit.models.enums import ConnectorType, GroundTopology, TerminalRole
 
         ct = ChannelTopology(
             label="6V/5A Output",
@@ -498,9 +498,9 @@ class TestChannelTopology:
 
     def test_catalog_entry_structured_channels(self):
         """InstrumentCatalogEntry with structured channel dict."""
-        from litmus.models.capability import ChannelTopology
-        from litmus.models.catalog import InstrumentCatalogEntry
-        from litmus.models.enums import ConnectorType, GroundTopology, TerminalRole
+        from testerkit.models.capability import ChannelTopology
+        from testerkit.models.catalog import InstrumentCatalogEntry
+        from testerkit.models.enums import ConnectorType, GroundTopology, TerminalRole
 
         entry = InstrumentCatalogEntry(
             id="test_psu",
@@ -525,7 +525,7 @@ class TestChannelTopology:
 
     def test_catalog_entry_empty_channels(self):
         """InstrumentCatalogEntry with no channels."""
-        from litmus.models.catalog import InstrumentCatalogEntry
+        from testerkit.models.catalog import InstrumentCatalogEntry
 
         entry = InstrumentCatalogEntry(
             id="test_dmm",
@@ -542,14 +542,14 @@ class TestFixtureConnectionTerminal:
 
     def test_fixture_connection_no_terminal(self):
         """FixtureConnection without terminal (backward compat)."""
-        from litmus.models.test_config import FixtureConnection
+        from testerkit.models.test_config import FixtureConnection
 
         fc = FixtureConnection(name="vin_psu", instrument="psu")
         assert fc.instrument_terminal is None
 
     def test_fixture_connection_with_terminal(self):
         """FixtureConnection with instrument_terminal."""
-        from litmus.models.test_config import FixtureConnection
+        from testerkit.models.test_config import FixtureConnection
 
         fc = FixtureConnection(
             name="gnd_psu_lo",
@@ -610,7 +610,7 @@ class TestDesignerAutoSuggest:
 
     def test_readback_excluded_from_matching_hints(self):
         """PSU readback channels should not appear as compatible for input measurements."""
-        from litmus.ui.pages.designer.matching import get_compatible_channels_for_pin
+        from testerkit.ui.pages.designer.matching import get_compatible_channels_for_pin
 
         instruments = self._make_instruments()
 
@@ -627,7 +627,7 @@ class TestDesignerAutoSuggest:
 
     def test_ground_pin_gets_lo_channels(self):
         """Ground pins should get all channels as compatible (for LO terminal wiring)."""
-        from litmus.ui.pages.designer.matching import get_compatible_channels_for_pin
+        from testerkit.ui.pages.designer.matching import get_compatible_channels_for_pin
 
         instruments = self._make_instruments()
 

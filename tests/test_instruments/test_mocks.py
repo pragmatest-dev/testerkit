@@ -2,7 +2,7 @@
 
 from typing import cast
 
-from litmus.instruments.mocks import Mock, as_mock
+from testerkit.instruments.mocks import Mock, as_mock
 
 
 class FakeDMM:

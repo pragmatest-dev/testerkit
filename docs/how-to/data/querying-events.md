@@ -1,26 +1,26 @@
 # Query Historical Events
 
-Three ways to query events: MCP tool (AI agents), HTTP API (any client), or Python (in-process). Most filters take a `session_id` — list recent sessions with `litmus runs` or `store.sessions()` and copy one.
+Three ways to query events: MCP tool (AI agents), HTTP API (any client), or Python (in-process). Most filters take a `session_id` — list recent sessions with `testerkit runs` or `store.sessions()` and copy one.
 
-> **Prerequisites.** Every Litmus test run writes events automatically; an empty store returns an empty list, not an error. The HTTP path needs `litmus serve` running; the Python path needs only `litmus` installed. Run `litmus daemon status` to confirm which data dir is active.
+> **Prerequisites.** Every TesterKit test run writes events automatically; an empty store returns an empty list, not an error. The HTTP path needs `testerkit serve` running; the Python path needs only `testerkit` installed. Run `testerkit daemon status` to confirm which data dir is active.
 
-## MCP Tool: `litmus_events`
+## MCP Tool: `testerkit_events`
 
 ```
 # All events for a session
-litmus_events(session_id="<session-id>")
+testerkit_events(session_id="<session-id>")
 
 # Only measurement events
-litmus_events(event_type="test.measurement")
+testerkit_events(event_type="test.measurement")
 
 # Channel events for the DMM (instrument reads land in the channel store)
-litmus_events(event_type="channel.started", role="dmm")
+testerkit_events(event_type="channel.started", role="dmm")
 
 # Events at or after a timestamp (`since` is inclusive; UTC, ISO 8601)
-litmus_events(since="2026-03-10T14:00:00Z")
+testerkit_events(since="2026-03-10T14:00:00Z")
 
 # Combine filters
-litmus_events(session_id="<session-id>", event_type="test.step_ended", limit=50)
+testerkit_events(session_id="<session-id>", event_type="test.step_ended", limit=50)
 ```
 
 ## HTTP API
@@ -43,7 +43,7 @@ curl "http://localhost:8000/api/events?since=2026-03-10T14:00:00Z&limit=50"
 
 ```python
 from datetime import datetime, timezone
-from litmus.queries import EventStore
+from testerkit.queries import EventStore
 
 store = EventStore()
 try:
@@ -71,7 +71,7 @@ finally:
 
 | Filter | Description | Example Values |
 |--------|-------------|----------------|
-| `session_id` | id of the session (from `litmus runs`) | `"<session-id>"` |
+| `session_id` | id of the session (from `testerkit runs`) | `"<session-id>"` |
 | `event_type` | Dotted event type string | `"test.measurement"`, `"channel.started"`, `"session.started"` |
 | `role` | Instrument role name | `"dmm"`, `"psu"`, `"scope"` |
 | `since` | ISO timestamp (UTC). Inclusive — `received_at >= since`. | `"2026-03-10T14:00:00Z"` |
@@ -82,4 +82,4 @@ finally:
 ## See also
 - [Event Types Reference](../../reference/data/event-types.md) — All event type fields
 - [Event Log Architecture](../../concepts/data/event-log.md) — How events are stored
-- [MCP integration](../overview/mcp-integration.md) — Setting up `litmus_events` and the other MCP tools for AI clients
+- [MCP integration](../overview/mcp-integration.md) — Setting up `testerkit_events` and the other MCP tools for AI clients

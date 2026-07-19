@@ -1,12 +1,12 @@
 """Tests for instrument discovery functions."""
 
-from litmus.instruments.discovery import (
+from testerkit.instruments.discovery import (
     DiscoveryProtocol,
     get_protocol,
     list_protocols,
     parse_idn,
 )
-from litmus.models.instrument import InstrumentInfo
+from testerkit.models.instrument import InstrumentInfo
 
 
 class TestParseIDN:

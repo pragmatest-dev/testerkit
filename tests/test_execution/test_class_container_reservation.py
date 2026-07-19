@@ -20,12 +20,12 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.execution import _state
-from litmus.execution.run_scope import RunScope
-from litmus.instruments.locks import ResourceInUse
-from litmus.instruments.pool import InstrumentPool
-from litmus.models.instrument import InstrumentRecord
-from litmus.pytest_plugin import hooks
+from testerkit.execution import _state
+from testerkit.execution.run_scope import RunScope
+from testerkit.instruments.locks import ResourceInUse
+from testerkit.instruments.pool import InstrumentPool
+from testerkit.models.instrument import InstrumentRecord
+from testerkit.pytest_plugin import hooks
 
 
 @pytest.mark.usefixtures("dmm")
@@ -55,7 +55,7 @@ def _real_record(role: str = "dmm", resource: str = "GPIB::16::INSTR") -> Instru
 @pytest.fixture(autouse=True)
 def _isolate(tmp_path, monkeypatch):
     """Lock files to a temp dir; reset plugin state between tests."""
-    monkeypatch.setenv("LITMUS_HOME", str(tmp_path / "litmus_home"))
+    monkeypatch.setenv("TESTERKIT_HOME", str(tmp_path / "testerkit_home"))
     # The container helper resolves outer-dim sweep values off the item stash;
     # these tests carry no sweeps, so short-circuit to "unswept".
     monkeypatch.setattr(hooks, "_outer_values_for", lambda item: ())

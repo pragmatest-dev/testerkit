@@ -1,35 +1,35 @@
 # Platform Architecture
 
-Litmus is a **hardware test platform**, not a test framework. Understanding this distinction is key to using Litmus effectively.
+TesterKit is a **hardware test platform**, not a test framework. Understanding this distinction is key to using TesterKit effectively.
 
 ## Platform vs framework
 
-A test framework's job ends at "run the test." A test platform's job is everything around it: store the result, version the config, route signals to instruments, expose what happened to operators and dashboards and AI agents. Litmus does the platform job and delegates execution to pytest (the primary integration) or any other Python entry point that calls into `LitmusClient` to submit results.
+A test framework's job ends at "run the test." A test platform's job is everything around it: store the result, version the config, route signals to instruments, expose what happened to operators and dashboards and AI agents. TesterKit does the platform job and delegates execution to pytest (the primary integration) or any other Python entry point that calls into `TesterKitClient` to submit results.
 
-## What Litmus provides
+## What TesterKit provides
 
 The infrastructure pieces a hardware-test team needs whether they're running pytest, a hand-written loop, or a bridge from a non-Python runner:
 
-- **Configuration** — `litmus.yaml` (project), `stations/*.yaml` (benches), `fixtures/*.yaml` (UUT routing), `parts/*.yaml` (specs), `catalog/*.yaml` (instrument capabilities). All YAML, all Pydantic-validated, all editable without touching test code.
+- **Configuration** — `testerkit.yaml` (project), `stations/*.yaml` (benches), `fixtures/*.yaml` (UUT routing), `parts/*.yaml` (specs), `catalog/*.yaml` (instrument capabilities). All YAML, all Pydantic-validated, all editable without touching test code.
 - **Instrument plumbing** — a ready-made handle per instrument from station YAML, the `Mock` substitution for hardware-free tests, switch-route activation through fixture connections. Drivers themselves are user-supplied (PyMeasure, PyVISA, vendor SDK).
 - **Capability matching** — does this station have what this part needs? See [capabilities](../configuration/capabilities.md).
 - **Results storage** — four stores feeding one queryable surface: the [event log](../data/event-log.md), the run store (parquet), the channel store for time-series, and the file store for artifacts. See [data stores](../data/data-stores.md) for the layout and tradeoffs.
 - **Operator surface** — NiceGUI web UI, operator prompts during a test, real-time dashboards.
 - **AI surface** — MCP server exposing tools an agent can drive: discovery, matching, run launching, results query. Platform never calls an LLM itself.
 
-## What Litmus does not provide
+## What TesterKit does not provide
 
-- **A test execution engine.** Litmus delegates to pytest for new projects; non-pytest runners (LabVIEW / TestStand bridges, hand-written loops, etc.) use [`LitmusClient`](../../reference/runtime/client.md) to submit results.
+- **A test execution engine.** TesterKit delegates to pytest for new projects; non-pytest runners (LabVIEW / TestStand bridges, hand-written loops, etc.) use [`TesterKitClient`](../../reference/runtime/client.md) to submit results.
 - **Instrument drivers.** Bring your own — PyMeasure, PyVISA, vendor libraries, or your own classes derived from `Instrument` / `VisaInstrument`. See [custom drivers](../../how-to/configuration/custom-drivers.md).
 
 ## Multiple Entry Points
 
-Because Litmus is a platform, you can access it through multiple entry points:
+Because TesterKit is a platform, you can access it through multiple entry points:
 
 | Entry Point | Use Case | How It Works |
 |-------------|----------|--------------|
 | **pytest** | New test development | pytest-native: [`context`](../../how-to/execution/test-context.md), `verify`, `measure` [fixtures](../../reference/pytest/fixtures.md) |
-| **CLI** | Operations, debugging | `litmus runs`, `litmus show` |
+| **CLI** | Operations, debugging | `testerkit runs`, `testerkit show` |
 | **HTTP API** | CI/CD, dashboards | `POST /api/runs`, `GET /api/runs/{id}` |
 | **MCP Server** | AI integration | Claude Code, other AI agents |
 | **Operator UI** | Production floor | NiceGUI web interface |
@@ -58,9 +58,9 @@ def test_output_voltage(context, psu, dmm, verify):
 For any test source that isn't pytest — LabVIEW shelling out, TestStand step calling Python, an ad-hoc characterization script:
 
 ```python
-from litmus import LitmusClient
+from testerkit import TesterKitClient
 
-client = LitmusClient()
+client = TesterKitClient()
 
 run = client.start_run(
     uut_serial="SN123",
@@ -78,26 +78,26 @@ See the [Python client reference](../../reference/runtime/client.md) for the ful
 
 ## AI Integration (MCP)
 
-Litmus exposes its platform services via MCP (Model Context Protocol):
+TesterKit exposes its platform services via MCP (Model Context Protocol):
 
 ```mermaid
 flowchart TB
     agent["AI Agent (Claude Code)"]
-    mcp["**MCP Server**<br/><br/>Tools (thirteen, all litmus_*):<br/>• litmus_project (CRUD on YAML)<br/>• litmus_discover (find instruments)<br/>• litmus_match (capability check)<br/>• litmus_run (execute tests)<br/>• litmus_open (browser URLs)<br/>• litmus_schema (entity JSON schema)<br/>• litmus_events (query events)<br/>• litmus_sessions (list sessions)<br/>• litmus_channels (query channels)<br/>• litmus_files (list artifacts)<br/>• litmus_metrics (yield / Pareto / Ppk)<br/>• litmus_runs (query runs view)<br/>• litmus_steps (query steps view)"]
-    platform["Litmus Platform Services"]
+    mcp["**MCP Server**<br/><br/>Tools (thirteen, all testerkit_*):<br/>• testerkit_project (CRUD on YAML)<br/>• testerkit_discover (find instruments)<br/>• testerkit_match (capability check)<br/>• testerkit_run (execute tests)<br/>• testerkit_open (browser URLs)<br/>• testerkit_schema (entity JSON schema)<br/>• testerkit_events (query events)<br/>• testerkit_sessions (list sessions)<br/>• testerkit_channels (query channels)<br/>• testerkit_files (list artifacts)<br/>• testerkit_metrics (yield / Pareto / Ppk)<br/>• testerkit_runs (query runs view)<br/>• testerkit_steps (query steps view)"]
+    platform["TesterKit Platform Services"]
 
     agent --> mcp --> platform
 ```
 
-**Important:** Litmus does NOT call LLMs. It exposes tools for AI agents to call.
+**Important:** TesterKit does NOT call LLMs. It exposes tools for AI agents to call.
 
 ## When to use what
 
 | Scenario | Approach |
 |---|---|
 | New pytest project | pytest-native tests with `context` / `verify` / `measure` fixtures (see [tutorial step 3](../../tutorial/03-fixtures.md)). |
-| Existing pytest tests | Drop in Litmus fixtures + sidecar YAML incrementally — see [integration/pytest-existing](../../integration/runtime/pytest-existing.md). |
-| LabVIEW / TestStand / non-pytest runners | Use [`LitmusClient`](../../reference/runtime/client.md) to write run results from any Python boundary the other runner can shell out to. |
+| Existing pytest tests | Drop in TesterKit fixtures + sidecar YAML incrementally — see [integration/pytest-existing](../../integration/runtime/pytest-existing.md). |
+| LabVIEW / TestStand / non-pytest runners | Use [`TesterKitClient`](../../reference/runtime/client.md) to write run results from any Python boundary the other runner can shell out to. |
 | AI-assisted test authoring | Run the [MCP server](../../how-to/overview/mcp-integration.md) and point Claude Code / Cursor / Cline at it. |
 
 ## How it fits together
@@ -113,7 +113,7 @@ flowchart TB
         pytest["pytest"]
     end
 
-    subgraph Platform["LITMUS PLATFORM"]
+    subgraph Platform["TESTERKIT PLATFORM"]
         direction LR
         cfg["Config"]
         instr["Instruments"]
@@ -134,7 +134,7 @@ flowchart TB
     UI --> Platform --> Storage
 ```
 
-Litmus is the infrastructure layer that connects your tests (top) to your data (bottom), whether you run them through pytest, the results API, or a bridge from another runner.
+TesterKit is the infrastructure layer that connects your tests (top) to your data (bottom), whether you run them through pytest, the results API, or a bridge from another runner.
 
 
 ## See also

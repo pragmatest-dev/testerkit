@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from litmus.data.retention import parse_duration, prune_all, prune_date_dirs
+from testerkit.data.retention import parse_duration, prune_all, prune_date_dirs
 
 
 class TestParseDuration:
@@ -26,8 +26,8 @@ class TestParseDuration:
 class TestPruneDateDirs:
     @pytest.fixture()
     def project_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-        """Create a project dir with litmus.yaml so prune considers it owned."""
-        (tmp_path / "litmus.yaml").write_text(f"name: test\ndata_dir: {tmp_path / 'data'}\n")
+        """Create a project dir with testerkit.yaml so prune considers it owned."""
+        (tmp_path / "testerkit.yaml").write_text(f"name: test\ndata_dir: {tmp_path / 'data'}\n")
         monkeypatch.chdir(tmp_path)
         return tmp_path / "data"
 
@@ -80,8 +80,8 @@ class TestPruneDateDirs:
 class TestPruneAll:
     @pytest.fixture()
     def project_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-        """Create a project dir with litmus.yaml so prune considers it owned."""
-        (tmp_path / "litmus.yaml").write_text(f"name: test\ndata_dir: {tmp_path / 'data'}\n")
+        """Create a project dir with testerkit.yaml so prune considers it owned."""
+        (tmp_path / "testerkit.yaml").write_text(f"name: test\ndata_dir: {tmp_path / 'data'}\n")
         monkeypatch.chdir(tmp_path)
         return tmp_path / "data"
 
@@ -117,7 +117,7 @@ class TestPruneAll:
 
         # A run references (scope.ch1, aaaaaaaa): it's evidence, must be kept.
         monkeypatch.setattr(
-            "litmus.data.retention._referenced_pairs",
+            "testerkit.data.retention._referenced_pairs",
             lambda *_a: {("scope.ch1", "aaaaaaaa")},
         )
         result = prune_all(project_dir, "30d", data_types=("channels",))
@@ -136,7 +136,7 @@ class TestPruneAll:
 
     def test_refuses_unowned_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """Pruning a dir not owned by any project should fail."""
-        # chdir to a dir with no litmus.yaml
+        # chdir to a dir with no testerkit.yaml
         no_project = tmp_path / "no_project"
         no_project.mkdir()
         monkeypatch.chdir(no_project)
@@ -150,7 +150,7 @@ class TestPruneAll:
 class TestFilesRefAware:
     @pytest.fixture()
     def project_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-        (tmp_path / "litmus.yaml").write_text(f"name: test\ndata_dir: {tmp_path / 'data'}\n")
+        (tmp_path / "testerkit.yaml").write_text(f"name: test\ndata_dir: {tmp_path / 'data'}\n")
         monkeypatch.chdir(tmp_path)
         return tmp_path / "data"
 

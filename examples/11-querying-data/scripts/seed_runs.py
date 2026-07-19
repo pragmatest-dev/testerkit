@@ -2,7 +2,7 @@
 
 Creates 8 runs across 3 UUTs and 2 stations with mixed outcomes —
 enough variety that yield queries, UUT-history queries, and trend
-analysis return meaningful results. Synthesized via LitmusClient
+analysis return meaningful results. Synthesized via TesterKitClient
 (the programmatic run-building API for external data movers).
 
 Usage::
@@ -18,11 +18,11 @@ from __future__ import annotations
 import random
 import time
 
-from litmus import LitmusClient
+from testerkit import TesterKitClient
 
 
 def main() -> None:
-    client = LitmusClient(data_dir="data")
+    client = TesterKitClient(data_dir="data")
 
     # UUTs of two part numbers, mixed serials
     uut_specs: list[tuple[str, str]] = [

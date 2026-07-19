@@ -7,7 +7,7 @@ when their commit might have desynchronised one of the cropped PNGs
 under ``docs/_assets/operator-ui/``.
 
 The hook is wired in ``.pre-commit-config.yaml`` to fire on
-``src/litmus/ui/pages/**/*.py``. It reads the screenshot script's
+``src/testerkit/ui/pages/**/*.py``. It reads the screenshot script's
 ``MANIFEST`` to learn which testids the docs depend on, then greps
 each changed file for ``data-testid='<name>'`` patterns. If any
 changed file contains a tracked testid, print the list of affected

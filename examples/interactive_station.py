@@ -1,6 +1,6 @@
 """Interactive station monitor + control with NiceGUI.
 
-Canonical example of a Litmus station UI. Demonstrates:
+Canonical example of a TesterKit station UI. Demonstrates:
 
 - **Channel data** via ``channel_data`` — PSU readback, DMM readings,
   scope waveforms all update live from any process (this UI, pytest, scripts).
@@ -29,21 +29,21 @@ from nicegui import app, background_tasks, run, ui
 # Ensure the parent repo is importable when running from examples/
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import litmus
+import testerkit
 
 # ``connect()`` returns a ``StationConnection`` context manager; the
-# type is reached via ``litmus.connect.StationConnection`` only when a
+# type is reached via ``testerkit.connect.StationConnection`` only when a
 # script needs an explicit type annotation.
-from litmus.connect import StationConnection
-from litmus.data.channels.models import ChannelSample
-from litmus.models.station import StationInstrumentConfig
-from litmus.ui import bind_channel_store, channel_data
-from litmus.ui.components import create_instrument_activity, create_session_table
-from litmus.ui.shared.components import InstrumentToggle
+from testerkit.connect import StationConnection
+from testerkit.data.channels.models import ChannelSample
+from testerkit.models.station import StationInstrumentConfig
+from testerkit.ui import bind_channel_store, channel_data
+from testerkit.ui.components import create_instrument_activity, create_session_table
+from testerkit.ui.shared.components import InstrumentToggle
 
 # ---------------------------------------------------------------------------
 # UI channel definitions — what the user wants to show, per instrument type.
-# No Litmus internals needed.  The user knows their instruments.
+# No TesterKit internals needed.  The user knows their instruments.
 # ---------------------------------------------------------------------------
 
 
@@ -121,7 +121,7 @@ def _get_station() -> StationConnection:
 
 def _init_station() -> None:
     global _station
-    _station = litmus.connect("demo_station_001", mock=True)
+    _station = testerkit.connect("demo_station_001", mock=True)
     _station.start()
     if _station.channel_store:
         bind_channel_store(_station.channel_store)
@@ -378,4 +378,4 @@ def _build_scope_card(
             ).props("color=green dense")
 
 
-ui.run(title="Litmus Station Monitor", port=8080, reload=True)
+ui.run(title="TesterKit Station Monitor", port=8080, reload=True)

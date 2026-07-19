@@ -171,7 +171,7 @@ prompts:
     timeout_seconds: 30
 ```
 
-Reference the prompt from a test method via the [`prompt()`](../reference/pytest/fixtures.md#prompt-function) fixture (Litmus's operator-prompt helper for paused interactions).
+Reference the prompt from a test method via the [`prompt()`](../reference/pytest/fixtures.md#prompt-function) fixture (TesterKit's operator-prompt helper for paused interactions).
 
 ### Ordering across files
 
@@ -272,14 +272,14 @@ pytest tests/ \
 ### CLI
 
 ```bash
-litmus runs                    # List recent runs
-litmus show <run_id>           # Show run details
+testerkit runs                    # List recent runs
+testerkit show <run_id>           # Show run details
 ```
 
 ### Operator UI
 
 ```bash
-litmus serve
+testerkit serve
 # Open http://localhost:8000
 ```
 
@@ -337,22 +337,22 @@ Spec: output_voltage @ tolerance=5%
 - Sidecar YAML for per-test limits, sweeps, mocks, and retries
 - Full traceability from spec to measurement
 
-## Sharing data across projects: `litmus data promote`
+## Sharing data across projects: `testerkit data promote`
 
-`litmus init --starter` ships your project with a `data_dir: data` override in `litmus.yaml`. Runs land in the project-local `data/` folder so your tutorial and mock-instrument runs stay out of the shared global store other projects use.
+`testerkit init --starter` ships your project with a `data_dir: data` override in `testerkit.yaml`. Runs land in the project-local `data/` folder so your tutorial and mock-instrument runs stay out of the shared global store other projects use.
 
 When you're ready to share data across projects and benches — typically once you have real hardware wired up and you want operator-UI access from any directory — run:
 
 ```bash
-litmus data promote
+testerkit data promote
 ```
 
 This:
 
 - Walks your project-local `data/runs/runs/*/*.parquet`
 - **Skips** runs that match starter sentinels (`part_id: example_part`, `uut_serial_number: STARTER001`, etc.) — the throwaway scaffolding you ran while learning
-- Copies the rest into the global store (`~/.local/share/litmus/data/` on Linux; platformdirs equivalents on Mac/Windows)
-- Removes the `data_dir:` override from your `litmus.yaml` so future runs go straight to the global store
+- Copies the rest into the global store (`~/.local/share/testerkit/data/` on Linux; platformdirs equivalents on Mac/Windows)
+- Removes the `data_dir:` override from your `testerkit.yaml` so future runs go straight to the global store
 
 Add `--dry-run` to preview without writing. Add `--include-starter` to bring the scaffolding runs along too if you happened to capture something worth keeping.
 
@@ -360,7 +360,7 @@ The local `data/` directory stays in place after promote (the sandbox is still r
 
 ## Congratulations!
 
-You've completed the tutorial. You now have a foundation for production hardware testing with Litmus.
+You've completed the tutorial. You now have a foundation for production hardware testing with TesterKit.
 
 ← [Step 8: Capability Matching](08-capabilities.md)  |  [Step 10: Live Monitoring →](10-live-monitoring.md)
 
@@ -368,7 +368,7 @@ You've completed the tutorial. You now have a foundation for production hardware
 
 - [API Reference](../reference/runtime/api.md) — MCP tools and HTTP endpoints
 - [Configuration Reference](../reference/configuration.md) — All YAML options
-- [Litmus fixtures](../reference/pytest/fixtures.md) — every fixture the pytest plugin provides
-- [Litmus markers](../reference/pytest/markers.md) — the `litmus_*` markers and their sidecar equivalents
-- [pytest-native Reference](../reference/overview/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
+- [TesterKit fixtures](../reference/pytest/fixtures.md) — every fixture the pytest plugin provides
+- [TesterKit markers](../reference/pytest/markers.md) — the `testerkit_*` markers and their sidecar equivalents
+- [pytest-native Reference](../reference/overview/pytest-native.md) — how TesterKit tests use pytest's own collection / fixtures / markers
 - [Test Harness Integration](../integration/runtime/harness.md) — Advanced patterns

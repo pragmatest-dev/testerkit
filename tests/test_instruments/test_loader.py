@@ -3,12 +3,12 @@
 from datetime import date
 from textwrap import dedent
 
-from litmus.instruments.loader import resolve_station_instruments
-from litmus.models.instrument import CalibrationInfo, InstrumentInfo
-from litmus.store import (
+from testerkit.instruments.loader import resolve_station_instruments
+from testerkit.models.instrument import CalibrationInfo, InstrumentInfo
+from testerkit.store import (
     load_instrument_asset as load_instrument_file,
 )
-from litmus.store import (
+from testerkit.store import (
     load_instrument_files,
 )
 
@@ -155,7 +155,7 @@ class TestResolveStationInstruments:
 
     def test_resolves_with_asset_files(self, tmp_path):
         """Resolve StationConfig instruments enriched by asset files."""
-        from litmus.models.station import StationConfig, StationInstrumentConfig
+        from testerkit.models.station import StationConfig, StationInstrumentConfig
 
         # Create instrument asset file
         inst_content = dedent("""
@@ -199,7 +199,7 @@ class TestResolveStationInstruments:
 
     def test_resolves_without_asset_files(self):
         """Resolve StationConfig instruments with no asset files."""
-        from litmus.models.station import StationConfig, StationInstrumentConfig
+        from testerkit.models.station import StationConfig, StationInstrumentConfig
 
         station_config = StationConfig(
             id="test_station",
@@ -223,7 +223,7 @@ class TestResolveStationInstruments:
 
     def test_asset_file_enriches_calibration(self, tmp_path):
         """Asset file provides calibration and identity info."""
-        from litmus.models.station import StationConfig, StationInstrumentConfig
+        from testerkit.models.station import StationConfig, StationInstrumentConfig
 
         inst_content = dedent("""
             id: dmm_asset
@@ -260,7 +260,7 @@ class TestResolveStationInstruments:
 
     def test_multiple_instruments(self, tmp_path):
         """Multiple instruments in one station."""
-        from litmus.models.station import StationConfig, StationInstrumentConfig
+        from testerkit.models.station import StationConfig, StationInstrumentConfig
 
         station_config = StationConfig(
             id="test_station",

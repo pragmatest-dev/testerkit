@@ -1,6 +1,6 @@
 # Event Log WAL Format — Maintainer Reference
 
-**Audience:** Litmus maintainers. Not a public consumer contract.
+**Audience:** TesterKit maintainers. Not a public consumer contract.
 
 Consumers read events via the daemon index and the Query API, never the raw
 Arrow IPC files directly. This document describes the on-disk format for
@@ -11,10 +11,10 @@ maintainers who need to understand or evolve the event WAL.
 ## Overview
 
 The event WAL is an **Arrow IPC stream** per writing process. The
-`EventLog` class (`src/litmus/data/event_log.py`) buffers typed
+`EventLog` class (`src/testerkit/data/event_log.py`) buffers typed
 `EventBase` events and flushes them as multi-row Arrow RecordBatches via
 `_EventIPCWriter` (a subclass of `BufferedIPCWriter` in
-`src/litmus/data/_ipc_writer.py`). The IPC writer calls
+`src/testerkit/data/_ipc_writer.py`). The IPC writer calls
 `pyarrow.ipc.new_stream(sink, schema)` on first flush, embedding the
 schema — including its metadata — in the stream header. Every subsequent
 flush writes a RecordBatch into that stream.
@@ -42,7 +42,7 @@ flush writes a RecordBatch into that stream.
 
 ## `_IPC_SCHEMA` — Column Definitions
 
-Defined at module level in `src/litmus/data/event_log.py`. All columns
+Defined at module level in `src/testerkit/data/event_log.py`. All columns
 are written for every event row. Sparse columns (absent on a given event
 type) carry `None`.
 
@@ -77,7 +77,7 @@ lives in the data, making it immune to the `do_put`/ingest insert race
 
 ### Promoted typed columns (`TYPED_PAYLOAD_COLUMNS`)
 
-Defined in `src/litmus/data/events.py:63`. These columns duplicate a
+Defined in `src/testerkit/data/events.py:63`. These columns duplicate a
 subset of payload values from `json` as top-level VARCHAR columns so the
 daemon can push `WHERE` filters into DuckDB without fetching and
 post-filtering on `json`. All are `string` type; absent = `None`.
@@ -93,7 +93,7 @@ role, instrument_role,
 outcome, reason, format, dialog_type, response_type
 ```
 
-The daemon ingest path (`src/litmus/data/_duckdb_daemon.py`,
+The daemon ingest path (`src/testerkit/data/_duckdb_daemon.py`,
 `_EVENT_COLUMNS_FROM_IPC`) selects columns by name from the loaded Arrow
 table. Adding new columns to `TYPED_PAYLOAD_COLUMNS` does not break
 existing daemon code — the daemon's `INSERT` narrows to exactly the
@@ -104,7 +104,7 @@ columns it knows about.
 ## `schema_version` Stamp
 
 ```python
-# src/litmus/data/event_log.py
+# src/testerkit/data/event_log.py
 EVENT_LOG_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION[SchemaStore.EVENTS_ENVELOPE]  # "0.1" today
 
 _IPC_SCHEMA = pa.schema(
@@ -148,7 +148,7 @@ renamed, or type-changed. Adding new promoted columns to
 
 The daemon reads IPC files via DuckDB's Arrow registration, then narrows
 to `_EVENT_COLUMNS_FROM_IPC` before inserting. The ingest code
-(`src/litmus/data/_duckdb_daemon.py`, around line 83) explicitly
+(`src/testerkit/data/_duckdb_daemon.py`, around line 83) explicitly
 documents: "The IPC file's schema may be wider than what we INSERT — this
 narrows it to only the columns the daemon's events table cares about."
 
@@ -156,12 +156,12 @@ No code in the ingest path performs schema equality comparison that
 includes metadata. Adding `schema_version` to `_IPC_SCHEMA` metadata is
 safe for all existing readers:
 
-- `EventReader` (`src/litmus/data/_event_reader.py`) — accesses columns
+- `EventReader` (`src/testerkit/data/_event_reader.py`) — accesses columns
   by name (`batch.column("json")`). No schema comparison.
-- `EventAccumulator` (`src/litmus/data/backends/_event_accumulator.py`) —
+- `EventAccumulator` (`src/testerkit/data/backends/_event_accumulator.py`) —
   pure in-memory projection from event objects. Never reads IPC.
 - `_duckdb_daemon.py` ingest — selects by name via `_EVENT_COLUMNS_FROM_IPC`.
-- `read_ipc_batches` (`src/litmus/data/_ipc_writer.py:168`) — opens the
+- `read_ipc_batches` (`src/testerkit/data/_ipc_writer.py:168`) — opens the
   stream and iterates batches; metadata is carried transparently.
 
 ---

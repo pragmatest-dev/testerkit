@@ -1,6 +1,6 @@
 """Ontology integrity tests.
 
-The Litmus ontology at ``src/litmus/ontology/litmus.yaml`` is the
+The TesterKit ontology at ``src/testerkit/ontology/testerkit.yaml`` is the
 declared concept graph. These tests enforce that:
 
 1. The YAML loads and Pydantic validation passes — internal consistency
@@ -12,14 +12,14 @@ declared concept graph. These tests enforce that:
 3. Every ``model:`` named in the ontology resolves to a real class.
 
 When this test fails, the fix is to edit
-``src/litmus/ontology/litmus.yaml`` — either add a concept for the new
+``src/testerkit/ontology/testerkit.yaml`` — either add a concept for the new
 model, or add it to ``ontology_ignored:`` with a one-line reason.
 """
 
 from __future__ import annotations
 
-from litmus.ontology import load_ontology
 from scripts.build_ontology_docs import cross_validate
+from testerkit.ontology import load_ontology
 
 
 def test_ontology_loads_and_validates() -> None:
@@ -34,7 +34,7 @@ def test_ontology_no_drift_against_source_models() -> None:
     ontology = load_ontology()
     problems = cross_validate(ontology)
     if problems:
-        msg = "Ontology drift — fix src/litmus/ontology/litmus.yaml:\n  - " + "\n  - ".join(
+        msg = "Ontology drift — fix src/testerkit/ontology/testerkit.yaml:\n  - " + "\n  - ".join(
             problems
         )
         raise AssertionError(msg)

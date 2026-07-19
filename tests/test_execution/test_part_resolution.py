@@ -25,7 +25,7 @@ pytest_plugins = ["pytester"]
 _INI = textwrap.dedent(
     """
     [pytest]
-    addopts = -p no:litmus -p litmus.pytest_plugin
+    addopts = -p no:testerkit -p testerkit.pytest_plugin
     asyncio_default_fixture_loop_scope = function
     """
 )

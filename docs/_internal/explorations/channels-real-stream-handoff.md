@@ -235,7 +235,7 @@ swaps natively only on TSDBs that support tailing, otherwise it lands on a broke
 0. **Prior-art survey FIRST** (see the goal section) — how do InfluxDB / QuestDB /
    ClickHouse / Timescale / Kafka / kdb+ make streaming beat batch-insert, and
    what nuance do they trade? Land on a deliberate "speed-for-visibility,
-   never-for-durability" nuance for Litmus.
+   never-for-durability" nuance for TesterKit.
 1. **Real stream connection (the work).** `_ChannelSink` holds one open `do_put`
    wire + the segment writer; columnar buffer → `RecordBatch` straight down the
    wire **and** the durable segment; daemon does relay-only for the live path.
@@ -265,7 +265,7 @@ workers. **Not done:** the real held-connection stream, the columnar sink,
 wire-trim, the behavior nuance, the swap proof — i.e. everything in this doc. The
 batched columnar index is **done and stays** (it is not in the remaining work).
 
-Measured today (`litmus benchmark --full`, throttled WSL2 box — trust ratios):
+Measured today (`testerkit benchmark --full`, throttled WSL2 box — trust ratios):
 `write` 53k→143k, `write_many` 256k→470k, `stream` 181k→440k (1→4 workers).
 `stream` ties `write_many` precisely because it *is* `write_many` underneath —
 **the target is `stream` ≈ 2× `write_many`** via the held connection + columnar
@@ -369,20 +369,20 @@ shape Phase 1's "index off the write path, index-on-close" gives channels.
 
 ## Key files
 
-- `src/litmus/channels.py` — public verbs, `_ChannelSink` (the buffer to replace
+- `src/testerkit/channels.py` — public verbs, `_ChannelSink` (the buffer to replace
   with a connection).
-- `src/litmus/data/channels/store.py` — `write`/`write_many` (`655` append,
+- `src/testerkit/data/channels/store.py` — `write`/`write_many` (`655` append,
   `546/681` index feed), `ingest_batch` (`1277`), `_pending_extend`/`_flush_pending`
   (`1267/1314`), `_scan_disk` (`1113`), `_query_index` (`1326`), index schema
   (`1079`).
-- `src/litmus/data/channels/server.py` — `do_put`/`do_get`, `_live_stream`
+- `src/testerkit/data/channels/server.py` — `do_put`/`do_get`, `_live_stream`
   (`183`), `_relay_batch` + `_SubscriberRing` (`101/32`).
-- `src/litmus/data/files/streaming.py` — the reference real-stream (`_BaseSink`,
+- `src/testerkit/data/files/streaming.py` — the reference real-stream (`_BaseSink`,
   `publish_frame`, finalize-on-close).
-- `src/litmus/data/channels/_ipc_writer.py` — `BufferedIPCWriter` (the durable
+- `src/testerkit/data/channels/_ipc_writer.py` — `BufferedIPCWriter` (the durable
   streaming-append substrate).
-- `src/litmus/benchmark/concurrency.py` — `run_concurrency` + channel workers.
-- `litmus benchmark --full` — the user-facing measurement (writes
+- `src/testerkit/benchmark/concurrency.py` — `run_concurrency` + channel workers.
+- `testerkit benchmark --full` — the user-facing measurement (writes
   `.benchmarks/<date>/report.md` with hardware + every row).
 
 ---
@@ -406,7 +406,7 @@ granularity (1 / N / streamed). So they were unified, and the 2× target dropped
 Streaming is the same shape at every layer: **durable ordered log + a position
 cursor + live tail + late-join/replay + finalize.** RTP sequence number = Kafka
 offset = our `offset`. The embedded tier (Flight relay + `.arrow` segments + DuckDB
-index) is only Litmus's **no-infra stand-in**; its job is to hold that contract so
+index) is only TesterKit's **no-infra stand-in**; its job is to hold that contract so
 it swaps to whichever a deployment runs:
 
 - **Server tier = 2 systems.** One primary DB (Postgres+TimescaleDB / DynamoDB /
@@ -482,7 +482,7 @@ which shrinks under contention. No 2× expectation; the verbs are aligned.
 - **Tuning levers are scattered** (9 knobs across 4 files; `flush_interval` isn't
   even plumbed through `_ChannelWriter`). Task: collect into one `ChannelTuning`
   config object and plumb it; surface the durability pair (`flush_threshold`,
-  `flush_interval`) toward `litmus.yaml`. Files-streaming reuses the same object.
+  `flush_interval`) toward `testerkit.yaml`. Files-streaming reuses the same object.
 - **Files-streaming is next** and is the same shape: segment-objects + manifest +
   finalize-on-close + a byte cursor; reuse the dumb-relay skeleton (built channels-
   clean for now, lift to shared when files needs it). Fix the synchronous
@@ -506,7 +506,7 @@ NOT yet built — written here so a fresh context can resume.
    (currently UNREACHABLE — `_ChannelWriter` never passes it; stuck at 1.0 s)**,
    `_pending_threshold`, push queue `maxsize=10_000`, `_PUSH_MAX_ROWS`/`_PUSH_MAX_WAIT`,
    `_SubscriberRing maxsize=1024`. Surface the durability pair (`flush_threshold`,
-   `flush_interval`) toward `litmus.yaml`. Files reuses the object.
+   `flush_interval`) toward `testerkit.yaml`. Files reuses the object.
 3. **PR to 0.2.0** — PR `spike/batch-native-channels` → the v0.2.0 integration branch
    (confirm exact branch name via `git branch -a | grep 0.2.0`). PRs are explicit-only;
    the user asked for this one. Stack if sequential.
@@ -549,7 +549,7 @@ version-history storage) → plan it, don't auto-pilot.
 
 ## The live-UI finding (IMPORTANT — not otherwise recorded)
 
-Drove the operator UI live (example 09 producer + `litmus serve`, Playwright):
+Drove the operator UI live (example 09 producer + `testerkit serve`, Playwright):
 - **At-rest/history UI: works** — `/channels/dmm.voltage` rendered descriptor, chart,
   1000-sample table.
 - **Live badge stayed "○ idle"** with a producer actively streaming at 50 Hz, in place,
@@ -570,11 +570,11 @@ Drove the operator UI live (example 09 producer + `litmus serve`, Playwright):
 - **Stale pre-rename index** (column `sequence`, not `offset`) breaks queries with a
   Binder Error; sanctioned migration = clear `data/channels` (no backcompat). The
   example-09 channels dir was cleared this session (gitignored, regenerable).
-- **UI demo recipe:** `uv run --directory examples/09-instrument-streaming litmus serve`
+- **UI demo recipe:** `uv run --directory examples/09-instrument-streaming testerkit serve`
   + `uv run --directory examples/09-instrument-streaming python scripts/live_dmm_monitor.py`
-  (set `LITMUS_STREAM_SECONDS`). Watch `/channels/dmm.voltage`.
+  (set `TESTERKIT_STREAM_SECONDS`). Watch `/channels/dmm.voltage`.
 - Daemon-test hygiene: no `tmp_path` daemons; `resolve_data_dir()`; kill stray
-  `flight_daemon`/`litmus serve` before daemon-spawning runs.
+  `flight_daemon`/`testerkit serve` before daemon-spawning runs.
 
 ---
 
@@ -625,7 +625,7 @@ is the source of truth**, NOT events — the store registers, then *emits*
    verb round-trip; the 30s-sweep e2e is manual for now).
 3. **Live-badge finding — INSTRUMENT, don't guess.** Producer *does* push live
    cross-process (`serve=True`→`do_put`, verified). The idle badge is likely
-   daemon-identity (producer vs `litmus serve` resolving different ref-counted
+   daemon-identity (producer vs `testerkit serve` resolving different ref-counted
    daemons / data dirs). Repro live with logging on both processes; don't bake an
    unverified cause into a fix.
 4. **`StationInfo` event** — richer declared station metadata (config id/name/

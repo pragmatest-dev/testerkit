@@ -3,7 +3,7 @@
 **URL:** `/results/{run_id}`
 
 The detail view is what you land on after clicking a row in the
-[Results list](list.md). It shows everything Litmus recorded for one
+[Results list](list.md). It shows everything TesterKit recorded for one
 run: a sticky summary header, an Overview with stats, and tabs for
 Steps, Measurements, the Execution Timeline (multi-site runs only),
 and UUT History.
@@ -30,7 +30,7 @@ content. It carries:
 | Part Number | UUT part number stamped on the run |
 | Serial | UUT serial number |
 | Hostname | Station hostname that ran the test |
-| Project | Project name from `litmus.yaml` |
+| Project | Project name from `testerkit.yaml` |
 | Started | Run start timestamp, rendered in browser-local time |
 | Ended | Run end timestamp, `—` while the run is in-flight (replaced live when the `run.ended` event arrives) |
 | View this run's… | Buttons that open the **Events**, **Channels**, and **Files** screens filtered to this run's session |
@@ -165,10 +165,10 @@ measurements — the same run data as the [Results list](list.md), with
 the step and measurement detail. The same data is available from the
 CLI and Python:
 
-- [`litmus show {run_id}`](../../cli.md#cli-show) — pretty-printed
+- [`testerkit show {run_id}`](../../cli.md#cli-show) — pretty-printed
   overview; `-f json` for machine-readable, `-f html`/`pdf` for a
   rendered report
-- [`litmus export {run_id} -f csv|json|stdf|hdf5|tdms|mdf4`](../../cli.md#cli-export)
+- [`testerkit export {run_id} -f csv|json|stdf|hdf5|tdms|mdf4`](../../cli.md#cli-export)
   — dump the run in a downstream-tool format
 
 For the Python equivalents, see [`RunsQuery` and friends](../../data/query-api.md).
@@ -206,7 +206,7 @@ Bookmarking the URL bookmarks the run + the open tab.
 ## See also
 
 - [Results list](list.md) — the table you came from
-- [`litmus show` CLI](../../cli.md#cli-show) — the same data over the
+- [`testerkit show` CLI](../../cli.md#cli-show) — the same data over the
   command line
 - [Concepts → Outcomes](../../../concepts/execution/outcomes.md) — what each
   outcome value means and how rollups work

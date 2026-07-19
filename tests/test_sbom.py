@@ -1,9 +1,9 @@
-"""Tests for litmus.sbom — SBOM generation and environment extraction."""
+"""Tests for testerkit.sbom — SBOM generation and environment extraction."""
 
 import json
 
-from litmus.environment import EnvironmentSnapshot
-from litmus.sbom import environment_from_parquet, format_environment_table, generate_cyclonedx
+from testerkit.environment import EnvironmentSnapshot
+from testerkit.sbom import environment_from_parquet, format_environment_table, generate_cyclonedx
 
 
 def _make_snapshot(**overrides) -> EnvironmentSnapshot:
@@ -12,7 +12,7 @@ def _make_snapshot(**overrides) -> EnvironmentSnapshot:
         "os_name": "Linux",
         "os_version": "6.0",
         "platform_machine": "x86_64",
-        "litmus_version": "0.1.0",
+        "testerkit_version": "0.1.0",
         "dependencies": ["alpha>=1.0", "beta>=2.0"],
     }
     fields.update(overrides)
@@ -106,12 +106,12 @@ class TestGenerateCyclonedx:
         assert meta_component["version"] == "abc123"
         assert meta_component["type"] == "application"
 
-    def test_metadata_has_litmus_tool(self):
+    def test_metadata_has_testerkit_tool(self):
         snap = _make_snapshot()
         parsed = json.loads(generate_cyclonedx(snap))
         tools = parsed["metadata"]["tools"]
         tool_names = [c["name"] for c in tools.get("components", [])]
-        assert "litmus" in tool_names
+        assert "testerkit" in tool_names
 
     def test_metadata_properties_contain_python_version(self):
         snap = _make_snapshot()

@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import cast
 from uuid import uuid4
 
-from litmus.data.event_log import EventLog
-from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
-from litmus.instruments.observer import InstrumentEventBuilder
-from litmus.instruments.observers.generic import GenericObserver
-from litmus.instruments.observers.pymeasure import PyMeasureObserver
-from litmus.instruments.proxy import InstrumentProxy
+from testerkit.data.event_log import EventLog
+from testerkit.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
+from testerkit.instruments.observer import InstrumentEventBuilder
+from testerkit.instruments.observers.generic import GenericObserver
+from testerkit.instruments.observers.pymeasure import PyMeasureObserver
+from testerkit.instruments.proxy import InstrumentProxy
 
 
 class FakeDriver:

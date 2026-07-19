@@ -1,8 +1,8 @@
 # Models reference
 
-Every Litmus YAML file, on-the-wire API payload, parquet row, and event-log record is validated against a Pydantic model. This page enumerates those models grouped by source file, plus the shared enum vocabulary they reference.
+Every TesterKit YAML file, on-the-wire API payload, parquet row, and event-log record is validated against a Pydantic model. This page enumerates those models grouped by source file, plus the shared enum vocabulary they reference.
 
-The per-module field tables and the shared enums section are generated from source — `src/litmus/models/*.py` and `src/litmus/data/models.py`. To regenerate after touching the models, run:
+The per-module field tables and the shared enums section are generated from source — `src/testerkit/models/*.py` and `src/testerkit/data/models.py`. To regenerate after touching the models, run:
 
 ```bash
 uv run python scripts/generate_reference_docs.py models
@@ -12,7 +12,7 @@ The hand-written ERD below stays put; it changes only when relationships change 
 
 For conceptual framing of the capability-side models (`InstrumentCapability`, `PartCharacteristic`, `SpecBand`, `Signal`, `Condition`, `Control`, `Attribute`, `ChannelTopology`), see [concepts/capabilities](../../concepts/configuration/capabilities.md). For the event log subclasses of `EventBase`, see [event-types.md](event-types.md).
 
-## Shared enums (`litmus.models.enums`)
+## Shared enums (`testerkit.models.enums`)
 
 These values are referenced from many of the per-module tables below.
 
@@ -240,7 +240,7 @@ Instrument classification vocabulary.
 ## Per-module field tables
 
 <!-- GENERATED:models-by-module:start -->
-### Project & station YAML — `litmus.models.project`
+### Project & station YAML — `testerkit.models.project`
 
 #### `ProfileConfig` {#model-profileconfig}
 
@@ -274,7 +274,7 @@ Multi-site orchestration knobs.
 
 #### `ProjectConfig` {#model-projectconfig}
 
-Schema for litmus.yaml project config files — all fields at root.
+Schema for testerkit.yaml project config files — all fields at root.
 
 | Field | Type | Default |
 |---|---|---|
@@ -293,7 +293,7 @@ Schema for litmus.yaml project config files — all fields at root.
 | `required_inputs` | `dict[str, PromptConfig]` | `{}` |
 | `multi_site` | `MultiSiteConfig` | *via* `MultiSiteConfig()` |
 
-### Station — `litmus.models.station`
+### Station — `testerkit.models.station`
 
 #### `StationInstrumentConfig` {#model-stationinstrumentconfig}
 
@@ -347,7 +347,7 @@ Abstract station-type template (``stations/types/*.yaml``).
 | `instruments` | `dict[str, InstrumentConfig]` | *required* |
 | `capabilities` | `list[str]` | `[]` |
 
-### Part — `litmus.models.part`
+### Part — `testerkit.models.part`
 
 #### `Pin` {#model-pin}
 
@@ -431,7 +431,7 @@ Role of a physical UUT pin in the test system.
 | `'power'` | Power input/output (VIN, VOUT) |
 | `'reference'` | Voltage reference, not driven |
 
-### Part manifest — `litmus.models.part_manifest`
+### Part manifest — `testerkit.models.part_manifest`
 
 #### `FileReferences` {#model-filereferences}
 
@@ -471,7 +471,7 @@ Steps in the datasheet-to-test workflow.
 | `'generate_tests'` |  |
 | `'execute_analyze'` |  |
 
-### Test config (sidecar, markers, limits, fixtures) — `litmus.models.test_config`
+### Test config (sidecar, markers, limits, fixtures) — `testerkit.models.test_config`
 
 #### `SweepEntry` {#model-sweepentry}
 
@@ -653,7 +653,7 @@ Per-measurement limit policy — direct, characteristic-derived, or banded.
 | `steps` | `LimitStepConfig \| None` | `None` |
 | `callable` | `str \| None` | `None` |
 
-### Capabilities (catalog signal/condition/control/attribute) — `litmus.models.capability`
+### Capabilities (catalog signal/condition/control/attribute) — `testerkit.models.capability`
 
 #### `RangeSpec` {#model-rangespec}
 
@@ -861,7 +861,7 @@ Canonical keys for the ``conditions`` dict on a Capability.
 | `'wavelength'` | Optical wavelength (accuracy varies by λ) |
 | `'offset'` | Offset frequency (phase noise) |
 
-### Catalog entry — `litmus.models.catalog`
+### Catalog entry — `testerkit.models.catalog`
 
 #### `InstrumentCatalogEntry` {#model-instrumentcatalogentry}
 
@@ -884,7 +884,7 @@ Structured capability data for a specific instrument make/model.
 | `attributes` | `dict[str, Attribute]` | `{}` |
 | `capabilities` | `list[InstrumentCapability]` | `[]` |
 
-### Instrument record — `litmus.models.instrument`
+### Instrument record — `testerkit.models.instrument`
 
 #### `InstrumentInfo` {#model-instrumentinfo}
 
@@ -935,7 +935,7 @@ Classification for instrument channels/attributes.
 | `'control'` |  |
 | `'configure'` |  |
 
-### Instrument asset — `litmus.models.instrument_asset`
+### Instrument asset — `testerkit.models.instrument_asset`
 
 #### `InstrumentAssetFile` {#model-instrumentassetfile}
 
@@ -951,7 +951,7 @@ Schema for instruments/*.yaml asset files (per-device identity + calibration).
 | `info` | `InstrumentInfo` | *via* `InstrumentInfo()` |
 | `calibration` | `CalibrationInfo` | *via* `CalibrationInfo()` |
 
-### Runtime data (events, runs, steps, measurements) — `litmus.data.models`
+### Runtime data (events, runs, steps, measurements) — `testerkit.data.models`
 
 #### `StimulusRecord` {#model-stimulusrecord}
 
@@ -1174,7 +1174,7 @@ Canonical terminal outcome of a measurement / step / run.
 | `'aborted'` |  |
 | `'done'` |  |
 
-### Channel store records — `litmus.data.channels.models`
+### Channel store records — `testerkit.data.channels.models`
 
 #### `ChannelDescriptor` {#model-channeldescriptor}
 
@@ -1217,7 +1217,7 @@ How a live subscriber's ring handles samples it hasn't drained yet.
 | `'all'` |  |
 | `'latest'` |  |
 
-### HTTP API request shapes — `litmus.api.models`
+### HTTP API request shapes — `testerkit.api.models`
 
 #### `LaunchRequest` {#model-launchrequest}
 
@@ -1297,7 +1297,7 @@ Request body for saving an entity via the unified save endpoint.
 | `content` | `dict[str, Any]` | *required* |
 | `project` | `str \| None` | `None` |
 
-### HTTP API response shapes — `litmus.api.responses`
+### HTTP API response shapes — `testerkit.api.responses`
 
 #### `RunsListResponse` {#model-runslistresponse}
 
@@ -1458,7 +1458,7 @@ Permissive passthrough for endpoints that return ad-hoc objects.
 
 *(no fields)*
 
-### Query API row records — `litmus.analysis.runs_query`
+### Query API row records — `testerkit.analysis.runs_query`
 
 #### `RunRow` {#model-runrow}
 
@@ -1497,10 +1497,10 @@ One row from the ``runs`` table — denormalized run-level summary.
 | `git_branch` | `str \| None` | `None` |
 | `git_remote` | `str \| None` | `None` |
 | `python_version` | `str \| None` | `None` |
-| `litmus_version` | `str \| None` | `None` |
+| `testerkit_version` | `str \| None` | `None` |
 | `env_fingerprint` | `str \| None` | `None` |
 
-### Query API row records (steps) — `litmus.analysis.steps_query`
+### Query API row records (steps) — `testerkit.analysis.steps_query`
 
 #### `StepRow` {#model-steprow}
 
@@ -1541,7 +1541,7 @@ One node in a hierarchical step tree, built from ``step_path``.
 | `vectors` | `list[StepRow]` | `[]` |
 | `children` | `list[StepNode]` | `[]` |
 
-### Query API facets & filters — `litmus.analysis.measurement_facets`
+### Query API facets & filters — `testerkit.analysis.measurement_facets`
 
 #### `FieldRef` {#model-fieldref}
 

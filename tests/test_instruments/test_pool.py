@@ -7,16 +7,16 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.event_log import EventLog
-from litmus.data.events import (
+from testerkit.data.event_log import EventLog
+from testerkit.data.events import (
     InstrumentConnected,
     InstrumentDisconnected,
     InstrumentReleased,
     InstrumentReserved,
 )
-from litmus.instruments.locks import ResourceInUse
-from litmus.instruments.pool import InstrumentPool
-from litmus.models.instrument import InstrumentRecord
+from testerkit.instruments.locks import ResourceInUse
+from testerkit.instruments.pool import InstrumentPool
+from testerkit.models.instrument import InstrumentRecord
 
 
 class CollectingLog:
@@ -48,8 +48,8 @@ def _make_real_record(role: str = "dmm", resource: str = "GPIB::16::INSTR") -> I
 
 @pytest.fixture(autouse=True)
 def _redirect_lock_dir(tmp_path, monkeypatch):
-    """Redirect LITMUS_HOME so lock files go to a temp dir, not the global store."""
-    monkeypatch.setenv("LITMUS_HOME", str(tmp_path / "litmus_home"))
+    """Redirect TESTERKIT_HOME so lock files go to a temp dir, not the global store."""
+    monkeypatch.setenv("TESTERKIT_HOME", str(tmp_path / "testerkit_home"))
 
 
 class TestAcquireRelease:
@@ -147,9 +147,11 @@ class TestConnectReserveSplit:
 
     def test_connect_takes_no_lock(self, monkeypatch):
         """connect stores the driver in _records but holds no file lock."""
-        monkeypatch.setattr("litmus.instruments.pool.load_and_connect", lambda *a, **kw: object())
         monkeypatch.setattr(
-            "litmus.instruments.pool.verify_and_wrap", lambda driver, *a, **kw: driver
+            "testerkit.instruments.pool.load_and_connect", lambda *a, **kw: object()
+        )
+        monkeypatch.setattr(
+            "testerkit.instruments.pool.verify_and_wrap", lambda driver, *a, **kw: driver
         )
 
         pool = InstrumentPool(session_id=uuid4(), event_log=None, channel_store=None)
@@ -173,9 +175,9 @@ class TestConnectReserveSplit:
             call_count += 1
             return object()
 
-        monkeypatch.setattr("litmus.instruments.pool.load_and_connect", fake_connect)
+        monkeypatch.setattr("testerkit.instruments.pool.load_and_connect", fake_connect)
         monkeypatch.setattr(
-            "litmus.instruments.pool.verify_and_wrap", lambda driver, *a, **kw: driver
+            "testerkit.instruments.pool.verify_and_wrap", lambda driver, *a, **kw: driver
         )
 
         pool = InstrumentPool(session_id=uuid4(), event_log=None, channel_store=None)
@@ -219,9 +221,11 @@ class TestConnectReserveSplit:
 
     def test_acquire_is_back_compat_attach_plus_reserve(self, monkeypatch):
         """acquire() = attach + reserve; a second holder cannot reserve."""
-        monkeypatch.setattr("litmus.instruments.pool.load_and_connect", lambda *a, **kw: object())
         monkeypatch.setattr(
-            "litmus.instruments.pool.verify_and_wrap", lambda driver, *a, **kw: driver
+            "testerkit.instruments.pool.load_and_connect", lambda *a, **kw: object()
+        )
+        monkeypatch.setattr(
+            "testerkit.instruments.pool.verify_and_wrap", lambda driver, *a, **kw: driver
         )
 
         pool1 = InstrumentPool(session_id=uuid4(), event_log=None, channel_store=None)
@@ -257,9 +261,11 @@ class TestConnectReserveSplit:
 
     def test_release_drains_all_reservations(self, monkeypatch):
         """release() frees all outstanding reservations so another holder can acquire."""
-        monkeypatch.setattr("litmus.instruments.pool.load_and_connect", lambda *a, **kw: object())
         monkeypatch.setattr(
-            "litmus.instruments.pool.verify_and_wrap", lambda driver, *a, **kw: driver
+            "testerkit.instruments.pool.load_and_connect", lambda *a, **kw: object()
+        )
+        monkeypatch.setattr(
+            "testerkit.instruments.pool.verify_and_wrap", lambda driver, *a, **kw: driver
         )
 
         sid = uuid4()

@@ -1,7 +1,7 @@
 """Live CONSUMER companion — read dmm.voltage as it streams, via the verbs.
 
 The sibling ``live_dmm_monitor.py`` *produces* the channel. This script
-*consumes* it with the ``litmus.channels`` consumer verbs — no UI, just the
+*consumes* it with the ``testerkit.channels`` consumer verbs — no UI, just the
 SDK a script or agent would use:
 
 - ``channels.latest(name, cb)`` — newest sample, conflated (a gauge).
@@ -17,7 +17,7 @@ root so they share the same ``data/`` and daemon)::
     # terminal 2 — consume
     uv run python scripts/live_dmm_reader.py
 
-Set ``LITMUS_READ_SECONDS`` to run a shorter slice.
+Set ``TESTERKIT_READ_SECONDS`` to run a shorter slice.
 """
 
 from __future__ import annotations
@@ -26,9 +26,9 @@ import json
 import os
 import time
 
-import litmus.channels as channels
+import testerkit.channels as channels
 
-DURATION_S = float(os.environ.get("LITMUS_READ_SECONDS", "30"))
+DURATION_S = float(os.environ.get("TESTERKIT_READ_SECONDS", "30"))
 
 
 def main() -> None:

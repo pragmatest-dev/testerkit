@@ -47,7 +47,7 @@ uv run pytest -v
 Then open the operator UI to see the result:
 
 ```bash
-uv run litmus serve --reload
+uv run testerkit serve --reload
 ```
 
 - `http://localhost:8000/results` — the run, with both verify rows passing

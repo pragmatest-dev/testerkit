@@ -1,6 +1,6 @@
 # Development Axioms
 
-A distillation of the working principles that govern development on Litmus —
+A distillation of the working principles that govern development on TesterKit —
 drawn from the project instructions (`CLAUDE.md`, `coding-rules.md`) and the
 accumulated feedback record. These are the rules I expect followed without
 re-litigation. Many are tagged **[hard rule]** — these carry the same weight as
@@ -164,7 +164,7 @@ Once a plan is approved, it is the contract. Execution is faithful execution.
 - **Pydantic owns validation — no `parse_X` helpers.** Use `Model.model_validate(...)`
   directly. String-format parsers (SCPI, IDN, CLI args) are fine; YAML-shape
   parsers are dead weight.
-- **All YAML through `litmus/store.py`.** Never `yaml.safe_load`/`yaml.dump` in
+- **All YAML through `testerkit/store.py`.** Never `yaml.safe_load`/`yaml.dump` in
   application code. The store layer validates via Pydantic — that's the point.
 - **Top-level imports only. No lazy imports — period.** Circular deps are fixed
   by extracting shared components, not by in-function imports or `# noqa`. The
@@ -182,7 +182,7 @@ Once a plan is approved, it is the contract. Execution is faithful execution.
   writing any version constraint. Never guess version numbers. Know CLI vs.
   library.
 - **Don't reinvent — prefer pytest-native and ecosystem primitives** over
-  Litmus-specific wrappers.
+  TesterKit-specific wrappers.
 - **Reuse existing terms; don't rename or reinvent.** When the user uses specific
   terminology, grep for it — it's almost always an existing codebase concept.
   Extend behavior, don't coin a parallel name or schema.
@@ -202,7 +202,7 @@ Once a plan is approved, it is the contract. Execution is faithful execution.
 - **No flattery.** Never grade the user's question (sharp/good/smart) or praise
   their framing. Open with the answer, not a verdict on the question.
   **[hard rule]**
-- **Litmus is a PLATFORM, not a pytest plugin.** The bundled pytest plugin is
+- **TesterKit is a PLATFORM, not a pytest plugin.** The bundled pytest plugin is
   *one* runner integration (OpenHTF and the results API are others). Conflating
   the two undersells the platform and excludes non-pytest users.
 - **Meet people where they are.** Each runner gets idiomatic native bindings;
@@ -225,9 +225,9 @@ Once a plan is approved, it is the contract. Execution is faithful execution.
   private attribute names, no internal class names users never construct, no
   implementation-chain narration. Verification artifacts belong in commit
   messages and audit reports, not the page.
-- **Don't disparage current industry practice.** Frame Litmus as a positive
+- **Don't disparage current industry practice.** Frame TesterKit as a positive
   contribution to a hard shared problem. The prevailing practice (hard-coded
-  specs, per-project schemas, spreadsheets) is reasonable; Litmus adds a piece.
+  specs, per-project schemas, spreadsheets) is reasonable; TesterKit adds a piece.
   Avoid "magic numbers," "reinvented," "given up."
 - **Audit fixes are per-page, never batched.** Fix ONE page, re-audit, confirm 0
   critical, *then* move to the next. Batch-fixing propagates the same misreading
@@ -290,7 +290,7 @@ Once a plan is approved, it is the contract. Execution is faithful execution.
 
 - **UI consistency is a hard rule.** Every page uses the same shared primitives
   (`page_layout`, `page_header`, `data_table`, `format_datetime` from
-  `litmus.ui.shared.components`), reads data ONLY through the public Query API
+  `testerkit.ui.shared.components`), reads data ONLY through the public Query API
   (never parquet, ContextVars, or in-process dicts), exposes no admin internals
   (`data_dir`, paths, env) in operator views, mirrors filter state into the URL,
   renders filters *above* tabs, and uses one-word sidebar labels. A zero-row query

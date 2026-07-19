@@ -31,12 +31,12 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from litmus.data.channels.store import ChannelStore
-from litmus.data.event_log import EventLog
-from litmus.data.events import ChannelEnded, ChannelStarted
-from litmus.execution._state import push_current_context, reset_current_context
-from litmus.execution.harness import Context, TestHarness
-from litmus.instruments.observer import InstrumentEventBuilder
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.event_log import EventLog
+from testerkit.data.events import ChannelEnded, ChannelStarted
+from testerkit.execution._state import push_current_context, reset_current_context
+from testerkit.execution.harness import Context, TestHarness
+from testerkit.instruments.observer import InstrumentEventBuilder
 
 
 class CollectingLog(EventLog):
@@ -229,11 +229,11 @@ def test_context_stream_emits_channel_started(session) -> None:
 
 
 def test_channels_write_emits_channel_started(tmp_path: Path) -> None:
-    """``litmus.channels.write`` routes through the store; ChannelStarted
+    """``testerkit.channels.write`` routes through the store; ChannelStarted
     fires once.
     """
-    from litmus import channels
-    from litmus.execution._state import set_channel_store
+    from testerkit import channels
+    from testerkit.execution._state import set_channel_store
 
     log = CollectingLog()
     session_id = uuid4()
@@ -259,7 +259,7 @@ def test_channels_write_emits_channel_started(tmp_path: Path) -> None:
 
 def test_instrument_read_event_no_longer_importable() -> None:
     """Per the no-backcompat principle: InstrumentRead is deleted, not aliased."""
-    import litmus.data.events as events_module
+    import testerkit.data.events as events_module
 
     assert not hasattr(events_module, "InstrumentRead")
 

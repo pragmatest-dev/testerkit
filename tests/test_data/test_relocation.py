@@ -1,4 +1,4 @@
-"""`litmus data import` merges a data_dir; daemons rebuild from the files.
+"""`testerkit data import` merges a data_dir; daemons rebuild from the files.
 
 Tests the file-merge half (union, skip collisions). The daemon-restart half is
 covered by the daemon lifecycle tests — here we just verify the merge is a safe,
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from litmus.cli import _merge_data_dir
+from testerkit.cli import _merge_data_dir
 
 
 def test_merge_unions_stores_and_skips_collisions(tmp_path: Path) -> None:

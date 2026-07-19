@@ -1,4 +1,4 @@
-"""Consumer verbs on litmus.channels: query (pull), live (push batches),
+"""Consumer verbs on testerkit.channels: query (pull), live (push batches),
 latest (push newest, conflated). Per test convention: serve=True uses the
 canonical data dir (never tmp_path), isolated by a unique uuid channel name.
 """
@@ -11,10 +11,10 @@ from uuid import uuid4
 
 import pyarrow as pa
 
-import litmus.channels as channels
-from litmus.channels import _dedup_against_history
-from litmus.data.channels.store import ChannelStore
-from litmus.data.data_dir import resolve_data_dir
+import testerkit.channels as channels
+from testerkit.channels import _dedup_against_history
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.data_dir import resolve_data_dir
 
 
 def _wait(pred, timeout: float = 5.0) -> bool:

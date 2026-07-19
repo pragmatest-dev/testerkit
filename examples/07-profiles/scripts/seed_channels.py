@@ -5,7 +5,7 @@ screenshot renders a populated table instead of an empty state.
 channels, and the channel registry is populated only by live writes — so
 the docs screenshot of /channels comes back blank unless something streams
 first. This script does exactly that, through the supported store-direct
-verbs (``connect`` + ``litmus.channels.stream``) — the same path a bench
+verbs (``connect`` + ``testerkit.channels.stream``) — the same path a bench
 script or notebook would use.
 
 Run from the example root before regenerating screenshots::
@@ -26,8 +26,8 @@ from pathlib import Path
 # YAML's ``driver: drivers.PSU`` resolves under ``uv run python scripts/...``.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import litmus.channels as channels  # noqa: E402
-from litmus import connect  # noqa: E402
+import testerkit.channels as channels  # noqa: E402
+from testerkit import connect  # noqa: E402
 
 SAMPLES = 120
 

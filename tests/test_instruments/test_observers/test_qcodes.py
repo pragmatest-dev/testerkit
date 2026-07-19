@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from litmus.data.events import ChannelStarted, InstrumentConfigure
-from litmus.instruments.observers.qcodes import QCodesObserver
+from testerkit.data.events import ChannelStarted, InstrumentConfigure
+from testerkit.instruments.observers.qcodes import QCodesObserver
 
 from .conftest import make_observer
 

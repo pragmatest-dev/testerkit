@@ -23,7 +23,7 @@ streaming sink, live UI — is unchanged.
 ```
 examples/09-instrument-streaming/
 ├── README.md
-├── litmus.yaml
+├── testerkit.yaml
 ├── pyproject.toml
 ├── drivers/
 │   ├── __init__.py
@@ -39,7 +39,7 @@ examples/09-instrument-streaming/
 `drivers/dmm.py` is a concrete DMM class whose `measure_voltage()`
 returns a 30-second sine wave (±50 mV) around 3.3 V with ±5 mV
 per-sample noise. Concrete, not mocked — the platform instantiates it
-directly because `litmus.yaml` doesn't set `mock_instruments: true`.
+directly because `testerkit.yaml` doesn't set `mock_instruments: true`.
 
 ## Run it
 
@@ -49,7 +49,7 @@ Two terminals.
 
 ```bash
 cd examples/09-instrument-streaming
-uv run litmus serve --reload
+uv run testerkit serve --reload
 ```
 
 Open `http://localhost:8000/channels/dmm.voltage` in a browser.
@@ -64,7 +64,7 @@ uv run python scripts/live_dmm_monitor.py
 
 Watch the channels panel — samples appear push-style as the script
 writes them. The chart updates without a page reload (push, not poll)
-via the Flight subscription wired in `litmus serve` startup.
+via the Flight subscription wired in `testerkit serve` startup.
 
 The script runs for 60 seconds. Stop early with Ctrl-C; partial data
 stays on disk. Reopen the channel panel after a fresh script run —
@@ -78,7 +78,7 @@ own code via the consumer verbs — pick by who's watching:
 
 | You want… | Run | Verbs |
 |---|---|---|
-| Litmus's built-in UI to show it | `litmus serve` → `/channels/dmm.voltage` | (none — the UI does it) |
+| TesterKit's built-in UI to show it | `testerkit serve` → `/channels/dmm.voltage` | (none — the UI does it) |
 | a **script / agent** to react to samples | `python scripts/live_dmm_reader.py` | `channels.latest` (newest), `channels.live` (every sample) |
 | to build **your own UI** with controls | `python scripts/live_monitor_ui.py` → `:8080` | `latest` → gauge, `live(max_hz=)` → chart + slider |
 
@@ -92,12 +92,12 @@ cadence change without losing points. See
 ## Why the imports are this shape
 
 ```python
-import litmus.channels
-from litmus import connect
+import testerkit.channels
+from testerkit import connect
 ```
 
 Not test code — no pytest fixtures, no `verify`/`observe` verbs. Outside
-the test path, Litmus exposes the data stack via deep imports. The
+the test path, TesterKit exposes the data stack via deep imports. The
 verbosity is informative: it signals "you're in the store-direct layer,
 not the test-author layer." See
 [concepts/data/three-verbs.md](../../docs/concepts/data/three-verbs.md)

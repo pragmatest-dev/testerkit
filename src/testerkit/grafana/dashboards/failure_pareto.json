@@ -1,0 +1,104 @@
+{
+  "uid": "testerkit-failure-pareto",
+  "title": "Failure Pareto",
+  "description": "Top failing steps and measurements ranked by failure count",
+  "tags": [
+    "testerkit"
+  ],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "phase",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_TESTERKIT}"
+        },
+        "query": "SELECT DISTINCT test_phase FROM measurements WHERE test_phase IS NOT NULL ORDER BY test_phase",
+        "includeAll": true,
+        "allValue": "%",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "part",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_TESTERKIT}"
+        },
+        "query": "SELECT DISTINCT part_id FROM measurements WHERE part_id IS NOT NULL ORDER BY part_id",
+        "includeAll": true,
+        "allValue": "%",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Top 20 Failing Measurements",
+      "type": "barchart",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_TESTERKIT}"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT step_name || ' / ' || measurement_name AS measurement, count(*) FILTER (WHERE outcome = 'failed') AS failures FROM measurement_values WHERE measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' AND (test_phase LIKE '${phase}' OR '${phase}' = '%') AND (part_id LIKE '${part}' OR '${part}' = '%') GROUP BY 1 HAVING failures > 0 ORDER BY failures DESC LIMIT 20",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "red",
+            "mode": "fixed"
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Failure Rate Table",
+      "type": "table",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_TESTERKIT}"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT step_name, measurement_name, count(*) FILTER (WHERE outcome = 'failed') AS fail_count, count(*) AS total, round(100.0 * count(*) FILTER (WHERE outcome = 'failed') / count(*), 1) AS fail_pct FROM measurement_values WHERE measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' AND (test_phase LIKE '${phase}' OR '${phase}' = '%') AND (part_id LIKE '${part}' OR '${part}' = '%') GROUP BY 1, 2 HAVING fail_count > 0 ORDER BY fail_count DESC LIMIT 50",
+          "format": "table"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39
+}

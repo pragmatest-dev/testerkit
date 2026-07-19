@@ -1,6 +1,6 @@
 # Benchmark your machine
 
-`litmus benchmark` measures how the four data stores — events, runs, channels,
+`testerkit benchmark` measures how the four data stores — events, runs, channels,
 files — perform on *your* hardware, then turns those measurements into plain
 capacity answers: how many test runs you can record in parallel, how many
 instrument channels you can log at a given rate, how much you can store before
@@ -12,20 +12,20 @@ cleans up after itself. Nothing is sent anywhere automatically.
 ## Run it
 
 ```bash
-litmus benchmark
+testerkit benchmark
 ```
 
 The fast tier takes about half a minute on a typical laptop. Each case ticks
 past, then you get a capacity report:
 
 ```
-Litmus performance on this machine
+TesterKit performance on this machine
 
-  Intel(R) Core(TM) Ultra 9 275HX · 24 cores · 15.34 GB RAM · Linux 6.6.87 (WSL2) · litmus 0.2.0 · duckdb 1.5.0 · pyarrow 23.0.0 · fast tier · 35s
+  Intel(R) Core(TM) Ultra 9 275HX · 24 cores · 15.34 GB RAM · Linux 6.6.87 (WSL2) · testerkit 0.2.0 · duckdb 1.5.0 · pyarrow 23.0.0 · fast tier · 35s
 
   Recording a production test run costs ~74 ms and ~0.3 MB. This machine
   finalizes ~15 runs/s (≈153 parts in parallel at a 10s cycle) and can hold
-  ~3.42M runs. Litmus stays out of your test's way.
+  ~3.42M runs. TesterKit stays out of your test's way.
   Under load it uses ~<0.1% of this machine's CPU and ~1.3 GB (9% of RAM) —
   the rest stays free for your test code and other apps.
 
@@ -97,7 +97,7 @@ so these stay local until you choose to send one.
 The CPU/RAM footprint needs `psutil`. Install the extra:
 
 ```bash
-pip install "litmus-test[benchmark]"
+pip install "testerkit[benchmark]"
 ```
 
 Without it, the benchmark still runs and reports every rate and capacity; the
@@ -105,7 +105,7 @@ footprint line is omitted.
 
 ## Reporting a performance problem
 
-1. Run `litmus benchmark` (or `litmus benchmark --full` for the full picture).
+1. Run `testerkit benchmark` (or `testerkit benchmark --full` for the full picture).
 2. Paste `.benchmarks/<date>/report.md` into your issue, or attach `report.json`.
 
 Because the report carries your hardware and versions, the maintainers can
@@ -115,6 +115,6 @@ limit or something specific to your machine.
 ## See also
 
 - [Reference → Performance limits](../../reference/data/performance-limits.md) — reference numbers the benchmark feeds
-- [Reference → CLI](../../reference/cli.md) — full `litmus benchmark` flag list
+- [Reference → CLI](../../reference/cli.md) — full `testerkit benchmark` flag list
 - [Concepts → Data](../../concepts/data/index.md) — the four stores being measured
 ```

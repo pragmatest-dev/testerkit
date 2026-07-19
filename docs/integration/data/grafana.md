@@ -1,13 +1,13 @@
 # Grafana
 
 The Grafana integration ships a set of dashboards and a PostgreSQL-wire
-data server that exposes every Litmus store as queryable SQL
+data server that exposes every TesterKit store as queryable SQL
 tables. Grafana's built-in PostgreSQL data source connects to the
-server — no plugin install required, no Litmus-specific shim on
+server — no plugin install required, no TesterKit-specific shim on
 the Grafana side.
 
-**Quickstart:** `litmus grafana serve` starts the data server;
-`litmus grafana setup` installs the data source and dashboards into
+**Quickstart:** `testerkit grafana serve` starts the data server;
+`testerkit grafana setup` installs the data source and dashboards into
 Grafana. Full ordered walkthrough in the
 [Grafana dashboards how-to](../../how-to/data/grafana-dashboards.md).
 
@@ -21,9 +21,9 @@ boundaries are.
 ## Architecture
 
 ```
-litmus runs / measurements (parquet)   ┐
-litmus events (Arrow IPC)              │── DuckDB connection
-litmus channels (Arrow IPC)            ┘         │
+testerkit runs / measurements (parquet)   ┐
+testerkit events (Arrow IPC)              │── DuckDB connection
+testerkit channels (Arrow IPC)            ┘         │
                                                  │ pgwire
                                                  ▼
                                        Grafana PostgreSQL data source
@@ -32,7 +32,7 @@ litmus channels (Arrow IPC)            ┘         │
                                        Provisioned dashboards
 ```
 
-`litmus grafana serve` boots a buenavista pgwire server on port
+`testerkit grafana serve` boots a buenavista pgwire server on port
 5433 by default. The server creates an in-memory DuckDB connection
 with:
 
@@ -75,20 +75,20 @@ ORDER BY measurement_timestamp;
 
 | Command | Purpose |
 |---|---|
-| `litmus grafana serve` | Start the pgwire server. Options: `--host` (default `0.0.0.0`), `--port` (default `5433`), `--data-dir`, `--refresh-seconds` (default 30). |
-| `litmus grafana setup` | Install the provisioning config + dashboards into a Grafana instance. Two modes: file-based (writes into a local Grafana install) or API-based (POSTs to a Grafana HTTP API — for Docker, remote, or Grafana Cloud). |
-| `litmus grafana export` | Write the dashboard JSON files and provisioning Jinja2 templates to a directory. Useful when you want to inspect them, hand-edit, or check into your project's infra repo. |
+| `testerkit grafana serve` | Start the pgwire server. Options: `--host` (default `0.0.0.0`), `--port` (default `5433`), `--data-dir`, `--refresh-seconds` (default 30). |
+| `testerkit grafana setup` | Install the provisioning config + dashboards into a Grafana instance. Two modes: file-based (writes into a local Grafana install) or API-based (POSTs to a Grafana HTTP API — for Docker, remote, or Grafana Cloud). |
+| `testerkit grafana export` | Write the dashboard JSON files and provisioning Jinja2 templates to a directory. Useful when you want to inspect them, hand-edit, or check into your project's infra repo. |
 
 All three commands require the `grafana` extras:
-`pip install 'litmus-test[grafana]'`. The extras install
+`pip install 'testerkit[grafana]'`. The extras install
 buenavista (the pgwire implementation) — without it, the import
-in `litmus grafana serve` fails fast with a clear error.
+in `testerkit grafana serve` fails fast with a clear error.
 
 ## Shipped dashboards
 
 Each dashboard is JSON that references the data source through the
-`${DS_LITMUS}` template variable; the setup commands substitute the
-data source UID at import time. Run `litmus grafana export` to get
+`${DS_TESTERKIT}` template variable; the setup commands substitute the
+data source UID at import time. Run `testerkit grafana export` to get
 the JSON files directly (see Customizing dashboards below).
 
 | Dashboard | What it shows |
@@ -104,7 +104,7 @@ the JSON files directly (see Customizing dashboards below).
 | **Event Log** | Event volume, session timeline, instrument activity from the event bus |
 | **Channel Explorer** | Time-series visualization of instrument channel data by session |
 
-Each dashboard targets the Litmus PostgreSQL data source. Variables
+Each dashboard targets the TesterKit PostgreSQL data source. Variables
 on the dashboard let operators pick DUT part number, station, time
 window, serial number, etc. without editing panels.
 
@@ -114,10 +114,10 @@ Two patterns:
 
 1. **Fork in place** — open a dashboard in Grafana, edit panels,
    save. The change persists in Grafana's own database. Next
-   `litmus grafana setup` overwrites it unless you move it out of
-   the Litmus folder first.
+   `testerkit grafana setup` overwrites it unless you move it out of
+   the TesterKit folder first.
 
-2. **Export, fork, re-import** — run `litmus grafana export -o my-dashboards/`,
+2. **Export, fork, re-import** — run `testerkit grafana export -o my-dashboards/`,
    edit the JSON, manage with version control, import the forked
    versions yourself (Grafana's API or Grafana provisioning).
 
@@ -131,13 +131,13 @@ the views above.
 - **Refresh latency** — events and channels refresh into the
   DuckDB tables every 30 seconds (configurable). Live dashboards
   see new rows on the next refresh cycle, not immediately.
-- **In-memory connection** — every `litmus grafana serve` process
+- **In-memory connection** — every `testerkit grafana serve` process
   owns its own DuckDB connection. Don't run multiple servers
   pointing at the same data dir; they don't share state and
   Grafana would see one or the other.
 - **Authentication** — the pgwire connection is set up under the
-  `litmus` user. The API-based setup path (`litmus grafana setup
-  --grafana-url ...`) also sends `litmus` as the password. Suitable
+  `testerkit` user. The API-based setup path (`testerkit grafana setup
+  --grafana-url ...`) also sends `testerkit` as the password. Suitable
   for localhost or a trusted LAN; not for an exposed endpoint
   without further hardening.
 - **PostgreSQL data source** — the bundled dashboards
@@ -145,8 +145,8 @@ the views above.
   ships it built-in. Earlier versions need the plugin installed
   separately.
 - **Schema drift** — the dashboards assume the current parquet
-  schema. If Litmus's parquet columns change in a future release,
-  the dashboards will need to be regenerated; the Litmus release
+  schema. If TesterKit's parquet columns change in a future release,
+  the dashboards will need to be regenerated; the TesterKit release
   notes will call out when that happens.
 
 ## See also

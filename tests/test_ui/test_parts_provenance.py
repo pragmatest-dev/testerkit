@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from litmus.ui.shared import services
+from testerkit.ui.shared import services
 
 
 def _fake_part(

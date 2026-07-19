@@ -120,7 +120,7 @@ condition from that vector. Assembled once at ingest. (For m@temp=25: `step_path
 | # | Test shape | Step-exec rows | Vector rows (own `vector_index`) | `m.step_path` / `m.vector_index` |
 |---|---|---|---|---|
 | G | `class C: def m(ctx)` (C not swept) | `C`, `m` | — | `C/m` / **null** (C made no vector) |
-| H | `C litmus_sweeps(temp=[25,85])` + `def m(ctx)` | `C` + C-vecs(temp 0,1); `m`×2 | C: temp → 0,1 | `C/m` / **0,1** |
+| H | `C testerkit_sweeps(temp=[25,85])` + `def m(ctx)` | `C` + C-vecs(temp 0,1); `m`×2 | C: temp → 0,1 | `C/m` / **0,1** |
 | I | swept `C` + `def m(ctx, vectors)` (inner=3) | `C` + C-vecs(0,1); `m`×2 + m-vecs(0,1,2 each) | C: temp; m: iters | `C/m` / **0,1** (m's own vecs normal) |
 | J | `class C: @parametrize(v=[0,1]) def m(ctx)` (C plain) | `C`, `m` + m-vecs(v 0,1) | m: v → 0,1 | `C/m` / **null** |
 
@@ -129,7 +129,7 @@ m@temp=25 vs m@temp=85 (H/I) share `step_path` + `step_index` and differ only by
 
 ## Worked example — outer×inner aggregates identically to the fused form
 
-`litmus_sweeps(temp=[25,85])` (class, outer) + method inner `vectors` over `x=[0,1,2]` → six
+`testerkit_sweeps(temp=[25,85])` (class, outer) + method inner `vectors` over `x=[0,1,2]` → six
 `vout` measurements.
 
 - **Hierarchical (this reshape):** `C` → 2 C-vectors (temp) → `m` per temp (`m.vector_index`
@@ -147,14 +147,14 @@ the sweep picks which; analytics can't tell.
 ## Aggregation is union-free at the query layer
 
 The daemon UNNESTs measurements from **both** step and vector rows into one flat fact at ingest;
-every fact row carries its full owner coordinate. Litmus reads go through the projection, never
+every fact row carries its full owner coordinate. TesterKit reads go through the projection, never
 raw parquet, so:
 - *all of a step* = filter on its `step_path` (+ chain) — its own scope measurements **and**
   every vector's, **no union**;
 - *just the step's own* = `… AND vector_index IS NULL`;
 - *just a vector's* = `… AND vector_index = k`.
 The only "union" is the one-time ingest UNNEST. (A direct raw-parquet reader without the daemon
-would scan two record types — the projection spares Litmus readers that.)
+would scan two record types — the projection spares TesterKit readers that.)
 
 **Consequence — measurement queries are source-agnostic.** A query for a measurement never
 needs to know whether it was logged at *step scope* or inside a *vector*; the projection

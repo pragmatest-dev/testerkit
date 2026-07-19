@@ -9,8 +9,8 @@ import pyarrow as pa
 import pyarrow.ipc as ipc
 import pytest
 
-from litmus.data.channels.models import CHANNEL_SCHEMA_VERSION, ChannelSample
-from litmus.data.channels.store import ChannelStore
+from testerkit.data.channels.models import CHANNEL_SCHEMA_VERSION, ChannelSample
+from testerkit.data.channels.store import ChannelStore
 
 
 def _make_store(tmp_path: Path, flush_threshold: int = 100) -> ChannelStore:
@@ -114,7 +114,7 @@ class TestDescriptor:
         import pyarrow as pa
         import pyarrow.ipc as ipc
 
-        from litmus.data.channels.models import ChannelDescriptor
+        from testerkit.data.channels.models import ChannelDescriptor
 
         store = _make_store(tmp_path)
         store.write("dmm.dc_voltage", 3.3)
@@ -125,8 +125,8 @@ class TestDescriptor:
         segments = list((tmp_path / "channels").glob("*/*.arrow"))
         assert segments
         meta = ipc.open_stream(pa.OSFile(str(segments[0]), "rb")).schema.metadata
-        assert meta and b"litmus.channel_descriptor" in meta
-        desc = ChannelDescriptor.model_validate_json(meta[b"litmus.channel_descriptor"])
+        assert meta and b"testerkit.channel_descriptor" in meta
+        desc = ChannelDescriptor.model_validate_json(meta[b"testerkit.channel_descriptor"])
         assert desc.channel_id == "dmm.dc_voltage"
         # Build item 14: typed leaf — ``3.3`` is ``float`` → ``"scalar:float"``.
         assert desc.value_type == "scalar:float"

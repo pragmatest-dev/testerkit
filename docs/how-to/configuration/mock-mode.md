@@ -1,6 +1,6 @@
 # Mock mode
 
-Run your whole suite on a laptop with no instruments connected — `pytest` passes anywhere. Litmus substitutes a stand-in for each instrument, so your test code is identical to the real-hardware path.
+Run your whole suite on a laptop with no instruments connected — `pytest` passes anywhere. TesterKit substitutes a stand-in for each instrument, so your test code is identical to the real-hardware path.
 
 ## Quick start
 
@@ -13,11 +13,11 @@ pytest tests/ --station=bench_1 --mock-instruments --uut-serial=SIM001
 Or set the env var:
 
 ```bash
-export LITMUS_MOCK_INSTRUMENTS=1
+export TESTERKIT_MOCK_INSTRUMENTS=1
 pytest tests/ --station=bench_1 --uut-serial=SIM001
 ```
 
-Or set `mock_instruments: true` in your project's `litmus.yaml` so every run mocks by default; override per-run with `--no-mock-instruments`.
+Or set `mock_instruments: true` in your project's `testerkit.yaml` so every run mocks by default; override per-run with `--no-mock-instruments`.
 
 Take the [`mock_instruments`](../../reference/pytest/fixtures.md#mock_instruments-session) fixture inside a test if you need to branch:
 
@@ -33,8 +33,8 @@ def my_setup(mock_instruments):
 All four sources are checked in this priority order — first match wins:
 
 1. `--mock-instruments` / `--no-mock-instruments` CLI flag (either explicit flag wins).
-2. `LITMUS_MOCK_INSTRUMENTS=1` env var.
-3. `litmus.yaml: mock_instruments:` project default.
+2. `TESTERKIT_MOCK_INSTRUMENTS=1` env var.
+3. `testerkit.yaml: mock_instruments:` project default.
 4. `False` if nothing else set.
 
 ## Give a mock a value — station `mock_config:`
@@ -65,7 +65,7 @@ instruments:
       measure_current: 0.5
 ```
 
-> **Typo warning.** A typo in a `mock_config` key is not an error — Litmus cannot know that `measure_dc_voltge` is not a real method, so the stand-in silently returns `None`. That `None` usually surfaces downstream as an `ERRORED` row when the value is cast to a number. If a mocked reading comes back `None`, check the key spelling against the driver's method names first. Use `voltage:` and nothing happens — the real driver has no `voltage()` method; it has `measure_dc_voltage()` (DMM), `measure_voltage()` (PSU/ELoad), `set_voltage()`, etc.
+> **Typo warning.** A typo in a `mock_config` key is not an error — TesterKit cannot know that `measure_dc_voltge` is not a real method, so the stand-in silently returns `None`. That `None` usually surfaces downstream as an `ERRORED` row when the value is cast to a number. If a mocked reading comes back `None`, check the key spelling against the driver's method names first. Use `voltage:` and nothing happens — the real driver has no `voltage()` method; it has `measure_dc_voltage()` (DMM), `measure_voltage()` (PSU/ELoad), `set_voltage()`, etc.
 
 `mock_config:` applies for the entire session. For per-test and per-call overrides, see the layers below.
 
@@ -88,12 +88,12 @@ Mock values come from three places, applied in order. They are not a priority ch
 | Where you set it | When it applies | Use it when |
 |---|---|---|
 | Station YAML `mock_config:` | Session start — every test sees it | You want a station-wide default for the role |
-| Sidecar `mocks:` or `@pytest.mark.litmus_mocks([...])` | Per-test setup, torn down after | One test needs different readings than the station default |
+| Sidecar `mocks:` or `@pytest.mark.testerkit_mocks([...])` | Per-test setup, torn down after | One test needs different readings than the station default |
 | `mocker.patch.object(...)` in the test body | Per-call, inside one test only | Per-vector values, or raising exceptions — requires `pytest-mock` |
 
-### Layer ② — Sidecar `mocks:` (the `litmus_mocks` marker)
+### Layer ② — Sidecar `mocks:` (the `testerkit_mocks` marker)
 
-Per-test overrides written in the sidecar YAML next to the test module, or inline via `@pytest.mark.litmus_mocks([...])`. The sidecar form is the YAML serialization of the marker; both feed the same [`litmus_mocks`](../../reference/pytest/markers.md#litmus_mocks) pipeline.
+Per-test overrides written in the sidecar YAML next to the test module, or inline via `@pytest.mark.testerkit_mocks([...])`. The sidecar form is the YAML serialization of the marker; both feed the same [`testerkit_mocks`](../../reference/pytest/markers.md#testerkit_mocks) pipeline.
 
 Each entry is a `target:` plus any kwargs `unittest.mock.patch.object` accepts:
 
@@ -145,7 +145,7 @@ YAML cannot carry a Python exception class — a string like `"pyvisa.errors.Vis
 
 ### Layer ③ — Test-body patches via `mocker`
 
-For per-vector decisions or exception-raising side effects, patch inside the test body using `pytest-mock`'s `mocker` fixture. `pytest-mock` is not bundled with Litmus — add it before using `mocker`:
+For per-vector decisions or exception-raising side effects, patch inside the test body using `pytest-mock`'s `mocker` fixture. `pytest-mock` is not bundled with TesterKit — add it before using `mocker`:
 
 ```bash
 pip install pytest-mock
@@ -221,7 +221,7 @@ Run without `--mock-instruments`:
 pytest tests/ --station=mixed_bench --uut-serial=SN001
 ```
 
-`psu` and `eload` connect to real hardware; `dmm` is mocked. With `--mock-instruments` (or the env var, or `mock_instruments: true` in `litmus.yaml`), every instrument is mocked regardless of per-instrument `mock:` flags — the per-instrument flag is OR'd with the session-wide flag.
+`psu` and `eload` connect to real hardware; `dmm` is mocked. With `--mock-instruments` (or the env var, or `mock_instruments: true` in `testerkit.yaml`), every instrument is mocked regardless of per-instrument `mock:` flags — the per-instrument flag is OR'd with the session-wide flag.
 
 Common scenarios:
 
@@ -258,7 +258,7 @@ Three signals to check before you trust a mock-mode result:
 
 2. **The run record's `test_phase` is `"development"`** — `--mock-instruments` (or `mock: true` on any instrument) auto-demotes the phase. Read it from the parquet row, or via:
    ```python
-   from litmus.queries import RunsQuery
+   from testerkit.queries import RunsQuery
    with RunsQuery() as q:
        row = q.get(run_id)
        assert row.test_phase == "development"
@@ -266,7 +266,7 @@ Three signals to check before you trust a mock-mode result:
 
 3. **`fixture.instrument_connected` events carry `mocked: true`** — each instrument logs whether it came up real or mocked:
    ```python
-   from litmus.queries import EventStore
+   from testerkit.queries import EventStore
    store = EventStore()
    try:
        for ev in store.events(session_id=session_id, event_type="fixture.instrument_connected"):
@@ -277,7 +277,7 @@ Three signals to check before you trust a mock-mode result:
 
 ## How it works
 
-When a station instrument is mocked, Litmus substitutes a stand-in object without importing the driver class or calling `connect()`. The stand-in is not an instance of your driver class. What the platform skips for mocked instruments:
+When a station instrument is mocked, TesterKit substitutes a stand-in object without importing the driver class or calling `connect()`. The stand-in is not an instance of your driver class. What the platform skips for mocked instruments:
 
 - **`*IDN?` identity verification** — only runs against real hardware.
 - **Resource locking** — mocks don't take the inter-process file lock on the resource string that real instruments take.
@@ -332,8 +332,8 @@ Sidecar YAML supports file-level, class-level, and per-test `mocks:` entries, bu
 
 ## See also
 
-- [Litmus fixtures → `mock_instruments`](../../reference/pytest/fixtures.md#mock_instruments-session) — the boolean fixture this page demonstrates
-- [Litmus markers → `litmus_mocks`](../../reference/pytest/markers.md#litmus_mocks) — the marker that sidecar `mocks:` blocks compile to
+- [TesterKit fixtures → `mock_instruments`](../../reference/pytest/fixtures.md#mock_instruments-session) — the boolean fixture this page demonstrates
+- [TesterKit markers → `testerkit_mocks`](../../reference/pytest/markers.md#testerkit_mocks) — the marker that sidecar `mocks:` blocks compile to
 - [Custom drivers](custom-drivers.md) — driver authoring, including the bringup-tier conftest pattern for hand-built mocks
 - [Configuration reference → Station YAML](../../reference/configuration.md#station-yaml) — `mock_config:`, `mock:` field shapes
 - [Limits](../execution/limits.md) — limit resolution chain (what the nominal you matched feeds into)

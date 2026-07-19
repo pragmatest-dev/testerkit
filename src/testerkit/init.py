@@ -1,0 +1,724 @@
+"""Project scaffolding for testerkit init.
+
+Shared between CLI and MCP tool for consistent project initialization.
+"""
+
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
+
+
+def _sanitize_name(name: str) -> str:
+    return name.replace("-", "_").replace(" ", "_")
+
+
+def _resolve_project_name(path: Path) -> str:
+    """Resolve project name: git remote leaf → git repo root → folder name."""
+    from testerkit.execution._git import _git_repo_root, _remote_leaf_name, get_git_remote
+
+    remote = get_git_remote(path)
+    if remote:
+        leaf = _remote_leaf_name(remote)
+        if leaf:
+            return _sanitize_name(leaf)
+
+    root = _git_repo_root(path)
+    if root:
+        return _sanitize_name(root.name)
+
+    return _sanitize_name(path.name)
+
+
+def check_command(cmd: str) -> bool:
+    """Check if a command is available on the system."""
+    return shutil.which(cmd) is not None
+
+
+TIER_CHOICES = ("bringup", "bench", "factory")
+
+
+def init_project(
+    path: Path,
+    git: bool = True,
+    station: dict[str, Any] | None = None,
+    starter: bool = False,
+    name: str | None = None,
+    tier: str | None = None,
+) -> dict[str, Any]:
+    """Initialize a new TesterKit project.
+
+    Args:
+        path: Directory path to initialize (must already exist).
+        git: Whether to initialize a git repository.
+        station: Optional station data to write.  Dict with
+            ``instruments`` mapping role names to dicts with
+            ``resource`` and optional ``info`` keys.
+        starter: Whether to create starter example files.
+            Equivalent to ``tier="bench"``.
+        name: Explicit project name (from CLI arg). If None, resolves
+            via git remote leaf → git root folder → directory name.
+        tier: Scaffold tier (``"bringup"``, ``"bench"``, or
+            ``"factory"``). ``"bringup"`` creates a Tier 0/1 scaffold
+            (MagicMock fixtures in conftest, one test, one sidecar — no
+            station/part/fixture YAML). ``"bench"`` is equivalent to
+            ``starter=True``. ``"factory"`` is the bench scaffold plus
+            production/characterization profile skeletons.
+
+    Returns:
+        Dict with created_dirs, created_files, warnings, and git_initialized.
+    """
+    if tier is not None and tier not in TIER_CHOICES:
+        raise ValueError(f"tier must be one of {TIER_CHOICES}, got {tier!r}")
+    if tier == "bench":
+        starter = True
+    created_dirs: list[str] = []
+    created_files: list[str] = []
+    warnings: list[str] = []
+
+    # Create directories. Bringup tier skips station/part/fixture —
+    # those layers are off until the user graduates to Tier 2.
+    if tier == "bringup":
+        subdirs = ["tests", "reports"]
+    else:
+        subdirs = [
+            "parts",
+            "stations",
+            "fixtures",
+            "instruments",
+            "tests",
+            "reports",
+        ]
+    for subdir in subdirs:
+        dir_path = path / subdir
+        if not dir_path.exists():
+            dir_path.mkdir()
+            created_dirs.append(subdir)
+
+    project_name = _sanitize_name(name) if name else _resolve_project_name(path)
+
+    # Create pyproject.toml
+    pyproject_path = path / "pyproject.toml"
+    if not pyproject_path.exists():
+        if tier == "bringup":
+            pytest_section = """[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
+"""
+        elif starter:
+            # Starter mode: include pytest defaults so users can just run "pytest"
+            addopts = "-v --station=starter_station --mock-instruments --uut-serial=STARTER001"
+            pytest_section = f'''[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "{addopts}"
+filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
+'''
+        else:
+            pytest_section = """[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
+"""
+        pyproject_content = f'''[project]
+name = "{project_name}"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "testerkit>=0.1.0",
+    "pytest>=8.0",
+]
+
+{pytest_section}
+[tool.uv.sources]
+# Override with a local editable install during development:
+# testerkit = {{ path = "../testerkit", editable = true }}
+'''
+        pyproject_path.write_text(pyproject_content)
+        created_files.append("pyproject.toml")
+
+    # Create conftest.py
+    conftest_path = path / "tests" / "conftest.py"
+    if not conftest_path.exists():
+        if tier == "bringup":
+            conftest_content = '''"""Bench-bringup conftest — instrument fixtures defined directly.
+
+Tier 0/1 escape hatch: no station / catalog / part YAML needed.
+Swap ``MagicMock`` for a real driver (PyVISA / PyMeasure / vendor lib)
+when you\'re ready for the bench. Graduate to Tier 2 by moving driver
+resolution into a ``stations/<id>.yaml`` and deleting these fixtures —
+test bodies don\'t change.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+
+
+@pytest.fixture
+def dmm() -> MagicMock:
+    """Bench DMM. Replace MagicMock with a real driver."""
+    inst = MagicMock()
+    inst.measure_dc_voltage.return_value = 3.3
+    return inst
+
+
+@pytest.fixture
+def psu() -> MagicMock:
+    """Bench PSU. Replace MagicMock with a real driver."""
+    inst = MagicMock()
+    inst.measure_voltage.return_value = 5.0
+    inst.measure_current.return_value = 0.1
+    return inst
+'''
+        elif starter:
+            conftest_content = '''"""pytest configuration for TesterKit tests.
+
+Instrument fixtures (psu, dmm) are AUTO-REGISTERED from station config.
+No boilerplate needed - just use them in your tests.
+
+To OVERRIDE an auto-registered fixture with custom setup/teardown:
+
+    @pytest.fixture(scope="session")
+    def psu(instruments):
+        inst = instruments.get("psu")
+        inst.set_voltage(5.0)       # custom default
+        yield inst
+        inst.disable_output()       # custom teardown
+
+For PIN-BASED fixtures with traceability (measurement -> pin -> instrument):
+
+    @pytest.fixture(scope="session")
+    def output_dmm(pins):
+        return pins.get("TP_VOUT")  # measurement includes uut_pin
+"""
+'''
+        else:
+            conftest_content = '''"""Pytest configuration for TesterKit tests.
+
+The testerkit pytest plugin auto-registers fixtures for each instrument role
+defined in your station config. For example, if your station has:
+
+    instruments:
+      dmm: keithley_2000
+      psu: keysight_e36313a
+
+Then `dmm` and `psu` fixtures are automatically available in your tests.
+No manual fixture definitions needed here.
+
+Run with --mock-instruments for hardware-free testing:
+
+    pytest tests/ --mock-instruments --uut-serial=TEST001
+"""
+
+# Add project-specific fixtures below if needed.
+# Do NOT define fixtures for instrument roles (dmm, psu, etc.) —
+# they are auto-registered by the testerkit plugin from station config.
+'''
+        conftest_path.write_text(conftest_content)
+        created_files.append("tests/conftest.py")
+
+    # Create testerkit.yaml
+    testerkit_yaml_path = path / "testerkit.yaml"
+    if not testerkit_yaml_path.exists():
+        from testerkit.models.project import ProjectConfig
+        from testerkit.store import dump_yaml
+
+        proj_data: dict[str, Any] = {"name": project_name}
+        if starter:
+            # Starter projects write to a project-local ``data/`` dir so
+            # learning runs (mock instruments, example_part, etc.) don't
+            # pollute the global platformdirs store users will share across
+            # projects on this machine. When the user is ready, ``testerkit
+            # data promote`` migrates non-starter runs into the global
+            # store and removes this override.
+            proj_data.update(
+                {
+                    "data_dir": "data",
+                    "default_station": "starter_station",
+                    "default_fixture": "example_fixture",
+                    "mock_instruments": True,
+                }
+            )
+        proj = ProjectConfig(**proj_data)
+        # exclude_defaults: the starter only ever sets a handful of
+        # user-relevant fields (name/data_dir/default_station/
+        # default_fixture/mock_instruments). Dumping the full model
+        # would also emit ~20 lines of internal tuning knobs
+        # (channels/files/session/stream/multi_site sub-configs) the
+        # starter never touches, which round-trip fine through
+        # ProjectConfig's own defaults on load.
+        testerkit_yaml_path.write_text(dump_yaml(proj.model_dump(exclude_defaults=True)))
+        created_files.append("testerkit.yaml")
+
+    # Create .gitignore
+    gitignore_path = path / ".gitignore"
+    if not gitignore_path.exists():
+        gitignore_content = """# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# TesterKit — local outputs (kept out of version control)
+#   data/    runtime parquet + event log + channels (starter projects only;
+#            after `testerkit data promote` this dir is no longer used)
+#   reports/ generated HTML / PDF / CSV / JSON reports
+data/
+reports/
+
+# Source-of-truth TesterKit config IS in git on purpose:
+#   stations/, parts/, fixtures/, tests/, instruments/, profiles/
+# Do NOT add those above — losing them silently is exactly the bug
+# this template used to ship.
+
+# IDE
+.idea/
+
+# uv
+.python-version
+uv.lock
+"""
+        gitignore_path.write_text(gitignore_content)
+        created_files.append(".gitignore")
+
+    # Create README.md for the new project
+    readme_path = path / "README.md"
+    if not readme_path.exists():
+        readme_content = f"""# {project_name}
+
+A [TesterKit](https://github.com/pragmatest-dev/testerkit) hardware test project.
+
+## Project Structure
+
+| Folder | Contents |
+|--------|----------|
+| `parts/` | Part specifications (YAML) |
+| `stations/` | Station configurations (YAML) |
+| `fixtures/` | Test fixture definitions (YAML) |
+| `tests/` | Test code (Python) |
+| `instruments/` | Custom instrument definitions (YAML) |
+| `data/` | Local test output (starter only; gitignored). See `testerkit data promote`. |
+| `reports/` | Generated HTML / PDF / CSV / JSON reports (gitignored) |
+
+## Running tests
+
+```bash
+pytest                          # mock instruments (per testerkit.yaml)
+testerkit serve                    # operator UI at localhost:8000
+testerkit runs                     # list recent runs
+```
+
+## Sharing data across projects
+
+Test runs land in this project's local `data/` folder while you're
+learning. When you're ready to share data with other projects +
+benches on this machine, run:
+
+```bash
+testerkit data promote
+# (skips starter-example runs by default; --include-starter to bring them too)
+```
+
+This copies your real runs into the global TesterKit store
+(`~/.local/share/testerkit/data/` on Linux) and removes the local
+`data_dir:` override from `testerkit.yaml`. Future runs go directly
+to the global store.
+"""
+        readme_path.write_text(readme_content)
+        created_files.append("README.md")
+
+    # Create .vscode/ with YAML schema validation. Generates one
+    # JSON schema per TesterKit config type (sidecar, profile, project,
+    # station, fixture, part, catalog, instrument_asset) from the
+    # backing Pydantic models, plus a settings.json that wires each
+    # YAML glob (tests/**, profiles/**, etc.) to the right schema —
+    # users get autocomplete + inline validation in VS Code via the
+    # Red Hat YAML extension as soon as they open the project.
+    vscode_dir = path / ".vscode"
+    settings_path = vscode_dir / "settings.json"
+    import json
+
+    from testerkit.schema_export import export_schemas, vscode_yaml_schemas
+
+    schemas_dir = vscode_dir / "schemas"
+    try:
+        schema_paths = export_schemas(schemas_dir)
+        # MERGE our keys into any existing settings.json rather than skipping
+        # it — a template repo (e.g. testerkit-starter) or the user may already
+        # ship one, and skip-if-exists would silently drop the schema + pytest
+        # wiring so the VS Code Test Explorer never turns on. Every other key
+        # (e.g. ``task.allowAutomaticTasks``) is preserved. yaml.schemas →
+        # config-YAML autocomplete/validation; the pytest keys light up the
+        # Test Explorer (testerkit tests are pytest; testerkit_sweeps fans out to
+        # real parametrize items). No interpreter path — VS Code auto-detects
+        # a local ``.venv`` or the Codespace's system Python.
+        existing: dict[str, object] | None = {}
+        settings_existed = settings_path.exists()
+        if settings_existed:
+            # Tolerate JSONC (VS Code allows ``//`` comments): drop whole-line
+            # comments before parsing. Comments are lost on rewrite, settings
+            # preserved. If it still won't parse, leave the file untouched
+            # rather than clobber the user's settings.
+            body = "\n".join(
+                ln
+                for ln in settings_path.read_text().splitlines()
+                if not ln.lstrip().startswith("//")
+            )
+            try:
+                parsed = json.loads(body) if body.strip() else {}
+                existing = parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError:
+                existing = None
+        if existing is None:
+            warnings.append(
+                ".vscode/settings.json exists but could not be parsed to merge in the "
+                "schema/pytest settings — left as-is (set python.testing.pytestEnabled "
+                "manually if the Test Explorer is empty)."
+            )
+        else:
+            existing["yaml.schemas"] = vscode_yaml_schemas()
+            existing["python.testing.pytestEnabled"] = True
+            existing["python.testing.pytestArgs"] = ["tests"]
+            vscode_dir.mkdir(exist_ok=True)
+            settings_path.write_text(json.dumps(existing, indent=2) + "\n")
+            if not settings_existed:
+                created_files.append(".vscode/settings.json")
+        for sp in schema_paths:
+            created_files.append(str(sp.relative_to(path)))
+    except (ImportError, OSError) as exc:
+        warnings.append(f"Failed to generate VS Code YAML schemas: {exc}")
+
+    # Write station file if instruments were discovered
+    if station and station.get("instruments"):
+        from testerkit.models.station import StationConfig, StationInstrumentConfig
+        from testerkit.store import dump_yaml
+
+        stations_dir = path / "stations"
+        stations_dir.mkdir(exist_ok=True)
+        station_file = stations_dir / "station.yaml"
+        if not station_file.exists():
+            instruments = {
+                role: StationInstrumentConfig(
+                    type=role,
+                    resource=data.get("resource"),
+                )
+                for role, data in station["instruments"].items()
+            }
+            sc = StationConfig(
+                id="station",
+                name="Default Station",
+                instruments=instruments,
+            )
+            station_file.write_text(dump_yaml(sc.model_dump(exclude_none=True)))
+            created_files.append("stations/station.yaml")
+
+    # Create starter files if requested
+    if tier == "bringup":
+        created_files.extend(_create_bringup_files(path))
+    elif starter:
+        starter_files = _create_starter_files(path)
+        created_files.extend(starter_files)
+
+    # Initialize git repository (skip if already in a repo)
+    git_initialized = False
+    if git and not (path / ".git").exists():
+        if check_command("git"):
+            try:
+                subprocess.run(
+                    ["git", "init"],
+                    cwd=str(path),
+                    capture_output=True,
+                    check=True,
+                )
+                git_initialized = True
+            except subprocess.CalledProcessError:
+                warnings.append("Failed to initialize git repository")
+        else:
+            warnings.append("git not found, skipping repository initialization")
+
+    return {
+        "created_dirs": created_dirs,
+        "created_files": created_files,
+        "warnings": warnings,
+        "git_initialized": git_initialized,
+    }
+
+
+def get_project_contents(path: Path) -> list[dict[str, str]]:
+    """List the contents of a project directory."""
+    contents = []
+    for item in sorted(path.iterdir()):
+        if not item.name.startswith(".") or item.name == ".gitignore":
+            contents.append(
+                {
+                    "name": item.name,
+                    "type": "dir" if item.is_dir() else "file",
+                }
+            )
+    return contents
+
+
+def _create_starter_files(path: Path) -> list[str]:
+    """Create starter example files for a new project.
+
+    Args:
+        path: Project root directory.
+
+    Returns:
+        List of created file paths (relative to project root).
+    """
+    from testerkit.store import dump_yaml
+
+    created_files: list[str] = []
+
+    # Create stations/starter_station.yaml
+    station_file = path / "stations" / "starter_station.yaml"
+    if not station_file.exists():
+        station_content = {
+            "id": "starter_station",
+            "name": "Starter Station",
+            "description": "Auto-generated starter station with mock instruments",
+            "instruments": {
+                "psu": {
+                    "type": "psu",
+                    "resource": "TCPIP::192.168.1.100::INSTR",
+                    "mock": True,
+                    "mock_config": {
+                        "set_voltage": None,
+                        "enable_output": None,
+                        "measure_voltage": 5.0,
+                        "measure_current": 0.25,
+                    },
+                },
+                "dmm": {
+                    "type": "dmm",
+                    "resource": "TCPIP::192.168.1.101::INSTR",
+                    "mock": True,
+                    "mock_config": {
+                        "measure_dc_voltage": 3.3,
+                    },
+                },
+            },
+        }
+        comment_header = (
+            "# Starter station — mock instruments for getting started.\n"
+            "#\n"
+            "# To connect real instruments:\n"
+            "#   1. testerkit discover           — find instruments on your bench\n"
+            "#   2. testerkit station init       — create a real station config\n"
+            "#   3. Keep mock_config sections — they're used by --mock-instruments for CI\n"
+            "#\n"
+            "# See: docs/tutorial/07-real-instruments.md\n\n"
+        )
+        station_file.write_text(comment_header + dump_yaml(station_content))
+        created_files.append("stations/starter_station.yaml")
+
+    # Create parts/example_part.yaml
+    part_file = path / "parts" / "example_part.yaml"
+    if not part_file.exists():
+        part_content = {
+            "id": "example_part",
+            "name": "Example Part",
+            "description": "Auto-generated example part specification",
+            "pins": {
+                "TP_VOUT": {
+                    "name": "TP1",
+                    "net": "VOUT_3V3",
+                    "description": "Output voltage test point",
+                },
+            },
+            "characteristics": {
+                "output_voltage": {
+                    "function": "dc_voltage",
+                    "direction": "output",
+                    "unit": "V",
+                    "pin": "TP_VOUT",
+                    "bands": [
+                        {
+                            "value": 3.3,
+                            "accuracy": {
+                                "pct_reading": 2.0,
+                            },
+                        },
+                    ],
+                },
+            },
+        }
+        part_file.write_text(dump_yaml(part_content))
+        created_files.append("parts/example_part.yaml")
+
+    # Create fixtures/example_fixture.yaml
+    fixture_file = path / "fixtures" / "example_fixture.yaml"
+    if not fixture_file.exists():
+        fixture_content = {
+            "id": "example_fixture",
+            "name": "Example Fixture",
+            "description": "Maps UUT pins to station instrument channels",
+            "part_id": "example_part",
+            "connections": {
+                "vout_measure": {
+                    "name": "vout_measure",
+                    "uut_pin": "TP_VOUT",
+                    "instrument": "dmm",
+                    "instrument_channel": "ch1",
+                    "instrument_terminal": "hi",
+                    "function": "dc_voltage",
+                    "description": "Output voltage at TP_VOUT",
+                },
+            },
+        }
+        comment_header = (
+            "# Example fixture — wires UUT pins through station instrument\n"
+            "# channels. Each connection has a name, a uut_pin (matches a\n"
+            "# pin in the active part YAML), and an instrument role\n"
+            "# (matches a key in the active station's instruments: dict).\n"
+            "#\n"
+            "# Tests iterate connections via ``ctx.connections`` and call\n"
+            "# the matching instrument fixture (`dmm`, `psu`, …) with the\n"
+            "# resolved channel.\n\n"
+        )
+        fixture_file.write_text(comment_header + dump_yaml(fixture_content))
+        created_files.append("fixtures/example_fixture.yaml")
+
+    # Create instruments/ asset files. The asset ``id`` must equal the
+    # station's instrument role — resolve_station_instruments() joins
+    # station instruments to asset files by role via a dict keyed on
+    # asset.id (see load_instrument_files() in store.py), so an id that
+    # doesn't match the role never joins and the asset's info/calibration
+    # sit inert.
+    for role in ["psu", "dmm"]:
+        inst_file = path / "instruments" / f"{role}.yaml"
+        if not inst_file.exists():
+            inst_content = {
+                "id": role,
+                "protocol": "visa",
+                "driver": "testerkit.instruments.visa.VisaInstrument",
+                "resource": f"TCPIP::192.168.1.{100 if role == 'psu' else 101}::INSTR",
+                "info": {
+                    "manufacturer": "Generic",
+                    "model": role.upper(),
+                    "serial": f"SIM-{role.upper()}-001",
+                },
+                "calibration": {
+                    "due_date": "2027-01-01",
+                    "last_cal": "2026-01-01",
+                    "certificate": f"CAL-{role.upper()}-2026-001",
+                    "lab": "In-house",
+                },
+            }
+            inst_file.write_text(dump_yaml(inst_content))
+            created_files.append(f"instruments/{role}.yaml")
+
+    # Create tests/test_example.py
+    test_file = path / "tests" / "test_example.py"
+    if not test_file.exists():
+        test_content = '''"""Verify a 3.3 V rail across a range of input voltages.
+
+``testerkit_sweeps`` fans this test out at collection into one runnable item
+per input voltage — ``test_output_voltage[3.3]`` / ``[5.0]`` / ``[5.5]`` in
+the VSCode Test Explorer, and one measurement row per vector in the
+results. Each ``vin`` value is recorded as that vector's input condition;
+the pass/fail band comes from the ``output_voltage`` characteristic in
+parts/example_part.yaml (3.3 V ± 2%), so no limit is hardcoded here.
+
+Run with: pytest  (defaults live in pyproject.toml).
+``psu`` / ``dmm`` come from the station config; ``context`` and ``verify``
+are provided by the TesterKit pytest plugin.
+"""
+
+import pytest
+
+
+@pytest.mark.testerkit_sweeps([{"vin": [3.3, 5.0, 5.5]}])
+@pytest.mark.testerkit_limits(output_voltage={"characteristic": "output_voltage"})
+def test_output_voltage(context, psu, dmm, verify, vin: float) -> None:
+    """Drive the input rail to ``vin``; confirm the 3.3 V output holds within spec."""
+    psu.set_voltage(vin)
+    psu.enable_output()
+    for _ in context.connections:
+        verify("output_voltage", float(dmm.measure_dc_voltage()))
+'''
+        test_file.write_text(test_content)
+        created_files.append("tests/test_example.py")
+
+    return created_files
+
+
+def _create_bringup_files(path: Path) -> list[str]:
+    """Create Tier 0/1 bringup scaffold: one test, one sidecar, no YAML layers.
+
+    Matches ``examples/01-bringup/`` shape. The conftest (mock instrument
+    fixtures) is written by the main ``init_project`` flow; this
+    function only adds the test + sidecar.
+    """
+    created_files: list[str] = []
+
+    test_file = path / "tests" / "test_smoke.py"
+    if not test_file.exists():
+        test_file.write_text('''"""Tier 0/1 smoke tests for a brand-new board.
+
+Bringup scaffold: no station / part / fixture YAML. Limits live
+inline (as a dict literal) or in a same-named sidecar
+(``test_smoke.yaml``). When you graduate to Tier 2 (add a station +
+part), the test bodies here are unchanged — you just swap the
+sidecar shape.
+
+For the full ``verify`` signature, limit dict schema, and outcomes,
+see the ``testerkit-tests`` skill (your AI assistant loads it automatically).
+
+Run::
+
+    pytest -v
+"""
+
+from __future__ import annotations
+
+
+def test_rail_inline(dmm, verify) -> None:
+    """No YAML. Limit lives in the test source as a dict literal."""
+    verify(
+        "v_rail",
+        float(dmm.measure_dc_voltage()),
+        limit={"low": 3.2, "high": 3.4, "nominal": 3.3, "unit": "V"},
+    )
+
+
+def test_rail_sidecar(dmm, verify) -> None:
+    """Same measurement, limit now lives in ``test_smoke.yaml``."""
+    verify("v_rail_sidecar", float(dmm.measure_dc_voltage()))
+
+
+def test_current_draw(psu, verify) -> None:
+    """A second measurement sharing the same sidecar."""
+    verify("i_in", float(psu.measure_current()))
+''')
+        created_files.append("tests/test_smoke.py")
+
+    sidecar = path / "tests" / "test_smoke.yaml"
+    if not sidecar.exists():
+        sidecar.write_text(
+            "# Tier 1 sidecar — absolute bounds only. No part, no characteristic.\n"
+            "# Graduate to Tier 2 by swapping ``low/high`` for\n"
+            "# ``characteristic: <id>`` + ``tolerance_pct: N``.\n"
+            "limits:\n"
+            "  v_rail_sidecar:\n"
+            "    low: 3.2\n"
+            "    high: 3.4\n"
+            "    nominal: 3.3\n"
+            "    unit: V\n"
+            "  i_in:\n"
+            "    low: 0.0\n"
+            "    high: 0.5\n"
+            "    unit: A\n"
+        )
+        created_files.append("tests/test_smoke.yaml")
+
+    return created_files

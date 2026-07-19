@@ -1,7 +1,7 @@
 """Tests for report generation.
 
 Storage: canonical singleton (project-local via repo's
-``litmus.yaml`` → ``<repo>/results/``). Per-test isolation is by
+``testerkit.yaml`` → ``<repo>/results/``). Per-test isolation is by
 unique ``run_id`` (each ``sample_run`` mints a uuid4). Tests read
 back through ``load_run_data(run_id)`` with no explicit
 ``data_dir`` so resolution falls through to the canonical
@@ -15,11 +15,11 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.backends.parquet import ParquetBackend
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
-from litmus.data.run_store import RunStore
-from litmus.reports.core import (
+from testerkit.data.backends.parquet import ParquetBackend
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from testerkit.data.run_store import RunStore
+from testerkit.reports.core import (
     generate_report,
     load_run_data,
 )
@@ -98,7 +98,7 @@ def data_dir(sample_run):
     Per-test isolation is via the ``sample_run.id`` (uuid4) which
     is the parquet filename's run_id segment. Notifying the
     canonical daemon directly (bypassing
-    ``LITMUS_SKIP_DAEMON_NOTIFY``) so ``load_run_data`` can find
+    ``TESTERKIT_SKIP_DAEMON_NOTIFY``) so ``load_run_data`` can find
     the run via the daemon's index.
     """
     rd = resolve_data_dir()
@@ -221,15 +221,15 @@ class TestTemplateResolution:
 
 class TestProjectConfig:
     def test_load_missing(self, tmp_path):
-        from litmus.store import load_project_config
+        from testerkit.store import load_project_config
 
         config = load_project_config(tmp_path)
         assert config.data_dir is None
 
     def test_load_valid(self, tmp_path):
-        from litmus.store import load_project_config
+        from testerkit.store import load_project_config
 
-        (tmp_path / "litmus.yaml").write_text("name: test\ndata_dir: my_results\n")
+        (tmp_path / "testerkit.yaml").write_text("name: test\ndata_dir: my_results\n")
         config = load_project_config(tmp_path)
         assert config.data_dir == "my_results"
 
@@ -238,7 +238,7 @@ class TestCLI:
     def test_show_with_format(self, data_dir, run_id, tmp_path):
         from click.testing import CliRunner
 
-        from litmus.cli import main
+        from testerkit.cli import main
 
         runner = CliRunner()
         out_file = str(tmp_path / "report.json")
@@ -262,7 +262,7 @@ class TestCLI:
     def test_show_terminal(self, data_dir, run_id):
         from click.testing import CliRunner
 
-        from litmus.cli import main
+        from testerkit.cli import main
 
         runner = CliRunner()
         result = runner.invoke(
@@ -288,41 +288,41 @@ class TestReportTimezone:
     """
 
     def test_utc_label(self) -> None:
-        from litmus.reports.core import _report_zone_label
+        from testerkit.reports.core import _report_zone_label
 
         assert _report_zone_label(utc=True) == "UTC"
 
     def test_local_label_has_offset(self) -> None:
-        from litmus.reports.core import _report_zone_label
+        from testerkit.reports.core import _report_zone_label
 
         label = _report_zone_label(utc=False)
         assert "UTC" in label and ("+" in label or "-" in label)
 
     def test_utc_render_from_aware(self) -> None:
-        from litmus.reports.core import _to_report_ts
+        from testerkit.reports.core import _to_report_ts
 
         dt = datetime(2026, 6, 15, 8, 30, 0, tzinfo=UTC)
         assert _to_report_ts(dt, utc=True) == "2026-06-15 08:30:00"
 
     def test_utc_render_from_iso_string(self) -> None:
-        from litmus.reports.core import _to_report_ts
+        from testerkit.reports.core import _to_report_ts
 
         # ReportData stores ISO strings; +offset is normalized to UTC.
         assert _to_report_ts("2026-06-15T14:30:00+06:00", utc=True) == "2026-06-15 08:30:00"
 
     def test_naive_string_assumed_utc(self) -> None:
-        from litmus.reports.core import _to_report_ts
+        from testerkit.reports.core import _to_report_ts
 
         assert _to_report_ts("2026-06-15T08:30:00", utc=True) == "2026-06-15 08:30:00"
 
     def test_empty_is_blank(self) -> None:
-        from litmus.reports.core import _to_report_ts
+        from testerkit.reports.core import _to_report_ts
 
         assert _to_report_ts("", utc=True) == ""
         assert _to_report_ts(None, utc=True) == ""
 
     def test_no_per_value_offset_in_output(self) -> None:
-        from litmus.reports.core import _to_report_ts
+        from testerkit.reports.core import _to_report_ts
 
         # Bare format only — the zone is declared once, not per value.
         out = _to_report_ts(datetime(2026, 6, 15, 8, 30, 0, tzinfo=UTC), utc=False)

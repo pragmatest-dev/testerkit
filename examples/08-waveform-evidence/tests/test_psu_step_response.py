@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import math
 
-from litmus import Limit, Waveform
+from testerkit import Limit, Waveform
 
 
 def compute_rise_time_us(

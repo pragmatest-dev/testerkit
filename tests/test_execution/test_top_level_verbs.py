@@ -6,7 +6,7 @@ top-level-import shape against the active pytest context (set by the
 plugin's ``context`` fixture) plus the "no active context" error
 path for callers outside any test/connection.
 
-See :mod:`litmus.verbs` for the resolution contract.
+See :mod:`testerkit.verbs` for the resolution contract.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ from contextlib import contextmanager
 
 import pytest
 
-from litmus import observe, stream, verify
-from litmus.data.models import TestVector
-from litmus.execution._state import (
+from testerkit import observe, stream, verify
+from testerkit.data.models import TestVector
+from testerkit.execution._state import (
     _current_context_var,
     get_current_context,
     push_current_vector,
@@ -30,7 +30,7 @@ from litmus.execution._state import (
 def _active_vector() -> Iterator[TestVector]:
     """Push a fresh vector for the duration of the body, then reset.
 
-    Pushed IN-BODY (not via a setup-phase fixture): the litmus plugin's
+    Pushed IN-BODY (not via a setup-phase fixture): the testerkit plugin's
     call-phase ``start_step`` can reset the ``_current_vector`` contextvar in
     the full suite, clobbering a fixture-pushed vector. Asserting on the
     pushed vector directly is immune to that ordering.
@@ -60,11 +60,11 @@ def test_top_level_verb_no_context_raises_with_useful_message() -> None:
     """Outside any test/connection, the verb tells the caller how to wire it."""
     token = _current_context_var.set(None)
     try:
-        with pytest.raises(RuntimeError, match="No active Litmus context"):
+        with pytest.raises(RuntimeError, match="No active TesterKit context"):
             observe("temp", 1.0)
-        with pytest.raises(RuntimeError, match="No active Litmus context"):
+        with pytest.raises(RuntimeError, match="No active TesterKit context"):
             verify("v", 1.0, limit=None)
-        with pytest.raises(RuntimeError, match="No active Litmus context"):
+        with pytest.raises(RuntimeError, match="No active TesterKit context"):
             stream("ch", 1.0)
     finally:
         _current_context_var.reset(token)
@@ -72,7 +72,7 @@ def test_top_level_verb_no_context_raises_with_useful_message() -> None:
 
 def test_top_level_verb_same_resolution_as_fixture(observe) -> None:  # type: ignore[no-redef]
     """The fixture form and the top-level import resolve to the same Context."""
-    from litmus import observe as observe_module
+    from testerkit import observe as observe_module
 
     # Both paths should write to the same vector — proven by writing
     # via each shape and asserting both keys land on the active vector.
@@ -84,6 +84,6 @@ def test_top_level_verb_same_resolution_as_fixture(observe) -> None:  # type: ig
 
 def test_top_level_verb_resolves_same_context_object() -> None:
     """``_active_context()`` returns the same instance as ``get_current_context``."""
-    from litmus.verbs import _active_context
+    from testerkit.verbs import _active_context
 
     assert _active_context() is get_current_context()

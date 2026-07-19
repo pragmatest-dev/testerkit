@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from litmus.execution.limits import derive_limit
-from litmus.models.enums import Comparator, Direction, MeasurementFunction
-from litmus.models.part import Part
-from litmus.parts.loader import load_part_driver, resolve_part_driver
-from litmus.store import load_part
+from testerkit.execution.limits import derive_limit
+from testerkit.models.enums import Comparator, Direction, MeasurementFunction
+from testerkit.models.part import Part
+from testerkit.parts.loader import load_part_driver, resolve_part_driver
+from testerkit.store import load_part
 
 
 class TestLoadPart:

@@ -1,6 +1,6 @@
 """Tests for the capability matching service."""
 
-from litmus.matching.service import (
+from testerkit.matching.service import (
     CapabilityRequirement,
     StationCapability,
     _directions_compatible,
@@ -9,9 +9,15 @@ from litmus.matching.service import (
     get_station_capabilities,
     match_capabilities,
 )
-from litmus.models.capability import AccuracySpec, InstrumentCapability, RangeSpec, Signal, SpecBand
-from litmus.models.enums import Direction, MeasurementFunction
-from litmus.models.part import Part, PartCharacteristic
+from testerkit.models.capability import (
+    AccuracySpec,
+    InstrumentCapability,
+    RangeSpec,
+    Signal,
+    SpecBand,
+)
+from testerkit.models.enums import Direction, MeasurementFunction
+from testerkit.models.part import Part, PartCharacteristic
 
 # ---------------------------------------------------------------------------
 # Helpers to build test objects with new wrapper API
@@ -468,8 +474,8 @@ class TestGetStationCapabilities:
 
     def test_extracts_capabilities_from_catalog_ref(self, monkeypatch):
         """Capabilities are extracted from catalog_ref on station instruments."""
-        from litmus.models.capability import InstrumentCapability
-        from litmus.models.catalog import InstrumentCatalogEntry
+        from testerkit.models.capability import InstrumentCapability
+        from testerkit.models.catalog import InstrumentCatalogEntry
 
         mock_entry = InstrumentCatalogEntry(
             id="test_dmm",
@@ -498,7 +504,7 @@ class TestGetStationCapabilities:
             ],
         )
 
-        import litmus.matching.service as matching_svc
+        import testerkit.matching.service as matching_svc
 
         monkeypatch.setattr(
             matching_svc,
@@ -506,7 +512,7 @@ class TestGetStationCapabilities:
             lambda ref: mock_entry if ref == "test_dmm" else None,
         )
 
-        from litmus.models.station import StationConfig, StationInstrumentConfig
+        from testerkit.models.station import StationConfig, StationInstrumentConfig
 
         station_config = StationConfig(
             id="test_station",

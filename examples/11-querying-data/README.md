@@ -10,7 +10,7 @@ external dashboards.
 ## What this example does
 
 `scripts/seed_runs.py` populates `data/` with 8 fake runs across 5
-UUTs and 2 stations (using `LitmusClient` — the programmatic
+UUTs and 2 stations (using `TesterKitClient` — the programmatic
 run-building API). `scripts/analyze.py` then queries them through
 the public API:
 
@@ -31,7 +31,7 @@ visualization you use.
 ```
 examples/11-querying-data/
 ├── README.md
-├── litmus.yaml
+├── testerkit.yaml
 ├── pyproject.toml
 └── scripts/
     ├── seed_runs.py        # produce: 8 runs, 5 UUTs, 2 stations
@@ -56,14 +56,14 @@ The same data is reachable two ways. This example shows the
 programmatic half:
 
 ```python
-from litmus.queries import RunsQuery
+from testerkit.queries import RunsQuery
 
 with RunsQuery(_data_dir="data") as q:
     for run in q.list_recent(limit=20):
         print(run.uut_serial, run.outcome)
 ```
 
-For the UI half, run `uv run litmus serve --reload` and navigate:
+For the UI half, run `uv run testerkit serve --reload` and navigate:
 
 | Page | What it shows |
 |---|---|
@@ -86,16 +86,16 @@ constructs like `Limit` and the sweep value builders), interactive
 and data-mover code uses deep imports:
 
 ```python
-from litmus.queries import RunsQuery
-from litmus.queries import MeasurementsQuery
-from litmus.queries import EventStore
-from litmus import LitmusClient
+from testerkit.queries import RunsQuery
+from testerkit.queries import MeasurementsQuery
+from testerkit.queries import EventStore
+from testerkit import TesterKitClient
 ```
 
 The verbosity signals "store-direct layer." Full API-surface
 reorganization (more top-level re-exports for non-test consumers)
 is queued as a follow-on PR — when it lands these imports collapse
-to `from litmus import queries, EventStore, LitmusClient`.
+to `from testerkit import queries, EventStore, TesterKitClient`.
 
 ## See also
 

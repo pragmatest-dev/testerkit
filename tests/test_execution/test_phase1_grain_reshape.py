@@ -8,7 +8,7 @@ Row A  -- non-swept step: StepStarted + StepEnded, zero VectorStarted.
 Row B  -- Mode-1 (@parametrize): two VectorStarted (vi=0,1); both
           StepStarted carry vector_index=None (a step has no own index) and
           vector_outer_index=None (no enclosing loop at top level).
-Row H  -- class-outer (litmus_sweeps): C emits VectorStarted per outer point;
+Row H  -- class-outer (testerkit_sweeps): C emits VectorStarted per outer point;
           m.StepStarted.vector_index=None, vector_outer_index = enclosing
           outer index (0 then 1).
 Pre-merge -- inner vector's inputs already contain enclosing condition.
@@ -18,9 +18,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.data.events import StepEnded, StepStarted, VectorEnded, VectorStarted
-from litmus.data.models import TestVector
-from litmus.execution.run_scope import RunScope
+from testerkit.data.events import StepEnded, StepStarted, VectorEnded, VectorStarted
+from testerkit.data.models import TestVector
+from testerkit.execution.run_scope import RunScope
 
 
 class _FakeLog:
@@ -102,7 +102,7 @@ def test_mode1_two_variants_emit_two_vector_started() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Row H: class-outer (litmus_sweeps(temp=[25,85])) + def m(ctx)
+# Row H: class-outer (testerkit_sweeps(temp=[25,85])) + def m(ctx)
 # ---------------------------------------------------------------------------
 
 

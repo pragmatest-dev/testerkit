@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from litmus.reports.datasheet import (
+from testerkit.reports.datasheet import (
     build_signal_render,
     fmt_accuracy,
     fmt_attr,
@@ -14,9 +14,9 @@ from litmus.reports.datasheet import (
     generate_datasheet,
     load_datasheet_data,
 )
-from litmus.store import load_catalog_entry
+from testerkit.store import load_catalog_entry
 
-CATALOG_DIR = Path(__file__).parent.parent / "src" / "litmus" / "catalog" / "generic"
+CATALOG_DIR = Path(__file__).parent.parent / "src" / "testerkit" / "catalog" / "generic"
 
 
 class TestFmtSi:

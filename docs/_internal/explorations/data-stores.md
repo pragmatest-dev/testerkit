@@ -177,7 +177,7 @@ For a typical local deployment (operator UI + pytest on the same machine), share
 | GPU-direct buffer ingress (DAQ → CUDA → ChannelStore without CPU round-trip) | 5–10× for specific GPU-DAQ workflows | niche; vendor SDK cooperation |
 | DuckDB native ingestion — write directly to DuckDB-managed parquet | 2× materialization; query speed unchanged | loses live-replay characteristic of Arrow IPC |
 
-For Litmus's positioning (Python-native, pytest-integrated, accessible), the Rust/C++ rewrite isn't worth chasing for v0.2.0. The shared-memory + native-Arrow-payload moves get most of the headroom without leaving Python.
+For TesterKit's positioning (Python-native, pytest-integrated, accessible), the Rust/C++ rewrite isn't worth chasing for v0.2.0. The shared-memory + native-Arrow-payload moves get most of the headroom without leaving Python.
 
 #### Expected combined picture if obvious levers are pulled
 
@@ -514,7 +514,7 @@ observe("voltage", v, namespace="psu_under_test")    # → "psu_under_test.volta
 2. Test authors namespace by purpose, fixture, or UUT-context — never bare leaf names like `"voltage"` unless you can guarantee uniqueness across all tests in the project.
 3. If you hit a kind-registry collision error, that's the system telling you two unrelated producers grabbed the same name — disambiguate by renaming, not by deleting the descriptor.
 
-For edge cases (intentional schema migration, instrument swap): a `litmus channels reset-descriptor <channel_id>` admin tool would handle the rare cases. Not v0.2.0 critical; v0.2.x patch.
+For edge cases (intentional schema migration, instrument swap): a `testerkit channels reset-descriptor <channel_id>` admin tool would handle the rare cases. Not v0.2.0 critical; v0.2.x patch.
 
 ### Scoping reality
 
@@ -560,7 +560,7 @@ class FileArtifactMetadata:
     attributes: dict[str, Any]     # format-specific extras: width/height, duration, codec, …
 ```
 
-Standard IANA types cover most cases. T&M-specific formats need a small Litmus convention table for vendor types without registered MIMEs:
+Standard IANA types cover most cases. T&M-specific formats need a small TesterKit convention table for vendor types without registered MIMEs:
 
 | Format | MIME |
 |---|---|
@@ -807,7 +807,7 @@ The four-level hierarchy (session ⊃ run ⊃ step ⊃ vector) carries traceabil
 | Part | `part_id`, `part_name`, `part_revision` |
 | Operator (duplicated) | `operator_id`, `operator_name` |
 | Test context | `fixture_id`, `test_phase`, `project_name`, `git_commit`, `git_branch`, `git_remote` |
-| Environment snapshot | `environment_json` (python / litmus versions + fingerprint) |
+| Environment snapshot | `environment_json` (python / testerkit versions + fingerprint) |
 | Extension | `custom_metadata: dict` |
 
 The duplication of station fields on `RunStarted` is intentional: makes the event self-contained for query without forcing a session-join.
@@ -820,8 +820,8 @@ The factory `SessionStarted.from_station(...)` (`events.py:95-133`) and the `Run
 - `station_hostname` ← `socket.gethostname()`
 - `pid` ← `os.getpid()`
 - `client` ← `_detect_client()` (introspects calling context)
-- `slot_count` ← `_LITMUS_SLOT_COUNT` env var (default 1)
-- `environment_json` ← python / litmus versions + fingerprint
+- `slot_count` ← `_TESTERKIT_SLOT_COUNT` env var (default 1)
+- `environment_json` ← python / testerkit versions + fingerprint
 - `git_commit`, `git_branch`, `git_remote` ← detected from project's git working tree
 
 **Configured** (caller must provide; sourced from project YAML or test context):
@@ -887,7 +887,7 @@ So mid-session drift uses the **data layer** (channels stream environmental sens
 | Caller | Where | Purpose |
 |---|---|---|
 | Pytest plugin | `pytest_plugin/__init__.py:269` | test orchestrator opens a session |
-| Interactive `connect.py` | `connect.py:105` | scripts / manual runs via `litmus.connect(...)` |
+| Interactive `connect.py` | `connect.py:105` | scripts / manual runs via `testerkit.connect(...)` |
 | Multi-UUT slot runner | `execution/slot_runner.py:568` | parallel UUT execution |
 
 The factory enforces the auto-detection behavior (hostname, pid, client, slot_count). Three callers, one factory, identical session-open semantics. A `test_conventions.py`-style guard could enforce going forward: "all `SessionStarted` construction goes through `from_station`."
@@ -943,14 +943,14 @@ The event IPC schema (`event_log.py:31-40`) is typed envelope columns (`event_nu
 
 ---
 
-## 9. Consumer SDK — `litmus.live`
+## 9. Consumer SDK — `testerkit.live`
 
 Read-side counterpart to the verbs. Provides one ergonomic entry point for UIs, MCP tools, custom dashboards, and external integrations. **Hides** transport selection (Flight vs HTTP range) and URI parsing; **doesn't hide** the underlying data shape (samples vs bytes vs structured events — those are real and the consumer's render layer dispatches on them).
 
 ### Three subscription primitives + one resolver
 
 ```python
-from litmus.live import LiveClient, EventFilter
+from testerkit.live import LiveClient, EventFilter
 
 client = LiveClient.connect(url="http://localhost:8000")
 
@@ -991,7 +991,7 @@ img = client.deref("file://_ref/front.png")
 |---|---|---|
 | Stores | `ChannelStore.write/query`, `FileStore.put/range_read`, `EventLog.emit` | platform-internal |
 | Verbs (writes) | `observe` / `verify` / `stream`, `observer.read`, `channels.*`, `filestore.*` | producers (test authors, drivers) |
-| **Consumer SDK (reads)** | `litmus.live.LiveClient` | **consumers (UIs, MCP tools, custom dashboards, external integrations)** |
+| **Consumer SDK (reads)** | `testerkit.live.LiveClient` | **consumers (UIs, MCP tools, custom dashboards, external integrations)** |
 | Transport | Arrow Flight, HTTP + range, IPC | platform-internal |
 
 ---
@@ -1069,7 +1069,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | 18 | Live waveform plot on channels detail page | C10 | ✅ DONE | #34 |
 | 18b | `/channels/{id}` chart: render-time session grouping with operator-readable legend (`<uut_serial> · <YYYY-MM-DD HH:MM:SS>`) — scalar channels with samples from 2+ sessions render one series per session, distinct color per session, legend on. Single-session views unchanged. | C10 follow-on | ✅ DONE | (this PR, task #196) |
 | 19 | Payload-filter perf baselines (item 21 baseline) | C11 | ✅ DONE | #37 |
-| 20 | Consumer SDK (`litmus.live`) | C10 | ⏳ PENDING | — |
+| 20 | Consumer SDK (`testerkit.live`) | C10 | ⏳ PENDING | — |
 | 21 | Typed Arrow event payloads (22 ids/names promoted to typed DuckDB columns; outcome filter 2.74×, role filter 3.7× via projection narrowing) | C11 | ✅ DONE | #39 |
 | 22 | Local shared-memory transport (DEFERRED 2026-06-03 — PoC at `.tmp/shm_perf_poc/` showed 2× per-batch latency ceiling, not the 3–10× / GB/s estimated in §2/§3. Flight on loopback is faster than the original estimate (175 µs p50, 284 MB/s) and the remaining 40+ µs/batch on shm is dominated by Arrow IPC serialize/deserialize. Cost/benefit doesn't justify the multi-week Transport abstraction + lifetime/crash engineering for a 2× win when no user has reported lag. Revisit only on symptoms: UI lag pinned to transport, sustained >10 kHz capture saturating Flight, or many-subscriber fan-out scaling.) | C11 | ⏸️ DEFERRED | — |
 | 23 | Hardware video encoder option (also lands PyAV `mp4` + soundfile `wav` formats) | C5 follow-up | ⏳ PENDING | — |
@@ -1133,11 +1133,11 @@ Item 1 is the foundation; decomposed for execution clarity.
 
 **Serialization:**
 
-12. **Promote `save_ref_to_dir` to a registry.** Built-in handlers for existing types (`Path`, `Waveform`, `bytes`, `BaseModel`, `ndarray`, fallback `pickle`) + opportunistic `PIL.Image` → PNG, `pandas.DataFrame` → Parquet. Expose `filestore.register_serializer(type, fn)` and a `litmus_serialize(dest_dir, stem) -> Path` protocol for objects that know their own format. Pickle fallback emits `RuntimeWarning` naming the type.
+12. **Promote `save_ref_to_dir` to a registry.** Built-in handlers for existing types (`Path`, `Waveform`, `bytes`, `BaseModel`, `ndarray`, fallback `pickle`) + opportunistic `PIL.Image` → PNG, `pandas.DataFrame` → Parquet. Expose `filestore.register_serializer(type, fn)` and a `testerkit_serialize(dest_dir, stem) -> Path` protocol for objects that know their own format. Pickle fallback emits `RuntimeWarning` naming the type.
 
 **FileStore typing:**
 
-13. **MIME + extension + attributes** on artifact metadata. Litmus convention table for vendor formats (NPZ, NPY, TDMS, pickle).
+13. **MIME + extension + attributes** on artifact metadata. TesterKit convention table for vendor formats (NPZ, NPY, TDMS, pickle).
 
 **ChannelStore typed leaf-types:**
 
@@ -1172,7 +1172,7 @@ Item 1 is the foundation; decomposed for execution clarity.
 
 19. **Perf: byte-aware flush + end-to-end Flight bench.** `BufferedIPCWriter` flushes by **row count** (fine for scalars; dangerous for dense arrays). Switch to byte-aware threshold + add an end-to-end Flight streaming bench (the existing `test_data/test_perf.py` measures local writes only). DoD: bench validates the §2 performance estimates within order-of-magnitude; byte-aware flush stable under load.
 
-20. **Consumer SDK (`litmus.live`)** — typed event objects, `subscribe_events` / `subscribe_channel` / `subscribe_file` / `subscribe_run_live` / `deref`. **Commit to async** as the canonical API (matches Flight `do_get`'s natural generator semantics + non-blocking UI consumers). Hides transport + URI dispatch; doesn't hide data shape. DoD: `tests/test_litmus_live.py` covers each subscription primitive + `deref`; a sample MCP tool consumes runs via the SDK.
+20. **Consumer SDK (`testerkit.live`)** — typed event objects, `subscribe_events` / `subscribe_channel` / `subscribe_file` / `subscribe_run_live` / `deref`. **Commit to async** as the canonical API (matches Flight `do_get`'s natural generator semantics + non-blocking UI consumers). Hides transport + URI dispatch; doesn't hide data shape. DoD: `tests/test_testerkit_live.py` covers each subscription primitive + `deref`; a sample MCP tool consumes runs via the SDK.
 
 21. **Typed Arrow event payloads.** Replace the opaque `json` string payload column in `event_log.py:31-40` with native nested Arrow structs per event type. Two reasonable schema shapes — union payload column or per-event-type record batches in one IPC file (the latter closer to how Arrow IPC already works). Either way, the envelope (`event_number`, `event_type`, `session_id`, `received_at`) stays typed and indexed; payload becomes typed too.
     - **Write gain:** 5–10× per event (no per-event JSON encode). Under Position 2 (see §8 + item 4b) event volume drops dramatically because per-sample channel events are retired, so the aggregate write-throughput pressure on EventStore is much lower than pre-Position-2 estimates suggested.
@@ -1202,7 +1202,7 @@ Item 1 is the foundation; decomposed for execution clarity.
 
 28. **New `docs/concepts/data/` pages.** Concept pages for the three-verb model (`observe`/`verify`/`stream`) and for the raw-data layer (FileStore + claim-check). Should cover the user surface as it appears in §3-§4 of this internal note, but pitched at test-engineer audience (no internal class names; no file:line citations). DoD: pages exist; pass the docs-writer agent's audience-fit checks.
 
-29. **`docs/reference/` updates for new verbs.** Anywhere `observe` / `verify` / new `stream` are referenced needs updating. Includes `docs/reference/api.md`, possibly `docs/reference/litmus-markers.md`, `docs/reference/configuration.md`. DoD: reference pages reflect three-verb model; generator pre-commit hook passes.
+29. **`docs/reference/` updates for new verbs.** Anywhere `observe` / `verify` / new `stream` are referenced needs updating. Includes `docs/reference/api.md`, possibly `docs/reference/testerkit-markers.md`, `docs/reference/configuration.md`. DoD: reference pages reflect three-verb model; generator pre-commit hook passes.
 
 30. **CHANGELOG `[Unreleased]` entries.** Fill with v0.2.0 entries: data architecture (FileStore lift, three verbs, schema rename, typed leaf-types, MIME typing, serialization registry, auto-promotion rule, Consumer SDK, perf refactors); operator-UI doc drift fixes; new pages; breaking changes (schema rename; `properties` → `attributes`; `observer.read` → `record_read`; `rm -rf data/` migration policy from 0.1.x). DoD: CHANGELOG entries present; entries reference PRs.
 
@@ -1262,7 +1262,7 @@ The audit is useful anyway: gives readers from other ecosystems a way to orient,
 1. Non-scalar observation is a direct verb call — observe(name, wf) hands a Python object; FileStore serializes via the registry. MLflow requires the author to serialize first and `log_artifact(path)`.
 2. Auto-promotion to parquet rows — pure-characterization runs (no `verify`, only `observe`) produce DONE rows in our analytical view. MLflow runs with only `log_artifact` calls have an empty metrics surface.
 
-*Gap 2 — relational shape.* MLflow's entities are flat siblings under a run; no row-level relationships. Our analytic shape is opposite: everything denormalized onto the measurement row. Different grain: **MLflow's grain is the run** (few runs, many params/metrics/artifacts; analytics across runs); **Litmus's grain is the measurement row** (many runs, many measurements per run; analytics over measurements). So MLflow gave us the **storage split** (lean metadata + heavy artifact store + claim URI). Star-schema (Kimball) gave us the **analytic shape**. ATML / OpenHTF gave us the **measurement-as-grain** choice.
+*Gap 2 — relational shape.* MLflow's entities are flat siblings under a run; no row-level relationships. Our analytic shape is opposite: everything denormalized onto the measurement row. Different grain: **MLflow's grain is the run** (few runs, many params/metrics/artifacts; analytics across runs); **TesterKit's grain is the measurement row** (many runs, many measurements per run; analytics over measurements). So MLflow gave us the **storage split** (lean metadata + heavy artifact store + claim URI). Star-schema (Kimball) gave us the **analytic shape**. ATML / OpenHTF gave us the **measurement-as-grain** choice.
 
 ### Time-series + streaming infrastructure
 
@@ -1370,15 +1370,15 @@ The supported migration path is:
 
 ```bash
 # 1. Finish any in-flight runs on 0.1.x
-# 2. Export anything you need from existing data (litmus export ...)
+# 2. Export anything you need from existing data (testerkit export ...)
 # 3. Wipe the data directory
 rm -rf data/
 # 4. Upgrade to v0.2.0
-uv add litmus-test==0.2.0
+uv add testerkit==0.2.0
 # 5. Start fresh
 ```
 
-No `litmus migrate` tool, no read-old-write-new shim, no compatibility flag. Pre-1.0 reality. Documented explicitly in `MIGRATION.md` (build item part of doc work).
+No `testerkit migrate` tool, no read-old-write-new shim, no compatibility flag. Pre-1.0 reality. Documented explicitly in `MIGRATION.md` (build item part of doc work).
 
 ### Sharper principle — anything not currently working is not a backcompat constraint
 
@@ -1394,7 +1394,7 @@ This sharpens several build items:
 - **Item 21 (typed Arrow event payloads):** the JSON payload column can just be replaced. Existing consumers that read JSON via `json_extract_string(...)` get updated to typed access; no dual-read path.
 
 The only backcompat constraints that DO bind v0.2.0:
-- Public-facing API surfaces *that work today and external code calls* (verify, observe, the LitmusClient public methods that pre-0.2 users rely on for scripted runs).
+- Public-facing API surfaces *that work today and external code calls* (verify, observe, the TesterKitClient public methods that pre-0.2 users rely on for scripted runs).
 - On-disk semantics for behaviors documented as stable (run parquet column meanings for measurements that pass/fail/error correctly today — i.e., the analytical surface).
 
 Everything else is a bug fix, not a contract break.
@@ -1422,7 +1422,7 @@ Multi-month landing. Realistic execution depending on focus is 4-6 months of par
 
 ### Why "all or nothing for the tag"
 
-Pre-1.0 audiences should see one release where data architecture stabilizes — not a string of releases where the data layer rolls in piecemeal and the docs always lag a version. **v0.2.0 is when "this is what Litmus does with your test data" becomes a settled story for adopters to build on.** Tagging early means adopters integrate against a half-built model and have to re-integrate when the rest lands. The tag IS the integration commitment.
+Pre-1.0 audiences should see one release where data architecture stabilizes — not a string of releases where the data layer rolls in piecemeal and the docs always lag a version. **v0.2.0 is when "this is what TesterKit does with your test data" becomes a settled story for adopters to build on.** Tagging early means adopters integrate against a half-built model and have to re-integrate when the rest lands. The tag IS the integration commitment.
 
 Patches (0.2.1, 0.2.2, …) absorb bug fixes after the tag. Long-term items (L1; possibly things from §15 if they get prioritized) land in v0.3.0 or later.
 
@@ -1452,7 +1452,7 @@ observe("scope.ch1.capture", scope.acquire())
 stream("iv_curve.i", dmm.read_current())
 ```
 
-What changes is **project configuration** (`litmus.yaml`) — pointing each store at a local or remote endpoint:
+What changes is **project configuration** (`testerkit.yaml`) — pointing each store at a local or remote endpoint:
 
 ```yaml
 # Local (today)
@@ -1460,13 +1460,13 @@ data_dir: ./data
 
 # Remote / server mode
 event_store:
-  flight_url: grpc://litmus-events.internal:8815
+  flight_url: grpc://testerkit-events.internal:8815
 channel_store:
-  flight_url: grpc://litmus-channels.internal:8816
+  flight_url: grpc://testerkit-channels.internal:8816
 file_store:
-  backend: s3://my-bucket/litmus/files
+  backend: s3://my-bucket/testerkit/files
 parquet_backend:
-  backend: s3://my-bucket/litmus/runs
+  backend: s3://my-bucket/testerkit/runs
 ```
 
 ### Per-store backend alternatives
@@ -1496,7 +1496,7 @@ Each store has natural backend choices; cross-mixing is fine:
 |---|---|---|
 | Per-store abstract interface (Protocol or ABC) | concrete implementations | typed interface; concrete is one of N backends |
 | Per-backend adapter | n/a | one adapter class per backend (`KafkaEventStore`, `S3FileStore`, `TimescaleChannelStore`, etc.) |
-| Config-driven backend selection | hardcoded local paths | `backend: kafka` / `backend: s3` per store in `litmus.yaml` |
+| Config-driven backend selection | hardcoded local paths | `backend: kafka` / `backend: s3` per store in `testerkit.yaml` |
 | Auth / IAM | local-trust assumptions | per-backend; varies by service (Flight auth handlers; S3 IAM; Kafka SASL) |
 | Service discovery | hardcoded / env | DNS / Consul / Kubernetes / configuration |
 | Encryption in transit | optional | mandatory (TLS for Flight; HTTPS for HTTP-based) |
@@ -1531,7 +1531,7 @@ What v0.2.0 **explicitly does not include**, consolidated here so future contrib
 ### Scope non-goals (won't do for "this isn't the release for it" reasons)
 
 - **Backend swap implementation** (Kafka events / S3 files / Snowflake parquet / etc.) — architecture is ready (verbs are backend-agnostic); per-backend adapter work is v0.3.0+ when remote deployment becomes a part goal. See §17.
-- **`litmus migrate` tool from 0.1.x** — pre-1.0, no backcompat. `rm -rf data/` is the migration. Documented in `MIGRATION.md`. See §16.
+- **`testerkit migrate` tool from 0.1.x** — pre-1.0, no backcompat. `rm -rf data/` is the migration. Documented in `MIGRATION.md`. See §16.
 - **Project-scoped or station-scoped channel registry** — v0.2.0 commits to global per channel_id. Revisit in v0.3.x if real adopters hit cross-project / cross-station collisions. See §15 open item.
 - **Station-level environmental daemon** — per-process metadata production today; daemon pattern is a clean future move (v0.2.x / v0.3.x). See §15 open item.
 - **Per-store attribute indexes (L1)** — genuinely greenfield index work; deferred to v0.3.0+ when adopters demonstrate the use case at scale.

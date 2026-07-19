@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from types import SimpleNamespace
 
-from litmus.ui.shared import services
+from testerkit.ui.shared import services
 
 
 def _fake_station(station_id: str, name: str = "", location: str = "", n_instr: int = 0):

@@ -16,10 +16,10 @@ from uuid import uuid4
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
-from litmus.data.backends.parquet import load_ref
-from litmus.data.channels.models import ChannelDescriptor
-from litmus.data.channels.store import ChannelStore
-from litmus.data.ref import parse_channel_uri
+from testerkit.data.backends.parquet import load_ref
+from testerkit.data.channels.models import ChannelDescriptor
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.ref import parse_channel_uri
 
 
 def _values_and_offsets(store: ChannelStore, channel: str) -> tuple[list, list]:
@@ -50,8 +50,8 @@ class TestWriteVerbAlignment:
         s_many.close()
 
         # stream sink — buffers, flushes through write_many under the hood
-        import litmus.channels as channels_mod
-        from litmus.execution._state import set_channel_store
+        import testerkit.channels as channels_mod
+        from testerkit.execution._state import set_channel_store
 
         s_stream = ChannelStore(tmp_path / "stream", uuid4(), flush_threshold=4)
         s_stream.open()
@@ -119,7 +119,7 @@ class TestRuntimeReadableLog:
         # session + offset) is counted once, not twice.
         from datetime import UTC, datetime
 
-        from litmus.data.channels.models import ChannelSample, sample_to_batch
+        from testerkit.data.channels.models import ChannelSample, sample_to_batch
 
         # Producer writes one sample to a closed segment (offset 0).
         producer = ChannelStore(tmp_path, uuid4(), flush_threshold=1)
@@ -208,7 +208,7 @@ class TestDescriptorHostname:
 
         seg = next((tmp_path / "channels").glob("*/dmm.v_*.arrow"))
         meta = ipc.open_stream(pa.OSFile(str(seg), "rb")).schema.metadata
-        desc = ChannelDescriptor.model_validate_json(meta[b"litmus.channel_descriptor"])
+        desc = ChannelDescriptor.model_validate_json(meta[b"testerkit.channel_descriptor"])
         assert desc.hostname == "h1"
         assert desc.session_id == str(sid)
 
@@ -290,7 +290,7 @@ class TestChannelRegistry:
     def test_live_ingest_bumps_last_updated(self, tmp_path: Path):
         from datetime import UTC, datetime
 
-        from litmus.data.channels.models import ChannelSample, sample_to_batch
+        from testerkit.data.channels.models import ChannelSample, sample_to_batch
 
         idx = ChannelStore(tmp_path, uuid4(), index=True)
         idx.open()
@@ -318,7 +318,7 @@ class TestChannelRegistry:
     def test_derive_liveness_predicate(self):
         from datetime import UTC, datetime, timedelta
 
-        from litmus.mcp.tools import _derive_liveness
+        from testerkit.mcp.tools import _derive_liveness
 
         now = datetime.now(UTC)
         fresh = now - timedelta(seconds=1)

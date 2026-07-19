@@ -6,8 +6,8 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.events import SyncRelease
-from litmus.execution.sync import (
+from testerkit.data.events import SyncRelease
+from testerkit.execution.sync import (
     SyncCoordinator,
     SyncPoint,
     get_sync,
@@ -212,12 +212,12 @@ class TestGetSyncFactory:
             assert get_sync() is None
 
     def test_returns_none_for_single_site(self):
-        env = {"_LITMUS_SITE_INDEX": "0", "_LITMUS_SITE_COUNT": "1"}
+        env = {"_TESTERKIT_SITE_INDEX": "0", "_TESTERKIT_SITE_COUNT": "1"}
         with patch.dict(os.environ, env, clear=True):
             assert get_sync() is None
 
     def test_raises_without_event_store(self):
-        env = {"_LITMUS_SITE_INDEX": "0", "_LITMUS_SITE_COUNT": "2"}
+        env = {"_TESTERKIT_SITE_INDEX": "0", "_TESTERKIT_SITE_COUNT": "2"}
         with patch.dict(os.environ, env, clear=True):
             with pytest.raises(ValueError, match="EventStore required"):
                 get_sync()
@@ -225,9 +225,9 @@ class TestGetSyncFactory:
     def test_returns_sync_point_for_multi_site(self):
         session_id = uuid4()
         env = {
-            "_LITMUS_SITE_INDEX": "0",
-            "_LITMUS_SITE_COUNT": "2",
-            "_LITMUS_SESSION_ID": str(session_id),
+            "_TESTERKIT_SITE_INDEX": "0",
+            "_TESTERKIT_SITE_COUNT": "2",
+            "_TESTERKIT_SESSION_ID": str(session_id),
         }
         store = MagicMock()
         with patch.dict(os.environ, env, clear=True):

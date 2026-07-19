@@ -1,18 +1,18 @@
 # API reference
 
-Litmus exposes two equivalent surfaces over the same Python code:
+TesterKit exposes two equivalent surfaces over the same Python code:
 
-1. **HTTP API** at `http://localhost:8000/api/*` when `litmus serve` is running. Use from any HTTP client.
+1. **HTTP API** at `http://localhost:8000/api/*` when `testerkit serve` is running. Use from any HTTP client.
 2. **MCP server** for AI agents (Claude Code, Cursor, Cline, etc.). Use the [Model Context Protocol](https://modelcontextprotocol.io/) over stdio.
 
 The MCP tools are thin wrappers around the same Python functions that back the HTTP routes; behavior is identical.
 
 ## Live API explorer
 
-When `litmus serve` is running, the HTTP API exposes three
+When `testerkit serve` is running, the HTTP API exposes three
 introspection endpoints. They live under `/api/*` (not at FastAPI's
 usual top-level paths — the top-level `/docs` route is the in-app
-documentation viewer) and reflect the current `litmus` build on
+documentation viewer) and reflect the current `testerkit` build on
 the bench:
 
 | URL | What it serves |
@@ -27,14 +27,14 @@ the Swagger / ReDoc views are always in sync with the actual
 deployed code. No build step.
 
 For setup details (how to start the server, how to register the
-MCP equivalent), see the [`litmus serve`](../cli.md#cli-serve) CLI
+MCP equivalent), see the [`testerkit serve`](../cli.md#cli-serve) CLI
 reference.
 
 ## Generated tables
 
 The route and tool tables below are generated from source —
-`src/litmus/api/app.py` for the HTTP routes and
-`src/litmus/mcp/server.py` for the MCP tools. To regenerate after
+`src/testerkit/api/app.py` for the HTTP routes and
+`src/testerkit/mcp/server.py` for the MCP tools. To regenerate after
 touching either, run:
 
 ```bash
@@ -50,34 +50,34 @@ For AI agents (Claude Code, Cursor, Cline, etc.) over stdio. The MCP tools wrap 
 ### Setup
 
 ```bash
-litmus setup claude-code     # Claude Code
-litmus setup claude-desktop  # Claude Desktop
-litmus setup copilot         # GitHub Copilot
-litmus setup cursor          # Cursor
-litmus setup cline           # Cline (VS Code)
-litmus mcp serve             # Manual stdio server (auto-launched by the setup commands)
+testerkit setup claude-code     # Claude Code
+testerkit setup claude-desktop  # Claude Desktop
+testerkit setup copilot         # GitHub Copilot
+testerkit setup cursor          # Cursor
+testerkit setup cline           # Cline (VS Code)
+testerkit mcp serve             # Manual stdio server (auto-launched by the setup commands)
 ```
 
 ### Tools
 
-All tools are prefixed `litmus_`. Each tool's parameter shape and full docstring is also available via the MCP `tools/list` protocol method; the table below summarizes.
+All tools are prefixed `testerkit_`. Each tool's parameter shape and full docstring is also available via the MCP `tools/list` protocol method; the table below summarizes.
 
 <!-- GENERATED:api-mcp-tools:start -->
 | Tool | Parameters | Summary |
 |---|---|---|
-| `litmus_channels` | `channel_id`, `session_id`, `last_n`, `max_points`, `project` | Query channel data from the streaming channel store. |
-| `litmus_discover` | `protocols` | Scan for connected instruments across all protocols. |
-| `litmus_events` | `session_id`, `event_type`, `role`, `since`, `limit`, `project` | Query events from the event store. |
-| `litmus_files` | `uri`, `session_id`, `run_id`, `limit`, `project` | List FileStore artifacts (blobs, waveforms, streaming captures). |
-| `litmus_match` | `part_id`, `station_id`, `fixture_id`, `requirements`, `project` | Check compatibility between parts, stations, and fixtures. |
-| `litmus_metrics` | `action`, `part`, `station`, `phase`, `since`, `until`, `period`, `top_n`, `min_samples`, `project` | Query manufacturing-test analytics (DuckDB SQL aggregated from parquet rows). |
-| `litmus_open` | `type`, `id`, `base_url` | Get URL to view/edit an entity in the browser UI. |
-| `litmus_project` | `action`, `type`, `id`, `path`, `content`, `create`, `scaffold`, `project` | Unified Litmus operations: init, list, get, save, read. |
-| `litmus_run` | `test`, `station`, `serial`, `project` | Execute tests and return results. |
-| `litmus_runs` | `action`, `run_id`, `limit`, `project` | Query the runs table — denormalized run-level summaries. |
-| `litmus_schema` | `yaml_type` | Get JSON Schema for a Litmus YAML file type. |
-| `litmus_sessions` | `project` | List known sessions with metadata. |
-| `litmus_steps` | `run_id`, `action`, `project` | Query the steps table for one run. |
+| `testerkit_channels` | `channel_id`, `session_id`, `last_n`, `max_points`, `project` | Query channel data from the streaming channel store. |
+| `testerkit_discover` | `protocols` | Scan for connected instruments across all protocols. |
+| `testerkit_events` | `session_id`, `event_type`, `role`, `since`, `limit`, `project` | Query events from the event store. |
+| `testerkit_files` | `uri`, `session_id`, `run_id`, `limit`, `project` | List FileStore artifacts (blobs, waveforms, streaming captures). |
+| `testerkit_match` | `part_id`, `station_id`, `fixture_id`, `requirements`, `project` | Check compatibility between parts, stations, and fixtures. |
+| `testerkit_metrics` | `action`, `part`, `station`, `phase`, `since`, `until`, `period`, `top_n`, `min_samples`, `project` | Query manufacturing-test analytics (DuckDB SQL aggregated from parquet rows). |
+| `testerkit_open` | `type`, `id`, `base_url` | Get URL to view/edit an entity in the browser UI. |
+| `testerkit_project` | `action`, `type`, `id`, `path`, `content`, `create`, `scaffold`, `project` | Unified TesterKit operations: init, list, get, save, read. |
+| `testerkit_run` | `test`, `station`, `serial`, `project` | Execute tests and return results. |
+| `testerkit_runs` | `action`, `run_id`, `limit`, `project` | Query the runs table — denormalized run-level summaries. |
+| `testerkit_schema` | `yaml_type` | Get JSON Schema for a TesterKit YAML file type. |
+| `testerkit_sessions` | `project` | List known sessions with metadata. |
+| `testerkit_steps` | `run_id`, `action`, `project` | Query the steps table for one run. |
 <!-- GENERATED:api-mcp-tools:end -->
 
 For per-tool parameter detail and worked examples, see [how-to/mcp-integration.md](../../how-to/overview/mcp-integration.md).
@@ -99,11 +99,11 @@ For any HTTP client.
 ### Setup
 
 ```bash
-litmus serve                 # API at http://localhost:8000/api/
-litmus serve --reload        # Dev mode with auto-reload
+testerkit serve                 # API at http://localhost:8000/api/
+testerkit serve --reload        # Dev mode with auto-reload
 ```
 
-> **Running `litmus serve` locally?** The interactive OpenAPI explorer at <http://localhost:8000/api/docs> (Swagger UI) is richer than the table below — full request/response schemas, validation rules, and a "Try it out" button that executes calls from the browser. ReDoc at <http://localhost:8000/api/redoc> and raw spec at <http://localhost:8000/api/openapi.json> for codegen.
+> **Running `testerkit serve` locally?** The interactive OpenAPI explorer at <http://localhost:8000/api/docs> (Swagger UI) is richer than the table below — full request/response schemas, validation rules, and a "Try it out" button that executes calls from the browser. ReDoc at <http://localhost:8000/api/redoc> and raw spec at <http://localhost:8000/api/openapi.json> for codegen.
 
 Every route is mounted under the `/api/` prefix. Field shapes for request / response models live in [models.md](../data/models.md); query parameter detail is in the per-handler source.
 
@@ -201,7 +201,7 @@ Every route is mounted under the `/api/` prefix. Field shapes for request / resp
 |---|---|---|---|
 | `GET` | `/api/discover` | `GenericObjectResponse` | Scan for connected instruments across all protocols. |
 | `GET` | `/api/open` | `GenericObjectResponse` | Get URL to view/edit an entity in the browser UI. |
-| `GET` | `/api/schema/{yaml_type}` | `GenericObjectResponse` | Get JSON Schema for a Litmus YAML file type. |
+| `GET` | `/api/schema/{yaml_type}` | `GenericObjectResponse` | Get JSON Schema for a TesterKit YAML file type. |
 | `POST` | `/api/save/{entity_type}/{entity_id}` | `GenericObjectResponse` | Create or update an entity (station, part, sequence, fixture, etc.). |
 | `GET` | `/api/read` | `GenericObjectResponse` | Read a project file or template. |
 | `GET` | `/api/enum/{abbrev}` | `GenericObjectResponse` | Resolve a datasheet abbreviation to its MeasurementFunction enum value(s). |
@@ -211,7 +211,7 @@ Every route is mounted under the `/api/` prefix. Field shapes for request / resp
 
 | Method | Path | Response model | Summary |
 |---|---|---|---|
-| `GET` | `/api/openapi.json` | `dict` | OpenAPI 3.0 schema for the Litmus HTTP API. |
+| `GET` | `/api/openapi.json` | `dict` | OpenAPI 3.0 schema for the TesterKit HTTP API. |
 | `GET` | `/api/docs` | — | Swagger UI live API explorer (mounted under `/api/` to avoid colliding with NiceGUI's `/docs` Diátaxis browser). |
 | `GET` | `/api/redoc` | — | ReDoc rendering of the OpenAPI schema. |
 
@@ -219,7 +219,7 @@ Every route is mounted under the `/api/` prefix. Field shapes for request / resp
 
 | Method | Path | Response model | Summary |
 |---|---|---|---|
-| `GET` | `/api/files/catalog` | `GenericObjectResponse` | List FileStore artifacts from the catalog (MCP-parity with ``litmus_files``). |
+| `GET` | `/api/files/catalog` | `GenericObjectResponse` | List FileStore artifacts from the catalog (MCP-parity with ``testerkit_files``). |
 | `GET` | `/api/files` | — | Serve a FileStore artifact directly by ``file://`` URI. |
 <!-- GENERATED:api-http-routes:end -->
 
@@ -235,12 +235,12 @@ with the HTTP status code carrying the category (`404` not found, `422` validati
 
 ### Authentication
 
-No authentication for the local-only `litmus serve` deployment. If you expose the API beyond localhost, put it behind a reverse proxy that handles auth.
+No authentication for the local-only `testerkit serve` deployment. If you expose the API beyond localhost, put it behind a reverse proxy that handles auth.
 
 ## See also
 
 - [how-to/mcp-integration.md](../../how-to/overview/mcp-integration.md) — agent setup walkthrough + per-tool examples
-- [reference/event-types.md](../data/event-types.md) — event payload shapes consumed by `/api/events` and `litmus_events`
+- [reference/event-types.md](../data/event-types.md) — event payload shapes consumed by `/api/events` and `testerkit_events`
 - [reference/models.md](../data/models.md) — full Pydantic model surface (response_model targets)
-- [reference/cli.md](../cli.md) — `litmus serve`, `litmus setup`, `litmus mcp serve` CLI flags
+- [reference/cli.md](../cli.md) — `testerkit serve`, `testerkit setup`, `testerkit mcp serve` CLI flags
 - [concepts/data-stores.md](../../concepts/data/data-stores.md) — what `/api/events`, `/api/runs`, `/api/channels` each read from

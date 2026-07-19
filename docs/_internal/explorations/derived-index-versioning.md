@@ -81,7 +81,7 @@ projection share one file (content-address collides), so the file count tracks d
 **One key, not two (resolved 2026-07-04).** The earlier `<schema_epoch>.<fingerprint>` form is
 dropped. Everything that decides "can this daemon safely share this index" — the projection DDL,
 the adapter registry, the schema whitelist — is a **deterministic function of the daemon's code**
-(its litmus version), so it all folds into **one** content-address. A separate `schema_epoch`
+(its testerkit version), so it all folds into **one** content-address. A separate `schema_epoch`
 component was both *redundant* (an at-rest reshape the projection consumes changes the DDL anyway
 → the fingerprint already forks) and *incomplete* (it never caught an adapter **bugfix**: same
 DDL, same epoch, different rows produced from the same parquet). The fix is not a second key — it
@@ -92,7 +92,7 @@ is **widening the one fingerprint** to hash the whole ingest→project read-path
 As built, `_projection_fingerprint()` hashes **only** the projection DDL. **P1 widens it** to fold
 in the adapter-registry identities + the whitelist, so the name is a true read-path content-address
 — not just a projection-shape hash. Then a single key is both *sufficient* (forks on any projection
-break) and *complete* (forks on any read-semantics change), and it auto-shares across litmus
+break) and *complete* (forks on any read-semantics change), and it auto-shares across testerkit
 versions byte-identical on all three axes — the Nix property (store paths named by an input hash;
 versions coexist atomically; upgrades never overwrite).
 
@@ -114,7 +114,7 @@ inside is a different *kind* of record:
 | Inside the file | Job |
 |---|---|
 | **build-complete marker** (`built_at`, written last, in-txn) | integrity — a crash mid-build leaves a correctly-named but incomplete file; no marker on open → rebuild |
-| **provenance** — litmus version + schema_version (human-readable) + the full 64-char fingerprint | display/debug for `litmus data index list` (§7); **not** a routing gate |
+| **provenance** — testerkit version + schema_version (human-readable) + the full 64-char fingerprint | display/debug for `testerkit data index list` (§7); **not** a routing gate |
 
 `last_seen` (the GC signal) lives **not** in each file but in the shared `_epochs` ledger (§6), so
 `prune` and `list` scan access times without opening every DuckDB file.
@@ -185,7 +185,7 @@ Policy:
   (~0.7 GB per 10k runs, §"disk cost"), and a reaped-then-returning version pays a **full rebuild**.
   The **index build is fast: ~4.5 s** for the whole current corpus (244 files; `:memory:` 3.7 s,
   file-backed + `CHECKPOINT` 4.1 s — fsync adds only ~0.3 s). An earlier "~120 s rebuild" was **not**
-  a slow rebuild: it was a **bug in `litmus data index build`'s warmth poll** — it waited for
+  a slow rebuild: it was a **bug in `testerkit data index build`'s warmth poll** — it waited for
   `ok == disk_count`, which even one *quarantined* file (incompatible schema) makes unreachable, so
   the poll spun to its 120 s deadline while the daemon sat idle. Fixed (warmth counts *terminal*
   states — `ok` + `quarantined`). So reaping is never a *data* risk (§5) *and* the rebuild it triggers
@@ -199,18 +199,18 @@ Policy:
 Prior art: Nix `nix-collect-garbage` (gc-roots + reachability), DuckLake `expire_snapshots`,
 OS cache reapers.
 
-## 7. Lifecycle tooling — `litmus data index …`
+## 7. Lifecycle tooling — `testerkit data index …`
 
-Operational half of the epoch design; sibling to the durable-side `litmus data migrate|compact`
-(#48). One `litmus data` namespace, split by layer.
+Operational half of the epoch design; sibling to the durable-side `testerkit data migrate|compact`
+(#48). One `testerkit data` namespace, split by layer.
 
-- **`litmus data index build [--rebuild] [--background]`** — eagerly construct the *current*
+- **`testerkit data index build [--rebuild] [--background]`** — eagerly construct the *current*
   epoch (copy-seed per §4, else rescan). Idempotent (catches up the delta if already warm).
   **Reports the path taken** ("seeded from `a1b2c3` + dropped record_type in 0.4s" vs "rebuilt
   from 12,400 parquet in 44s" — no silent stall). Not redundant with lazy daemon build: it
   **blocks until warm** (a script *knows* it's ready), is **scriptable**, lets you **choose**
   copy-seed vs rescan, and **reports**.
-- **`litmus data index list`** — every epoch file rendered by **human-recognizable identity**, not
+- **`testerkit data index list`** — every epoch file rendered by **human-recognizable identity**, not
   raw hex: short fingerprint, schema version, **BUILT BY** (the version that created it) + **SEEN
   BY** (every version that has opened it — a *set*, since behaviorally-identical versions share one
   file), rows, size, `last_seen`, `*` on the current one, and a total line. Sources the in-file
@@ -221,26 +221,26 @@ Operational half of the epoch design; sibling to the durable-side `litmus data m
     a17bfe0091c2  0.1     0.3.0      0.3.0, 0.2.4    1.2M   318 MB  6 days ago
     3 index files · 1.0 GB total · current = e3b0c44298fc (0.3.1)
   ```
-- **`litmus data index rm <fingerprint>`** — drop one; refuses the current one without `--force`.
-- **`litmus data index prune [--keep-last N] [--older-than 30d] [--dry-run]`** — reap by the ledger.
+- **`testerkit data index rm <fingerprint>`** — drop one; refuses the current one without `--force`.
+- **`testerkit data index prune [--keep-last N] [--older-than 30d] [--dry-run]`** — reap by the ledger.
 
 **The upgrade-warm workflow** (pg_upgrade / blue-green, done deliberately):
 ```
-pip install --upgrade litmus-test     # new version → new projection fingerprint
-litmus data index build               # copy-seed the new epoch from the old, forward-transform — fast
+pip install --upgrade testerkit     # new version → new projection fingerprint
+testerkit data index build               # copy-seed the new epoch from the old, forward-transform — fast
 pytest                                # runs warm; no first-query rebuild stall
 # …later, once you won't roll back:
-litmus data index prune --older-than 30d # reclaim the old epoch's disk
+testerkit data index prune --older-than 30d # reclaim the old epoch's disk
 ```
 Copy-seed is what makes "build the green epoch ahead of cutover" cheap enough to be a routine
 pre-test step.
 
-**Setup vs data command:** `litmus data index build` is the primitive; `litmus setup` may *call*
+**Setup vs data command:** `testerkit data index build` is the primitive; `testerkit setup` may *call*
 it as an optional "warm the index now?" step — never duplicate the logic.
 
 ## 8. Prior art (web-verified 2026-07-03)
 
-| Litmus mechanism | Prior art | Verdict |
+| TesterKit mechanism | Prior art | Verdict |
 |---|---|---|
 | Content-addressed index files, versions coexist | **Nix** store paths (`<hash>-name`) | canonical |
 | Copy-seed birth (copy old file + transform) | **Lucene `IndexUpgrader`** (rewrite segments, no reindex); **pg_upgrade copy-mode**; **dbt `clone`** | textbook |
@@ -289,18 +289,18 @@ corpus, synthetic-adapter re-index+migrate tests, mixed-version coexistence test
 **P1 — BUILT (`8df7239e`, 2026-07-04):** content-addressed epoch files (§3). `_projection_fingerprint()`
 widened to hash the full read-path (DDL + adapter-registry keys + whitelist); filename `_index.<fp>.duckdb`
 (single 12-char key, `schema_epoch` dropped); daemon opens only its own; old files persist; in-file
-`_index_meta` is now a build-complete marker (`built_at` written last) + provenance (litmus version +
+`_index_meta` is now a build-complete marker (`built_at` written last) + provenance (testerkit version +
 schema_version + full hash), not a shape gate; `_epochs` ledger written on open. Landed with a sweep
 race-fix (SATB freeze of the ingest candidate set — a run notified mid-sweep is no longer wrongly pruned)
 and the CLI `_index*.duckdb` glob. Crash-loop fixed; coexistence restored.
 
 **P4 + P5 — BUILT (`21e98778`, 2026-07-04):** built out of the suggested order (P5
 tooling + P4 retention, ahead of P2/P3) per direct instruction. `_stamp_epochs_ledger` now
-accumulates `seen_by` as a sorted, deduplicated set of every `litmus_version` that opened an epoch
+accumulates `seen_by` as a sorted, deduplicated set of every `testerkit_version` that opened an epoch
 (was: overwrite with the latest opener's version), tolerating the pre-P5 single-version ledger
 shape on read; a matching `_read_epochs_ledger` reader normalizes both shapes, and
-`_remove_epochs_ledger_entries` cleans up reaped/removed entries. `litmus data index list|build|
-rm|gc` (§7) land in `src/litmus/cli/data_cmd.py`: `list` renders every epoch by
+`_remove_epochs_ledger_entries` cleans up reaped/removed entries. `testerkit data index list|build|
+rm|gc` (§7) land in `src/testerkit/cli/data_cmd.py`: `list` renders every epoch by
 fingerprint/schema/BUILT BY/SEEN BY/rows/size/last-seen with a `*` current-marker (direct
 read-only `duckdb.connect`, falling back to the daemon's Flight SQL surface only for the current
 epoch's exclusive lock); `build` blocks until warm (full parquet rescan — copy-seed is P2, not
@@ -342,12 +342,12 @@ P1 → P4/P5 (visible, low-risk, exercises P1) → P2/P3 deferred per the trigge
    daemons. Consequences:
    - **Routing is a local hash.** A client computes its own fingerprint and resolves/launches only
      *its* daemon — no probing, no negotiation.
-   - **Launch is inherently per-version.** Spawn is `sys.executable -m litmus.data._runs_duckdb_daemon`
+   - **Launch is inherently per-version.** Spawn is `sys.executable -m testerkit.data._runs_duckdb_daemon`
      — a process can only launch a daemon from *its own* venv, so no central authority can spawn
      foreign-version workers. A "global daemon" is therefore at most a **discovery registry**, never a
      **supervisor**; version resolution is a thin `bazelisk`/`gradlew`-style shim, not a service.
    - **Daemons coexist per active fingerprint**, each on its own port (Gradle's model), self-limited
-     by idle-death (the process-side GC; disk-side GC is the explicit `litmus data index prune`).
+     by idle-death (the process-side GC; disk-side GC is the explicit `testerkit data index prune`).
    - **Runtime-state hygiene:** rendezvous files (socket/pid/port/lock) belong in the XDG *runtime*
      dir, not co-mingled in the data dir (per XDG; it's why `data import` must scrub stale state).
    - **Splits into P3-a** (fingerprint-keyed reuse, one daemon/dir — NOT worth building; its only live
@@ -375,7 +375,7 @@ P1 → P4/P5 (visible, low-risk, exercises P1) → P2/P3 deferred per the trigge
   stamp; (c) the **cost-ladder** is not superseded — it governs **birth speed** (copy-seed, rungs
   1–4), and epochs can start from a **copy** of the old (pg_upgrade copy-mode); (d) removal is
   always safe (rebuild-from-at-rest guarantee) → GC by **last-access ledger**; (e) added the
-  `litmus data index` **lifecycle tooling** (build/warm + list + rm/gc) + the upgrade-warm
+  `testerkit data index` **lifecycle tooling** (build/warm + list + rm/gc) + the upgrade-warm
   workflow. Prior art web-verified (Nix, Lucene IndexUpgrader, pg_upgrade, dbt clone/state:modified,
   blue-green, IVM, Iceberg; DuckLake is the durable-layer future, not this). Ships as #53
   workstream P1–P5 on a branch. No P1–P5 code yet.
@@ -383,8 +383,8 @@ P1 → P4/P5 (visible, low-risk, exercises P1) → P2/P3 deferred per the trigge
   widened fingerprint** — `_index.<fp>.duckdb`, `<fp>` = 12-char prefix of
   `sha256(projection DDL + adapter-registry keys + whitelist)`; `schema_epoch` dropped as a name
   component (redundant *and* incomplete — missed adapter bugfixes). (b) **The filename is the gate;
-  the in-file `_index_meta` becomes a build-complete marker + provenance** (litmus version +
-  schema_version + full hash), not a shape gate. (c) `litmus data index list` renders **human
+  the in-file `_index_meta` becomes a build-complete marker + provenance** (testerkit version +
+  schema_version + full hash), not a shape gate. (c) `testerkit data index list` renders **human
   identity** — schema version, BUILT BY / SEEN BY version sets, rows, size, last-seen, total. (d)
   The `_epochs` **ledger write lands in P1** (open = stamp); P4 adds only the GC policy. §11.1
   (per-version daemons) and §11.2 (single widened fingerprint) resolved; §11.3 remains a P2
@@ -400,7 +400,7 @@ P1 → P4/P5 (visible, low-risk, exercises P1) → P2/P3 deferred per the trigge
   direct instruction). Ledger evolved: `_stamp_epochs_ledger` now accumulates `seen_by` as a sorted set
   (was: overwrite with the latest opener), with a `_read_epochs_ledger` reader tolerating the old
   single-version shape and a `_remove_epochs_ledger_entries` cleanup helper for `rm`/`prune`.
-  `litmus data index list|build|rm|gc` land in `src/litmus/cli/data_cmd.py`: `list` sources
+  `testerkit data index list|build|rm|gc` land in `src/testerkit/cli/data_cmd.py`: `list` sources
   provenance from direct read-only `duckdb.connect` (falling back to the daemon's Flight SQL only
   for the current epoch's exclusive lock) + the ledger, rendered as fingerprint/schema/BUILT
   BY/SEEN BY/rows/size/last-seen with a `*` current-marker and a totals footer; `build` blocks
@@ -430,7 +430,7 @@ P1 → P4/P5 (visible, low-risk, exercises P1) → P2/P3 deferred per the trigge
   `:memory:` read (0.46 s) mistaken for "the index build"; (2) an *unproven* "~250× fsync-dominated"
   claim — refuted by file-vs-`:memory:` (4.1 s vs 3.7 s, fsync ≈ 0.3 s); (3) an *unproven* "~116 s
   non-ingest startup overhead" — refuted by inspecting `_ingested`: **242 ok + 2 quarantined**. Root
-  cause: `litmus data index build`'s warmth poll waited for `ok == disk_count`, which quarantined
+  cause: `testerkit data index build`'s warmth poll waited for `ok == disk_count`, which quarantined
   files (never `ok`) make unreachable → it spun to its 120 s deadline while the daemon sat **idle**.
   The real rebuild is **~4.5 s**. Fixed (warmth counts terminal states `ok`+`quarantined`; reports
   quarantined) + regression test. Lesson: I asserted a cause three times before measuring; each guess

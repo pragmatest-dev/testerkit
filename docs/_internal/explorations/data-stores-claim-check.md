@@ -1,7 +1,7 @@
 # Data architecture: claim-check timeline + tech-appropriate stores
 
 **Status:** exploration / design note. Captures a design session on how
-Litmus stores test data — anchored in *what T&M data is for*, then the
+TesterKit stores test data — anchored in *what T&M data is for*, then the
 stores, the claim-check model, what's consistent, and the gaps. Nothing
 here is a commitment; it's the map the next build session starts from.
 
@@ -78,7 +78,7 @@ below is the existing one, made symmetric and named.
 - **TDMS / HDF5 (T&M-native):** `file → group → channel`; **properties
   (attributes) attach to any object, raw arrays only to channels**; a
   waveform is `wf_start_offset` (t0) + `wf_increment` (dt) + array.
-  Litmus's `Waveform(t0, dt, Y, attrs)` (`models.py:485`) mirrors this,
+  TesterKit's `Waveform(t0, dt, Y, attrs)` (`models.py:485`) mirrors this,
   and `attrs` ↔ TDMS properties. **TDMS files are searchable *because* of
   those properties (NI indexes them in DIAdem)** — directly relevant to
   the FileStore-attributes decision below.
@@ -355,7 +355,7 @@ FileStore owns a serialization registry because `observe(name, value)` hands it 
 
 2. **Project / driver registration** — `filestore.register_serializer(VendorType, save_fn)` for SDK types the project doesn't control.
 
-3. **Protocol** — objects implementing `litmus_serialize(dest_dir, stem) -> Path` save themselves. For user classes that know their own format.
+3. **Protocol** — objects implementing `testerkit_serialize(dest_dir, stem) -> Path` save themselves. For user classes that know their own format.
 
 4. **Pickle fallback** with a `RuntimeWarning` that names the type — the safety net signals "add a handler" without silently producing pickle-only artifacts.
 
@@ -633,7 +633,7 @@ from them, and every reference is relative** (`file://` is a backend-root-relati
 **Gotcha (coarse grain):** the *data* relocates cleanly; the *daemon state files*
 (`_*.json` / `_*_pid` / `_*.lock` / `_ready` / port files) are machine-specific and must
 be cleared on copy/merge so daemons cleanly respawn + rebuild — a tooling job
-(`litmus import` / `merge` / `relocate`).
+(`testerkit import` / `merge` / `relocate`).
 
 ### The integrity contract — tooling, not engine constraints
 
@@ -650,9 +650,9 @@ retention, emit-ref-only-after-durable (atomic publish), import/merge/relocate.
   operator — #263), never silently corrupted. The same no-hide-data rule applied
   everywhere: a missing reference is an operator-visible signal.
 
-### `litmus data promote` is the first cross-federation tool — and today it's broken
+### `testerkit data promote` is the first cross-federation tool — and today it's broken
 
-`litmus data promote` (`cli.py:2511`) copies **only** `runs/runs/*.parquet` to the global
+`testerkit data promote` (`cli.py:2511`) copies **only** `runs/runs/*.parquet` to the global
 store and suggests `rm -rf {src_data}` afterward. Under the federation model that dangles
 every `channel://`/`file://` ref the promoted parquet holds **and** discards the events
 spine (the *source* the parquet is merely a derived view of). It promotes one store, not
@@ -674,12 +674,12 @@ machinery.
 2. **Run seal/export** — explicit op producing a self-contained, daemon-free bundle
    (manifest + referenced channel slices + files; `--with-events` optional). OpenHTF
    output-callback / MLflow-export shape. Net-new.
-3. **Fix `litmus data promote`** — carry runs + references (reachability-scoped), not just
+3. **Fix `testerkit data promote`** — carry runs + references (reachability-scoped), not just
    `runs/`; never suggest `rm -rf` the source while refs are unresolved. Shares (2)'s
    machinery.
 4. **Dangling-reference resilience** (#263) — the safety net for manual surgery: a missing
    ref reads as a clean, surfaced "not found," never silent corruption.
-5. **Relocation tooling** — `litmus import` / `merge` clears stale daemon state + triggers
+5. **Relocation tooling** — `testerkit import` / `merge` clears stale daemon state + triggers
    rebuild (vs. relying on the incremental scan).
 
 ### Prior art
@@ -723,7 +723,7 @@ Each MVP lift names the **symptom** in current source it fixes. Order is concept
 
 **Serialization**
 
-9. **Promote `save_ref_to_dir` from if/elif to a registry.** Built-in handlers for the existing types (`Path`, `Waveform`, `bytes`, `BaseModel`, `ndarray`, fallback `pickle` — `_row_helpers.py:484-545`) + opportunistic `PIL.Image.Image` → PNG and `pandas.DataFrame` → Parquet. Expose `filestore.register_serializer(type, fn)` for vendor SDK types the project doesn't own. Define a `litmus_serialize(dest_dir, stem) -> Path` protocol for objects that know their own format. Pickle fallback emits a `RuntimeWarning` naming the type — visible gap, not silent unusable artifact.
+9. **Promote `save_ref_to_dir` from if/elif to a registry.** Built-in handlers for the existing types (`Path`, `Waveform`, `bytes`, `BaseModel`, `ndarray`, fallback `pickle` — `_row_helpers.py:484-545`) + opportunistic `PIL.Image.Image` → PNG and `pandas.DataFrame` → Parquet. Expose `filestore.register_serializer(type, fn)` for vendor SDK types the project doesn't own. Define a `testerkit_serialize(dest_dir, stem) -> Path` protocol for objects that know their own format. Pickle fallback emits a `RuntimeWarning` naming the type — visible gap, not silent unusable artifact.
 
 **That's a shippable v1.** Every captured artifact is durably stored; every capture leaves an event with a `file://` claim; the API is two verbs with consistent dispatch; parquet rows manifest by a single fixed policy; the existing `artifact_viewer` + ref endpoint already surface the artifacts. No attribute query yet — findability at MVP is **URL resolution from the run/event that referenced the artifact**, which is exactly what evidence + diagnosis need.
 
@@ -800,7 +800,7 @@ Our analytic shape is opposite: **everything denormalizes onto the measurement r
 This is a real architectural difference, driven by data-shape needs:
 
 - **MLflow's grain is the run** (few runs, each with many params/metrics/artifacts; analytics compare across runs). Run-as-grouping makes sense.
-- **Litmus's grain is the measurement row** (many runs/units, each producing many measurements; analytics are Cpk / Pareto / yield over measurements). Row-as-grouping is what those queries need.
+- **TesterKit's grain is the measurement row** (many runs/units, each producing many measurements; analytics are Cpk / Pareto / yield over measurements). Row-as-grouping is what those queries need.
 
 So our shape **converges with** MLflow on the **storage split** (lean metadata + heavy artifact store + claim URI between them), and **converges with** data-warehousing / star-schema (Kimball-school) on the **analytic shape** (denormalized fact rows with measure + context columns). Neither was consulted during the design — the convergence is post-hoc. ATML / OpenHTF converge on the **measurement-as-grain** choice too; ATML in particular *was* referenced during design for terminology and the session / run / step / vector hierarchy. The honest post-hoc map:
 

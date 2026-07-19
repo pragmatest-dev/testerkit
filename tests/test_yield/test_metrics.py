@@ -1,8 +1,8 @@
-"""Unit tests for litmus.analysis.metrics — pure computation, no I/O."""
+"""Unit tests for testerkit.analysis.metrics — pure computation, no I/O."""
 
 import pytest
 
-from litmus.analysis.metrics import (
+from testerkit.analysis.metrics import (
     calculate_final_yield,
     calculate_fpy,
     calculate_ppk,

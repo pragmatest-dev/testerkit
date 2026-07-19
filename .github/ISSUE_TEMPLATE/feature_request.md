@@ -7,7 +7,7 @@ labels: enhancement
 
 ## Problem
 
-What are you trying to do that Litmus doesn't currently support well?
+What are you trying to do that TesterKit doesn't currently support well?
 
 ## Proposed solution
 

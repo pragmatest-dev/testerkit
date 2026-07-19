@@ -38,7 +38,7 @@ from uuid import UUID
 import duckdb
 import pytest
 
-from litmus.data._runs_duckdb_daemon import (
+from testerkit.data._runs_duckdb_daemon import (
     _MEASUREMENTS_PERSISTED_COLUMNS,
     _RUNS_PERSISTED_COLUMNS,
     _STEPS_PERSISTED_COLUMNS,
@@ -48,9 +48,9 @@ from litmus.data._runs_duckdb_daemon import (
     _bulk_insert_steps,
     _ensure_schema,
 )
-from litmus.data.backends._event_accumulator import EventAccumulator
-from litmus.data.backends.parquet import materialize_run_to_parquet
-from litmus.data.events import (
+from testerkit.data.backends._event_accumulator import EventAccumulator
+from testerkit.data.backends.parquet import materialize_run_to_parquet
+from testerkit.data.events import (
     InstrumentConnected,
     MeasurementRecorded,
     Observation,
@@ -365,7 +365,7 @@ def _table_rows(conn: duckdb.DuckDBPyConnection, table: str) -> list[dict[str, A
 # ``vector_outer_index_key`` (internal COALESCE(...,-1) PK dedup keys, not data
 # — the views EXCLUDE them; the overlay never carries them).
 #
-# ``env_fingerprint`` / ``litmus_version`` / ``python_version`` are run
+# ``env_fingerprint`` / ``testerkit_version`` / ``python_version`` are run
 # provenance stamped at FINALIZATION (build_run_metadata), not on the
 # ``RunStarted`` event, so the live overlay genuinely cannot produce them — they
 # populate once the run materializes. (See _FINALIZATION_ONLY in
@@ -381,7 +381,7 @@ _MATERIALIZATION_ONLY = {
     "vector_index_key",
     "vector_outer_index_key",
     "env_fingerprint",
-    "litmus_version",
+    "testerkit_version",
     "python_version",
     "ordinal",
     "index",

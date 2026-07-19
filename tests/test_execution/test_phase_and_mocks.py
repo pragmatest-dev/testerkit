@@ -12,40 +12,40 @@ from unittest.mock import patch
 
 import pytest
 
-from litmus.execution.profiles import resolve_test_phase
+from testerkit.execution.profiles import resolve_test_phase
 
 pytest_plugins = ["pytester"]
 
 
 class TestResolveTestPhase:
     def test_clean_git_no_mocks_honors_requested_phase(self) -> None:
-        with patch("litmus.execution._git.is_git_clean", return_value=True):
+        with patch("testerkit.execution._git.is_git_clean", return_value=True):
             assert resolve_test_phase("production") == "production"
 
     def test_dirty_git_demotes_regardless_of_request(self) -> None:
-        with patch("litmus.execution._git.is_git_clean", return_value=False):
+        with patch("testerkit.execution._git.is_git_clean", return_value=False):
             assert resolve_test_phase("production") == "development"
             assert resolve_test_phase("validation") == "development"
             assert resolve_test_phase("characterization") == "development"
 
     def test_mocks_active_demotes_regardless_of_request(self) -> None:
         """Mocks active → stamp = development, even on a clean repo."""
-        with patch("litmus.execution._git.is_git_clean", return_value=True):
+        with patch("testerkit.execution._git.is_git_clean", return_value=True):
             assert resolve_test_phase("production", mocks_active=True) == "development"
             assert resolve_test_phase("validation", mocks_active=True) == "development"
 
     def test_dirty_git_plus_mocks_still_demotes(self) -> None:
         """Either dirty git OR mocks is sufficient for demotion."""
-        with patch("litmus.execution._git.is_git_clean", return_value=False):
+        with patch("testerkit.execution._git.is_git_clean", return_value=False):
             assert resolve_test_phase("production", mocks_active=True) == "development"
 
     def test_none_requested_defaults_to_development(self) -> None:
-        with patch("litmus.execution._git.is_git_clean", return_value=True):
+        with patch("testerkit.execution._git.is_git_clean", return_value=True):
             assert resolve_test_phase(None) == "development"
 
     def test_mocks_short_circuits_before_git_check(self) -> None:
         """Mocks-active branch should not even consult git status."""
-        with patch("litmus.execution._git.is_git_clean", side_effect=AssertionError):
+        with patch("testerkit.execution._git.is_git_clean", side_effect=AssertionError):
             assert resolve_test_phase("production", mocks_active=True) == "development"
 
 
@@ -61,7 +61,7 @@ class TestMockInstrumentsNoUsageError:
         from types import SimpleNamespace
         from typing import cast
 
-        from litmus.pytest_plugin.helpers import mocks_active as _mocks_active
+        from testerkit.pytest_plugin.helpers import mocks_active as _mocks_active
 
         config = cast(
             "pytest.Config",
@@ -76,9 +76,9 @@ class TestMockInstrumentsNoUsageError:
         from types import SimpleNamespace
         from typing import cast
 
-        from litmus.pytest_plugin.helpers import mocks_active as _mocks_active
+        from testerkit.pytest_plugin.helpers import mocks_active as _mocks_active
 
-        monkeypatch.setenv("LITMUS_MOCK_INSTRUMENTS", "1")  # env says yes
+        monkeypatch.setenv("TESTERKIT_MOCK_INSTRUMENTS", "1")  # env says yes
         config = cast(
             "pytest.Config",
             SimpleNamespace(getoption=lambda _name, default=None: False),
@@ -89,9 +89,9 @@ class TestMockInstrumentsNoUsageError:
         from types import SimpleNamespace
         from typing import cast
 
-        from litmus.pytest_plugin.helpers import mocks_active as _mocks_active
+        from testerkit.pytest_plugin.helpers import mocks_active as _mocks_active
 
-        monkeypatch.setenv("LITMUS_MOCK_INSTRUMENTS", "1")
+        monkeypatch.setenv("TESTERKIT_MOCK_INSTRUMENTS", "1")
         # CLI flag unset (None) → env wins
         config = cast(
             "pytest.Config",
@@ -103,9 +103,9 @@ class TestMockInstrumentsNoUsageError:
         from types import SimpleNamespace
         from typing import cast
 
-        from litmus.pytest_plugin.helpers import mocks_active as _mocks_active
+        from testerkit.pytest_plugin.helpers import mocks_active as _mocks_active
 
-        monkeypatch.delenv("LITMUS_MOCK_INSTRUMENTS", raising=False)
+        monkeypatch.delenv("TESTERKIT_MOCK_INSTRUMENTS", raising=False)
         # CLI flag unset, env unset → falls through to project YAML (False by default).
         config = cast(
             "pytest.Config",
@@ -117,8 +117,8 @@ class TestMockInstrumentsNoUsageError:
         """Sanity check: the fixture source doesn't still call UsageError."""
         import inspect
 
-        from litmus.pytest_plugin import mock_instruments
-        from litmus.pytest_plugin.helpers import mocks_active as _mocks_active
+        from testerkit.pytest_plugin import mock_instruments
+        from testerkit.pytest_plugin.helpers import mocks_active as _mocks_active
 
         fixture_src = inspect.getsource(mock_instruments)
         helper_src = inspect.getsource(_mocks_active)
@@ -144,7 +144,7 @@ class TestMethodMocksWarning:
             textwrap.dedent(
                 """
                 [pytest]
-                addopts = -p no:litmus -p litmus.pytest_plugin
+                addopts = -p no:testerkit -p testerkit.pytest_plugin
                 asyncio_default_fixture_loop_scope = function
                 filterwarnings =
                     default
@@ -183,7 +183,7 @@ class TestMethodMocksWarning:
                 """
             )
         )
-        with patch("litmus.execution._git.is_git_clean", return_value=True):
+        with patch("testerkit.execution._git.is_git_clean", return_value=True):
             result = pytester.runpytest("-v", "--test-phase=production", "--uut-serial=SN1")
         result.assert_outcomes(passed=1)
         result.stdout.fnmatch_lines(["*Method mocks active in test_phase='production'*"])
@@ -196,7 +196,7 @@ class TestMethodMocksWarning:
             textwrap.dedent(
                 """
                 [pytest]
-                addopts = -p no:litmus -p litmus.pytest_plugin
+                addopts = -p no:testerkit -p testerkit.pytest_plugin
                 asyncio_default_fixture_loop_scope = function
                 filterwarnings =
                     default
@@ -251,7 +251,7 @@ class TestProfileFacetsStamping:
     def test_testrun_default_profile_facets_is_empty_dict(self) -> None:
         from uuid import uuid4
 
-        from litmus.data.models import UUT, TestRun
+        from testerkit.data.models import UUT, TestRun
 
         run = TestRun(
             id=uuid4(),
@@ -264,7 +264,7 @@ class TestProfileFacetsStamping:
     def test_testrun_accepts_profile_facets_dict(self) -> None:
         from uuid import uuid4
 
-        from litmus.data.models import UUT, TestRun
+        from testerkit.data.models import UUT, TestRun
 
         run = TestRun(
             id=uuid4(),

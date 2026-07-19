@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from litmus.data.events import ChannelStarted, InstrumentSet
-from litmus.instruments.observers.lantz import LantzObserver
+from testerkit.data.events import ChannelStarted, InstrumentSet
+from testerkit.instruments.observers.lantz import LantzObserver
 
 from .conftest import make_observer
 

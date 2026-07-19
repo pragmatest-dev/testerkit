@@ -2,24 +2,24 @@
 
 Channel data stores time-series readings — waveforms, voltage traces, temperature logs. Query it via MCP tool, HTTP API, or Python.
 
-> **Prerequisites.** Channel data already written under `<data_dir>/channels/` — readings captured automatically when an instrument is driven through Litmus, or written explicitly via `context.observe()`. See [Data stores](../../concepts/data/data-stores.md). Empty stores return empty results, not errors. For the HTTP path, `litmus serve` must be running.
+> **Prerequisites.** Channel data already written under `<data_dir>/channels/` — readings captured automatically when an instrument is driven through TesterKit, or written explicitly via `context.observe()`. See [Data stores](../../concepts/data/data-stores.md). Empty stores return empty results, not errors. For the HTTP path, `testerkit serve` must be running.
 
-Get a `session_id` from `litmus runs` or the run report; channels share their run's session. Use the first 8 characters (e.g., `"3f9a1c2b"`) to filter to one run.
+Get a `session_id` from `testerkit runs` or the run report; channels share their run's session. Use the first 8 characters (e.g., `"3f9a1c2b"`) to filter to one run.
 
-## MCP Tool: `litmus_channels`
+## MCP Tool: `testerkit_channels`
 
 ```
 # Get channel data
-litmus_channels(channel_id="dmm.voltage")
+testerkit_channels(channel_id="dmm.voltage")
 
 # Filter to a session
-litmus_channels(channel_id="scope.ch1_waveform", session_id="3f9a1c2b")
+testerkit_channels(channel_id="scope.ch1_waveform", session_id="3f9a1c2b")
 
 # Last 100 readings
-litmus_channels(channel_id="dmm.voltage", last_n=100)
+testerkit_channels(channel_id="dmm.voltage", last_n=100)
 
 # Point cap for charts
-litmus_channels(channel_id="scope.ch1_waveform", max_points=500)
+testerkit_channels(channel_id="scope.ch1_waveform", max_points=500)
 ```
 
 ## HTTP API
@@ -43,7 +43,7 @@ curl "http://localhost:8000/api/channels/dmm.voltage?since=2026-03-10T14:00:00&u
 The simplest entry point — no file paths to wire up; you just name the channel:
 
 ```python
-import litmus.channels as channels
+import testerkit.channels as channels
 
 table = channels.query("dmm.voltage", last_n=500)  # PyArrow Table
 ```
@@ -55,7 +55,7 @@ table = channels.query("dmm.voltage", last_n=500)  # PyArrow Table
 The returned table has columns: `received_at`, `sampled_at`, `value`, `source_method`, `session_id`, `sample_interval`. Use `received_at` for the time axis and `value` for the signal:
 
 ```python
-import litmus.channels as channels
+import testerkit.channels as channels
 import matplotlib.pyplot as plt
 
 t = channels.query("scope.ch1_waveform", max_points=500).to_pandas()
@@ -87,7 +87,7 @@ Note: Python uses `start`/`end`; the HTTP API uses `since`/`until`. Copying a `c
 To query channels written by a different machine, connect to that machine's channel daemon:
 
 ```python
-from litmus.data.channels.client import ChannelClient
+from testerkit.data.channels.client import ChannelClient
 
 client = ChannelClient("grpc://<host>:8815")
 

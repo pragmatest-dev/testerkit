@@ -11,7 +11,7 @@ the operator UI and the parquet store to identify which.
 - A few weeks of accumulated runs in the project's data dir (the
   retest signal needs repeated UUT serials across sessions to mean
   anything).
-- `litmus serve` running on the bench.
+- `testerkit serve` running on the bench.
 
 ## 1. Find the suspects in the Metrics → Retest tab
 
@@ -47,16 +47,16 @@ limit; a wild value is environment or hardware.
 When the hardware is genuinely non-deterministic — a measurement with
 irreducible jitter, not a bug you haven't found yet — make the retries
 explicit and auditable with the
-[`@pytest.mark.litmus_retry`](../../reference/pytest/markers.md#litmus_retry)
+[`@pytest.mark.testerkit_retry`](../../reference/pytest/markers.md#testerkit_retry)
 marker, so every attempt is recorded rather than hidden:
 
 ```python
-@pytest.mark.litmus_retry(max_retries=2, delay=0.5, on=["AssertionError"])
+@pytest.mark.testerkit_retry(max_retries=2, delay=0.5, on=["AssertionError"])
 def test_output_voltage(context, verify):
     ...
 ```
 
-Litmus reruns the test up to `max_retries` times on the listed
+TesterKit reruns the test up to `max_retries` times on the listed
 exceptions and records every attempt with an incremented
 `vector_retry` — so the step tree and the query in the next step
 show them as separate retries rather than hiding them.
@@ -65,7 +65,7 @@ show them as separate retries rather than hiding them.
 
 To see every attempt for one (run, step, serial) combination
 across the project, query the parquet store directly. Resolve
-`<data_dir>` from your project's `litmus.yaml`
+`<data_dir>` from your project's `testerkit.yaml`
 ([`ProjectConfig`](../../reference/configuration.md); see also
 [Data stores](../../concepts/data/data-stores.md)):
 
@@ -102,7 +102,7 @@ failing window is a smoking gun.
 
 - [Metrics — Retest tab](../../reference/operator-ui/metrics.md) — the chart used in step 1
 - [Results — detail view](../../reference/operator-ui/results/detail.md) — the step tree used in step 2
-- [`litmus_retry` marker](../../reference/pytest/markers.md#litmus_retry) — the retry policy in step 3
+- [`testerkit_retry` marker](../../reference/pytest/markers.md#testerkit_retry) — the retry policy in step 3
 - [Parquet schema → Retries](../../reference/data/parquet-schema.md#retries) — `vector_retry` column semantics
 - [Data stores](../../concepts/data/data-stores.md) — EventStore, ChannelStore, FileStore, RunStore
 - [Compare two runs](compare-runs.md) — what to do once you've narrowed it to two specific runs

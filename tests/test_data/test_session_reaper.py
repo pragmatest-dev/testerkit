@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import duckdb
 
-from litmus.data._session_reaper import find_abandoned
+from testerkit.data._session_reaper import find_abandoned
 
 _T0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 

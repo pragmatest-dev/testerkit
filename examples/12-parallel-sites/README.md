@@ -26,7 +26,7 @@ for the full site model reference this example exercises.
   never mentions a site, a channel, or an index — it just reads `dmm`
   through `context.connections`. The site-specific channel routing lives
   entirely in the fixture YAML.
-- **`litmus.yaml`** — `default_station: bench_dual`, `default_fixture:
+- **`testerkit.yaml`** — `default_station: bench_dual`, `default_fixture:
   dual_site_bench`, local `data_dir: data` (this example's runs never
   touch the global data dir).
 - **`pytest.ini`** — `addopts = --mock-instruments --uut-serials
@@ -59,7 +59,7 @@ Multi-UUT Results
 runs land in `data/`:
 
 ```bash
-uv run litmus runs --limit 5
+uv run testerkit runs --limit 5
 ```
 
 ```
@@ -119,7 +119,7 @@ single-process, even against a multi-site fixture; pair it with
 ## Why this matters
 
 A shared instrument (`psu`, `dmm`) is one physical box in this example
-(and would be one physical box on a real 2-up bench too) — Litmus
+(and would be one physical box on a real 2-up bench too) — TesterKit
 serializes calls to it so `left` and `right` never collide mid-measurement,
 without either test author writing a lock. Under `--mock-instruments`
 each site additionally gets its **own** mock state, so a fault injected on

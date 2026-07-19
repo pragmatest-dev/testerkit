@@ -48,7 +48,7 @@ def test_output_voltage(dmm, verify):
 
 ## Condition-indexed example — when accuracy varies with operating point
 
-When a characteristic's bands have `when:` clauses (different accuracy bands per temperature / load / etc.), a bare `verify("name", value)` can't choose between them — it doesn't see your active conditions. To match on temperature, load, or any other condition, point the measurement at its spec characteristic with `@pytest.mark.litmus_limits` (or a sidecar) using `characteristic:` (see [Condition matching](#condition-matching)):
+When a characteristic's bands have `when:` clauses (different accuracy bands per temperature / load / etc.), a bare `verify("name", value)` can't choose between them — it doesn't see your active conditions. To match on temperature, load, or any other condition, point the measurement at its spec characteristic with `@pytest.mark.testerkit_limits` (or a sidecar) using `characteristic:` (see [Condition matching](#condition-matching)):
 
 ```yaml
 # parts/power_board.yaml
@@ -72,7 +72,7 @@ characteristics:
 # tests/test_power.py
 import pytest
 
-@pytest.mark.litmus_limits(output_voltage={"characteristic": "output_voltage"})
+@pytest.mark.testerkit_limits(output_voltage={"characteristic": "output_voltage"})
 @pytest.mark.parametrize("temperature,load", [(25, 0.5), (85, 1.0)])
 def test_output_voltage(temperature, load, dmm, verify, chamber, eload):
     chamber.set_temperature(temperature)
@@ -101,7 +101,7 @@ pytest --part=parts/power_board.yaml --guardband=10 ...
 Or inline on the spec load:
 
 ```python
-from litmus.parts.context import PartContext
+from testerkit.parts.context import PartContext
 spec = PartContext.from_file("parts/power_board.yaml", guardband_pct=10.0)
 ```
 
@@ -115,7 +115,7 @@ with 10 % guardband (tighten by 10 %):                  → 3.152 .. 3.449
 When a test reports a value under a different name than the spec, point the measurement at its spec characteristic with `characteristic:`:
 
 ```python
-@pytest.mark.litmus_limits(rail_3v3={"characteristic": "output_voltage"})
+@pytest.mark.testerkit_limits(rail_3v3={"characteristic": "output_voltage"})
 def test_output(context, dmm, measure):
     measure("rail_3v3", dmm.measure_dc_voltage())
 ```
@@ -130,9 +130,9 @@ limits:
 
 ## Condition matching
 
-When the limit is pointed at a characteristic through `@pytest.mark.litmus_limits(<name>={"characteristic": "<char_id>"})` (or a sidecar), Litmus reads your active sweep conditions and uses the first `band` whose `when:` clauses all match. Drive different conditions by adding `parametrize` / `litmus_sweeps` axes, not by passing condition kwargs to `verify`.
+When the limit is pointed at a characteristic through `@pytest.mark.testerkit_limits(<name>={"characteristic": "<char_id>"})` (or a sidecar), TesterKit reads your active sweep conditions and uses the first `band` whose `when:` clauses all match. Drive different conditions by adding `parametrize` / `testerkit_sweeps` axes, not by passing condition kwargs to `verify`.
 
-A bare `verify` against a characteristic that has per-condition bands raises an error — point it at the characteristic through `litmus_limits` so the conditions are available. The minimal example above works without this only because its single band has no conditions.
+A bare `verify` against a characteristic that has per-condition bands raises an error — point it at the characteristic through `testerkit_limits` so the conditions are available. The minimal example above works without this only because its single band has no conditions.
 
 ## What ends up in the parquet row
 
@@ -149,7 +149,7 @@ Every `verify` records:
 | `fixture_connection`  | from the active fixture YAML                          |
 | `instrument_*`   | filled in automatically from the active instrument driver |
 
-Your test body only names the measurement and supplies the reading. Pins, limits, spec references, and conditions all live in the part YAML — Litmus fills the traceability fields in for you. Change a limit by editing the spec, not the test.
+Your test body only names the measurement and supplies the reading. Pins, limits, spec references, and conditions all live in the part YAML — TesterKit fills the traceability fields in for you. Change a limit by editing the spec, not the test.
 
 ## When to reach for `verify` vs `measure`
 
@@ -165,5 +165,5 @@ Your test body only names the measurement and supplies the reading. Pins, limits
 ## See also
 
 - [Limits guide](limits.md) — `characteristic:`, callables, resolution order
-- [Litmus fixtures](../../reference/pytest/fixtures.md) — all the plugin fixtures with signatures
+- [TesterKit fixtures](../../reference/pytest/fixtures.md) — all the plugin fixtures with signatures
 - [Writing Tests](writing-tests.md) — end-to-end patterns

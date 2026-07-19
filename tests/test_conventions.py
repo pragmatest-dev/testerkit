@@ -25,7 +25,7 @@ _REPO_ROOT = _TESTS_DIR.parent
 # Files that legitimately need their own data_dir-shaped path
 # (writing parquets to disk, testing the writer itself, etc.) but
 # DO NOT spawn daemons. ``ParquetBackend(data_dir=tmp_path)`` is
-# fine in conftest because ``LITMUS_SKIP_DAEMON_NOTIFY=1`` blocks
+# fine in conftest because ``TESTERKIT_SKIP_DAEMON_NOTIFY=1`` blocks
 # the daemon-notify hop. Tests that LEGITIMATELY need a daemon
 # should use the canonical singleton via ``resolve_data_dir()``.
 _DAEMON_SPAWNERS = (
@@ -37,7 +37,7 @@ _DAEMON_SPAWNERS = (
     re.compile(r"--data-dir\s*=\s*\{?[^}]*pytester\.path"),
 )
 
-_PLATFORMDIRS_HARDCODE = re.compile(r"platformdirs\.user_data_dir\(\s*['\"]litmus['\"]\s*\)")
+_PLATFORMDIRS_HARDCODE = re.compile(r"platformdirs\.user_data_dir\(\s*['\"]testerkit['\"]\s*\)")
 
 
 def _is_doc_line(line: str) -> bool:
@@ -71,7 +71,7 @@ def test_no_tmp_path_daemon_spawners():
 
     Use the canonical singleton instead:
 
-        from litmus.data.data_dir import resolve_data_dir
+        from testerkit.data.data_dir import resolve_data_dir
         canonical = resolve_data_dir()
         store = RunStore()                  # no _data_dir → canonical
         backend = ParquetBackend(data_dir=canonical)
@@ -102,11 +102,11 @@ def test_no_tmp_path_daemon_spawners():
 
 
 def test_no_hardcoded_platformdirs_paths():
-    """Test code must not bypass project ``litmus.yaml`` via hardcoded platformdirs.
+    """Test code must not bypass project ``testerkit.yaml`` via hardcoded platformdirs.
 
     Resolution should ALWAYS go through ``resolve_data_dir()`` so
-    the repo's project-local ``litmus.yaml`` (``data_dir: data``)
-    takes effect. Hardcoding ``platformdirs.user_data_dir("litmus")``
+    the repo's project-local ``testerkit.yaml`` (``data_dir: data``)
+    takes effect. Hardcoding ``platformdirs.user_data_dir("testerkit")``
     forces tests onto the operator's global hardware-data store.
     """
     offenders: list[tuple[Path, int, str]] = []
@@ -120,7 +120,7 @@ def test_no_hardcoded_platformdirs_paths():
         msg = "\n".join(f"  {p}:{n}  {line}" for p, n, line in offenders)
         pytest.fail(
             "Tests must use ``resolve_data_dir()`` instead of "
-            'hardcoded ``platformdirs.user_data_dir("litmus")``:\n'
+            'hardcoded ``platformdirs.user_data_dir("testerkit")``:\n'
             f"{msg}"
         )
 
@@ -135,7 +135,7 @@ def test_query_clients_read_daemon_not_parquet():
     ``outputs`` tables; clients read them from the daemon, not the files.
     """
     offenders: list[tuple[Path, int, str]] = []
-    for path in sorted((_REPO_ROOT / "src" / "litmus" / "analysis").glob("*_query.py")):
+    for path in sorted((_REPO_ROOT / "src" / "testerkit" / "analysis").glob("*_query.py")):
         for lineno, line in enumerate(path.read_text().splitlines(), start=1):
             if _is_doc_line(line):
                 continue
@@ -153,17 +153,17 @@ _CHANNELSTORE_ALLOWED = {
     # Producers (write their own segments + push) and the daemon
     # legitimately construct a ChannelStore. Everyone else queries
     # via the daemon.
-    "src/litmus/connect.py",
-    "src/litmus/pytest_plugin/hooks.py",
-    "src/litmus/data/channels/_flight_daemon.py",
-    "src/litmus/data/channels/store.py",
+    "src/testerkit/connect.py",
+    "src/testerkit/pytest_plugin/hooks.py",
+    "src/testerkit/data/channels/_flight_daemon.py",
+    "src/testerkit/data/channels/store.py",
     # The benchmark's write/stream workloads are serve=True producers;
     # its channel QUERY workload reads through the daemon (ChannelClient),
     # never a globbing store. runner.py pre-warms the channels daemon the
     # same way (serve=True producer) before timing.
-    "src/litmus/benchmark/workloads.py",
-    "src/litmus/benchmark/concurrency.py",
-    "src/litmus/benchmark/runner.py",
+    "src/testerkit/benchmark/workloads.py",
+    "src/testerkit/benchmark/concurrency.py",
+    "src/testerkit/benchmark/runner.py",
 }
 
 
@@ -176,7 +176,7 @@ def test_channel_reads_go_through_daemon_not_globbing_store():
     the daemon's warm index. Only producers, the daemon, and batch
     materialize may construct a ChannelStore.
     """
-    src = _REPO_ROOT / "src" / "litmus"
+    src = _REPO_ROOT / "src" / "testerkit"
     pattern = re.compile(r"\bChannelStore\(")
     offenders: list[tuple[str, int, str]] = []
     for path in src.rglob("*.py"):
@@ -201,7 +201,7 @@ def test_no_channel_registry_file():
     Arrow schema metadata and is served by the daemon. A client-side registry
     file would be a disk re-index (req 2) the backend swap (req 6) can't reach.
     """
-    src = _REPO_ROOT / "src" / "litmus"
+    src = _REPO_ROOT / "src" / "testerkit"
     offenders: list[tuple[str, int, str]] = []
     for path in src.rglob("*.py"):
         rel = path.relative_to(_REPO_ROOT).as_posix()
@@ -222,8 +222,8 @@ def test_no_channel_registry_file():
 # legitimate place (feedback_store_boundary_is_api_boundary). Everything else
 # reads bytes through the BlobBackend, so the backend swap (req 6) holds.
 _FILES_BLOB_GLOB_ALLOWED = {
-    "src/litmus/data/files/_backend.py",
-    "src/litmus/data/files/catalog.py",
+    "src/testerkit/data/files/_backend.py",
+    "src/testerkit/data/files/catalog.py",
 }
 
 
@@ -237,7 +237,7 @@ def test_filestore_reads_dont_glob_the_blob_layout():
     full backend key, so a point read is pure parsing; the only legitimate disk
     scan is the catalog daemon rebuilding its own index from sidecars.
     """
-    files = _REPO_ROOT / "src" / "litmus" / "data" / "files"
+    files = _REPO_ROOT / "src" / "testerkit" / "data" / "files"
     pattern = re.compile(r"\.r?glob\(|\bOSFile\(")
     offenders: list[tuple[str, int, str]] = []
     for path in files.rglob("*.py"):
@@ -281,11 +281,11 @@ def test_inflight_schemas_carry_materialized_data_columns():
     """
     import duckdb
 
-    from litmus.data._accumulator_pool import (
+    from testerkit.data._accumulator_pool import (
         INFLIGHT_MEASUREMENTS_SCHEMA,
         INFLIGHT_STEPS_SCHEMA,
     )
-    from litmus.data._runs_duckdb_daemon import _ensure_schema
+    from testerkit.data._runs_duckdb_daemon import _ensure_schema
 
     conn = duckdb.connect(":memory:")
     _ensure_schema(conn)

@@ -1,5 +1,5 @@
 To answer that, run:
 
-    litmus metrics summary --since 7d --json
+    testerkit metrics summary --since 7d --json
 
 This prints FPY, final yield, run counts, RTY, and DPMO for the last 7 days.

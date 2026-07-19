@@ -105,7 +105,7 @@ characteristics:
 
 ## Deriving Limits from Specs
 
-A sidecar limit can pull its bounds straight from the part spec. Set `characteristic:` on the limit and Litmus reads that characteristic's value and accuracy from the part spec — at the operating condition in play — and turns it into `low`/`high`:
+A sidecar limit can pull its bounds straight from the part spec. Set `characteristic:` on the limit and TesterKit reads that characteristic's value and accuracy from the part spec — at the operating condition in play — and turns it into `low`/`high`:
 
 ```yaml
 # tests/test_power.yaml
@@ -176,7 +176,7 @@ characteristics:
           load: 0.5
 ```
 
-Sweep these conditions from the sidecar and bind the limit to the characteristic — Litmus picks the `SpecBand` whose `when:` matches each vector:
+Sweep these conditions from the sidecar and bind the limit to the characteristic — TesterKit picks the `SpecBand` whose `when:` matches each vector:
 
 ```yaml
 # tests/test_power.yaml

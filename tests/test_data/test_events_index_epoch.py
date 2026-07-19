@@ -2,7 +2,7 @@
 
 Brings the events DuckDB daemon's index to the same content-addressed-epoch
 scheme the runs daemon already has (#53 P1), reusing the shared, store-
-agnostic ``litmus.data._index_epoch`` primitives. See
+agnostic ``testerkit.data._index_epoch`` primitives. See
 ``docs/_internal/explorations/derived-index-versioning.md`` §3/§6 and
 ``versioning-resiliency-backlog.md`` §F.
 
@@ -22,15 +22,15 @@ from pathlib import Path
 
 import duckdb
 
-from litmus.data import _duckdb_daemon as daemon
-from litmus.data import schema_dispatch, schema_versions
-from litmus.data._duckdb_daemon import (
+from testerkit.data import _duckdb_daemon as daemon
+from testerkit.data import schema_dispatch, schema_versions
+from testerkit.data._duckdb_daemon import (
     _current_provenance,
     _open_index,
     _projection_fingerprint,
 )
-from litmus.data._index_epoch import index_file_name, read_index_meta
-from litmus.data.schema_versions import SchemaStore
+from testerkit.data._index_epoch import index_file_name, read_index_meta
+from testerkit.data.schema_versions import SchemaStore
 
 
 def _count(conn: duckdb.DuckDBPyConnection, table: str) -> int:
@@ -159,9 +159,9 @@ def test_fresh_build_stamps_index_meta(tmp_path: Path) -> None:
     conn, is_fresh = _open_index(idx)
     try:
         assert is_fresh is True
-        litmus_version, schema_version, fingerprint = _current_provenance()
+        testerkit_version, schema_version, fingerprint = _current_provenance()
         meta = read_index_meta(conn)
-        assert meta["litmus_version"] == litmus_version
+        assert meta["testerkit_version"] == testerkit_version
         assert meta["schema_version"] == schema_version
         assert "envelope=" in meta["schema_version"]
         assert "catalog=" in meta["schema_version"]

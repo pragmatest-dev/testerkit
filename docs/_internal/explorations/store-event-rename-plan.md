@@ -31,8 +31,8 @@ If you think any of the above is "needed to make the rename consistent," STOP an
 ## Preconditions / coordination (READ FIRST — the tree is shared)
 
 Another agent is actively working this same branch and **uses these exact symbols**
-(e.g. `tests/test_data/test_stream_checkpoint.py`, `src/litmus/models/data_options.py`,
-`src/litmus/data/_duckdb_daemon.py`). Therefore:
+(e.g. `tests/test_data/test_stream_checkpoint.py`, `src/testerkit/models/data_options.py`,
+`src/testerkit/data/_duckdb_daemon.py`). Therefore:
 
 1. **Re-grep for the live surface at execution time** — do not trust any frozen file
    list; the set of files referencing these symbols changes under you. Use the grep
@@ -48,7 +48,7 @@ Another agent is actively working this same branch and **uses these exact symbol
 
 ## Method (order matters)
 
-1. **`src/litmus/data/events.py` first** — the definitions. Rename the classes, the
+1. **`src/testerkit/data/events.py` first** — the definitions. Rename the classes, the
    `event_type` `Literal` values, the `stream_id` field → `file_id`, the
    `"stream_id"` entry in `TYPED_PAYLOAD_COLUMNS` (+ its comment), the `STREAM_EVENTS`
    group → `FILE_EVENTS`, the `CHANNEL_EVENTS` membership (`ChannelClosed`→`ChannelEnded`),
@@ -62,7 +62,7 @@ Another agent is actively working this same branch and **uses these exact symbol
 3. **UI** — `ui/components/event_timeline.py`, `ui/components/file_streams.py`,
    `ui/components/channel_values.py`, `ui/pages/files/list.py`, `ui/pages/channels/detail.py`,
    `ui/shared/components.py`. Update any user-visible labels to match.
-4. **Ontology** — `src/litmus/ontology/litmus.yaml`.
+4. **Ontology** — `src/testerkit/ontology/testerkit.yaml`.
 5. **Generator + generated docs** — update class references in
    `scripts/generate_reference_docs.py`, then regenerate:
    `uv run python scripts/generate_reference_docs.py --all`. **Never hand-edit between the
@@ -81,20 +81,20 @@ grep -rn "ChannelClosed\|StreamStarted\|StreamEnded\|STREAM_EVENTS\|channel\.clo
 grep -rn "stream_id" src tests scripts
 
 # New names present in the definitions:
-grep -n "ChannelEnded\|FileStarted\|FileEnded\|FILE_EVENTS\|file_id" src/litmus/data/events.py
+grep -n "ChannelEnded\|FileStarted\|FileEnded\|FILE_EVENTS\|file_id" src/testerkit/data/events.py
 
 # ChannelStarted untouched (must still exist):
-grep -n "ChannelStarted\|channel\.started" src/litmus/data/events.py
+grep -n "ChannelStarted\|channel\.started" src/testerkit/data/events.py
 
 # Preserved other-agent work intact:
-grep -n "_EventSequenceMonitor" src/litmus/data/_runs_duckdb_daemon.py
-grep -n "SessionRequired" src/litmus/execution/_state.py
-grep -n "_opened" src/litmus/data/channels/store.py
+grep -n "_EventSequenceMonitor" src/testerkit/data/_runs_duckdb_daemon.py
+grep -n "SessionRequired" src/testerkit/execution/_state.py
+grep -n "_opened" src/testerkit/data/channels/store.py
 ```
 
 Then:
 ```
-ruff check src/litmus/data/events.py src/litmus/data/files/ src/litmus/data/channels/store.py
+ruff check src/testerkit/data/events.py src/testerkit/data/files/ src/testerkit/data/channels/store.py
 uv run pytest tests/test_data/test_events.py tests/test_data/test_event_store.py tests/test_data/test_filestore_streaming.py tests/test_execution/test_files_stream_verb.py tests/test_instruments/test_channel_lifecycle.py -q
 ```
 Fix root causes of any failure. Never `--no-verify`. Never loosen/skip a test.

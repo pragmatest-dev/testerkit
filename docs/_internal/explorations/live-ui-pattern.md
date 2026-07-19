@@ -42,11 +42,11 @@ nothing off-loop touches UI.
   Background producer + `channels.latest`/`channels.window` callbacks write
   `_STATE` (a dict + `deque`); one `ui.timer(0.1, redraw)` paints. This is the
   shape we teach.
-- **Operator detail page** — `src/litmus/ui/pages/channels/detail.py`. `refresh()`
+- **Operator detail page** — `src/testerkit/ui/pages/channels/detail.py`. `refresh()`
   is `async` and runs `query_channel` via `run.io_bound`; live samples land in a
   page-level deque painted by a `ui.timer`; the `LiveBadge` is fed by
   `channel.started`/`channel.ended` lifecycle events plus sample activity.
-- **Operator values panel** — `src/litmus/ui/components/channel_values.py`. The
+- **Operator values panel** — `src/testerkit/ui/components/channel_values.py`. The
   sample callback records a per-row holder (`_ChannelRow`); a `ui.timer` paints
   the rows that changed. Row add/close are structural and run on the loop via
   `ui_subscribe`.

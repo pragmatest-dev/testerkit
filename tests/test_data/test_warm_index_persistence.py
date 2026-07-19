@@ -18,10 +18,10 @@ from uuid import uuid4
 
 import duckdb
 
-from litmus.data.channels.models import ChannelSample, sample_to_batch
-from litmus.data.channels.store import ChannelStore
-from litmus.data.files.catalog import ensure_schema, scan_sidecars, upsert_rows
-from litmus.data.files.store import FileStore
+from testerkit.data.channels.models import ChannelSample, sample_to_batch
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.files.catalog import ensure_schema, scan_sidecars, upsert_rows
+from testerkit.data.files.store import FileStore
 
 
 def _count(conn: duckdb.DuckDBPyConnection, sql: str) -> int:

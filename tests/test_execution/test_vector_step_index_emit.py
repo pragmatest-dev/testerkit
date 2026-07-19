@@ -14,15 +14,15 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from litmus.data.events import Observation, VectorEnded, VectorStarted
-from litmus.data.models import TestStep, TestVector
-from litmus.execution._state import (
+from testerkit.data.events import Observation, VectorEnded, VectorStarted
+from testerkit.data.models import TestStep, TestVector
+from testerkit.execution._state import (
     push_current_step,
     push_current_vector,
     reset_current_step,
     reset_current_vector,
 )
-from litmus.execution.harness import Context, TestHarness
+from testerkit.execution.harness import Context, TestHarness
 
 
 class FakeEventLog:
@@ -82,7 +82,7 @@ def test_emit_vector_started_uses_run_scope_step_index(
     event_log: FakeEventLog,
     run_scope: FakeRunScope,
 ) -> None:
-    import litmus.execution.harness as harness_mod
+    import testerkit.execution.harness as harness_mod
 
     monkeypatch.setattr(harness_mod, "get_current_run_scope", lambda: run_scope)
 
@@ -109,7 +109,7 @@ def test_emit_vector_ended_uses_run_scope_step_index(
     event_log: FakeEventLog,
     run_scope: FakeRunScope,
 ) -> None:
-    import litmus.execution.harness as harness_mod
+    import testerkit.execution.harness as harness_mod
 
     monkeypatch.setattr(harness_mod, "get_current_run_scope", lambda: run_scope)
 
@@ -136,7 +136,7 @@ def test_emit_observation_uses_run_scope_step_index(
     event_log: FakeEventLog,
     run_scope: FakeRunScope,
 ) -> None:
-    import litmus.execution.harness as harness_mod
+    import testerkit.execution.harness as harness_mod
 
     monkeypatch.setattr(harness_mod, "get_current_run_scope", lambda: run_scope)
 

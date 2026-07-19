@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from litmus.mcp.tools import _parse_utc_timestamp
+from testerkit.mcp.tools import _parse_utc_timestamp
 
 
 class TestParseUtcTimestamp:

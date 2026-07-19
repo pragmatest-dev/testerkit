@@ -6,8 +6,8 @@ from uuid import uuid4
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
-from litmus.data.event_log import EVENT_LOG_SCHEMA_VERSION, EventLog, EventSubscriber
-from litmus.data.events import MeasurementRecorded, RunEnded, RunStarted, SessionStarted
+from testerkit.data.event_log import EVENT_LOG_SCHEMA_VERSION, EventLog, EventSubscriber
+from testerkit.data.events import MeasurementRecorded, RunEnded, RunStarted, SessionStarted
 
 
 class TestEventLog:

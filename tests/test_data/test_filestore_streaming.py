@@ -27,10 +27,10 @@ from uuid import uuid4
 import orjson
 import pytest
 
-from litmus.data.event_log import EventLog
-from litmus.data.events import FileEnded, FileStarted
-from litmus.data.files import FileStore
-from litmus.data.files.streaming import (
+from testerkit.data.event_log import EventLog
+from testerkit.data.events import FileEnded, FileStarted
+from testerkit.data.files import FileStore
+from testerkit.data.files.streaming import (
     StreamFormat,
     get_format,
     register_format,

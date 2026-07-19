@@ -19,7 +19,7 @@ This PoC exercises both halves:
    ``on_emit`` callback that captures every event in order. The test
    triggers each v0.2.0 event class via the verb layer that
    production paths actually use (``Context.observe``,
-   ``Context.stream``, ``litmus.files.stream``), then asserts each
+   ``Context.stream``, ``testerkit.files.stream``), then asserts each
    class was received in the captured stream.
 
 2. **Live channel subscription** — a real
@@ -38,8 +38,8 @@ transport, without polling and without bespoke wiring.
 |-------------------|-------------------------------------------------|----------|
 | ``ChannelStarted``| First channel write per (channel, session)      | ✅       |
 | ``Observation``   | ``Context.observe(name, value)``                | ✅       |
-| ``FileStarted``   | ``litmus.files.stream(...)`` open               | ✅       |
-| ``FileEnded``     | ``litmus.files.stream(...)`` close              | ✅       |
+| ``FileStarted``   | ``testerkit.files.stream(...)`` open               | ✅       |
+| ``FileEnded``     | ``testerkit.files.stream(...)`` close              | ✅       |
 | ``ChannelEnded``  | (defined; SessionEnded-tied emission deferred — | ⏸       |
 |                   | see ``ChannelEnded`` docstring in events.py)    |          |
 
@@ -57,29 +57,29 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.channels.client import ChannelClient
-from litmus.data.channels.models import ChannelSample
-from litmus.data.channels.server import start_server_background
-from litmus.data.channels.store import ChannelStore
-from litmus.data.event_log import EventLog
-from litmus.data.events import (
+from testerkit.data.channels.client import ChannelClient
+from testerkit.data.channels.models import ChannelSample
+from testerkit.data.channels.server import start_server_background
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.event_log import EventLog
+from testerkit.data.events import (
     ChannelStarted,
     FileEnded,
     FileStarted,
     Observation,
 )
-from litmus.data.files import FileStore
-from litmus.data.files import _reset_for_tests as _reset_filestore
-from litmus.execution._state import (
+from testerkit.data.files import FileStore
+from testerkit.data.files import _reset_for_tests as _reset_filestore
+from testerkit.execution._state import (
     get_current_run_scope,
     push_current_context,
     reset_current_context,
     set_channel_store,
     set_current_run_scope,
 )
-from litmus.execution.harness import Context, TestHarness
-from litmus.execution.run_scope import RunScope
-from litmus.instruments.observer import InstrumentEventBuilder
+from testerkit.execution.harness import Context, TestHarness
+from testerkit.execution.run_scope import RunScope
+from testerkit.instruments.observer import InstrumentEventBuilder
 
 
 @pytest.fixture
@@ -96,7 +96,7 @@ def session(tmp_path: Path):
     - ``logger`` — a real :class:`RunScope` with our EventLog attached
     - ``session_id`` / ``run_id``
     """
-    from litmus.data.files import store as fstore_module
+    from testerkit.data.files import store as fstore_module
 
     session_id = uuid4()
     run_id = uuid4()
@@ -233,10 +233,10 @@ class TestEventSubscriptionPoC:
         assert f"/{session.session_id}/" in uri and uri.startswith("file://")
 
     def test_stream_lifecycle_lands_in_subscriber(self, session: Any) -> None:
-        """litmus.files.stream() emits FileStarted + FileEnded only."""
-        import litmus.files
+        """testerkit.files.stream() emits FileStarted + FileEnded only."""
+        import testerkit.files
 
-        with litmus.files.stream(
+        with testerkit.files.stream(
             "daq_capture", format="raw", session_id=str(session.session_id)
         ) as sink:
             sink.write(b"chunk-1")
@@ -259,7 +259,7 @@ class TestEventSubscriptionPoC:
 
     def test_full_session_drives_every_v020_event(self, session: Any) -> None:
         """One coherent session emits every v0.2.0 event class we ship."""
-        import litmus.files
+        import testerkit.files
 
         # 1) Instrument read → ChannelStarted (first time per (ch, session))
         emit = _emitter(session)
@@ -273,7 +273,7 @@ class TestEventSubscriptionPoC:
         session.ctx.observe("scope_capture", b"\x89PNG\r\n\x1a\nbytes")
 
         # 4) files.stream → FileStarted/Ended
-        with litmus.files.stream(
+        with testerkit.files.stream(
             "audio_capture",
             format="raw",
             session_id=str(session.session_id),

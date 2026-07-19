@@ -1,11 +1,11 @@
 # Instrument Integration
 
-Litmus does NOT provide instrument drivers. You bring your own:
+TesterKit does NOT provide instrument drivers. You bring your own:
 - **PyMeasure** (100+ drivers): https://pymeasure.readthedocs.io/
 - **PyVISA** for raw SCPI: https://pyvisa.readthedocs.io/
 - **Vendor libraries** (NI-DAQmx, etc.)
 
-Litmus provides utilities for discovery, identification, mocking, and traceability.
+TesterKit provides utilities for discovery, identification, mocking, and traceability.
 
 ## Quick Start with PyVISA
 
@@ -36,7 +36,7 @@ dmm.close()
 
 ### With Station Config
 
-For raw PyVISA (no driver class), supply only `resource:` in your station YAML. Litmus opens the
+For raw PyVISA (no driver class), supply only `resource:` in your station YAML. TesterKit opens the
 resource via `rm.open_resource(resource)`:
 
 ```yaml
@@ -48,7 +48,7 @@ instruments:
   dmm:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
-    # no driver: — Litmus opens via rm.open_resource(resource)
+    # no driver: — TesterKit opens via rm.open_resource(resource)
 ```
 
 The `driver:` field is for a custom driver class that takes a resource string as its only argument.
@@ -67,7 +67,7 @@ def test_voltage(dmm, measure):
 ## Using PyMeasure Drivers
 
 PyMeasure provides high-level drivers for 100+ instruments. PyMeasure drivers take a resource
-string as their first argument, which matches Litmus's calling convention exactly:
+string as their first argument, which matches TesterKit's calling convention exactly:
 
 ```bash
 pip install pymeasure
@@ -101,18 +101,18 @@ def test_output_voltage(psu, dmm, measure):
     psu.output_enabled = False
 ```
 
-**Driver instantiation rule:** When `driver:` is set, Litmus calls `driver_class(resource)` with
+**Driver instantiation rule:** When `driver:` is set, TesterKit calls `driver_class(resource)` with
 the resource string as the only argument. Any class that accepts a resource string first arg works
 (PyMeasure, custom `VisaInstrument` subclasses, any SCPI wrapper with that convention). Omit
 `driver:` and supply `resource:` alone for raw PyVISA.
 
 ## Mock Instruments
 
-For testing without hardware, Litmus provides a `Mock` factory that works with any class:
+For testing without hardware, TesterKit provides a `Mock` factory that works with any class:
 
 ```python
 from pymeasure.instruments.keithley import Keithley2400
-from litmus import Mock
+from testerkit import Mock
 
 # Create mock that passes isinstance checks
 smu = Mock(Keithley2400, voltage=5.0, current=1.5e-6)
@@ -144,7 +144,7 @@ conftest-tier mocking, see [Custom drivers — Running without hardware](../../h
 Scan for available VISA instruments:
 
 ```python
-from litmus.instruments.discovery import discover_visa, get_info_visa
+from testerkit.instruments.discovery import discover_visa, get_info_visa
 
 # Find all instruments
 resources = discover_visa()
@@ -157,7 +157,7 @@ info = get_info_visa("TCPIP::192.168.1.100::INSTR")
 
 Or use the CLI:
 ```bash
-litmus discover
+testerkit discover
 ```
 
 ## Integration Patterns
@@ -199,7 +199,7 @@ def psu(instruments):
 ```python
 #!/usr/bin/env python3
 import pyvisa
-from litmus import Mock
+from testerkit import Mock
 
 def measure_voltage(resource: str, mock: bool = False) -> float:
     if mock:
@@ -255,7 +255,7 @@ calibration:
 
 The `info:` block (`manufacturer`, `model`, `serial`, `firmware`) holds the identity the loader
 verifies against the live `*IDN?` response at session start. The `calibration:` block is
-configuration only — it is not queried from the device. Litmus emits a warning if
+configuration only — it is not queried from the device. TesterKit emits a warning if
 `calibration.due_date` is in the past or within 30 days.
 
 The station YAML carries the instrument's role, driver, and resource. The asset file carries

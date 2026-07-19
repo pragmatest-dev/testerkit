@@ -1,4 +1,4 @@
-"""Model-in-loop eval runner — dev tooling, NOT part of the litmus package.
+"""Model-in-loop eval runner — dev tooling, NOT part of the testerkit package.
 
 For each task, invokes an AI to generate the candidate into a throwaway project
 dir, then grades it deterministically (grader.py). Reports per-task pass-rate
@@ -6,7 +6,7 @@ over N runs. The default backend is **Claude Code headless** (`claude -p`),
 which runs under your existing Max/Pro subscription — no API key, no per-call
 billing (it draws against subscription rate limits, so keep N small).
 
-The platform never calls an LLM; this harness does, and lives outside src/litmus.
+The platform never calls an LLM; this harness does, and lives outside src/testerkit.
 
 Usage:
     uv run python evals/runner.py                      # all tasks, skill-augmented, N=3
@@ -37,14 +37,14 @@ from grader import grade  # noqa: E402
 from tasks import TASKS  # noqa: E402
 
 _REPO = Path(__file__).resolve().parent.parent
-_SKILLS_ROOT = _REPO / "src" / "litmus" / "skills"
+_SKILLS_ROOT = _REPO / "src" / "testerkit" / "skills"
 
 
 def _skill_context(task) -> str:
     """Load a task's skill as model-augmentation context.
 
-    Skills live at ``src/litmus/skills/<skill>/SKILL.md``. If the skill dir (or
-    its SKILL.md) doesn't exist — e.g. ``litmus-interactive`` before it ships —
+    Skills live at ``src/testerkit/skills/<skill>/SKILL.md``. If the skill dir (or
+    its SKILL.md) doesn't exist — e.g. ``testerkit-interactive`` before it ships —
     this returns "" and the task still runs, just vanilla-only.
     """
     skill_md = _SKILLS_ROOT / task.skill / "SKILL.md"
@@ -62,11 +62,11 @@ def _prompt(task, with_skill: bool) -> str:
     skill_text = _skill_context(task) if with_skill else ""
     # Missing skill dir (e.g. a skill not shipped yet) -> run vanilla, no
     # dangling "use this guide" header pointing at nothing.
-    ctx = ("\n\nUse this Litmus skill guide:\n\n" + skill_text) if skill_text else ""
+    ctx = ("\n\nUse this TesterKit skill guide:\n\n" + skill_text) if skill_text else ""
     if task.expect_cli:
         body = (
-            "You are answering a question about existing Litmus test data using "
-            "the real `litmus` CLI (or an equivalent MCP tool) — do not write a "
+            "You are answering a question about existing TesterKit test data using "
+            "the real `testerkit` CLI (or an equivalent MCP tool) — do not write a "
             "test.\n"
             f"Task: {task.prompt}\n"
             "Write the exact command you would run into a file named "
@@ -74,7 +74,7 @@ def _prompt(task, with_skill: bool) -> str:
         )
     elif task.validate_yaml:
         body = (
-            f"You are authoring Litmus {task.validate_yaml} configuration YAML.\n"
+            f"You are authoring TesterKit {task.validate_yaml} configuration YAML.\n"
             f"Task: {task.prompt}\n"
             f"Write the YAML file(s) into the current directory's "
             f"{task.validate_yaml}s/ folder. Do the SMALLEST thing that "
@@ -83,7 +83,7 @@ def _prompt(task, with_skill: bool) -> str:
         )
     else:
         body = (
-            "You are writing a hardware test with Litmus (a pytest-native framework).\n"
+            "You are writing a hardware test with TesterKit (a pytest-native framework).\n"
             f"Task: {task.prompt}\n"
             "Write the necessary file(s) into the current directory. Do the SMALLEST "
             "thing that satisfies the request — do not add configuration the task "

@@ -21,27 +21,27 @@ from uuid import uuid4
 import numpy as np
 import pytest
 
-from litmus.data.channels.store import ChannelStore
-from litmus.data.models import Outcome, Waveform
-from litmus.execution._state import (
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.models import Outcome, Waveform
+from testerkit.execution._state import (
     get_current_run_scope,
     push_current_context,
     reset_current_context,
     set_channel_store,
     set_current_run_scope,
 )
-from litmus.execution.harness import Context, TestHarness
-from litmus.execution.run_scope import RunScope
-from litmus.execution.verify import _perform_verify
-from litmus.models.test_config import Limit
+from testerkit.execution.harness import Context, TestHarness
+from testerkit.execution.run_scope import RunScope
+from testerkit.execution.verify import _perform_verify
+from testerkit.models.test_config import Limit
 
 
 @pytest.fixture
 def session(tmp_path: Path):
     """Real session wiring: logger + ChannelStore + EventLog + Context."""
-    from litmus.data.event_log import EventLog
-    from litmus.data.files import _reset_for_tests as _reset_filestore
-    from litmus.data.files import store as fstore_module
+    from testerkit.data.event_log import EventLog
+    from testerkit.data.files import _reset_for_tests as _reset_filestore
+    from testerkit.data.files import store as fstore_module
 
     session_id = uuid4()
     run_id = uuid4()
@@ -153,13 +153,13 @@ class TestScalarPathStillWorks:
         assert m.value == 3.3
 
     def test_scalar_with_limit_raises_on_fail(self, session: Any) -> None:
-        from litmus.execution.verify import LimitFailure
+        from testerkit.execution.verify import LimitFailure
 
         with pytest.raises(LimitFailure):
             _perform_verify("vout", 12.0, limit=Limit(low=3.0, high=3.6, unit="V"))
 
     def test_scalar_without_limit_raises_missing_limit(self, session: Any) -> None:
-        from litmus.execution.verify import MissingLimitError
+        from testerkit.execution.verify import MissingLimitError
 
         with pytest.raises(MissingLimitError):
             _perform_verify("vout", 3.3)
@@ -232,22 +232,22 @@ class TestVerifyMeasureUnit:
         assert m.unit == "degC"
 
     def test_top_level_verify_forwards_unit(self, session: Any) -> None:
-        """Top-level litmus.verify forwards unit= to the Context."""
-        from litmus.execution.verify import _perform_verify
+        """Top-level testerkit.verify forwards unit= to the Context."""
+        from testerkit.execution.verify import _perform_verify
 
         m = _perform_verify("rail", 5.0, Limit(low=4.75, high=5.25, unit="V"), unit="V")
         assert m.unit == "V"
 
     def test_top_level_verify_unit_conflict_raises(self, session: Any) -> None:
         """Top-level verify raises ValueError on unit conflict."""
-        from litmus.execution.verify import _perform_verify
+        from testerkit.execution.verify import _perform_verify
 
         with pytest.raises(ValueError, match="conflicts"):
             _perform_verify("rail", 5.0, Limit(low=4.75, high=5.25, unit="mV"), unit="V")
 
     def test_top_level_measure_forwards_unit(self, session: Any) -> None:
-        """Top-level litmus.measure forwards unit= to the Context."""
-        from litmus.execution.verify import _perform_measure
+        """Top-level testerkit.measure forwards unit= to the Context."""
+        from testerkit.execution.verify import _perform_measure
 
         m = _perform_measure("ripple", 0.02, unit="Vpp")
         assert m.unit == "Vpp"

@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import duckdb
 
-from litmus.analysis.measurements_query import _FIXED_COLUMNS, _PLOTTABLE_FIXED_COLUMNS
-from litmus.data._runs_duckdb_daemon import _occurrence_index_expr
+from testerkit.analysis.measurements_query import _FIXED_COLUMNS, _PLOTTABLE_FIXED_COLUMNS
+from testerkit.data._runs_duckdb_daemon import _occurrence_index_expr
 
 # (run_id, measurement_name, step_index, step_path, vector_index,
 #  vector_retry, step_retry) — the columns the index expr orders/partitions

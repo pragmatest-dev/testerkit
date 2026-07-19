@@ -7,12 +7,12 @@ unchanged.
 
 ## Diff from stage 1
 
-- Added dep: `litmus-test` (the Litmus platform)
+- Added dep: `testerkit` (the TesterKit platform)
 - Replaced `assert 3.2 <= v <= 3.4` with `verify("v_rail", v, limit=V_RAIL)`
 - Added a module-level `V_RAIL = {"low": 3.2, "high": 3.4, "units": "V"}`
   dict — same shape verify accepts inline
 - Added `test_intermittent_glitch` decorated with
-  `@pytest.mark.litmus_retry(max_retries=2, delay=0.05)` — retry
+  `@pytest.mark.testerkit_retry(max_retries=2, delay=0.05)` — retry
   on transient failures (VISA timeouts, instrument-not-ready blips)
 
 The `drivers/` folder, the conditional-mock fixture (`mock_instruments`
@@ -43,8 +43,8 @@ ops can edit values without touching Python.
 your results captures every reading:
 
 ```bash
-uv run litmus runs        # list recent runs
-uv run litmus show <id>   # show the measurement rows for one run
+uv run testerkit runs        # list recent runs
+uv run testerkit show <id>   # show the measurement rows for one run
 ```
 
 You can query the log with DuckDB:
@@ -55,13 +55,13 @@ FROM measurements
 WHERE run_id = '...'
 ```
 
-## `litmus_retry` — transient failures
+## `testerkit_retry` — transient failures
 
 Real benches misbehave. VISA timeouts, instrument-not-ready blips,
-thermal-soak races. `litmus_retry` declares a retry budget per test:
+thermal-soak races. `testerkit_retry` declares a retry budget per test:
 
 ```python
-@pytest.mark.litmus_retry(max_retries=2, delay=0.05)
+@pytest.mark.testerkit_retry(max_retries=2, delay=0.05)
 def test_intermittent_glitch(verify, psu, dmm): ...
 ```
 

@@ -2,13 +2,13 @@
 
 Tests are written against the real ``DMM`` / ``PSU`` driver classes
 in ``drivers/``. When ``--mock-instruments`` is set (or
-``mock_instruments: true`` in ``litmus.yaml``), Litmus's ``Mock``
+``mock_instruments: true`` in ``testerkit.yaml``), TesterKit's ``Mock``
 factory wraps the real driver class with explicit return values so
 the tests run end-to-end without a bench attached. Without the
 flag, the fixtures connect to the configured VISA resources.
 
-This is the same conditional shape the Litmus plugin uses
-internally (``litmus/pytest_plugin.py``) — the test code calls
+This is the same conditional shape the TesterKit plugin uses
+internally (``testerkit/pytest_plugin.py``) — the test code calls
 the real driver methods regardless. Stage 5 lifts this conditional
 out of ``conftest.py`` into station YAML.
 """
@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 from drivers import DMM, PSU
 
-from litmus import Mock
+from testerkit import Mock
 
 
 @pytest.fixture(scope="session")

@@ -4,7 +4,7 @@ description: Audits a single documentation page for information gaps — importa
 tools: Read, Grep, Glob, Bash
 ---
 
-You are auditing a single Litmus documentation page for **information gaps**. You produce a structured findings report and nothing else.
+You are auditing a single TesterKit documentation page for **information gaps**. You produce a structured findings report and nothing else.
 
 ## Your job
 

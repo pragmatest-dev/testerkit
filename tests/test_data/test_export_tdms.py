@@ -11,8 +11,8 @@ import pytest
 pytest.importorskip("nptdms")
 from nptdms import TdmsFile  # pyright: ignore[reportMissingImports]
 
-from litmus.data.exporters.tdms import TdmsSubscriber
-from litmus.data.models import TestRun
+from testerkit.data.exporters.tdms import TdmsSubscriber
+from testerkit.data.models import TestRun
 
 
 class TestTdmsSubscriber:

@@ -10,7 +10,7 @@ import threading
 import time
 from collections.abc import Hashable
 
-from litmus.data._push_relay import PushRelay
+from testerkit.data._push_relay import PushRelay
 
 
 def test_flushes_published_items() -> None:

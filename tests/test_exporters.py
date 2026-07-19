@@ -11,10 +11,10 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.exporters.csv_exporter import CsvSubscriber
-from litmus.data.exporters.json_exporter import JsonSubscriber
-from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
-from litmus.data.subscribers._base import get_subscriber_class, list_subscribers
+from testerkit.data.exporters.csv_exporter import CsvSubscriber
+from testerkit.data.exporters.json_exporter import JsonSubscriber
+from testerkit.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from testerkit.data.subscribers._base import get_subscriber_class, list_subscribers
 from tests.test_data.conftest import _replay_events
 
 
@@ -102,7 +102,7 @@ class TestSubscriberRegistry:
         assert get_subscriber_class("nonexistent_format_xyz") is None
 
     def test_register_custom_subscriber(self):
-        from litmus.data.event_log import EventSubscriber
+        from testerkit.data.event_log import EventSubscriber
 
         class FakeSubscriber(EventSubscriber):
             format_name = "fake"
@@ -277,7 +277,7 @@ class TestExporterRobustness:
 
     def test_hdf5_nonprimitive_metadata_does_not_crash(self, tmp_path: Path):
         pytest.importorskip("h5py")
-        from litmus.data.exporters.hdf5 import Hdf5Subscriber
+        from testerkit.data.exporters.hdf5 import Hdf5Subscriber
 
         sub = Hdf5Subscriber(tmp_path)
         sub.open()
@@ -289,8 +289,8 @@ class TestExporterRobustness:
 class TestPluginWarnings:
     def test_event_subscriber_warns_on_error(self, tmp_path):
         """Event subscriber failure emits a warning and disables the subscriber."""
-        from litmus.data.event_log import EventLog, EventSubscriber
-        from litmus.data.events import MeasurementRecorded
+        from testerkit.data.event_log import EventLog, EventSubscriber
+        from testerkit.data.events import MeasurementRecorded
 
         event_log = EventLog(tmp_path / "events", uuid4())
 
@@ -338,8 +338,8 @@ class TestPluginWarnings:
 class TestEventSubscriberLifecycle:
     def test_subscriber_receives_events(self, tmp_path):
         """EventSubscriber receives events when wired to EventLog."""
-        from litmus.data.event_log import EventLog, EventSubscriber
-        from litmus.data.events import MeasurementRecorded
+        from testerkit.data.event_log import EventLog, EventSubscriber
+        from testerkit.data.events import MeasurementRecorded
 
         event_log = EventLog(tmp_path / "events", uuid4())
 
@@ -378,8 +378,8 @@ class TestEventSubscriberLifecycle:
 
     def test_subscriber_close_warns(self, tmp_path):
         """EventLog.close() warns when subscriber close() raises."""
-        from litmus.data.event_log import EventLog, EventSubscriber
-        from litmus.data.events import MeasurementRecorded
+        from testerkit.data.event_log import EventLog, EventSubscriber
+        from testerkit.data.events import MeasurementRecorded
 
         event_log = EventLog(tmp_path / "events", uuid4())
 
@@ -411,7 +411,7 @@ class TestSaveRefToDir:
     """Direct tests for save_ref_to_dir() value-type dispatch."""
 
     def test_path_copy(self, tmp_path: Path):
-        from litmus.data.backends._row_helpers import save_ref_to_dir
+        from testerkit.data.backends._row_helpers import save_ref_to_dir
 
         src = tmp_path / "source.csv"
         src.write_text("data")
@@ -423,7 +423,7 @@ class TestSaveRefToDir:
         assert (ref_dir / "abc_trace.csv").read_text() == "data"
 
     def test_bytes(self, tmp_path: Path):
-        from litmus.data.backends._row_helpers import save_ref_to_dir
+        from testerkit.data.backends._row_helpers import save_ref_to_dir
 
         ref_dir = tmp_path / "_ref"
         ref_dir.mkdir()
@@ -433,8 +433,8 @@ class TestSaveRefToDir:
         assert (ref_dir / "abc_blob.bin").read_bytes() == b"\x00\x01\x02"
 
     def test_waveform_json_fallback(self, tmp_path: Path):
-        from litmus.data.backends._row_helpers import save_ref_to_dir
-        from litmus.data.models import Waveform
+        from testerkit.data.backends._row_helpers import save_ref_to_dir
+        from testerkit.data.models import Waveform
 
         ref_dir = tmp_path / "_ref"
         ref_dir.mkdir()
@@ -446,7 +446,7 @@ class TestSaveRefToDir:
         assert (ref_dir / ref.removeprefix("file://_ref/")).exists()
 
     def test_pydantic_model(self, tmp_path: Path):
-        from litmus.data.backends._row_helpers import save_ref_to_dir
+        from testerkit.data.backends._row_helpers import save_ref_to_dir
 
         ref_dir = tmp_path / "_ref"
         ref_dir.mkdir()
@@ -464,9 +464,9 @@ class TestInstrumentStructKeys:
         from datetime import UTC, datetime
         from uuid import uuid4
 
-        from litmus.data.backends._event_accumulator import EventAccumulator
-        from litmus.data.backends._row_helpers import INSTRUMENT_STRUCT_FIELDS
-        from litmus.data.events import InstrumentConnected, RunStarted
+        from testerkit.data.backends._event_accumulator import EventAccumulator
+        from testerkit.data.backends._row_helpers import INSTRUMENT_STRUCT_FIELDS
+        from testerkit.data.events import InstrumentConnected, RunStarted
 
         run_id = uuid4()
         session_id = uuid4()
@@ -502,7 +502,7 @@ class TestReconstructTestRun:
     """Roundtrip: build TestRun → save to Parquet → reconstruct → compare."""
 
     def test_roundtrip(self, sample_test_run: TestRun, tmp_path: Path):
-        from litmus.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
+        from testerkit.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
 
         backend = ParquetBackend(data_dir=tmp_path)
         pq_file = backend.save_test_run(sample_test_run)
@@ -535,7 +535,7 @@ class TestReconstructTestRun:
 
     def test_roundtrip_custom_metadata(self, sample_test_run: TestRun, tmp_path: Path):
         """custom_metadata survives Parquet save → reconstruct."""
-        from litmus.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
+        from testerkit.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
 
         backend = ParquetBackend(data_dir=tmp_path)
         pq_file = backend.save_test_run(sample_test_run)
@@ -545,7 +545,7 @@ class TestReconstructTestRun:
 
     def test_roundtrip_instrument_records(self, sample_test_run: TestRun, tmp_path: Path):
         """instrument_records survives Parquet save → reconstruct."""
-        from litmus.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
+        from testerkit.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
 
         backend = ParquetBackend(data_dir=tmp_path)
         pq_file = backend.save_test_run(sample_test_run)
@@ -581,10 +581,10 @@ class TestHarnessLoggerIntegration:
 
     def test_harness_measure_emits_event(self, tmp_path):
         """harness.measure() emits MeasurementRecorded to event log."""
-        from litmus.data.event_log import EventLog, EventSubscriber
-        from litmus.data.events import MeasurementRecorded
-        from litmus.execution.harness import TestHarness
-        from litmus.execution.run_scope import RunScope
+        from testerkit.data.event_log import EventLog, EventSubscriber
+        from testerkit.data.events import MeasurementRecorded
+        from testerkit.execution.harness import TestHarness
+        from testerkit.execution.run_scope import RunScope
 
         logger = RunScope(
             uut_serial="UUT001",
@@ -625,8 +625,8 @@ class TestHarnessLoggerIntegration:
 
     def test_harness_measure_no_double_append_to_vector(self):
         """Measurement should appear exactly once in the vector."""
-        from litmus.execution.harness import TestHarness
-        from litmus.execution.run_scope import RunScope
+        from testerkit.execution.harness import TestHarness
+        from testerkit.execution.run_scope import RunScope
 
         logger = RunScope(
             uut_serial="UUT001",

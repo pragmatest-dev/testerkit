@@ -6,28 +6,28 @@ For motivation see [why AI integration](../../concepts/overview/ai-integration.m
 
 ## Prerequisites
 
-- Litmus installed (`pip install litmus-test`)
+- TesterKit installed (`pip install testerkit`)
 - A part datasheet PDF on disk
 - Claude Code installed and authenticated, with access to a high-capability model on your plan (Opus, GPT-5 / o-series, Gemini 2.5 Pro, or equivalent — the workflow does heavy PDF extraction)
-- A working catalog of instruments — either real catalog YAMLs in your project, or you can use Litmus's bundled generics
+- A working catalog of instruments — either real catalog YAMLs in your project, or you can use TesterKit's bundled generics
 
 If you don't have Claude Code, swap to any client that supports MCP — the steps work the same, only the invocation differs (slash command vs conversational). See the [skills reference](../../reference/overview/skills.md#slash-commands) for the matrix.
 
 ## One-time setup
 
-Register Litmus's MCP server with Claude Code:
+Register TesterKit's MCP server with Claude Code:
 
 ```bash
-litmus setup claude-code
+testerkit setup claude-code
 ```
 
 This does three things ([full reference](../../reference/overview/skills.md#what-the-setup-commands-install)):
 
-1. Registers Litmus as an MCP server (`claude mcp add litmus -- <litmus-bin> mcp serve`)
+1. Registers TesterKit as an MCP server (`claude mcp add testerkit -- <testerkit-bin> mcp serve`)
 2. Copies `/catalog-from-datasheet` and `/process-catalog` slash command stubs into `./.claude/commands/`
-3. Writes or merges `./CLAUDE.md` with the Litmus project instructions
+3. Writes or merges `./CLAUDE.md` with the TesterKit project instructions
 
-Restart Claude Code after `litmus setup` so it picks up the new server.
+Restart Claude Code after `testerkit setup` so it picks up the new server.
 
 Confirm MCP registration:
 
@@ -35,7 +35,7 @@ Confirm MCP registration:
 claude mcp list
 ```
 
-Litmus should appear in the list. If it doesn't, re-run `litmus setup claude-code` and check the printed error.
+TesterKit should appear in the list. If it doesn't, re-run `testerkit setup claude-code` and check the printed error.
 
 ## Invoke the workflow
 
@@ -69,13 +69,13 @@ Common edits at this gate:
 
 ### Phase 2 — Save part spec
 
-Claude saves the spec to `parts/<id>.yaml`. The spec uses the same [Capability schema](../../reference/catalog/schema.md) as catalog entries. Litmus validates the YAML against the catalog schema as it saves; you'll see Claude correct shape errors in-flight if it tries to save something invalid.
+Claude saves the spec to `parts/<id>.yaml`. The spec uses the same [Capability schema](../../reference/catalog/schema.md) as catalog entries. TesterKit validates the YAML against the catalog schema as it saves; you'll see Claude correct shape errors in-flight if it tries to save something invalid.
 
 Approval gate: review the saved YAML. Edit directly if you want — the agent re-reads on the next step.
 
 ### Phase 2b — Recommend instruments
 
-Claude calls `litmus_match(part_id=<id>)` and proposes instruments that cover the part's specs (see [how capability matching works](../../concepts/overview/ai-integration.md)). Three outcomes:
+Claude calls `testerkit_match(part_id=<id>)` and proposes instruments that cover the part's specs (see [how capability matching works](../../concepts/overview/ai-integration.md)). Three outcomes:
 
 | Outcome | What Claude proposes |
 |---|---|
@@ -86,22 +86,22 @@ Claude calls `litmus_match(part_id=<id>)` and proposes instruments that cover th
 If you have a specific model the catalog doesn't know yet, Claude offers three paths:
 
 1. **Fast, approximate:** ask Claude to scaffold a catalog entry from just the model number using its prior knowledge — good for a quick start, not production-accurate.
-2. `generic_dmm` / `generic_psu` / `generic_eload` / `generic_oscilloscope` — bundled with Litmus, approximate capabilities, fine for mocked development.
+2. `generic_dmm` / `generic_psu` / `generic_eload` / `generic_oscilloscope` — bundled with TesterKit, approximate capabilities, fine for mocked development.
 3. **Accurate, for production:** `/catalog-from-datasheet <pdf>` — correct to the datasheet, for catalog entries where spec correctness matters.
 
 Pick whichever fits where you are: generics if you're sketching, Claude's prior knowledge for well-known instruments, full datasheet for the production catalog entry.
 
 ### Phase 3 — Create station config
 
-Claude generates `stations/<id>.yaml` wiring the selected instruments to roles (`psu`, `dmm`, `uut_load`, etc.) with realistic mock values. Litmus validates the wiring when it saves.
+Claude generates `stations/<id>.yaml` wiring the selected instruments to roles (`psu`, `dmm`, `uut_load`, etc.) with realistic mock values. TesterKit validates the wiring when it saves.
 
-Approval gate: review the wiring. Most edits here are around VISA resource strings (the agent has no way to discover your bench's actual `TCPIP::*::INSTR` addresses unless you've already populated them or it can call `litmus_discover` against a live bench).
+Approval gate: review the wiring. Most edits here are around VISA resource strings (the agent has no way to discover your bench's actual `TCPIP::*::INSTR` addresses unless you've already populated them or it can call `testerkit_discover` against a live bench).
 
 ### Phase 4 — Generate tests
 
 Two files generated:
 
-- `tests/test_<part>.py` — pytest-native test code using the Litmus fixtures (`context`, `verify`, `measure`, plus instrument role fixtures like `psu`, `dmm`)
+- `tests/test_<part>.py` — pytest-native test code using the TesterKit fixtures (`context`, `verify`, `measure`, plus instrument role fixtures like `psu`, `dmm`)
 - `tests/test_<part>.yaml` — sidecar YAML with `sweeps:`, `limits:`, `mocks:` for operator-editable values
 
 The generated tests use:
@@ -114,12 +114,12 @@ Approval gate: review both files. Edit directly — pytest and the YAML are the 
 
 ### Phase 5 — Execute and analyze
 
-Claude calls `litmus_run(test="tests/test_<id>.py", station="<station_id>", serial="<UUT-SERIAL>", project=<root>)`. The test executes against the configured station (with `mocks:` from the sidecar if `--mock-instruments` is implied, otherwise against the real bench).
+Claude calls `testerkit_run(test="tests/test_<id>.py", station="<station_id>", serial="<UUT-SERIAL>", project=<root>)`. The test executes against the configured station (with `mocks:` from the sidecar if `--mock-instruments` is implied, otherwise against the real bench).
 
 Claude shows you the results table — rows are measurements, columns are sweep axes, cells colored pass/fail/skip. From here you can ask follow-ups:
 
-- "Why did the load=0.8 row fail at vin=4.5?" → Claude pulls the measurement detail via `litmus_runs` + `litmus_steps`
-- "Open this run in the browser" → `litmus_open(type="run", id=<run-id>)` returns a `litmus serve` URL
+- "Why did the load=0.8 row fail at vin=4.5?" → Claude pulls the measurement detail via `testerkit_runs` + `testerkit_steps`
+- "Open this run in the browser" → `testerkit_open(type="run", id=<run-id>)` returns a `testerkit serve` URL
 - "Tighten the output_voltage tolerance to ±1%" → Claude edits the sidecar and re-runs
 
 ## What's actually saved to your project
@@ -128,7 +128,7 @@ After the workflow completes, your project tree has:
 
 ```
 my_project/
-├── litmus.yaml                          # set by litmus_project init
+├── testerkit.yaml                          # set by testerkit_project init
 ├── parts/
 │   └── <id>.yaml                        # phase 2
 ├── stations/
@@ -146,7 +146,7 @@ Every file is plain YAML or Python. Git diffs work. Code review works. If you wa
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Claude can't find the workflow | MCP server not registered or Claude not restarted after `litmus setup` | `claude mcp list` to verify; restart Claude Code |
+| Claude can't find the workflow | MCP server not registered or Claude not restarted after `testerkit setup` | `claude mcp list` to verify; restart Claude Code |
 | Agent loops trying to save an invalid YAML | The save was rejected because the YAML didn't match the catalog schema | Let it iterate — validation is the feedback signal; or stop it and edit the YAML by hand |
 | Test runs but every row is `SKIP` / `MISSING_LIMIT` | Phase 4 generated `verify()` calls without limits, and no sidecar / part spec covers them | Either add limits to the sidecar `limits:` block or switch the calls to `measure()` for characterization-only |
 | Instrument match returns nothing | Catalog is empty or capability requirements aren't covered | Use generics for development, or run `/catalog-from-datasheet` for the missing instruments |

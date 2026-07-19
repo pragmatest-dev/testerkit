@@ -8,7 +8,7 @@ the body.
 
 - Deleted the module-level `V_RAIL = {...}` constant
 - Removed `limit=V_RAIL` from each `verify(...)` call
-- Added `@pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 3.4, "units": "V"})` on each test
+- Added `@pytest.mark.testerkit_limits(v_rail={"low": 3.2, "high": 3.4, "units": "V"})` on each test
 
 ## Run it
 
@@ -19,11 +19,11 @@ uv run pytest -v
 
 ## Why this shape
 
-`litmus_limits` is declarative. The limit is configuration, not
+`testerkit_limits` is declarative. The limit is configuration, not
 imperative code. That matters for two reasons:
 
-1. **The marker composes.** Stack `@pytest.mark.litmus_sweeps` and
-   `@pytest.mark.litmus_limits` — pytest handles both the same way.
+1. **The marker composes.** Stack `@pytest.mark.testerkit_sweeps` and
+   `@pytest.mark.testerkit_limits` — pytest handles both the same way.
 2. **Configuration has a migration path.** Markers can move from
    decorator → sidecar YAML → profile YAML without touching the test
    function. The next stage shows that move.

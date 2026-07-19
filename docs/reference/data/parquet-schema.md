@@ -1,6 +1,6 @@
 # Parquet Storage Schema
 
-Each Litmus run produces **one Parquet file**. The file has two layers: the at-rest format and the query projection.
+Each TesterKit run produces **one Parquet file**. The file has two layers: the at-rest format and the query projection.
 
 **At-rest — three row types.** Every row carries an explicit `record_type` discriminator with one of three values:
 
@@ -50,7 +50,7 @@ To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `session_id` | string | Session UUID — groups runs that ran together in one `litmus serve` / `pytest` invocation |
+| `session_id` | string | Session UUID — groups runs that ran together in one `testerkit serve` / `pytest` invocation |
 | `run_id` | string | Run UUID — primary key for the run |
 | `site_index` | int64 | Multi-UUT site index, 0-based; always present, default `0` (a single-UUT run stores `0`, never NULL) |
 | `site_name` | string | Optional human label for the site (NULL when unnamed or single-UUT) |
@@ -165,7 +165,7 @@ WHERE record_type = 'run';
 | Column | Type | Description |
 |--------|------|-------------|
 | `test_phase` | string | `production` / `characterization` / `development` |
-| `project_name` | string | Project name from `litmus.yaml` |
+| `project_name` | string | Project name from `testerkit.yaml` |
 | `git_commit` | string | Code version at test time |
 | `git_branch` | string | Branch at test time |
 | `git_remote` | string | Remote URL at test time |
@@ -227,7 +227,7 @@ Each struct entry encodes one observation under `name`. Non-scalar payloads rout
 | `bytes` | `.bin` | `file://_ref/{id}_raw_data.bin` |
 
 ```python
-from litmus.data.backends.parquet import load_file, is_file_reference
+from testerkit.data.backends.parquet import load_file, is_file_reference
 
 if is_file_reference(column_value):
     data = load_file(parquet_path, column_value)
@@ -293,7 +293,7 @@ GROUP BY characteristic_id, part_id;
 | Column | Type | Description |
 |--------|------|-------------|
 | `python_version` | string | e.g. `"3.13.1"` |
-| `litmus_version` | string | Installed Litmus version |
+| `testerkit_version` | string | Installed TesterKit version |
 | `env_fingerprint` | string | Hash of the lockfile + top-level deps |
 
 ## Custom metadata
@@ -394,18 +394,18 @@ Beyond columns, each Parquet file carries metadata:
 
 | Key | Description |
 |-----|-------------|
-| `environment_json` | Full environment snapshot (Python version, OS, Litmus version, top-level deps, lockfile hash) |
+| `environment_json` | Full environment snapshot (Python version, OS, TesterKit version, top-level deps, lockfile hash) |
 | `custom_metadata` | Run-level custom metadata set via `run_context.set()`, serialized as a JSON object |
 | `schema_version` | At-rest schema version (`"0.1"`) |
 
 ```python
 import pyarrow.parquet as pq
-from litmus.environment import EnvironmentSnapshot
+from testerkit.environment import EnvironmentSnapshot
 
 pf = pq.ParquetFile("data/runs/2026-05-16/20260516T143025Z_SN001.parquet")
 metadata = pf.schema_arrow.metadata
 env = EnvironmentSnapshot.model_validate_json(metadata[b"environment_json"])
-print(f"Python {env.python_version}, Litmus {env.litmus_version}")
+print(f"Python {env.python_version}, TesterKit {env.testerkit_version}")
 ```
 
 ## Export column naming
@@ -455,7 +455,7 @@ print(failures[["step_name", "measurement_name", "measurement_value",
                 "limit_low", "limit_high", "uut_pin", "instrument_name"]])
 ```
 
-When using Litmus's [Query API](query-api.md), the UNNEST is handled automatically — `WHERE record_type = 'measurement'` works as expected.
+When using TesterKit's [Query API](query-api.md), the UNNEST is handled automatically — `WHERE record_type = 'measurement'` works as expected.
 
 ### Yield by station with DuckDB (direct file — UNNEST required)
 
@@ -476,7 +476,7 @@ GROUP BY 1, 2, 3
 ORDER BY yield_pct ASC;
 ```
 
-When querying via the Litmus Query API, the UNNEST runs automatically and `WHERE record_type = 'measurement'` works as-is.
+When querying via the TesterKit Query API, the UNNEST runs automatically and `WHERE record_type = 'measurement'` works as-is.
 
 ### Cross-run instrument-failure correlation (direct file)
 
@@ -509,7 +509,7 @@ ORDER BY avg_seconds DESC;
 
 ## ATML / IEEE 1671 alignment
 
-| Litmus column | ATML equivalent |
+| TesterKit column | ATML equivalent |
 |---|---|
 | `TestRun` (`run_id`) | `TestResults` |
 | `record_type='step'` | `TestGroup` |

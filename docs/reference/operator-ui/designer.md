@@ -11,7 +11,7 @@ The bottom of the page has three tabs (Connections, Station Type,
 YAML Preview) that always reflect the current graph state.
 
 > **Experimental.** The System Designer is less mature than the rest
-> of Litmus, and the screen carries an "Experimental" banner. Expect
+> of TesterKit, and the screen carries an "Experimental" banner. Expect
 > rough edges, and check the saved fixture YAML before you depend on it
 > in a run.
 

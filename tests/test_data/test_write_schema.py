@@ -4,9 +4,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.data.backends.parquet import ParquetBackend
-from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
-from litmus.data.schemas import (
+from testerkit.data.backends.parquet import ParquetBackend
+from testerkit.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from testerkit.data.schemas import (
     _INSTRUMENT_LIST,  # noqa: PLC2701
     RUN_ROW_SCHEMA,
     _build_write_schema,
@@ -89,12 +89,12 @@ class TestInstrumentsColumn:
         assert schema_field.type == _INSTRUMENT_LIST
 
     def test_instruments_struct_has_14_fields(self):
-        from litmus.data.schemas import _INSTRUMENT_STRUCT
+        from testerkit.data.schemas import _INSTRUMENT_STRUCT
 
         assert len(_INSTRUMENT_STRUCT) == 14
 
     def test_instruments_struct_has_serial_number_not_serial(self):
-        from litmus.data.schemas import _INSTRUMENT_STRUCT
+        from testerkit.data.schemas import _INSTRUMENT_STRUCT
 
         field_names = [f.name for f in _INSTRUMENT_STRUCT]
         assert "serial_number" in field_names
@@ -113,7 +113,7 @@ class TestWriteRejectsTypeMismatch:
     def test_mixed_kind_lanes_do_not_raise(self):
         """Same input name, different kinds across rows → no raise; each value
         routes to its own value_* lane (the nested EAV at-rest shape)."""
-        from litmus.data.backends._row_helpers import encode_lane_structs
+        from testerkit.data.backends._row_helpers import encode_lane_structs
 
         rows = [
             {"run_id": "r1", "inputs": encode_lane_structs({"voltage": 5.0})},
@@ -159,7 +159,7 @@ class TestRoundTripExplicitSchema:
 
     def test_dynamic_columns_round_trip(self, tmp_path):
         """Vector params survive the write path in the nested inputs lanes."""
-        from litmus.data.backends._row_helpers import decode_lane_structs
+        from testerkit.data.backends._row_helpers import decode_lane_structs
 
         m = Measurement(
             name="voltage",

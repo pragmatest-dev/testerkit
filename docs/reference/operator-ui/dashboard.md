@@ -53,12 +53,12 @@ When the project has **neither stations nor runs**, the page swaps
 to a Getting Started card with three numbered steps:
 
 1. **Create a station** — buttons for "New Station" (jumps to the
-   create-station form) and a one-liner pointing at `litmus station
+   create-station form) and a one-liner pointing at `testerkit station
    init` on the CLI
-2. **Write a test** — `litmus new-test <name>` command snippet
+2. **Write a test** — `testerkit new-test <name>` command snippet
 3. **Run it** — `pytest --mock-instruments` command snippet
 
-Below the steps, a hint card points at `litmus init --starter` for
+Below the steps, a hint card points at `testerkit init --starter` for
 authors who'd rather start from a fully populated example project.
 
 ## Live updates

@@ -5,11 +5,11 @@ store, it should **stamp the existing URI without re-writing**. Three
 latching paths:
 
 1. **URI string** — ``"channel://..."`` or ``"file://..."``
-2. **Channel sink handle** — :class:`~litmus.channels._ChannelSink`
-3. **Stream sink handle** — :class:`~litmus.data.files.streaming._BaseSink`
+2. **Channel sink handle** — :class:`~testerkit.channels._ChannelSink`
+3. **Stream sink handle** — :class:`~testerkit.data.files.streaming._BaseSink`
 
 Both sink classes expose a ``.uri`` property satisfying the
-:class:`~litmus.data.ref.Latchable` Protocol. ``Context.observe``
+:class:`~testerkit.data.ref.Latchable` Protocol. ``Context.observe``
 checks for these before falling through to shape-based dispatch — so
 URIs don't get pickled as scalars and sinks don't get re-written as
 blobs.
@@ -27,23 +27,23 @@ from uuid import uuid4
 
 import pytest
 
-from litmus import channels, files
-from litmus.data.channels.store import ChannelStore
-from litmus.data.event_log import EventLog
-from litmus.data.ref import Latchable, is_ref
-from litmus.execution._state import (
+from testerkit import channels, files
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.event_log import EventLog
+from testerkit.data.ref import Latchable, is_ref
+from testerkit.execution._state import (
     push_current_context,
     reset_current_context,
     set_channel_store,
 )
-from litmus.execution.harness import Context, TestHarness
+from testerkit.execution.harness import Context, TestHarness
 
 
 @pytest.fixture
 def session(tmp_path: Path):
     """Real Context + ChannelStore + FileStore wiring, isolated to tmp_path."""
-    from litmus.data.files import _reset_for_tests as _reset_filestore
-    from litmus.data.files import store as fstore_module
+    from testerkit.data.files import _reset_for_tests as _reset_filestore
+    from testerkit.data.files import store as fstore_module
 
     session_id = uuid4()
     event_log = EventLog(log_dir=tmp_path / "events", session_id=session_id)

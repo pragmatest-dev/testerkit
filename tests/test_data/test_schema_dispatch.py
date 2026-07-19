@@ -22,16 +22,16 @@ import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.data import schema_dispatch, schema_versions
-from litmus.data._duckdb_daemon import _ensure_schema as _ensure_events_schema
-from litmus.data._duckdb_daemon import _ingest_one_file as _ingest_events_file
-from litmus.data._runs_duckdb_daemon import _ensure_schema, _ingest_one_file
-from litmus.data.channels.index import ChannelIndex
-from litmus.data.event_log import _IPC_SCHEMA, EVENT_LOG_SCHEMA_VERSION
-from litmus.data.events import EVENT_CATALOG_VERSION, EVENT_CATALOG_VERSION_KEY
-from litmus.data.schema_dispatch import SchemaVersionRefused, dispatch
-from litmus.data.schema_versions import SchemaStore
-from litmus.data.schemas import RUN_ROW_SCHEMA
+from testerkit.data import schema_dispatch, schema_versions
+from testerkit.data._duckdb_daemon import _ensure_schema as _ensure_events_schema
+from testerkit.data._duckdb_daemon import _ingest_one_file as _ingest_events_file
+from testerkit.data._runs_duckdb_daemon import _ensure_schema, _ingest_one_file
+from testerkit.data.channels.index import ChannelIndex
+from testerkit.data.event_log import _IPC_SCHEMA, EVENT_LOG_SCHEMA_VERSION
+from testerkit.data.events import EVENT_CATALOG_VERSION, EVENT_CATALOG_VERSION_KEY
+from testerkit.data.schema_dispatch import SchemaVersionRefused, dispatch
+from testerkit.data.schema_versions import SchemaStore
+from testerkit.data.schemas import RUN_ROW_SCHEMA
 
 
 def _write_run_parquet(path: Path, *, version: str | None) -> None:

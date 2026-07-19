@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
-from litmus.instruments.observer import DriverObserver, InstrumentEventBuilder
+from testerkit.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
+from testerkit.instruments.observer import DriverObserver, InstrumentEventBuilder
 
 
 class CollectingLog:
@@ -96,7 +96,7 @@ class TestInstrumentEventBuilderConfigure:
 class TestInstrumentEventBuilderChannelStore:
     def test_writes_to_channel_store(self):
         """Channel store still receives every sample; only the EVENT is lifecycle-only."""
-        from litmus.data.events import ChannelStarted
+        from testerkit.data.events import ChannelStarted
 
         log = CollectingLog()
         written: list = []

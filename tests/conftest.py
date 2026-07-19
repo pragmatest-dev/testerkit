@@ -1,19 +1,19 @@
-"""Pytest configuration for Litmus tests.
+"""Pytest configuration for TesterKit tests.
 
 Storage routing
 ---------------
 
-The repo-root ``litmus.yaml`` sets ``data_dir: data``.
+The repo-root ``testerkit.yaml`` sets ``data_dir: data``.
 The outer pytest, run from the repo root, resolves
 ``resolve_data_dir()`` → ``<repo>/data`` via the
 project-config ancestor walk. So **every test's storage stays
 project-local** instead of polluting the global
-``~/.local/share/litmus/data`` store an operator might also
+``~/.local/share/testerkit/data`` store an operator might also
 use for real hardware data.
 
 Pytester / subprocess tests run with CWD = ``pytester.path``
 (``/tmp/pytest-of-ryanf/...``) — their ancestor walk doesn't see
-the repo's ``litmus.yaml``. We pin ``LITMUS_HOME`` to point at
+the repo's ``testerkit.yaml``. We pin ``TESTERKIT_HOME`` to point at
 the same project-local dir so they fall through to the same
 storage; one canonical-singleton per project across outer + inner
 pytest = no per-test daemon spawning.
@@ -27,23 +27,23 @@ from pathlib import Path
 import pytest
 
 # Auto-confirm any interactive dialogs so tests don't block.
-os.environ.setdefault("LITMUS_AUTO_CONFIRM", "confirm")
+os.environ.setdefault("TESTERKIT_AUTO_CONFIRM", "confirm")
 
 
 def _project_data_dir() -> Path:
     """Resolve the project-local data dir from this conftest's location.
 
-    Walks up from this file to find ``litmus.yaml``, reads its
+    Walks up from this file to find ``testerkit.yaml``, reads its
     ``data_dir`` field. We don't use ``resolve_data_dir`` here
-    because it'd require importing litmus, which triggers a chain
+    because it'd require importing testerkit, which triggers a chain
     of imports before pytest's collector runs — slow startup.
     """
     repo_root = Path(__file__).resolve().parent.parent
-    yaml_path = repo_root / "litmus.yaml"
+    yaml_path = repo_root / "testerkit.yaml"
     if yaml_path.exists():
         # Tiny hand-parser: looks for a line ``data_dir: <value>``.
         # Avoids the YAML import cost during pytest startup; the
-        # project ``litmus.yaml`` is hand-written and stable.
+        # project ``testerkit.yaml`` is hand-written and stable.
         for line in yaml_path.read_text().splitlines():
             if line.strip().startswith("data_dir:"):
                 value = line.split(":", 1)[1].strip().strip('"').strip("'")
@@ -55,13 +55,13 @@ def _project_data_dir() -> Path:
 
 _PROJECT_DATA = _project_data_dir()
 
-# Pin ``LITMUS_HOME`` so pytester subprocesses (whose CWD is a
-# tmp_path with no ``litmus.yaml`` ancestor) inherit the same
+# Pin ``TESTERKIT_HOME`` so pytester subprocesses (whose CWD is a
+# tmp_path with no ``testerkit.yaml`` ancestor) inherit the same
 # project-local store via the env-var fallback in
 # ``resolve_data_dir``. Set to the parent of the data dir
-# so ``LITMUS_HOME/data`` matches what the outer pytest gets
-# from the repo's ``litmus.yaml``.
-os.environ.setdefault("LITMUS_HOME", str(_PROJECT_DATA.parent))
+# so ``TESTERKIT_HOME/data`` matches what the outer pytest gets
+# from the repo's ``testerkit.yaml``.
+os.environ.setdefault("TESTERKIT_HOME", str(_PROJECT_DATA.parent))
 
 # Pre-create the events_dir so the runs daemon's subscription
 # wires up on first spawn (see
@@ -121,6 +121,6 @@ def _reset_filestore_singleton():
     no test inherits a stale singleton.
     """
     yield
-    from litmus.data.files import _reset_for_tests
+    from testerkit.data.files import _reset_for_tests
 
     _reset_for_tests()

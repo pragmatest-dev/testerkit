@@ -26,7 +26,7 @@ Capability (base)
 └── PartCharacteristic   — adds pin / pins / net / signal_group, datasheet_ref
 ```
 
-Every part characteristic must name at least one physical interface (`pin`, `pins`, `net`, or `signal_group`) — Litmus won't load one without it.
+Every part characteristic must name at least one physical interface (`pin`, `pins`, `net`, or `signal_group`) — TesterKit won't load one without it.
 
 Both share the same `function + direction + signals/conditions/controls/attributes` core. Direction always describes the hardware it's on: "input" means "this device receives/sinks signal."
 
@@ -127,8 +127,8 @@ The matcher determines whether a station can test a part by checking in tiers �
 5. **Resolution** — instrument resolution must meet or exceed required
 
 ```python
-from litmus.matching.service import find_compatible_stations
-from litmus.store import get_part
+from testerkit.matching.service import find_compatible_stations
+from testerkit.store import get_part
 
 # Load by id (`get_part` looks up `parts/<id>.yaml` from the project root).
 # Use `load_part(Path(...))` when you have an explicit path on disk.
@@ -255,7 +255,7 @@ Each collection has a well-defined purpose:
 - **Controls** are user-configurable but don't affect the fundamental capability.
 - **Attributes** are hardware facts that may participate in matching (e.g. scope bandwidth must exceed signal frequency), but are never measured — they're just limits.
 
-A dimension name can't appear in more than one of `signals` / `conditions` / `controls` — Litmus won't load a capability with that overlap. A name in `attributes` doesn't collide with the others.
+A dimension name can't appear in more than one of `signals` / `conditions` / `controls` — TesterKit won't load a capability with that overlap. A name in `attributes` doesn't collide with the others.
 
 ### Condition-Dependent Specs (SpecBand)
 
@@ -337,7 +337,7 @@ When a station instrument has `catalog_ref: keysight_34461a`, the matching engin
 ### Python API
 
 ```python
-from litmus.matching.service import find_compatible_stations, check_station_compatibility
+from testerkit.matching.service import find_compatible_stations, check_station_compatibility
 
 # Find all compatible stations (takes the loaded Part object)
 matches = find_compatible_stations(part)

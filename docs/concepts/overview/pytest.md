@@ -1,10 +1,10 @@
 # pytest as the primary runner
 
-Litmus is a hardware test platform; the bundled pytest plugin is its primary runner integration. OpenHTF and the LabVIEW / TestStand results API are the alternatives — see [Integrations](../../integration/). Tests under the pytest path are **plain pytest** — no decorator, no base class. The plugin contributes a set of [fixtures](../../reference/pytest/fixtures.md) (`context`, `verify`, `measure` are the three a test hits every time), [seven markers](../../reference/pytest/markers.md), and a [sidecar YAML](../../reference/configuration.md); everything else is stock pytest.
+TesterKit is a hardware test platform; the bundled pytest plugin is its primary runner integration. OpenHTF and the LabVIEW / TestStand results API are the alternatives — see [Integrations](../../integration/). Tests under the pytest path are **plain pytest** — no decorator, no base class. The plugin contributes a set of [fixtures](../../reference/pytest/fixtures.md) (`context`, `verify`, `measure` are the three a test hits every time), [seven markers](../../reference/pytest/markers.md), and a [sidecar YAML](../../reference/configuration.md); everything else is stock pytest.
 
-The choice carries the rest of the pytest ecosystem with it. The sections below cover what pytest already gives you, what Litmus adds on top, and why that split helps when an AI assistant writes the tests.
+The choice carries the rest of the pytest ecosystem with it. The sections below cover what pytest already gives you, what TesterKit adds on top, and why that split helps when an AI assistant writes the tests.
 
-## Shape of a Litmus test
+## Shape of a TesterKit test
 
 ```python
 class TestPowerBoard:
@@ -17,7 +17,7 @@ Plain pytest collection — no proprietary IDE, no test DSL. Runs with the `pyte
 ## What stock pytest provides
 
 - **Test discovery and selection** — `pytest -k`, `-m`, node IDs, `--lf`/`--ff` for last-failed / failures-first
-- **Markers for classification** — `@pytest.mark.smoke`, `@pytest.mark.slow`, etc.; Litmus adds hardware-specific markers on top
+- **Markers for classification** — `@pytest.mark.smoke`, `@pytest.mark.slow`, etc.; TesterKit adds hardware-specific markers on top
 - **Fixtures** — `yield`-based setup/teardown, scope resolution, automatic composition
 - **Parametrize** — `@pytest.mark.parametrize` first-class (`context.get_param(...)` works on it directly)
 - **Rich failure output** — assertion rewriting, stack traces, `--tb` control
@@ -25,9 +25,9 @@ Plain pytest collection — no proprietary IDE, no test DSL. Runs with the `pyte
 - **IDE integration** — click-to-run, breakpoints, inline results in PyCharm / VS Code
 - **CI/CD** — `pytest --junitxml=...`, exit codes, `pytest-html`
 
-## What Litmus adds on top
+## What TesterKit adds on top
 
-| Concern                           | Litmus addition                                      |
+| Concern                           | TesterKit addition                                      |
 |-----------------------------------|------------------------------------------------------|
 | Measurement/event persistence     | `measure(name, v, ...)` → parquet, traceable  |
 | Part-spec-driven limits + pins | `verify(name, v)` resolves from part YAML     |
@@ -36,18 +36,18 @@ Plain pytest collection — no proprietary IDE, no test DSL. Runs with the `pyte
 | Instrument role fixtures          | Station config → `dmm`, `psu`, `scope` auto-fixtures |
 | Mock mode                         | `--mock-instruments`, sidecar `mocks:`, `pytest-mock` |
 | Session flags                     | `--station`, `--part`, `--operator`, `--uut-serial`, `--test-phase` |
-| Per-test-imposed limits           | `@pytest.mark.litmus_limits(name={...})`             |
+| Per-test-imposed limits           | `@pytest.mark.testerkit_limits(name={...})`             |
 
-Retries and explicit test dependencies are **ecosystem plugins**, not Litmus additions — use `@pytest.mark.flaky(reruns=N)` (`pytest-rerunfailures`) and `@pytest.mark.dependency(depends=[...])` (`pytest-dependency`).
+Retries and explicit test dependencies are **ecosystem plugins**, not TesterKit additions — use `@pytest.mark.flaky(reruns=N)` (`pytest-rerunfailures`) and `@pytest.mark.dependency(depends=[...])` (`pytest-dependency`).
 
 ## Implication for AI-assisted authoring
 
-AI assistants already know pytest well, so an assistant only has to learn Litmus's added vocabulary on top — the [fixtures](../../reference/pytest/fixtures.md) (most often `context`, `verify`, `measure`, `pins`, `instruments`, plus the per-instrument-role fixtures from the active station) and the [seven markers](../../reference/pytest/markers.md) (`litmus_limits`, `litmus_sweeps`, `litmus_mocks`, `litmus_characteristics`, `litmus_connections`, `litmus_retry`, `litmus_prompts`). A custom test runner would have to be taught from scratch.
+AI assistants already know pytest well, so an assistant only has to learn TesterKit's added vocabulary on top — the [fixtures](../../reference/pytest/fixtures.md) (most often `context`, `verify`, `measure`, `pins`, `instruments`, plus the per-instrument-role fixtures from the active station) and the [seven markers](../../reference/pytest/markers.md) (`testerkit_limits`, `testerkit_sweeps`, `testerkit_mocks`, `testerkit_characteristics`, `testerkit_connections`, `testerkit_retry`, `testerkit_prompts`). A custom test runner would have to be taught from scratch.
 
 ## See also
 
 - [Writing Tests](../../how-to/execution/writing-tests.md) — end-to-end patterns
-- [Litmus fixtures](../../reference/pytest/fixtures.md) — all the plugin fixtures
-- [Litmus markers](../../reference/pytest/markers.md) — the seven `litmus_*` markers
-- [pytest-native reference](../../reference/overview/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
-- [pytest docs](https://docs.pytest.org/en/stable/) — official reference for everything that isn't Litmus-specific
+- [TesterKit fixtures](../../reference/pytest/fixtures.md) — all the plugin fixtures
+- [TesterKit markers](../../reference/pytest/markers.md) — the seven `testerkit_*` markers
+- [pytest-native reference](../../reference/overview/pytest-native.md) — how TesterKit tests use pytest's own collection / fixtures / markers
+- [pytest docs](https://docs.pytest.org/en/stable/) — official reference for everything that isn't TesterKit-specific

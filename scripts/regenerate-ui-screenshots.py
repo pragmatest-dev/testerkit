@@ -6,7 +6,7 @@ Usage::
 
 What it does:
 
-1. Starts a local ``litmus serve`` instance on a non-default port (so the
+1. Starts a local ``testerkit serve`` instance on a non-default port (so the
    developer's own running server, if any, isn't disturbed).
 2. Waits for the server to respond at ``/``.
 3. Walks :data:`MANIFEST`. For each :class:`Shot`, navigates to the
@@ -20,7 +20,7 @@ committed; this script regenerates them in-place when the UI changes.
 
 Each ``selector`` must resolve to exactly one element via a stable
 ``data-testid`` attribute. If the page doesn't already have a testid
-on the target element, add one to the relevant ``src/litmus/ui/pages/``
+on the target element, add one to the relevant ``src/testerkit/ui/pages/``
 module first — that's part of writing the matching docs page (see
 ``scripts/SCREENSHOTS.md``).
 """
@@ -42,7 +42,7 @@ ASSET_ROOT = REPO_ROOT / "docs" / "_assets" / "operator-ui"
 # featured example (catalog + stations + parts + fixtures + profiles +
 # real test history). Running against the repo root means CONFIGURATION
 # entity pages (/stations, /parts, /fixtures, /instruments, /tests)
-# all render empty because the litmus repo doesn't ship those YAMLs.
+# all render empty because the testerkit repo doesn't ship those YAMLs.
 #
 # To re-seed history data: ``cd examples/07-profiles && pytest`` then
 # wait ~3 s for the runs daemon to materialise parquet.
@@ -111,7 +111,7 @@ MANIFEST: list[Shot] = [
         output_path="results/stats.png",
     ),
     # /results/{run_id} — single-run detail. {LATEST_RUN} resolves at
-    # script-start from ``litmus runs --json --limit 1`` so the shots
+    # script-start from ``testerkit runs --json --limit 1`` so the shots
     # always point at an existing run.
     Shot(
         url="/results/{LATEST_RUN}",
@@ -281,7 +281,8 @@ def _wait_for_server(timeout_s: float = SERVER_READY_TIMEOUT_S) -> None:
             last_err = exc
         time.sleep(0.5)
     raise RuntimeError(
-        f"litmus serve did not respond at {SERVE_URL} within {timeout_s}s; last error: {last_err!r}"
+        f"testerkit serve did not respond at {SERVE_URL} within {timeout_s}s; "
+        f"last error: {last_err!r}"
     )
 
 
@@ -332,7 +333,7 @@ def _resolve_placeholders(shots: list[Shot], project: Path) -> list[Shot]:
     """Substitute dynamic placeholders in shot URLs.
 
     Currently supports ``{LATEST_RUN}`` — resolved to the most recent
-    run id from ``litmus runs --json --limit 1`` (run in ``project``) so
+    run id from ``testerkit runs --json --limit 1`` (run in ``project``) so
     detail-page shots don't go stale every time the seed data churns.
     """
     needs_latest = any("{LATEST_RUN}" in s.url for s in shots)
@@ -341,14 +342,14 @@ def _resolve_placeholders(shots: list[Shot], project: Path) -> list[Shot]:
     import json
 
     raw = subprocess.check_output(
-        ["uv", "run", "litmus", "runs", "--json", "--limit", "1"],
+        ["uv", "run", "testerkit", "runs", "--json", "--limit", "1"],
         cwd=project,
         text=True,
     )
     rows = json.loads(raw)
     if not rows:
         raise RuntimeError(
-            "{LATEST_RUN} placeholder used but ``litmus runs`` returned no rows; "
+            "{LATEST_RUN} placeholder used but ``testerkit runs`` returned no rows; "
             "run a test (e.g. ``cd examples/02-verify && uv run pytest``) and retry."
         )
     latest = rows[0].get("test_run_id") or rows[0].get("run_id")
@@ -377,9 +378,9 @@ def _group_by_project(shots: list[Shot]) -> dict[Path, list[Shot]]:
 
 
 def _serve(project: Path) -> subprocess.Popen[bytes]:
-    """Start ``litmus serve`` for ``project`` and wait until it responds."""
+    """Start ``testerkit serve`` for ``project`` and wait until it responds."""
     proc = subprocess.Popen(
-        ["uv", "run", "litmus", "serve", "--host", SERVE_HOST, "--port", str(SERVE_PORT)],
+        ["uv", "run", "testerkit", "serve", "--host", SERVE_HOST, "--port", str(SERVE_PORT)],
         cwd=project,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

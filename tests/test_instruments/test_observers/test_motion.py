@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from litmus.data.events import ChannelStarted, InstrumentSet
-from litmus.instruments.observers.motion import MotionObserver
+from testerkit.data.events import ChannelStarted, InstrumentSet
+from testerkit.instruments.observers.motion import MotionObserver
 
 from .conftest import make_observer
 

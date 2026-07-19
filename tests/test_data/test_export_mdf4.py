@@ -12,8 +12,8 @@ import pytest
 pytest.importorskip("asammdf")
 from asammdf import MDF  # pyright: ignore[reportMissingImports]
 
-from litmus.data.exporters.mdf4 import Mdf4Subscriber
-from litmus.data.models import TestRun
+from testerkit.data.exporters.mdf4 import Mdf4Subscriber
+from testerkit.data.models import TestRun
 
 
 class TestMdf4Subscriber:

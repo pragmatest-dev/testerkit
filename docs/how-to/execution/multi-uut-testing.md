@@ -1,6 +1,6 @@
 # Multi-UUT Testing
 
-Litmus runs multiple UUTs in parallel, one **site** per UUT — the same parallel-position concept STDF calls `SITE_NUM` and NI TestStand calls a "test socket." Each site is isolated, and a shared instrument (one physical DMM or PSU) can drive every site without sites colliding on it. This page shows how to define the sites and run them.
+TesterKit runs multiple UUTs in parallel, one **site** per UUT — the same parallel-position concept STDF calls `SITE_NUM` and NI TestStand calls a "test socket." Each site is isolated, and a shared instrument (one physical DMM or PSU) can drive every site without sites colliding on it. This page shows how to define the sites and run them.
 
 > **Prerequisites.** Single-UUT tests already working against your station — multi-UUT is a layer on top, not a replacement (see [tutorial step 7](../../tutorial/07-real-instruments.md)). A fixture YAML defining at least two sites (template in this page). Instruments that can be channel-shared or one physical instrument per site.
 
@@ -36,7 +36,7 @@ sites:
         instrument_channel: "2"
 ```
 
-Every connection block needs a `name:` field — Litmus doesn't auto-fill it from the dict key. Omit it and the file fails to load at session start with a clear error pointing at the missing field.
+Every connection block needs a `name:` field — TesterKit doesn't auto-fill it from the dict key. Omit it and the file fails to load at session start with a clear error pointing at the missing field.
 
 `uut_resource:` is a sibling of `name:` and `connections:` on each site — a per-site UUT control connection string (a COM port, a USB serial number). It's optional; set it when your test code talks to the UUT directly (e.g. to read a serial number over a debug UART) rather than only through instruments.
 
@@ -109,7 +109,7 @@ The results UI includes an "Execution Timeline" tab for multi-UUT runs, showing 
 - Per-step duration and outcome
 - Speedup factor (sequential estimate / parallel time)
 
-Access via: `litmus serve` then navigate to a multi-UUT result detail page.
+Access via: `testerkit serve` then navigate to a multi-UUT result detail page.
 
 ### Parquet Data
 
@@ -123,7 +123,7 @@ WHERE record_type = 'vector'
 ORDER BY site_index, step_index
 ```
 
-Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{run_id8}_{serial}.parquet`. `<data_dir>` is the active project's data dir — resolved from `--data-dir` → project `litmus.yaml` → `LITMUS_HOME` → platform default. See [reference/parquet-schema.md](../../reference/data/parquet-schema.md) for the column shape and the `record_type` discriminator (`run` / `step` / `vector`); measurements are nested under the vector rows.
+Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{run_id8}_{serial}.parquet`. `<data_dir>` is the active project's data dir — resolved from `--data-dir` → project `testerkit.yaml` → `TESTERKIT_HOME` → platform default. See [reference/parquet-schema.md](../../reference/data/parquet-schema.md) for the column shape and the `record_type` discriminator (`run` / `step` / `vector`); measurements are nested under the vector rows.
 
 ### Events
 
@@ -137,7 +137,7 @@ See [event-types reference](../../reference/data/event-types.md) for the full fi
 
 ## Sharing One Instrument Across Sites
 
-When two sites map to the same instrument role, Litmus connects it once and lets every site use it safely — calls are serialized so two sites never talk to it at the same time. You write your test exactly as in the single-UUT case; the shared connection is transparent.
+When two sites map to the same instrument role, TesterKit connects it once and lets every site use it safely — calls are serialized so two sites never talk to it at the same time. You write your test exactly as in the single-UUT case; the shared connection is transparent.
 
 Mock instruments are NOT shared — each site gets its own mock so mock state never leaks between sites.
 
@@ -155,7 +155,7 @@ def test_thermal_soak(dmm, sync):
     v = dmm.measure_voltage()
 ```
 
-`sync.wait("label", timeout=...)` blocks each site until every site reaches the same labeled point, then releases them together. If a site fails or exits before reaching the point, Litmus releases the remaining sites automatically so the run does not get stuck.
+`sync.wait("label", timeout=...)` blocks each site until every site reaches the same labeled point, then releases them together. If a site fails or exits before reaching the point, TesterKit releases the remaining sites automatically so the run does not get stuck.
 
 ## Debugging Failures
 
@@ -165,11 +165,11 @@ Inside a site's test process these identify the UUT, so your test or a serial-po
 
 | Variable | Description |
 |----------|-------------|
-| `LITMUS_UUT_SERIAL` | UUT serial for this site |
-| `LITMUS_UUT_PART_NUMBER` | UUT part number (shared across sites) |
-| `LITMUS_UUT_REVISION` | UUT revision (shared across sites) |
-| `LITMUS_UUT_LOT_NUMBER` | UUT lot / batch (shared across sites) |
-| `LITMUS_UUT_RESOURCE` | Per-site UUT control connection (e.g. `/dev/ttyUSB0`) from the site's `uut_resource:` field |
+| `TESTERKIT_UUT_SERIAL` | UUT serial for this site |
+| `TESTERKIT_UUT_PART_NUMBER` | UUT part number (shared across sites) |
+| `TESTERKIT_UUT_REVISION` | UUT revision (shared across sites) |
+| `TESTERKIT_UUT_LOT_NUMBER` | UUT lot / batch (shared across sites) |
+| `TESTERKIT_UUT_RESOURCE` | Per-site UUT control connection (e.g. `/dev/ttyUSB0`) from the site's `uut_resource:` field |
 
 ### Viewing Per-Site Output
 
@@ -182,7 +182,7 @@ Site stdout is prefixed with `[site:N]` in the terminal output:
 
 ### Common Issues
 
-**Sites appear to hang:** A `sync.wait()` may be waiting on a site that already failed. Litmus releases the other sites automatically when a site exits, but shorten a too-long `timeout=` if the wait is the bottleneck.
+**Sites appear to hang:** A `sync.wait()` may be waiting on a site that already failed. TesterKit releases the other sites automatically when a site exits, but shorten a too-long `timeout=` if the wait is the bottleneck.
 
 **Same serial warning:** If you see "Single --uut-serial applied to all N sites", use `--uut-serials` for per-site assignment.
 
@@ -192,12 +192,12 @@ Site stdout is prefixed with `[site:N]` in the terminal output:
 
 **Shared instrument is the bottleneck:** Sites queue for a shared instrument — check the Execution Timeline to see whether sites are waiting on instrument access.
 
-**Orphaned site processes:** On normal teardown or Ctrl-C, Litmus terminates every site subprocess automatically. A hard kill (e.g. `kill -9` on the parent) bypasses this cleanup and can leave orphaned site processes behind.
+**Orphaned site processes:** On normal teardown or Ctrl-C, TesterKit terminates every site subprocess automatically. A hard kill (e.g. `kill -9` on the parent) bypasses this cleanup and can leave orphaned site processes behind.
 
 
 ## See also
 
-- [Litmus fixtures → `sync`](../../reference/pytest/fixtures.md#sync-session) — the sync-point fixture's full API
+- [TesterKit fixtures → `sync`](../../reference/pytest/fixtures.md#sync-session) — the sync-point fixture's full API
 - [CLI reference](../../reference/cli.md) — every flag and environment variable used on this page
 - [Configuration reference → Fixture YAML](../../reference/configuration.md#fixture-yaml) — field-by-field `sites:` / `connections:` schema
 - [Operator UI → Results detail](../../reference/operator-ui/results/detail.md) — the Execution Timeline tab in the browser

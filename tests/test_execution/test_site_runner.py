@@ -5,9 +5,9 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.models import UUT
-from litmus.execution.site_runner import SiteRunner
-from litmus.execution.sites import ResolvedSite
+from testerkit.data.models import UUT
+from testerkit.execution.site_runner import SiteRunner
+from testerkit.execution.sites import ResolvedSite
 
 
 def _make_sites() -> list[ResolvedSite]:
@@ -33,7 +33,7 @@ class TestSiteRunnerExecution:
         uuts = _make_uuts()
         runner = SiteRunner(sites, uuts)
 
-        cmd = [sys.executable, "-c", "import os; print(os.environ.get('_LITMUS_SITE_INDEX'))"]
+        cmd = [sys.executable, "-c", "import os; print(os.environ.get('_TESTERKIT_SITE_INDEX'))"]
         results = runner.run(cmd, sync=False)
 
         assert len(results) == 2
@@ -47,10 +47,10 @@ class TestSiteRunnerExecution:
 
         script = (
             "import os, json; print(json.dumps({"
-            "'site': os.environ.get('_LITMUS_SITE_INDEX'),"
-            "'serial': os.environ.get('LITMUS_UUT_SERIAL'),"
-            "'count': os.environ.get('_LITMUS_SITE_COUNT'),"
-            "'session': os.environ.get('_LITMUS_SESSION_ID')"
+            "'site': os.environ.get('_TESTERKIT_SITE_INDEX'),"
+            "'serial': os.environ.get('TESTERKIT_UUT_SERIAL'),"
+            "'count': os.environ.get('_TESTERKIT_SITE_COUNT'),"
+            "'session': os.environ.get('_TESTERKIT_SESSION_ID')"
             "}))"
         )
         cmd = [sys.executable, "-c", script]
@@ -74,7 +74,7 @@ class TestSiteRunnerExecution:
         session_id = uuid4()
         runner = SiteRunner(sites, uuts, session_id=session_id)
 
-        script = "import os; print(os.environ.get('_LITMUS_SESSION_ID'))"
+        script = "import os; print(os.environ.get('_TESTERKIT_SESSION_ID'))"
         cmd = [sys.executable, "-c", script]
         results = runner.run(cmd, sync=False)
 
@@ -98,7 +98,9 @@ class TestSiteRunnerExecution:
         runner = SiteRunner(sites, uuts)
 
         # site 1 exits with error
-        script = "import os, sys; sys.exit(1 if os.environ.get('_LITMUS_SITE_INDEX') == '1' else 0)"
+        script = (
+            "import os, sys; sys.exit(1 if os.environ.get('_TESTERKIT_SITE_INDEX') == '1' else 0)"
+        )
         cmd = [sys.executable, "-c", script]
         results = runner.run(cmd, sync=False)
 

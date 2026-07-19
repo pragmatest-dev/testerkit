@@ -15,10 +15,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.analysis.steps_query import StepNode, StepRow, StepsQuery
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.run_store import RunStore
-from litmus.data.schemas import RUN_ROW_SCHEMA
+from testerkit.analysis.steps_query import StepNode, StepRow, StepsQuery
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.run_store import RunStore
+from testerkit.data.schemas import RUN_ROW_SCHEMA
 
 
 def _step(
@@ -306,7 +306,7 @@ class TestListForSession:
 
 class TestDescribeColumns:
     def test_returns_table_columns(self):
-        from litmus.analysis.measurement_facets import ColumnSchema
+        from testerkit.analysis.measurement_facets import ColumnSchema
 
         with StepsQuery() as q:
             schema = q.describe_columns()

@@ -2,33 +2,33 @@
 
 Visualize test results, events, and instrument channel data with pre-built Grafana dashboards.
 
-> **Prerequisites.** A running Grafana instance (10.x or later, with the built-in PostgreSQL datasource — earlier versions don't have the `grafana-postgresql-datasource` plugin the dashboards target). `litmus` installed with the Grafana extras (`pip install 'litmus-test[grafana]'` — the PyPI name is `litmus-test`; the import is `litmus`). At least one run already recorded under `data/` — empty stores render empty dashboards.
+> **Prerequisites.** A running Grafana instance (10.x or later, with the built-in PostgreSQL datasource — earlier versions don't have the `grafana-postgresql-datasource` plugin the dashboards target). `testerkit` installed with the Grafana extras (`pip install 'testerkit[grafana]'` — the PyPI name is `testerkit`; the import is `testerkit`). At least one run already recorded under `data/` — empty stores render empty dashboards.
 
 ## Overview
 
-Litmus ships 10 Grafana dashboards that query the event, channel, and run stores:
+TesterKit ships 10 Grafana dashboards that query the event, channel, and run stores:
 
 - **Parquet** (runs, measurements) — yield, duration, failure analysis, traceability
 - **Arrow IPC** (events) — session timeline, instrument activity, dialogs
 - **Arrow IPC** (channels) — time-series instrument data, channel statistics
 
-No Grafana plugins required. Litmus includes a `pgwire` server (the PostgreSQL wire protocol — what every PostgreSQL client speaks — implemented over DuckDB) that Grafana's built-in PostgreSQL datasource connects to directly.
+No Grafana plugins required. TesterKit includes a `pgwire` server (the PostgreSQL wire protocol — what every PostgreSQL client speaks — implemented over DuckDB) that Grafana's built-in PostgreSQL datasource connects to directly.
 
 ## Quick Start
 
 ### 1. Install Grafana extras
 
 ```bash
-pip install 'litmus-test[grafana]'
+pip install 'testerkit[grafana]'
 ```
 
 ### 2. Start the data server
 
 ```bash
-litmus grafana serve
+testerkit grafana serve
 ```
 
-This starts a PostgreSQL-compatible server on port 5433 that exposes all Litmus data stores as SQL tables.
+This starts a PostgreSQL-compatible server on port 5433 that exposes all TesterKit data stores as SQL tables.
 
 ### 3. Set up dashboards
 
@@ -36,12 +36,12 @@ This starts a PostgreSQL-compatible server on port 5433 that exposes all Litmus 
 
 ```bash
 # Basic auth
-litmus grafana setup \
+testerkit grafana setup \
     --grafana-url http://localhost:3000 \
     --grafana-user admin --grafana-password admin
 
 # API token
-litmus grafana setup \
+testerkit grafana setup \
     --grafana-url http://localhost:3000 \
     --grafana-token glsa_xxxxxxxxxxxx
 ```
@@ -49,10 +49,10 @@ litmus grafana setup \
 **File-based** (local Grafana install):
 
 ```bash
-litmus grafana setup --grafana-home /usr/share/grafana
+testerkit grafana setup --grafana-home /usr/share/grafana
 ```
 
-This creates the datasource, a "Litmus" folder, and imports all 10 dashboards.
+This creates the datasource, a "TesterKit" folder, and imports all 10 dashboards.
 
 ## Dashboards
 
@@ -93,14 +93,14 @@ Grafana (PostgreSQL datasource)
     |
     | PostgreSQL wire protocol
     v
-litmus grafana serve (Buena Vista + DuckDB)
+testerkit grafana serve (Buena Vista + DuckDB)
     |
     |-- read_parquet('<data_dir>/runs/**/*.parquet')  --> measurements, runs
     |-- Arrow IPC (<data_dir>/events/**/*.arrow)      --> events
     |-- Arrow IPC (<data_dir>/channels/**/*.arrow)    --> channels
 ```
 
-`<data_dir>` is resolved automatically from your project's `litmus.yaml` — you only pass `--data-dir` to point at a different store. All timestamps are stored as UTC and exposed as naive UTC timestamps for Grafana compatibility.
+`<data_dir>` is resolved automatically from your project's `testerkit.yaml` — you only pass `--data-dir` to point at a different store. All timestamps are stored as UTC and exposed as naive UTC timestamps for Grafana compatibility.
 
 The data server auto-refreshes Arrow IPC tables every 30 seconds (configurable with `--refresh-seconds`). Parquet views are always live (DuckDB reads on query).
 
@@ -117,13 +117,13 @@ The data server auto-refreshes Arrow IPC tables every 30 seconds (configurable w
 ## CLI Reference
 
 ```
-litmus grafana serve [OPTIONS]
+testerkit grafana serve [OPTIONS]
     --host TEXT       Bind address (default: 0.0.0.0)
     --port INTEGER    pgwire port (default: 5433)
-    --data-dir PATH   Override the data dir (default: resolved from litmus.yaml)
+    --data-dir PATH   Override the data dir (default: resolved from testerkit.yaml)
     --refresh-seconds INTEGER  Seconds between IPC refreshes (default: 30)
 
-litmus grafana setup [OPTIONS]
+testerkit grafana setup [OPTIONS]
     --grafana-url TEXT        API mode: Grafana URL
     --grafana-token TEXT      API mode: bearer token
     --grafana-user TEXT       API mode: basic auth username
@@ -131,9 +131,9 @@ litmus grafana setup [OPTIONS]
     --grafana-home DIRECTORY  File mode: Grafana install dir
     --host TEXT               pgwire host for datasource (default: 127.0.0.1)
     --port INTEGER            pgwire port for datasource (default: 5433)
-    --folder TEXT             Dashboard folder name (default: Litmus)
+    --folder TEXT             Dashboard folder name (default: TesterKit)
 
-litmus grafana export [OPTIONS]
+testerkit grafana export [OPTIONS]
     --output-dir PATH  Export dashboards and templates (default: grafana-export)
 ```
 

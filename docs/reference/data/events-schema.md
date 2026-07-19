@@ -1,6 +1,6 @@
 # Event Log Storage Schema
 
-Every Litmus event — session start, a measurement, a dialog response — lands in the **event log** as one row in an **Arrow IPC stream file** (`.arrow` extension). These are standard Apache Arrow IPC format files: DuckDB, pandas, Polars, and PyArrow all read them directly without Litmus.
+Every TesterKit event — session start, a measurement, a dialog response — lands in the **event log** as one row in an **Arrow IPC stream file** (`.arrow` extension). These are standard Apache Arrow IPC format files: DuckDB, pandas, Polars, and PyArrow all read them directly without TesterKit.
 
 This page covers the on-disk layout, the envelope columns every event row carries, and the version stamp. For what each event type carries inside its payload, see [Event types](event-types.md).
 
@@ -62,7 +62,7 @@ Every event row — regardless of `event_type` — carries this fixed set of col
 To recover one event's full, typed payload, parse its `json` column:
 
 ```python
-from litmus.data.events import Event
+from testerkit.data.events import Event
 
 event = Event.model_validate_json(row["json"])   # picks the subclass by event_type
 ```
@@ -109,7 +109,7 @@ print(meta[b"schema_version"])           # b"0.1"
 print(meta[b"event_catalog_version"])    # b"0.1"
 ```
 
-A file with no `schema_version` stamp, or a stamp Litmus doesn't recognize, is skipped rather than blocking the rest of the log — one bad or unstamped file never stalls ingestion of the good ones. Regenerate an unstamped file if you need its events read.
+A file with no `schema_version` stamp, or a stamp TesterKit doesn't recognize, is skipped rather than blocking the rest of the log — one bad or unstamped file never stalls ingestion of the good ones. Regenerate an unstamped file if you need its events read.
 
 ## See also
 
@@ -117,4 +117,4 @@ A file with no `schema_version` stamp, or a stamp Litmus doesn't recognize, is s
 - [Event log concept](../../concepts/data/event-log.md) — why event sourcing, and how the log is consumed
 - [Channels schema](channels-schema.md) — the sibling Arrow IPC format for streaming numeric channels
 - [Files schema](files-schema.md) — the sibling blob + sidecar format for file artifacts
-- [Query API](query-api.md) — how to query events through Litmus instead of reading files directly
+- [Query API](query-api.md) — how to query events through TesterKit instead of reading files directly

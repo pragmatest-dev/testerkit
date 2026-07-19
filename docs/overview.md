@@ -1,6 +1,6 @@
-# Litmus Documentation
+# TesterKit Documentation
 
-Litmus is a Python-native hardware test platform for the AI-assisted era.
+TesterKit is a Python-native hardware test platform for the AI-assisted era.
 
 ## Documentation Sections
 
@@ -10,8 +10,8 @@ Litmus is a Python-native hardware test platform for the AI-assisted era.
 | [How-To Guides](how-to/execution/writing-tests.md) | Step-by-step guides for common tasks |
 | [Concepts](concepts/) | Parts, stations, capabilities, fixtures, and matching |
 | [Reference](reference/runtime/api.md) | MCP tools, HTTP endpoints, CLI, models |
-| [Integration](integration/) | Adopt Litmus with existing tests and infrastructure |
-| [Examples](https://github.com/pragmatest-dev/litmus/tree/main/examples) | Seven runnable example projects, each one rung of the framework adoption ladder (01-vanilla → 07-profiles) |
+| [Integration](integration/) | Adopt TesterKit with existing tests and infrastructure |
+| [Examples](https://github.com/pragmatest-dev/testerkit/tree/main/examples) | Seven runnable example projects, each one rung of the framework adoption ladder (01-vanilla → 07-profiles) |
 
 ## Quick Start
 
@@ -22,12 +22,12 @@ cd examples/01-vanilla && uv run pytest -v
 
 **Start the UI:**
 ```bash
-litmus serve
+testerkit serve
 ```
 
 **Configure for [Claude Code](how-to/overview/mcp-integration.md):** (Anthropic's terminal AI coding assistant)
 ```bash
-litmus setup claude-code
+testerkit setup claude-code
 ```
 
 ## Architecture Overview
@@ -81,13 +81,13 @@ flowchart TB
 
 ## Learning Paths
 
-### New to Litmus?
+### New to TesterKit?
 
 Start with the [Tutorial](tutorial/) — a progressive learning path from your first test to production deployment.
 
 ### Have Existing Tests?
 
-Check out [Integration](integration/) — guides for adopting Litmus incrementally with LabVIEW, TestStand, or existing pytest suites.
+Check out [Integration](integration/) — guides for adopting TesterKit incrementally with LabVIEW, TestStand, or existing pytest suites.
 
 ### Quick Reference
 
@@ -96,7 +96,7 @@ Jump to [Reference](reference/runtime/api.md) for API documentation, configurati
 ## Project Structure
 
 ```
-litmus/
+testerkit/
 ├── models/          # Pydantic models for every YAML entity (project, station, part, capability, ...)
 ├── store.py         # Canonical YAML I/O — every read/write of catalog / station / part / fixture YAML
 ├── instruments/     # Instrument base classes (Instrument, VisaInstrument) + Mock factory
@@ -104,7 +104,7 @@ litmus/
 ├── pytest_plugin/   # pytest plugin (fixtures, markers, sidecar loader)
 ├── execution/       # Test-execution helpers (verify, harness, logger, decorators)
 ├── data/            # Parquet schema + backend, event log/store, run store, channel store
-├── mcp/             # MCP server (12 `litmus_*` tools)
+├── mcp/             # MCP server (12 `testerkit_*` tools)
 ├── api/             # HTTP API (FastAPI)
 ├── ui/              # Operator UI (NiceGUI)
 └── client.py        # Python client library
@@ -112,5 +112,5 @@ litmus/
 
 ## Getting Help
 
-- **GitHub Issues:** [Report bugs and request features](https://github.com/pragmatest-dev/litmus/issues)
-- **CLI Help:** `litmus --help`
+- **GitHub Issues:** [Report bugs and request features](https://github.com/pragmatest-dev/testerkit/issues)
+- **CLI Help:** `testerkit --help`

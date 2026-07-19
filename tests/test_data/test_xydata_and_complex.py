@@ -28,9 +28,9 @@ from uuid import uuid4
 import numpy as np
 import pytest
 
-from litmus.data.files import FileStore
-from litmus.data.files.serializers import find_serializer
-from litmus.data.models import XYData
+from testerkit.data.files import FileStore
+from testerkit.data.files.serializers import find_serializer
+from testerkit.data.models import XYData
 
 
 def _sid() -> str:

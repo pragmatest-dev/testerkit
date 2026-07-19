@@ -3,7 +3,7 @@ requires = ["hatchling", "hatch-fancy-pypi-readme"]
 build-backend = "hatchling.build"
 
 [project]
-name = "litmus-test"
+name = "testerkit"
 version = "0.3.1"
 description = "Hardware test platform for the AI-assisted era"
 dynamic = ["readme"]
@@ -60,10 +60,10 @@ dependencies = [
     "pytz>=2025.2",
     "duckdb>=1.5.0",
     "orjson>=3.9",
-    # pytest is a runtime dependency, not a dev tool — Litmus is a
+    # pytest is a runtime dependency, not a dev tool — TesterKit is a
     # pytest plugin (see [project.entry-points.pytest11]), and the
     # starter project's tests + every tutorial expect `pytest` to be
-    # importable + on PATH the moment `pip install litmus-test` finishes.
+    # importable + on PATH the moment `pip install testerkit` finishes.
     "pytest>=8.0",
 ]
 
@@ -85,21 +85,21 @@ grafana = [
     "buenavista>=0.5.0",
     "duckdb>=1.0",
 ]
-# Richer `litmus benchmark` capture (peak RAM + CPU %). Without it the
+# Richer `testerkit benchmark` capture (peak RAM + CPU %). Without it the
 # benchmark still runs and reports throughput; the resource block is omitted.
 benchmark = ["psutil>=5.9"]
 # Bundles
-all-exporters = ["litmus-test[stdf,hdf5,tdms,mdf4]"]
+all-exporters = ["testerkit[stdf,hdf5,tdms,mdf4]"]
 
 [project.urls]
-Repository = "https://github.com/pragmatest-dev/litmus"
-Issues = "https://github.com/pragmatest-dev/litmus/issues"
+Repository = "https://github.com/pragmatest-dev/testerkit"
+Issues = "https://github.com/pragmatest-dev/testerkit/issues"
 
 [project.scripts]
-litmus = "litmus.cli:main"
+testerkit = "testerkit.cli:main"
 
 [project.entry-points.pytest11]
-litmus = "litmus.pytest_plugin"
+testerkit = "testerkit.pytest_plugin"
 
 [dependency-groups]
 dev = [
@@ -133,31 +133,31 @@ content-type = "text/markdown"
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
 path = "README.md"
 
-# `](./` → `](https://github.com/pragmatest-dev/litmus/blob/main/`
+# `](./` → `](https://github.com/pragmatest-dev/testerkit/blob/main/`
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
 pattern = '\]\(\./'
-replacement = '](https://github.com/pragmatest-dev/litmus/blob/main/'
+replacement = '](https://github.com/pragmatest-dev/testerkit/blob/main/'
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/litmus"]
+packages = ["src/testerkit"]
 
 # Bundle the curated user-facing documentation tiers into the wheel as
-# package data at ``litmus/_docs/...``. This is what powers the in-app
+# package data at ``testerkit/_docs/...``. This is what powers the in-app
 # ``/docs/...`` operator UI for ``pip install``ed copies — without these
 # rules, the docs path resolution ends up outside the package and
 # returns 404. ``_internal/`` (audits, explorations) is intentionally
 # omitted: contributor material, not user-facing.
 [tool.hatch.build.targets.wheel.force-include]
-"docs/tutorial" = "litmus/_docs/tutorial"
-"docs/integration" = "litmus/_docs/integration"
-"docs/concepts" = "litmus/_docs/concepts"
-"docs/how-to" = "litmus/_docs/how-to"
-"docs/reference" = "litmus/_docs/reference"
-"docs/_assets" = "litmus/_docs/_assets"
+"docs/tutorial" = "testerkit/_docs/tutorial"
+"docs/integration" = "testerkit/_docs/integration"
+"docs/concepts" = "testerkit/_docs/concepts"
+"docs/how-to" = "testerkit/_docs/how-to"
+"docs/reference" = "testerkit/_docs/reference"
+"docs/_assets" = "testerkit/_docs/_assets"
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/litmus",
+    "src/testerkit",
     "tests",
     "examples",
     "docs",
@@ -174,11 +174,11 @@ exclude = [
     ".tmp",
     # Top-level ``data/`` is the per-developer parquet output dir
     # (gitignored). Scoped with a leading slash so the pattern doesn't
-    # also strip ``src/litmus/data/`` — the package subdirectory that
+    # also strip ``src/testerkit/data/`` — the package subdirectory that
     # holds the event store, models, and parquet schemas. The earlier
     # unscoped ``data`` pattern shipped 0.1.0 / 0.1.1 wheels with a
-    # missing ``litmus.data`` subpackage; the pytest plugin imports
-    # ``litmus.data.models`` at module load and dies on a fresh
+    # missing ``testerkit.data`` subpackage; the pytest plugin imports
+    # ``testerkit.data.models`` at module load and dies on a fresh
     # ``pip install``.
     "/data",
     "dist",
@@ -204,18 +204,18 @@ members = [
 ]
 
 [tool.uv.sources]
-litmus-example-01-vanilla = { workspace = true }
-litmus-example-02-verify = { workspace = true }
-litmus-example-03-inline-limits = { workspace = true }
-litmus-example-04-sidecar-markers = { workspace = true }
-litmus-example-05-part-spec = { workspace = true }
-litmus-example-06-station-catalog = { workspace = true }
-litmus-example-07-profiles = { workspace = true }
-litmus-example-08-waveform-evidence = { workspace = true }
-litmus-example-09-instrument-streaming = { workspace = true }
-litmus-example-10-artifacts-and-byte-streams = { workspace = true }
-litmus-example-11-querying-data = { workspace = true }
-litmus-example-12-parallel-sites = { workspace = true }
+testerkit-example-01-vanilla = { workspace = true }
+testerkit-example-02-verify = { workspace = true }
+testerkit-example-03-inline-limits = { workspace = true }
+testerkit-example-04-sidecar-markers = { workspace = true }
+testerkit-example-05-part-spec = { workspace = true }
+testerkit-example-06-station-catalog = { workspace = true }
+testerkit-example-07-profiles = { workspace = true }
+testerkit-example-08-waveform-evidence = { workspace = true }
+testerkit-example-09-instrument-streaming = { workspace = true }
+testerkit-example-10-artifacts-and-byte-streams = { workspace = true }
+testerkit-example-11-querying-data = { workspace = true }
+testerkit-example-12-parallel-sites = { workspace = true }
 
 [tool.ruff]
 line-length = 100

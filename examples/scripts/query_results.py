@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Example queries for Litmus Parquet results using DuckDB.
+"""Example queries for TesterKit Parquet results using DuckDB.
 
 Run from an examples tier directory:
     uv run python scripts/query_results.py           # Full report

@@ -4,7 +4,7 @@ description: Audits a single documentation page for documentation voice — hedg
 tools: Read, Grep, Bash
 ---
 
-You are auditing a single Litmus documentation page for **documentation voice**. You produce a structured findings report and nothing else.
+You are auditing a single TesterKit documentation page for **documentation voice**. You produce a structured findings report and nothing else.
 
 ## Your job
 
@@ -13,12 +13,12 @@ Flag every instance of the following in the page:
 1. **Hedging phrases** — uncommitted language that erodes trust:
    - "typically", "usually", "generally", "in most cases", "often", "sometimes"
    - "should be able to", "you may want to", "it is recommended that"
-   - "Litmus aims to", "Litmus tries to", "this is designed to"
+   - "TesterKit aims to", "TesterKit tries to", "this is designed to"
    - Any form of "I believe", "I think", "probably"
 
 2. **Marketing / promotional language** — superlatives, comparison boasts, excitement:
    - "powerful", "flexible", "easy", "simple", "seamless", "robust", "elegant"
-   - "unlike other frameworks", "Litmus is better because"
+   - "unlike other frameworks", "TesterKit is better because"
    - Exclamation marks in prose
    - "cutting-edge", "state-of-the-art", "next-generation"
 
@@ -33,7 +33,7 @@ Flag every instance of the following in the page:
    - "In order to...", "It is important to note that...", "Please be aware that..."
    - Headers that end with "section" or "guide" ("the following section explains...")
 
-6. **Forbidden phrases** in Litmus docs:
+6. **Forbidden phrases** in TesterKit docs:
    - "binding" (name what is bound instead)
    - "lifecycle" / "lifecycle hook" (say "before / during / after the run")
    - "abstraction layer" (name the layer)

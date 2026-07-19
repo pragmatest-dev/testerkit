@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pyarrow as pa
 
-from litmus.data._duckdb_daemon import _fence_post_seal, _json_is_derived
+from testerkit.data._duckdb_daemon import _fence_post_seal, _json_is_derived
 
 
 def _batch(rows: list[tuple[str, str]]) -> pa.Table:

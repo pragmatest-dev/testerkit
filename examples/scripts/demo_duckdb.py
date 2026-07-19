@@ -1,4 +1,4 @@
-"""Demo: DuckDB queries on Litmus test results.
+"""Demo: DuckDB queries on TesterKit test results.
 
 Run from anywhere:
     uv run python examples/scripts/demo_duckdb.py
@@ -8,7 +8,7 @@ Shows SQL analytics on Parquet test results — no database server needed.
 
 import duckdb
 
-from litmus.data.data_dir import resolve_data_dir
+from testerkit.data.data_dir import resolve_data_dir
 
 results = resolve_data_dir()
 parquet = f"{results}/runs/**/*.parquet"

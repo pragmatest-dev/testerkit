@@ -9,17 +9,17 @@ the three tools you'll use most.
 ## Prerequisites
 
 - [MCP server registered](../overview/mcp-integration.md) with your AI client
-  (run `litmus setup <client>`, restart the client)
+  (run `testerkit setup <client>`, restart the client)
 - A project with at least a few runs already in the data dir
 
 ## The three query tools
 
 | Tool | Use it for |
 |---|---|
-| `litmus_runs(action="list")` | "show me recent runs" — returns the most recent N run summaries (the MCP tool accepts only `limit`; for per-part / per-station filtering, follow up and the assistant filters the results for you) |
-| `litmus_runs(action="get", run_id=...)` | "tell me about run X" — one run's full summary, accepts 8-char prefix |
-| `litmus_steps(run_id=...)` | "what did run X actually execute" — flat list (`action="list"`) or hierarchy (`action="tree"`) |
-| `litmus_metrics(action=...)` | "is the line healthy" — aggregate analytics over a date range |
+| `testerkit_runs(action="list")` | "show me recent runs" — returns the most recent N run summaries (the MCP tool accepts only `limit`; for per-part / per-station filtering, follow up and the assistant filters the results for you) |
+| `testerkit_runs(action="get", run_id=...)` | "tell me about run X" — one run's full summary, accepts 8-char prefix |
+| `testerkit_steps(run_id=...)` | "what did run X actually execute" — flat list (`action="list"`) or hierarchy (`action="tree"`) |
+| `testerkit_metrics(action=...)` | "is the line healthy" — aggregate analytics over a date range |
 
 These tools return the same numbers you see on the operator UI's
 Results and Metrics pages — just in the chat instead of the browser.
@@ -30,7 +30,7 @@ Ask your assistant:
 
 > List the last 20 runs.
 
-It calls `litmus_runs(action="list", limit=20)` and gets back the
+It calls `testerkit_runs(action="list", limit=20)` and gets back the
 recent runs with each one's outcome, serial, station, and part.
 Then you can ask follow-ups like "filter to the ones that failed",
 and the assistant re-queries or narrows the results for you.
@@ -41,21 +41,21 @@ When the recent-runs list surfaces a suspect run id:
 
 > Show me the steps for run a4f8b201.
 
-The assistant calls `litmus_steps(run_id="a4f8b201", action="tree")`
+The assistant calls `testerkit_steps(run_id="a4f8b201", action="tree")`
 (8-char prefix is fine — the tool resolves it) and gets the
 step hierarchy with each step's outcome, vector index, and
 measurement count. `tree` gives you the nested step hierarchy;
 `list` gives a flat ordered list — the assistant picks whichever
 fits the question.
 
-To drill further, `litmus_runs(action="get", run_id="a4f8b201")`
+To drill further, `testerkit_runs(action="get", run_id="a4f8b201")`
 returns the run-level summary (project, phase, outcome, started /
 ended timestamps, totals) — the same shape the Results detail
 Overview tab renders.
 
 ## Recipe 3 — "Is the line healthy?"
 
-`litmus_metrics` answers the line-health questions. Pick an action:
+`testerkit_metrics` answers the line-health questions. Pick an action:
 
 | Action | Question it answers |
 |---|---|
@@ -76,17 +76,17 @@ Common asks:
 
 > Show me yield for the last 14 days, weekly.
 
-Translates to `litmus_metrics(action="trend", period="week",
+Translates to `testerkit_metrics(action="trend", period="week",
 since="<two weeks ago>")`. The assistant fills in the ISO date
 from "the last 14 days".
 
 > What's the top failure mode on station bench-3?
 
-`litmus_metrics(action="pareto", station="bench-3", top_n=10)`.
+`testerkit_metrics(action="pareto", station="bench-3", top_n=10)`.
 
 > Which measurements have Ppk below 1.33?
 
-Ask that and the assistant runs `litmus_metrics(action="ppk")` and
+Ask that and the assistant runs `testerkit_metrics(action="ppk")` and
 reads the threshold off the results for you.
 
 ## Recipe 4 — "Walk me through the run history" (chained)
@@ -99,10 +99,10 @@ For a longer diagnostic, chain the tools:
 
 That's:
 
-1. `litmus_runs(action="list", limit=200)` — fetch recent runs
+1. `testerkit_runs(action="list", limit=200)` — fetch recent runs
 2. The assistant groups by serial, finds one with multiple failures
    on the same step
-3. `litmus_steps(run_id=<first>, action="list")` and again for the
+3. `testerkit_steps(run_id=<first>, action="list")` and again for the
    second
 4. Diff the measurement values
 

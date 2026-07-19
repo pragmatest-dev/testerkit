@@ -10,19 +10,19 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "litmus-example-01-vanilla",
-    "litmus-example-02-verify",
-    "litmus-example-03-inline-limits",
-    "litmus-example-04-sidecar-markers",
-    "litmus-example-05-part-spec",
-    "litmus-example-06-station-catalog",
-    "litmus-example-07-profiles",
-    "litmus-example-08-waveform-evidence",
-    "litmus-example-09-instrument-streaming",
-    "litmus-example-10-artifacts-and-byte-streams",
-    "litmus-example-11-querying-data",
-    "litmus-example-12-parallel-sites",
-    "litmus-test",
+    "testerkit",
+    "testerkit-example-01-vanilla",
+    "testerkit-example-02-verify",
+    "testerkit-example-03-inline-limits",
+    "testerkit-example-04-sidecar-markers",
+    "testerkit-example-05-part-spec",
+    "testerkit-example-06-station-catalog",
+    "testerkit-example-07-profiles",
+    "testerkit-example-08-waveform-evidence",
+    "testerkit-example-09-instrument-streaming",
+    "testerkit-example-10-artifacts-and-byte-streams",
+    "testerkit-example-11-querying-data",
+    "testerkit-example-12-parallel-sites",
 ]
 
 [[package]]
@@ -1578,335 +1578,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/40/71/d89bb0e71b1415453980fd32315f2a037aad9f7f70f695c7cec7035feb13/license_expression-30.4.4.tar.gz", hash = "sha256:73448f0aacd8d0808895bdc4b2c8e01a8d67646e4188f887375398c761f340fd", size = 186402, upload-time = "2025-07-22T11:13:32.17Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/af/40/791891d4c0c4dab4c5e187c17261cedc26285fd41541577f900470a45a4d/license_expression-30.4.4-py3-none-any.whl", hash = "sha256:421788fdcadb41f049d2dc934ce666626265aeccefddd25e162a26f23bcbf8a4", size = 120615, upload-time = "2025-07-22T11:13:31.217Z" },
-]
-
-[[package]]
-name = "litmus-example-01-vanilla"
-version = "0.0.0"
-source = { editable = "examples/01-vanilla" }
-dependencies = [
-    { name = "litmus-test" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "litmus-test", editable = "." },
-    { name = "pytest" },
-]
-
-[[package]]
-name = "litmus-example-02-verify"
-version = "0.0.0"
-source = { editable = "examples/02-verify" }
-dependencies = [
-    { name = "litmus-test" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "litmus-test", editable = "." },
-    { name = "pytest" },
-]
-
-[[package]]
-name = "litmus-example-03-inline-limits"
-version = "0.0.0"
-source = { editable = "examples/03-inline-limits" }
-dependencies = [
-    { name = "litmus-test" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "litmus-test", editable = "." },
-    { name = "pytest" },
-]
-
-[[package]]
-name = "litmus-example-04-sidecar-markers"
-version = "0.0.0"
-source = { editable = "examples/04-sidecar-markers" }
-dependencies = [
-    { name = "litmus-test" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "litmus-test", editable = "." },
-    { name = "pytest" },
-]
-
-[[package]]
-name = "litmus-example-05-part-spec"
-version = "0.0.0"
-source = { editable = "examples/05-part-spec" }
-dependencies = [
-    { name = "litmus-test" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "litmus-test", editable = "." },
-    { name = "pytest" },
-]
-
-[[package]]
-name = "litmus-example-06-station-catalog"
-version = "0.0.0"
-source = { editable = "examples/06-station-catalog" }
-dependencies = [
-    { name = "litmus-test" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "litmus-test", editable = "." },
-    { name = "pytest" },
-]
-
-[[package]]
-name = "litmus-example-07-profiles"
-version = "0.0.0"
-source = { editable = "examples/07-profiles" }
-dependencies = [
-    { name = "litmus-test" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "litmus-test", editable = "." },
-    { name = "pytest" },
-]
-
-[[package]]
-name = "litmus-example-08-waveform-evidence"
-version = "0.0.0"
-source = { editable = "examples/08-waveform-evidence" }
-dependencies = [
-    { name = "litmus-test" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "litmus-test", editable = "." },
-    { name = "pytest" },
-]
-
-[[package]]
-name = "litmus-example-09-instrument-streaming"
-version = "0.0.0"
-source = { editable = "examples/09-instrument-streaming" }
-dependencies = [
-    { name = "litmus-test" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "litmus-test", editable = "." }]
-
-[[package]]
-name = "litmus-example-10-artifacts-and-byte-streams"
-version = "0.0.0"
-source = { editable = "examples/10-artifacts-and-byte-streams" }
-dependencies = [
-    { name = "litmus-test" },
-    { name = "pillow" },
-    { name = "pydantic" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "litmus-test", editable = "." },
-    { name = "pillow" },
-    { name = "pydantic" },
-    { name = "pytest" },
-]
-
-[[package]]
-name = "litmus-example-11-querying-data"
-version = "0.0.0"
-source = { editable = "examples/11-querying-data" }
-dependencies = [
-    { name = "litmus-test" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "litmus-test", editable = "." }]
-
-[[package]]
-name = "litmus-example-12-parallel-sites"
-version = "0.0.0"
-source = { editable = "examples/12-parallel-sites" }
-dependencies = [
-    { name = "litmus-test" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "litmus-test", editable = "." },
-    { name = "pytest" },
-]
-
-[[package]]
-name = "litmus-test"
-version = "0.3.1"
-source = { editable = "." }
-dependencies = [
-    { name = "click" },
-    { name = "duckdb" },
-    { name = "fastapi" },
-    { name = "fastmcp" },
-    { name = "filelock" },
-    { name = "httpx" },
-    { name = "jinja2" },
-    { name = "nicegui" },
-    { name = "numpy" },
-    { name = "orjson" },
-    { name = "platformdirs" },
-    { name = "pyarrow" },
-    { name = "pydantic" },
-    { name = "pytest" },
-    { name = "python-multipart" },
-    { name = "pytz" },
-    { name = "pyvisa" },
-    { name = "pyvisa-sim" },
-    { name = "pyyaml" },
-    { name = "ruamel-yaml" },
-    { name = "tsdownsample" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-all-exporters = [
-    { name = "asammdf" },
-    { name = "h5py" },
-    { name = "nptdms" },
-    { name = "semi-ate-stdf" },
-]
-benchmark = [
-    { name = "psutil" },
-]
-grafana = [
-    { name = "buenavista" },
-    { name = "duckdb" },
-]
-hdf5 = [
-    { name = "h5py" },
-]
-lxi = [
-    { name = "zeroconf" },
-]
-mdf4 = [
-    { name = "asammdf" },
-]
-ni = [
-    { name = "nidaqmx" },
-]
-pdf = [
-    { name = "weasyprint" },
-]
-pymeasure = [
-    { name = "pymeasure" },
-]
-sbom = [
-    { name = "cyclonedx-python-lib" },
-]
-stdf = [
-    { name = "semi-ate-stdf" },
-]
-tdms = [
-    { name = "nptdms" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "cyclonedx-python-lib" },
-    { name = "duckdb" },
-    { name = "nisyscfg" },
-    { name = "playwright" },
-    { name = "pre-commit" },
-    { name = "psutil" },
-    { name = "pymupdf" },
-    { name = "pyright" },
-    { name = "pyserial" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-benchmark" },
-    { name = "pytest-cov" },
-    { name = "pytest-rerunfailures" },
-    { name = "ruff" },
-    { name = "weasyprint" },
-    { name = "zeroconf" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "asammdf", marker = "extra == 'mdf4'", specifier = ">=8.0" },
-    { name = "buenavista", marker = "extra == 'grafana'", specifier = ">=0.5.0" },
-    { name = "click", specifier = ">=8.1" },
-    { name = "cyclonedx-python-lib", marker = "extra == 'sbom'", specifier = ">=11.7" },
-    { name = "duckdb", specifier = ">=1.5.0" },
-    { name = "duckdb", marker = "extra == 'grafana'", specifier = ">=1.0" },
-    { name = "fastapi", specifier = ">=0.110" },
-    { name = "fastmcp", specifier = ">=2.0" },
-    { name = "filelock", specifier = ">=3.12" },
-    { name = "h5py", marker = "extra == 'hdf5'", specifier = ">=3.0" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "jinja2", specifier = ">=3.1" },
-    { name = "litmus-test", extras = ["stdf", "hdf5", "tdms", "mdf4"], marker = "extra == 'all-exporters'" },
-    { name = "nicegui", specifier = ">=2.0" },
-    { name = "nidaqmx", marker = "extra == 'ni'", specifier = ">=0.9" },
-    { name = "nptdms", marker = "extra == 'tdms'", specifier = ">=1.0" },
-    { name = "numpy", specifier = ">=1.24" },
-    { name = "orjson", specifier = ">=3.9" },
-    { name = "platformdirs", specifier = ">=4.0" },
-    { name = "psutil", marker = "extra == 'benchmark'", specifier = ">=5.9" },
-    { name = "pyarrow", specifier = ">=14.0" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "pymeasure", marker = "extra == 'pymeasure'", specifier = ">=0.14" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "python-multipart", specifier = ">=0.0.9" },
-    { name = "pytz", specifier = ">=2025.2" },
-    { name = "pyvisa", specifier = ">=1.14" },
-    { name = "pyvisa-sim", specifier = ">=0.6" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "ruamel-yaml", specifier = ">=0.19.1" },
-    { name = "semi-ate-stdf", marker = "extra == 'stdf'", specifier = ">=0.1" },
-    { name = "tsdownsample", specifier = ">=0.1.5" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.27" },
-    { name = "weasyprint", marker = "extra == 'pdf'", specifier = ">=62.0" },
-    { name = "zeroconf", marker = "extra == 'lxi'", specifier = ">=0.80" },
-]
-provides-extras = ["pymeasure", "ni", "lxi", "pdf", "sbom", "stdf", "hdf5", "tdms", "mdf4", "grafana", "benchmark", "all-exporters"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "cyclonedx-python-lib", specifier = ">=11.0" },
-    { name = "duckdb", specifier = ">=1.4.4" },
-    { name = "nisyscfg", specifier = ">=0.2" },
-    { name = "playwright", specifier = ">=1.58.0" },
-    { name = "pre-commit", specifier = ">=4.0" },
-    { name = "psutil", specifier = ">=5.9" },
-    { name = "pymupdf", specifier = ">=1.26.7" },
-    { name = "pyright" },
-    { name = "pyserial", specifier = ">=3.5" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-asyncio", specifier = ">=1.3.0" },
-    { name = "pytest-benchmark", specifier = ">=5.2.3" },
-    { name = "pytest-cov", specifier = ">=4.0" },
-    { name = "pytest-rerunfailures", specifier = ">=16.1" },
-    { name = "ruff", specifier = ">=0.4.0" },
-    { name = "weasyprint", specifier = ">=62.0" },
-    { name = "zeroconf", specifier = ">=0.80" },
 ]
 
 [[package]]
@@ -4140,6 +3811,335 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ac/c0/57c5e808f68ed9a822d83413a3516f06a7751dc35e7039252e25994bf654/stringparser-0.7.tar.gz", hash = "sha256:bf37aac0166fc8f5705b450cc332f0d323e2d8b8191017bbfebe1f489f18f64d", size = 10211, upload-time = "2023-11-16T00:08:35.958Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/33/8d/1ce822279ed69e5e5e83826b9f61d37ea146ffaf54b615d34ca363eb0aaa/stringparser-0.7-py3-none-any.whl", hash = "sha256:44678ca6067a5c0cb4c45da38448e1971e2b6fb136b82bfb6a798bdbda7dd71f", size = 7866, upload-time = "2023-11-16T00:08:34.488Z" },
+]
+
+[[package]]
+name = "testerkit"
+version = "0.3.1"
+source = { editable = "." }
+dependencies = [
+    { name = "click" },
+    { name = "duckdb" },
+    { name = "fastapi" },
+    { name = "fastmcp" },
+    { name = "filelock" },
+    { name = "httpx" },
+    { name = "jinja2" },
+    { name = "nicegui" },
+    { name = "numpy" },
+    { name = "orjson" },
+    { name = "platformdirs" },
+    { name = "pyarrow" },
+    { name = "pydantic" },
+    { name = "pytest" },
+    { name = "python-multipart" },
+    { name = "pytz" },
+    { name = "pyvisa" },
+    { name = "pyvisa-sim" },
+    { name = "pyyaml" },
+    { name = "ruamel-yaml" },
+    { name = "tsdownsample" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+all-exporters = [
+    { name = "asammdf" },
+    { name = "h5py" },
+    { name = "nptdms" },
+    { name = "semi-ate-stdf" },
+]
+benchmark = [
+    { name = "psutil" },
+]
+grafana = [
+    { name = "buenavista" },
+    { name = "duckdb" },
+]
+hdf5 = [
+    { name = "h5py" },
+]
+lxi = [
+    { name = "zeroconf" },
+]
+mdf4 = [
+    { name = "asammdf" },
+]
+ni = [
+    { name = "nidaqmx" },
+]
+pdf = [
+    { name = "weasyprint" },
+]
+pymeasure = [
+    { name = "pymeasure" },
+]
+sbom = [
+    { name = "cyclonedx-python-lib" },
+]
+stdf = [
+    { name = "semi-ate-stdf" },
+]
+tdms = [
+    { name = "nptdms" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "cyclonedx-python-lib" },
+    { name = "duckdb" },
+    { name = "nisyscfg" },
+    { name = "playwright" },
+    { name = "pre-commit" },
+    { name = "psutil" },
+    { name = "pymupdf" },
+    { name = "pyright" },
+    { name = "pyserial" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-benchmark" },
+    { name = "pytest-cov" },
+    { name = "pytest-rerunfailures" },
+    { name = "ruff" },
+    { name = "weasyprint" },
+    { name = "zeroconf" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asammdf", marker = "extra == 'mdf4'", specifier = ">=8.0" },
+    { name = "buenavista", marker = "extra == 'grafana'", specifier = ">=0.5.0" },
+    { name = "click", specifier = ">=8.1" },
+    { name = "cyclonedx-python-lib", marker = "extra == 'sbom'", specifier = ">=11.7" },
+    { name = "duckdb", specifier = ">=1.5.0" },
+    { name = "duckdb", marker = "extra == 'grafana'", specifier = ">=1.0" },
+    { name = "fastapi", specifier = ">=0.110" },
+    { name = "fastmcp", specifier = ">=2.0" },
+    { name = "filelock", specifier = ">=3.12" },
+    { name = "h5py", marker = "extra == 'hdf5'", specifier = ">=3.0" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "jinja2", specifier = ">=3.1" },
+    { name = "nicegui", specifier = ">=2.0" },
+    { name = "nidaqmx", marker = "extra == 'ni'", specifier = ">=0.9" },
+    { name = "nptdms", marker = "extra == 'tdms'", specifier = ">=1.0" },
+    { name = "numpy", specifier = ">=1.24" },
+    { name = "orjson", specifier = ">=3.9" },
+    { name = "platformdirs", specifier = ">=4.0" },
+    { name = "psutil", marker = "extra == 'benchmark'", specifier = ">=5.9" },
+    { name = "pyarrow", specifier = ">=14.0" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pymeasure", marker = "extra == 'pymeasure'", specifier = ">=0.14" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "pytz", specifier = ">=2025.2" },
+    { name = "pyvisa", specifier = ">=1.14" },
+    { name = "pyvisa-sim", specifier = ">=0.6" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "ruamel-yaml", specifier = ">=0.19.1" },
+    { name = "semi-ate-stdf", marker = "extra == 'stdf'", specifier = ">=0.1" },
+    { name = "testerkit", extras = ["stdf", "hdf5", "tdms", "mdf4"], marker = "extra == 'all-exporters'" },
+    { name = "tsdownsample", specifier = ">=0.1.5" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.27" },
+    { name = "weasyprint", marker = "extra == 'pdf'", specifier = ">=62.0" },
+    { name = "zeroconf", marker = "extra == 'lxi'", specifier = ">=0.80" },
+]
+provides-extras = ["pymeasure", "ni", "lxi", "pdf", "sbom", "stdf", "hdf5", "tdms", "mdf4", "grafana", "benchmark", "all-exporters"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "cyclonedx-python-lib", specifier = ">=11.0" },
+    { name = "duckdb", specifier = ">=1.4.4" },
+    { name = "nisyscfg", specifier = ">=0.2" },
+    { name = "playwright", specifier = ">=1.58.0" },
+    { name = "pre-commit", specifier = ">=4.0" },
+    { name = "psutil", specifier = ">=5.9" },
+    { name = "pymupdf", specifier = ">=1.26.7" },
+    { name = "pyright" },
+    { name = "pyserial", specifier = ">=3.5" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-asyncio", specifier = ">=1.3.0" },
+    { name = "pytest-benchmark", specifier = ">=5.2.3" },
+    { name = "pytest-cov", specifier = ">=4.0" },
+    { name = "pytest-rerunfailures", specifier = ">=16.1" },
+    { name = "ruff", specifier = ">=0.4.0" },
+    { name = "weasyprint", specifier = ">=62.0" },
+    { name = "zeroconf", specifier = ">=0.80" },
+]
+
+[[package]]
+name = "testerkit-example-01-vanilla"
+version = "0.0.0"
+source = { editable = "examples/01-vanilla" }
+dependencies = [
+    { name = "pytest" },
+    { name = "testerkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest" },
+    { name = "testerkit", editable = "." },
+]
+
+[[package]]
+name = "testerkit-example-02-verify"
+version = "0.0.0"
+source = { editable = "examples/02-verify" }
+dependencies = [
+    { name = "pytest" },
+    { name = "testerkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest" },
+    { name = "testerkit", editable = "." },
+]
+
+[[package]]
+name = "testerkit-example-03-inline-limits"
+version = "0.0.0"
+source = { editable = "examples/03-inline-limits" }
+dependencies = [
+    { name = "pytest" },
+    { name = "testerkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest" },
+    { name = "testerkit", editable = "." },
+]
+
+[[package]]
+name = "testerkit-example-04-sidecar-markers"
+version = "0.0.0"
+source = { editable = "examples/04-sidecar-markers" }
+dependencies = [
+    { name = "pytest" },
+    { name = "testerkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest" },
+    { name = "testerkit", editable = "." },
+]
+
+[[package]]
+name = "testerkit-example-05-part-spec"
+version = "0.0.0"
+source = { editable = "examples/05-part-spec" }
+dependencies = [
+    { name = "pytest" },
+    { name = "testerkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest" },
+    { name = "testerkit", editable = "." },
+]
+
+[[package]]
+name = "testerkit-example-06-station-catalog"
+version = "0.0.0"
+source = { editable = "examples/06-station-catalog" }
+dependencies = [
+    { name = "pytest" },
+    { name = "testerkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest" },
+    { name = "testerkit", editable = "." },
+]
+
+[[package]]
+name = "testerkit-example-07-profiles"
+version = "0.0.0"
+source = { editable = "examples/07-profiles" }
+dependencies = [
+    { name = "pytest" },
+    { name = "testerkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest" },
+    { name = "testerkit", editable = "." },
+]
+
+[[package]]
+name = "testerkit-example-08-waveform-evidence"
+version = "0.0.0"
+source = { editable = "examples/08-waveform-evidence" }
+dependencies = [
+    { name = "pytest" },
+    { name = "testerkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest" },
+    { name = "testerkit", editable = "." },
+]
+
+[[package]]
+name = "testerkit-example-09-instrument-streaming"
+version = "0.0.0"
+source = { editable = "examples/09-instrument-streaming" }
+dependencies = [
+    { name = "testerkit" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "testerkit", editable = "." }]
+
+[[package]]
+name = "testerkit-example-10-artifacts-and-byte-streams"
+version = "0.0.0"
+source = { editable = "examples/10-artifacts-and-byte-streams" }
+dependencies = [
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "pytest" },
+    { name = "testerkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "pytest" },
+    { name = "testerkit", editable = "." },
+]
+
+[[package]]
+name = "testerkit-example-11-querying-data"
+version = "0.0.0"
+source = { editable = "examples/11-querying-data" }
+dependencies = [
+    { name = "testerkit" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "testerkit", editable = "." }]
+
+[[package]]
+name = "testerkit-example-12-parallel-sites"
+version = "0.0.0"
+source = { editable = "examples/12-parallel-sites" }
+dependencies = [
+    { name = "pytest" },
+    { name = "testerkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest" },
+    { name = "testerkit", editable = "." },
 ]
 
 [[package]]

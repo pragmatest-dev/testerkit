@@ -282,11 +282,11 @@ passing forward-migration test," not "we find out at 2.0."
 - [~] **Package yank 0.2.0/0.2.1** — **APPROVED 2026-06-27**, but **execution sequenced to the
       0.3.0 release** (it is a 0.3.0 release-checklist step, NOT a do-now action). Why the
       sequencing is mandatory, not just preferred: the remedy version must exist *before* the
-      yank. Yanking today would (a) point `pip install litmus-test` *backward* to `0.1.3` (the
+      yank. Yanking today would (a) point `pip install testerkit` *backward* to `0.1.3` (the
       highest non-yanked release) and (b) reference a 0.3.0 that isn't published. So: **publish
       0.3.0 first, then yank.** Mechanics when the time comes — PyPI yanks only via the web UI
       (no CLI/API path); the owner clicks each release at
-      `https://pypi.org/manage/project/litmus-test/releases/`. Public reason string (final,
+      `https://pypi.org/manage/project/testerkit/releases/`. Public reason string (final,
       becomes *true* once 0.3.0 is live): "Pre-1.0 on-disk data formats; abandoned by the 0.3.0
       schema-versioning reset (all stores restart at schema 1.0). Unsupported going forward —
       install 0.3.0 or later."
@@ -323,7 +323,7 @@ The forward-only-adapter design rests on **local clients are never at a newer ve
 the singleton daemon.** Verified against `_daemon_lifecycle.py`:
 
 - **The invariant HOLDS at `acquire()` time.** `acquire()` (`:129–164`), under a file lock,
-  compares the running daemon's `litmus_version` to the client's; older daemon → kill
+  compares the running daemon's `testerkit_version` to the client's; older daemon → kill
   (`_kill_daemon` SIGTERM→2s→SIGKILL, `:184`) + respawn the client's version; newer-or-equal →
   attach. An unversioned legacy daemon is treated as `0.0.0` → always upgraded. So after any
   client acquires, **daemon ≥ the acquiring client** — but **NOT** necessarily the machine's
@@ -371,7 +371,7 @@ the singleton daemon.** Verified against `_daemon_lifecycle.py`:
 
 ## §9. The coexistence model — three layers (2026-07-02)
 
-**The requirement.** One machine, N repos each pinned to a different Litmus version, **one shared
+**The requirement.** One machine, N repos each pinned to a different TesterKit version, **one shared
 global data dir + one singleton daemon per store** (deliberate — it's what lets cross-project data
 be queried together, like remote machines against a central server). Any client can write; any
 daemon can be the one running. **All of it must coexist.**
@@ -443,7 +443,7 @@ We *avoided* needing FORWARD by making the daemon always ≥ the client (the lif
 handling the residual (old daemon, new file) by **deferral** (#43) instead of forcing old code to
 read new data.
 
-| Litmus mechanism | Prior art | Verdict |
+| TesterKit mechanism | Prior art | Verdict |
 |---|---|---|
 | Read-time adapt (dispatch + adapters) | Avro reader/writer schema resolution; event-sourcing **upcasting** (Young/Axon) | canonical |
 | Additive `union_by_name` / nullable `ALTER ADD` | Avro "match by name, default the additions" | textbook |
@@ -473,14 +473,14 @@ wire fix is Kafka's magic-byte + ApiVersions. Nothing here is invented — it is
 
 ## §11. Versioning is a BACKEND CONTRACT, not a DuckDB feature (2026-07-02)
 
-**Invariant:** Litmus retains the ability to swap the serving backend (req-6). Therefore
+**Invariant:** TesterKit retains the ability to swap the serving backend (req-6). Therefore
 "read every stored version in harmony" is a **required attribute of any backend** — shared across
 all of them — even though the *mechanism* is stack-specific. Do not couple versioning to DuckDB.
 
 **The shared, backend-neutral core** (zero serving-backend coupling — this IS the attribute):
-- `litmus.data.schema_versions` — the registry (`CURRENT_SCHEMA_VERSION`, `KNOWN_SCHEMA_VERSIONS`,
+- `testerkit.data.schema_versions` — the registry (`CURRENT_SCHEMA_VERSION`, `KNOWN_SCHEMA_VERSIONS`,
   `SchemaStore`).
-- `litmus.data.schema_dispatch` — the decision (stamp → known adapt / newer **defer** / absent or
+- `testerkit.data.schema_dispatch` — the decision (stamp → known adapt / newer **defer** / absent or
   older refuse) + the adapter registry.
 
 Every backend imports and calls these at its own durable→rows boundary. The DuckDB daemon is *one*
@@ -514,12 +514,12 @@ shared contract.
 
 ## §12. The concrete cloud (and unified local) backend: DuckLake (2026-07-02)
 
-**Litmus stands on the same primitives DuckLake does — DuckDB + Parquet — so DuckLake is a future
-*adoption*, not a reinvention to reconcile.** (Integrate, don't reinvent.) Litmus did NOT build a
+**TesterKit stands on the same primitives DuckLake does — DuckDB + Parquet — so DuckLake is a future
+*adoption*, not a reinvention to reconcile.** (Integrate, don't reinvent.) TesterKit did NOT build a
 lakehouse or a table format: it uses DuckDB (an existing engine whose job is querying Parquet) over
 Parquet (an existing format) — the standard way to query columnar data. The `_index.duckdb` is
 DuckDB caching/indexing Parquet, NOT a hand-built catalog. DuckLake's actual innovation — metadata
-as a SQL-catalog *table format* with snapshots + ACID — Litmus does **not** have (it has a
+as a SQL-catalog *table format* with snapshots + ACID — TesterKit does **not** have (it has a
 rebuildable derived cache). The fit exists because both stand on the same existing foundation, which
 is precisely why DuckLake is clean to adopt: point DuckDB at a DuckLake catalog (Postgres in cloud /
 SQLite local) + object store, and it REPLACES the one genuinely-custom piece — the thin daemon /
@@ -527,7 +527,7 @@ file-lock coordination glue. That is "integrate, don't reinvent" getting *deeper
 violation of it. DuckLake (DuckDB team; v1.0 Apr 2026) is **Parquet data files + all metadata in a
 SQL catalog DB** (Postgres / DuckDB / SQLite), with snapshots, time-travel, arbitrary schema
 evolution, and **ACID multi-writer transactions** — the most natural realization of §9–§11 because
-it is the *same engine and format* Litmus already integrates.
+it is the *same engine and format* TesterKit already integrates.
 
 What it does to this session's open work:
 - **Coordination (#41/#42)** → delegated to the transactional catalog DB (ACID multi-writer); the
@@ -549,10 +549,10 @@ Caveats to own: catalog round-trip perf (benchmarks show tradeoffs vs file-based
 test-data scale); v1.0 maturity (~3 months); the catalog becomes *semi-authoritative* metadata
 (snapshot history isn't fully reconstructable from Parquet alone — hence keep the file stamp).
 
-**Signal:** because Litmus is built on the *same existing primitives* DuckLake is (DuckDB + Parquet
+**Signal:** because TesterKit is built on the *same existing primitives* DuckLake is (DuckDB + Parquet
 — integration, not reinvention), DuckLake is the least-swap cloud path: adopt it, don't rebuild
 anything. That makes it the frontrunner over generic ClickStack / Delta+Iceberg for a cloud-hosted
-Litmus — precisely because it's the DuckDB-native *integration*, and integrating beats reinventing.
+TesterKit — precisely because it's the DuckDB-native *integration*, and integrating beats reinventing.
 
 ## §14. Write-path robustness invariant (2026-07-02)
 
@@ -583,10 +583,10 @@ The migrate sink (V3, `schema_migrate`) is the per-file primitive: read a below-
 its adapter, rewrite it current-stamped, atomic-swap. Scaled to a batch **"normalize the store to
 current"** pass, it becomes the operational capability that:
 
-- **Reduces downstream version sprawl.** Litmus owns the adapters, so it is uniquely positioned to
+- **Reduces downstream version sprawl.** TesterKit owns the adapters, so it is uniquely positioned to
   do the BREAKING-change normalization. Pre-normalizing before a hand-off means Snowflake / Iceberg
   / DuckLake see ONE shape + only additive evolution (which they handle natively) — instead of
-  reinventing Litmus's adapters (they can't; they don't have them) or maintaining per-version views.
+  reinventing TesterKit's adapters (they can't; they don't have them) or maintaining per-version views.
   Normalize once at the source; the whole downstream simplifies (fewer schemas → simpler ingest,
   stats, planning).
 - **Enables adapter retirement.** Once every `vN` file is rewritten to current, nothing reads `vN`
@@ -597,15 +597,15 @@ Reuses the SAME adapters as the read path (§4, one adapter two sinks) — the r
 toward rewrite. Caveats (per §4): migration is STRUCTURAL not informational (NULL-fills, never
 recovers lost info); files in the wild are unreachable (§0), so retirement is a POLICY decision
 (like the package-yank), accepting a returning old file would be refused; ALWAYS opt-in (read-time
-adapt is the floor). Shape: a batch `normalize_store(store)` + a `litmus data migrate|compact` CLI,
+adapt is the floor). Shape: a batch `normalize_store(store)` + a `testerkit data migrate|compact` CLI,
 idempotent (current = no-op). Post-0.3.0 (nothing to normalize until a real v2 exists). Under
 DuckLake (§12) it is a catalog compaction / rewrite; the primitive is the same. Tracked as #48.
 
-**Follow-on (2026-07-04) — durable-data stats before pruning.** The `litmus data index list`
+**Follow-on (2026-07-04) — durable-data stats before pruning.** The `testerkit data index list`
 identity/size/age surface (`derived-index-versioning.md` §7) is wanted for the **durable data**
-too: a `litmus data stats` / `ls` view of the parquet corpus by schema version, run/row count,
+too: a `testerkit data stats` / `ls` view of the parquet corpus by schema version, run/row count,
 size, and age — the observability precursor to **data** pruning (retention). Distinct from index
 GC: the derived index is cattle (rebuildable, reap freely), but the source parquet is the *pet* —
 pruning it deletes truth, so it stays **opt-in with strong guards** (default unlimited; no surprise
-data loss, per the retention decision). Same `litmus data` namespace as `index` / `migrate` /
+data loss, per the retention decision). Same `testerkit data` namespace as `index` / `migrate` /
 `compact`. Parked as a post-0.3.1 follow-on.

@@ -34,7 +34,7 @@ def test_rail_holds_across_input(verify, psu, dmm, vin: float) -> None:
     verify("v_rail", dmm.measure_dc_voltage())
 
 
-@pytest.mark.litmus_limits(v_rail={"characteristic": "rail_3v3", "tolerance_pct": 2})
+@pytest.mark.testerkit_limits(v_rail={"characteristic": "rail_3v3", "tolerance_pct": 2})
 def test_rail_inline_marker(verify, psu, dmm) -> None:
     """Same spec-driven limit as the sidecar tests, just declared inline."""
     psu.set_voltage(5.0)

@@ -20,14 +20,16 @@ EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
 
 # chapter -> ordered ``((script_relpath, env_overrides), ...)``. Order matters:
 # ``11`` seeds the data its second script then queries; ``09`` streams a 1 s
-# slice via ``LITMUS_STREAM_SECONDS`` instead of the demo's 60 s default, which
+# slice via ``TESTERKIT_STREAM_SECONDS`` instead of the demo's 60 s default, which
 # still exercises the full connect -> instrument -> stream -> write path.
 SCRIPT_CHAPTERS: dict[str, tuple[tuple[str, dict[str, str]], ...]] = {
     "11-querying-data": (
         ("scripts/seed_runs.py", {}),
         ("scripts/analyze.py", {}),
     ),
-    "09-instrument-streaming": (("scripts/live_dmm_monitor.py", {"LITMUS_STREAM_SECONDS": "1"}),),
+    "09-instrument-streaming": (
+        ("scripts/live_dmm_monitor.py", {"TESTERKIT_STREAM_SECONDS": "1"}),
+    ),
 }
 
 

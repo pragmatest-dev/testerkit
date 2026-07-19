@@ -2,7 +2,7 @@
 
 **Goal:** Decide pass/fail for a measurement.
 
-In step 3 your tests called `verify(name, value, limit=...)`. The pass/fail decision happens because a **limit** is attached. This step covers the limit shape and the two ways to attach a limit from code: inline on the call, or via the `litmus_limits` marker on the test function. Both end up as the same limit.
+In step 3 your tests called `verify(name, value, limit=...)`. The pass/fail decision happens because a **limit** is attached. This step covers the limit shape and the two ways to attach a limit from code: inline on the call, or via the `testerkit_limits` marker on the test function. Both end up as the same limit.
 
 Step 5 moves limits out of code into a YAML file next to the test — keep that destination in mind, but don't reach for YAML yet.
 
@@ -22,7 +22,7 @@ limit = {
 Both `verify(name, value, limit=...)` and `measure(name, value, limit=...)` accept this dict directly. It's validated against the [`Limit`](../reference/data/models.md#model-limit) model. If you'd rather construct it explicitly — for IDE type-checking or a shared constant — `Limit` is re-exported from the top-level package:
 
 ```python
-from litmus import Limit
+from testerkit import Limit
 
 V_RAIL = Limit(low=3.135, high=3.465, unit="V")
 ```
@@ -62,19 +62,19 @@ Inline limits are fine for one-off tests. They clutter the test body when limits
 
 ## Limit via marker
 
-`litmus_limits` pulls the limit out of the body and pins it at the top of the test:
+`testerkit_limits` pulls the limit out of the body and pins it at the top of the test:
 
 ```python
 import pytest
 
-@pytest.mark.litmus_limits(
+@pytest.mark.testerkit_limits(
     output_voltage={"low": 3.135, "high": 3.465, "unit": "V"},
 )
 def test_output_voltage(dmm, verify):
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-The marker accepts one keyword per measurement name. `verify("output_voltage", ...)` resolves the limit from the marker without an explicit `limit=`. You can apply `@pytest.mark.litmus_limits` at function, class, or module level — class scope applies to every method on the class.
+The marker accepts one keyword per measurement name. `verify("output_voltage", ...)` resolves the limit from the marker without an explicit `limit=`. You can apply `@pytest.mark.testerkit_limits` at function, class, or module level — class scope applies to every method on the class.
 
 ## Comparators
 
@@ -127,7 +127,7 @@ For [condition-indexed bands](../how-to/execution/limits.md#condition-indexed-ba
 
 - The limit dict — `low`, `high`, `nominal`, `unit`, `comparator`
 - Inline limits via `verify(..., limit={...})` or `measure(..., limit={...})`
-- The `litmus_limits` marker for attaching limits at class or function level
+- The `testerkit_limits` marker for attaching limits at class or function level
 - The `Outcome` ladder and what each value means
 - The `Comparator` enum for non-`GELE` checks
 - Recording without judging via `measure(no limit)` or a record-only profile

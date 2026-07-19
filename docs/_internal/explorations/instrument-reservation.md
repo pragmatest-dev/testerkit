@@ -15,12 +15,12 @@ Internal doc — file:line citations and private names are allowed here, not in 
 
 ## The model — session as coordination **[locked 2026-06-27]**
 
-The instrument access model is **three planes behind one facade.** A litmus user (UI,
+The instrument access model is **three planes behind one facade.** A testerkit user (UI,
 agent, pytest, bench script) only ever touches the facade.
 
 - **Station = the coordination domain.** Instruments belong to a station; the station is
   the only coherent scope for arbitrating them.
-- **Connection to the station = admission.** `litmus.connect(station)` is the act that
+- **Connection to the station = admission.** `testerkit.connect(station)` is the act that
   makes you a participant. No connection → no session → not a member → you can't hold,
   request, or be granted an instrument. Connection is **mandatory for control** (the
   coordinator can only grant an *enforced* lease to a member it knows). Pure
@@ -88,7 +88,7 @@ So: ship 0.3.0 (C3 + the done at-rest work); the instrument coordinator is the n
 A design discussion about "lock around the step" exposed that the instrument access model
 is more than the locking grain — it's a two-path architecture (file lock vs server) whose
 safety, fairness, and arbitration grain all differ, and whose published surface
-(`litmus.connect()`) interacts with running automated tests in ways that aren't fully safe
+(`testerkit.connect()`) interacts with running automated tests in ways that aren't fully safe
 today. Rather than re-derive this every time an instrument task comes up, the verified
 state, the unifying model (above), and the open questions live here.
 
@@ -100,7 +100,7 @@ state, the unifying model (above), and the open questions live here.
 
 `InstrumentPool.acquire` (`instruments/pool.py:85-89`) routes on env:
 
-- **Shared** — role in `_LITMUS_SHARED_ROLES` **and** `_LITMUS_INSTRUMENT_SERVER` set →
+- **Shared** — role in `_TESTERKIT_SHARED_ROLES` **and** `_TESTERKIT_INSTRUMENT_SERVER` set →
   `_acquire_remote` → `RemoteInstrumentProxy` to a server. **Skips the file lock**
   ("server handles serialization", `pool.py:154`).
 - **Dedicated** — else → `acquire_resource` → per-resource cross-process **file lock**
@@ -110,7 +110,7 @@ state, the unifying model (above), and the open questions live here.
 
 - Per-resource OS file lock via `filelock`/`fcntl.flock()` (`locks.py`). Auto-releases on
   process death incl. SIGKILL.
-- Lock files under `LITMUS_HOME/locks/` — **machine-global, cross-project** (different
+- Lock files under `TESTERKIT_HOME/locks/` — **machine-global, cross-project** (different
   projects share the namespace because they share physical instruments). Not the project
   data dir.
 - Keyed per **resource address** (`GPIB::16::INSTR` → `GPIB__16__INSTR.lock`), not per
@@ -157,7 +157,7 @@ state, the unifying model (above), and the open questions live here.
    `load_and_connect` (`slot_runner.py:520`) and stands up **one** `InstrumentServer`
    (`:537`). Mocked shared roles are **not** served — each worker gets its own mock so mock
    state doesn't leak (`:508-509`).
-3. `SlotRunner` injects `_LITMUS_INSTRUMENT_SERVER` + `_LITMUS_SHARED_ROLES` into every
+3. `SlotRunner` injects `_TESTERKIT_INSTRUMENT_SERVER` + `_TESTERKIT_SHARED_ROLES` into every
    slot subprocess (`slot_runner.py:191-194`).
 4. Each slot is a pytest subprocess with its **own** `instruments` fixture → own
    `InstrumentPool`; shared roles resolve to a proxy into the one server, dedicated roles
@@ -289,7 +289,7 @@ discipline. No extra work.
 | ~~vector~~ | per vector | — | **excluded** — breaks in-body optimization/redo (§3.1) |
 
 **[open]** Config scope for the command↔step choice: per-instrument/role (contention is a
-rig property) vs profile vs `litmus.yaml` global. Lean per-instrument/role. Not decided.
+rig property) vs profile vs `testerkit.yaml` global. Lean per-instrument/role. Not decided.
 (The sequence-hold is *not* on this axis — it's expressed by fixture scope in test code, not
 config.)
 
@@ -318,18 +318,18 @@ Two governance layers fall out, and the ecosystem authors them separately:
    First-mover `INITIALIZE_NEW` (stand up + publish endpoint to the registry) vs late-joiner
    `ATTACH_TO_EXISTING` — independently the exact model NI's cross-process broker arrived at.
 
-**Litmus decision:** adopt the two-layer split. Config authors the ceiling (per-resource:
+**TesterKit decision:** adopt the two-layer split. Config authors the ceiling (per-resource:
 coordinated? who may write?); the client opts into the momentary mode at `connect()`
 (**write** / **observe**); a config-less loose process (script, custom UI) may opt into
 `shared` explicitly at the connect call, and the first connector *publishes* the mode to the
 machine-global registry so every later process — any entrypoint, any project — reads it from
-there. This is reinforced by our own substrate: **Litmus sits directly on VISA, whose only
+there. This is reinforced by our own substrate: **TesterKit sits directly on VISA, whose only
 native primitive is client-at-connect locking** — centrally-declared exclusivity would fight
 the ground we stand on.
 
 **The observer tier is a control-system import.** Observe-is-default / only-writes-arbitrated
 is the Tango/EPICS lineage; the bench lineage (VISA, IVI/NI) has **no observer mode at all**.
-Litmus brings the control-system's best idea into the pytest-bench world (§6).
+TesterKit brings the control-system's best idea into the pytest-bench world (§6).
 
 **BYODriver — the model is driver-agnostic by construction (2026-07-18).** The "instrument" is
 an arbitrary Python object the user brings (PyVISA, PyMeasure, vendor SDK, a socket, a mock).
@@ -403,7 +403,7 @@ station-scoped coordinator.)*
   startup paths differ.) A served resource is unprotected: an out-of-band
   `connect().instrument(role)` finds the file lock free, opens its **own** session →
   hardware collision, mid-test. **An API/UI user can corrupt a running automated test.**
-- **No discovery.** `_LITMUS_INSTRUMENT_SERVER` is propagated **only** parent→child
+- **No discovery.** `_TESTERKIT_INSTRUMENT_SERVER` is propagated **only** parent→child
   (`slot_runner.py:191`). An out-of-band session can't *find* a running server, so it can't
   route to a proxy — it can only collide (above) or be excluded.
 
@@ -417,15 +417,15 @@ coordinator's lifecycle can follow.)*
 
 **The coordinator is a *per-host* problem — no station registry needed for it (clarified
 2026-07-11).** The file lock already keys on the **resolved resource address**, under a
-**machine-global** `LITMUS_HOME/locks/` (`locks.py:40,81` — `_sanitize_resource` filenames,
+**machine-global** `TESTERKIT_HOME/locks/` (`locks.py:40,81` — `_sanitize_resource` filenames,
 default `platformdirs.user_data_dir`). So cross-project contention on one host is *already*
 correct with no station identity at all — two projects opening `GPIB::16::INSTR` hit the same
 lock file. It follows that a **single-host coordinator** needs only hostname/convention to be
-found (a well-known socket / `LITMUS_HOME`-anchored path), exactly like the runs/channels/
+found (a well-known socket / `TESTERKIT_HOME`-anchored path), exactly like the runs/channels/
 files daemons — **not** a global station registry. A registry is required for *only* one
 slice: a **station that spans hosts** — networked LXI/SCPI instruments driven from several
 machines, or a remote observer/dashboard on a different host — where each machine has its own
-`LITMUS_HOME/locks/` and so cannot arbitrate via the shared file. That slice is deferrable;
+`TESTERKIT_HOME/locks/` and so cannot arbitrate via the shared file. That slice is deferrable;
 the per-host coordinator (the common bench) can ship without it. **The registry is not a
 0.3.2 prerequisite — the cross-host case is.**
 
@@ -466,7 +466,7 @@ mechanism, for two reasons:
   an instrument someone else is driving — you get their published readings, or you wait your
   turn.** (This is *why* Tango/EPICS also forbid raw client I/O on a shared device.)
 
-So observation = subscribe to **what the producer publishes**, via two things Litmus already
+So observation = subscribe to **what the producer publishes**, via two things TesterKit already
 has, split cleanly:
 
 - **Coordinator = write-lease + discovery.** Answers "who is producing on this instrument now,
@@ -531,7 +531,7 @@ never an imposed state.
    machine-global registry; late-joiners read it. Entrypoint-agnostic (test, script, custom
    UI are peers). Backed by four prior-art systems.
 2. **[open]** Coordinator **lifecycle/ownership**: first-connector (`INITIALIZE_NEW`) stands it
-   up, late-joiners `ATTACH_TO_EXISTING` — but does a `litmus serve` context own it, and does
+   up, late-joiners `ATTACH_TO_EXISTING` — but does a `testerkit serve` context own it, and does
    it lazy-start only on the shared path? (Rhymes with the runs/channels/files daemons; the
    *trigger* is config/registry, **not** the launching command — see §3.3.)
 3. **[open]** Does the **file-lock path survive** as the solo zero-infra default, or does
@@ -548,7 +548,7 @@ never an imposed state.
    claim (these may be the same thing once the coordinator is station-scoped).
 8. **[largely resolved 2026-07-11]** **Station identity scope.** Today station resolution is
    project-local, CWD-anchored: `connect()` → `find_station_config` reads the project's
-   `stations/` YAML, and `_find_project_config` walks CWD ancestors for `litmus.yaml`
+   `stations/` YAML, and `_find_project_config` walks CWD ancestors for `testerkit.yaml`
    (`connect.py:488-493,506-533`); the data plane stamps `station_hostname =
    socket.gethostname()` (`run_scope.py:468`). There is **no global station registry** — and,
    per §4.3, the **per-host coordinator does not need one**: the lock is already resource-keyed
@@ -596,15 +596,15 @@ never an imposed state.
      message-passing** where the server owns the session and forwards *commands* (not state):
      **pyvisa-proxy** (reflection-forwarding over ZMQ) and **instrumentserver** (ZMQ ROUTER/
      DEALER + a PUB socket) — zero references to rpyc/Pyro in either. This is the dominant
-     industry pattern, and **Litmus already built it** (`InstrumentServer` forwards per-RPC
+     industry pattern, and **TesterKit already built it** (`InstrumentServer` forwards per-RPC
      commands over `multiprocessing.connection`; never serializes the driver). So evolving the
      existing server is *matching proven prior art*, not reinventing.
    - **Two bonuses:** (a) the worst QCoDeS failure was **orphaned processes** → the coordinator's
-     #1 lifecycle requirement is **robust death-cleanup**, which Litmus already has (`flock`
+     #1 lifecycle requirement is **robust death-cleanup**, which TesterKit already has (`flock`
      auto-release on process death + `_release_all_leases`/refcount-shutdown on disconnect) —
      harden and test it, don't rearchitect. (b) **Read-only observe (#12) is validated and maps
      to existing infra**: Tango's device-server-pushes-to-all-subscribers events and
-     instrumentserver's PUB socket are exactly Litmus's **channel-stream fan-out** — so #12 rides
+     instrumentserver's PUB socket are exactly TesterKit's **channel-stream fan-out** — so #12 rides
      the channel stream (§6), now backed by two independent precedents.
    - **Deferred, additive:** a **ZMQ transport swap** (matching both living tools) is the natural
      option *if/when* cross-host is needed — it travels with the cross-host slice (§4.3, open-Q6),

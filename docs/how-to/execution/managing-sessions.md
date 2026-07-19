@@ -7,7 +7,7 @@ Open a session to use instruments outside pytest — in a script, a notebook, or
 ### With `connect()` (scripts, notebooks)
 
 ```python
-from litmus import connect
+from testerkit import connect
 
 with connect("cell-7") as station:
     dmm = station.instrument("dmm")
@@ -20,7 +20,7 @@ Leaving the `with` block ends the session for you. In a notebook where a `with` 
 
 ### With pytest
 
-Sessions are created automatically by the Litmus pytest plugin. Each test run gets a session with full context (station, UUT, operator).
+Sessions are created automatically by the TesterKit pytest plugin. Each test run gets a session with full context (station, UUT, operator).
 
 ## Session Metadata
 
@@ -37,10 +37,10 @@ Every session records the station, operator, and config it ran under (see [event
 
 ```
 # List all sessions
-litmus_sessions()
+testerkit_sessions()
 
 # Get events for a specific session
-litmus_events(session_id="abc12345-...")
+testerkit_events(session_id="abc12345-...")
 ```
 
 ### HTTP API
@@ -56,7 +56,7 @@ curl http://localhost:8000/api/sessions/abc12345-1234-5678-abcd-1234567890ab
 ### Python
 
 ```python
-from litmus.queries import EventStore
+from testerkit.queries import EventStore
 
 store = EventStore()
 try:
@@ -82,14 +82,14 @@ for r in runs:
 
 ## Data Retention
 
-Session data is stored in date-partitioned directories under `<data_dir>/events/`. Nothing is deleted automatically — Litmus keeps everything until you prune it. Use `litmus data prune`:
+Session data is stored in date-partitioned directories under `<data_dir>/events/`. Nothing is deleted automatically — TesterKit keeps everything until you prune it. Use `testerkit data prune`:
 
 ```bash
 # Preview what a 90-day cutoff would delete — nothing is removed
-litmus data prune --older-than 90d --dry-run
+testerkit data prune --older-than 90d --dry-run
 
 # Prune data older than 90 days (run the preview first — this is permanent)
-litmus data prune --older-than 90d
+testerkit data prune --older-than 90d
 ```
 
 Pass `--data-types` to limit the prune to specific stores. Without `--dry-run`, the prune is permanent.

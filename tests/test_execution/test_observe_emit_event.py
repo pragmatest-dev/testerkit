@@ -18,15 +18,15 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from litmus.data.events import Observation
-from litmus.data.files import _reset_for_tests
-from litmus.execution._state import (
+from testerkit.data.events import Observation
+from testerkit.data.files import _reset_for_tests
+from testerkit.execution._state import (
     push_current_step,
     push_current_vector,
     reset_current_step,
     reset_current_vector,
 )
-from litmus.execution.harness import Context, TestHarness
+from testerkit.execution.harness import Context, TestHarness
 
 # --------------------------------------------------------------------- #
 # helpers — minimal fakes for the logger / event_log machinery          #
@@ -89,7 +89,7 @@ def context_with_logger(
     harness = TestHarness(session_id=session_id)
     ctx = Context(harness=harness)
     logger = FakeLogger(event_log=event_log, run_id=run_id)
-    import litmus.execution.harness as harness_mod
+    import testerkit.execution.harness as harness_mod
 
     monkeypatch_target = "get_current_run_scope"
     original = getattr(harness_mod, monkeypatch_target)
@@ -190,7 +190,7 @@ def test_observe_without_event_log_on_logger_is_silent(
     monkeypatch: pytest.MonkeyPatch, session_id: UUID
 ) -> None:
     """Logger present but event_log=None → no emit; _observations still populated."""
-    import litmus.execution.harness as harness_mod
+    import testerkit.execution.harness as harness_mod
 
     ctx = Context(harness=TestHarness(session_id=session_id))
     logger = FakeLogger(event_log=None)
@@ -205,7 +205,7 @@ def test_observe_without_session_id_is_silent_for_scalar(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No session_id → no emit. Scalar path: still stashes, no error."""
-    import litmus.execution.harness as harness_mod
+    import testerkit.execution.harness as harness_mod
 
     ctx = Context()  # no harness, no session_id
     event_log = FakeEventLog()
@@ -279,7 +279,7 @@ def test_observe_outside_step_vector_emits_with_defaults(
     Pytest itself sets the step ContextVar during test execution, so we
     monkeypatch get_current_step/get_current_vector to None for this case.
     """
-    import litmus.execution.harness as harness_mod
+    import testerkit.execution.harness as harness_mod
 
     monkeypatch.setattr(harness_mod, "get_current_step", lambda: None)
     monkeypatch.setattr(harness_mod, "get_current_vector", lambda: None)

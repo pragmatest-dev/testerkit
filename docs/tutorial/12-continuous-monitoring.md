@@ -4,7 +4,7 @@
 
 ## Prerequisites
 
-- [Step 10: Live Monitoring](10-live-monitoring.md) — `litmus serve`, sessions, events
+- [Step 10: Live Monitoring](10-live-monitoring.md) — `testerkit serve`, sessions, events
 - [Step 11: Waveforms and Evidence](11-waveforms-and-evidence.md) — `observe`, ChannelStore
 
 ## The scenario
@@ -20,7 +20,7 @@ Before looking at the script, the relevant piece from [The Three Test-Author Ver
 | Layer | Where you are | Continuous write |
 |---|---|---|
 | Test-author verbs | Inside a pytest test body | `stream` fixture |
-| Store-direct | Outside a test — notebook, script, REPL | `litmus.channels.stream` |
+| Store-direct | Outside a test — notebook, script, REPL | `testerkit.channels.stream` |
 
 The store-direct surface is the same ChannelStore underneath. It skips the per-test bookkeeping that `observe` does inside a test — here there's no test step to attach the readings to.
 
@@ -31,8 +31,8 @@ The store-direct surface is the same ChannelStore underneath. It skips the per-t
 
 import time
 
-import litmus.channels
-from litmus import connect
+import testerkit.channels
+from testerkit import connect
 
 RATE_HZ = 50.0
 DURATION_S = 60.0
@@ -47,7 +47,7 @@ def main() -> None:
         dmm = station.instrument("dmm")
 
         n = int(RATE_HZ * DURATION_S)
-        with litmus.channels.stream("dmm.voltage") as sink:
+        with testerkit.channels.stream("dmm.voltage") as sink:
             for i in range(n):
                 sink.write(dmm.measure_voltage())
                 if i % 50 == 0:
@@ -63,14 +63,14 @@ if __name__ == "__main__":
 
 Two calls do all the work:
 
-- `connect("bench_01")` opens a Litmus session — EventStore, ChannelStore, and the instrument pool. It reads `bench_01` from `stations/bench_01.yaml` (or the `default_station` in `litmus.yaml`). The `with` block records `SessionStarted` on entry and `SessionEnded` on exit, with proper cleanup on Ctrl-C.
-- `litmus.channels.stream("dmm.voltage")` opens a context-managed sink named `dmm.voltage`. Every `sink.write(value)` appends one sample to ChannelStore. The sink closes cleanly at the end of the `with` block; Ctrl-C mid-stream leaves partial data on disk.
+- `connect("bench_01")` opens a TesterKit session — EventStore, ChannelStore, and the instrument pool. It reads `bench_01` from `stations/bench_01.yaml` (or the `default_station` in `testerkit.yaml`). The `with` block records `SessionStarted` on entry and `SessionEnded` on exit, with proper cleanup on Ctrl-C.
+- `testerkit.channels.stream("dmm.voltage")` opens a context-managed sink named `dmm.voltage`. Every `sink.write(value)` appends one sample to ChannelStore. The sink closes cleanly at the end of the `with` block; Ctrl-C mid-stream leaves partial data on disk.
 
 `station.instrument("dmm")` connects the driver declared in `stations/bench_01.yaml` under role `dmm` and returns the connected instrument.
 
 ## The interactive entry point
 
-`from litmus import connect` is the non-pytest on-ramp. The pytest plugin opens and closes a session for you around each run; here you open and close the session yourself.
+`from testerkit import connect` is the non-pytest on-ramp. The pytest plugin opens and closes a session for you around each run; here you open and close the session yourself.
 
 ```python
 with connect("bench_01") as station:
@@ -81,7 +81,7 @@ Inside a pytest run, the session opens and closes for you; outside pytest, you w
 
 ## The self-simulating DMM
 
-`drivers/dmm.py` is a concrete `DMM` class whose `measure_voltage()` returns a 30-second sine wave (±50 mV) around 3.3 V with ±5 mV per-sample noise. `litmus.yaml` does not set `mock_instruments: true`, so the script runs the real `DMM` class — no mocking involved.
+`drivers/dmm.py` is a concrete `DMM` class whose `measure_voltage()` returns a 30-second sine wave (±50 mV) around 3.3 V with ±5 mV per-sample noise. `testerkit.yaml` does not set `mock_instruments: true`, so the script runs the real `DMM` class — no mocking involved.
 
 ```python
 # drivers/dmm.py (excerpt)
@@ -106,7 +106,7 @@ Two terminals.
 
 ```cli
 cd examples/09-instrument-streaming
-uv run litmus serve --reload
+uv run testerkit serve --reload
 ```
 
 Open `http://localhost:8000/channels/dmm.voltage`. The channel does not exist until the script writes its first sample.
@@ -124,7 +124,7 @@ For reference on what the Channels page shows, see [Operator UI → Channels](..
 
 ## What lands on disk
 
-The example sets `data_dir: data` in `litmus.yaml`, so everything lands under `examples/09-instrument-streaming/data/`:
+The example sets `data_dir: data` in `testerkit.yaml`, so everything lands under `examples/09-instrument-streaming/data/`:
 
 ```
 data/

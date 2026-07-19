@@ -1,6 +1,6 @@
 # Query API reference
 
-The Query API is the public read path over Litmus's materialized parquet stores. The operator-UI results, explore, and metrics pages read through it, the HTTP routes `/api/runs`, `/api/runs/{run_id}/steps`, and `/api/metrics/*` wrap it, and every `litmus metrics …` CLI subcommand goes through it. Reach for these classes when you need analytics from Python — they handle the DuckDB Flight connection, schema, filtering, and pagination so your code stays in Pydantic models instead of raw SQL.
+The Query API is the public read path over TesterKit's materialized parquet stores. The operator-UI results, explore, and metrics pages read through it, the HTTP routes `/api/runs`, `/api/runs/{run_id}/steps`, and `/api/metrics/*` wrap it, and every `testerkit metrics …` CLI subcommand goes through it. Reach for these classes when you need analytics from Python — they handle the DuckDB Flight connection, schema, filtering, and pagination so your code stays in Pydantic models instead of raw SQL.
 
 Three classes, one per materialized table. Every call goes through the runs DuckDB Flight daemon; constructing a query client spawns the daemon if it isn't already running and force-restarts it if its Flight server stops responding — you don't have to manage that lifecycle.
 
@@ -10,10 +10,10 @@ Three classes, one per materialized table. Every call goes through the runs Duck
 | [`StepsQuery`](#stepsquery) | `steps` (one row per pytest item × vector, plus container rows for class- and module-scoped step paths) | Step-level results, per-run step list, step-tree views, failure pareto by step |
 | [`MeasurementsQuery`](#measurementsquery) | `measurements` view | Yield, Ppk, retest rates, parametric histograms, time-loss analytics |
 
-Open one with no args to read the active project's data dir — resolution is `_data_dir=<path>` arg → project `litmus.yaml` `data_dir:` → `LITMUS_HOME` env var → platform default. Pass `_data_dir=<path>` to point elsewhere. Always close it (the daemon ref-counts open clients):
+Open one with no args to read the active project's data dir — resolution is `_data_dir=<path>` arg → project `testerkit.yaml` `data_dir:` → `TESTERKIT_HOME` env var → platform default. Pass `_data_dir=<path>` to point elsewhere. Always close it (the daemon ref-counts open clients):
 
 ```python
-from litmus.queries import RunsQuery
+from testerkit.queries import RunsQuery
 
 with RunsQuery() as q:
     recent = q.list_recent(limit=20, outcome="failed")
@@ -30,7 +30,7 @@ For low-level DuckDB queries against the parquet files directly, see [Querying e
 
 Read-only client over the runs daemon's ``runs`` table.
 
-Source: `litmus.analysis.runs_query`. Import: `from litmus.queries import RunsQuery`.
+Source: `testerkit.analysis.runs_query`. Import: `from testerkit.queries import RunsQuery`.
 
 ### `RunsQuery.close` {#runsquery-close}
 
@@ -96,7 +96,7 @@ Return the ``runs`` table's column schema.
 
 Read-only client over the runs daemon's ``steps`` table.
 
-Source: `litmus.analysis.steps_query`. Import: `from litmus.queries import StepsQuery`.
+Source: `testerkit.analysis.steps_query`. Import: `from testerkit.queries import StepsQuery`.
 
 ### `StepsQuery.close` {#stepsquery-close}
 
@@ -144,7 +144,7 @@ Return the ``steps`` table's column schema.
 
 Read-only client over the runs DuckDB daemon's ``measurements`` view.
 
-Source: `litmus.analysis.measurements_query`. Import: `from litmus.queries import MeasurementsQuery`.
+Source: `testerkit.analysis.measurements_query`. Import: `from testerkit.queries import MeasurementsQuery`.
 
 ### `MeasurementsQuery.close` {#measurementsquery-close}
 
@@ -233,7 +233,7 @@ Cardinality stats for the filter section's badge.
 
 ## When the Query API doesn't cover what you need
 
-The three classes above expose the methods the UI, HTTP routes, and `litmus metrics` CLI use. If you hit a query the Query API doesn't have, the right move is to add the method to the class so every consumer benefits — not to drop to raw SQL inside your test code. File the gap; the surface is meant to grow.
+The three classes above expose the methods the UI, HTTP routes, and `testerkit metrics` CLI use. If you hit a query the Query API doesn't have, the right move is to add the method to the class so every consumer benefits — not to drop to raw SQL inside your test code. File the gap; the surface is meant to grow.
 
 For one-off ad-hoc exploration outside production code, raw DuckDB recipes live on [Querying events](../../how-to/data/querying-events.md), which also covers the on-disk parquet layout and the `record_type` discriminator that lets one file carry run / step / vector rows (measurements are nested under the vector rows).
 
@@ -244,4 +244,4 @@ For one-off ad-hoc exploration outside production code, raw DuckDB recipes live 
 - [Parquet schema](parquet-schema.md) — the column shape underneath
 - [API reference](../runtime/api.md) — HTTP endpoints that wrap the Query API
 - [Querying events](../../how-to/data/querying-events.md) — raw DuckDB recipes
-- [CLI reference](../cli.md) — `litmus metrics …` subcommands (CLI surface for `MeasurementsQuery`)
+- [CLI reference](../cli.md) — `testerkit metrics …` subcommands (CLI surface for `MeasurementsQuery`)

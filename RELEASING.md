@@ -1,4 +1,4 @@
-# Releasing Litmus
+# Releasing TesterKit
 
 What to check before cutting any release. Copy the checklist into the
 release issue/PR and work top-down. The outward-facing steps are
@@ -24,13 +24,13 @@ The platform exposes the same data through several surfaces. When the
 data model, an API, or terminology changes, these drift silently —
 check each against the new shape:
 
-- [ ] **MCP tools** (`src/litmus/mcp/`) — every store/query has a tool;
+- [ ] **MCP tools** (`src/testerkit/mcp/`) — every store/query has a tool;
       no renamed or removed fields; **every MCP tool has an HTTP peer**
-      in `src/litmus/api/` (and vice-versa)
-- [ ] **Skills + generated `CLAUDE.md`** (`src/litmus/skills/`) — verbs,
-      the MCP tool list, and terminology are current; `litmus refs`
+      in `src/testerkit/api/` (and vice-versa)
+- [ ] **Skills + generated `CLAUDE.md`** (`src/testerkit/skills/`) — verbs,
+      the MCP tool list, and terminology are current; `testerkit refs`
       topics cover any new primitive
-- [ ] **Grafana dashboards** (`src/litmus/grafana/dashboards/`) — every
+- [ ] **Grafana dashboards** (`src/testerkit/grafana/dashboards/`) — every
       SQL query's columns match the current parquet / channel schema
       (renamed columns break panels silently)
 - [ ] **Operator UI** — pages read through the Query API; no stale
@@ -62,5 +62,5 @@ check each against the new shape:
 
 - [ ] Merge the integration branch → `main`
 - [ ] Tag `vX.Y.Z`
-- [ ] Publish to PyPI (`litmus-test`)
+- [ ] Publish to PyPI (`testerkit`)
 - [ ] GitHub release notes from the CHANGELOG section

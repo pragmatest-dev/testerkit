@@ -1,10 +1,10 @@
-"""Coverage for the ``prompt`` fixture and the ``litmus.prompts`` core.
+"""Coverage for the ``prompt`` fixture and the ``testerkit.prompts`` core.
 
-The fixture is purely marker-driven: ``litmus_prompts`` markers in scope
+The fixture is purely marker-driven: ``testerkit_prompts`` markers in scope
 populate a name-keyed dict; ``prompt(name)`` resolves an entry, and
 ``prompt()`` works as a shortcut when exactly one entry is in scope.
-Routing of the prompt itself goes through :mod:`litmus.prompts` —
-explicit handler → ``LITMUS_AUTO_CONFIRM=1`` → tty fallback →
+Routing of the prompt itself goes through :mod:`testerkit.prompts` —
+explicit handler → ``TESTERKIT_AUTO_CONFIRM=1`` → tty fallback →
 ``PromptUnavailableError``.
 """
 
@@ -14,8 +14,8 @@ import textwrap
 
 import pytest
 
-from litmus.models.test_config import PromptConfig
-from litmus.prompts import (
+from testerkit.models.test_config import PromptConfig
+from testerkit.prompts import (
     PromptUnavailableError,
     ask,
     get_prompt_handler,
@@ -28,14 +28,14 @@ pytest_plugins = ["pytester"]
 _INI = textwrap.dedent(
     """
     [pytest]
-    addopts = -p no:litmus -p litmus.pytest_plugin
+    addopts = -p no:testerkit -p testerkit.pytest_plugin
     asyncio_default_fixture_loop_scope = function
     """
 )
 
 
 # ---------------------------------------------------------------------------
-# litmus.prompts.ask — routing precedence
+# testerkit.prompts.ask — routing precedence
 # ---------------------------------------------------------------------------
 
 
@@ -58,7 +58,7 @@ def test_ask_uses_explicit_handler() -> None:
 
 
 def test_ask_auto_confirm_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LITMUS_AUTO_CONFIRM", "1")
+    monkeypatch.setenv("TESTERKIT_AUTO_CONFIRM", "1")
     set_prompt_handler(None)
 
     assert ask(PromptConfig(message="m", prompt_type="confirm")) is True
@@ -67,7 +67,7 @@ def test_ask_auto_confirm_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_ask_raises_when_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LITMUS_AUTO_CONFIRM", raising=False)
+    monkeypatch.delenv("TESTERKIT_AUTO_CONFIRM", raising=False)
     set_prompt_handler(None)
     # Subprocess pytester ensures stdin is not a tty in this run; in this
     # in-process test we force the same condition by stubbing isatty.
@@ -93,9 +93,9 @@ def test_prompt_fixture_single_entry_implicit_key(pytester: pytest.Pytester) -> 
 
             @pytest.fixture(autouse=True)
             def _auto_confirm(monkeypatch):
-                monkeypatch.setenv("LITMUS_AUTO_CONFIRM", "1")
+                monkeypatch.setenv("TESTERKIT_AUTO_CONFIRM", "1")
 
-            @pytest.mark.litmus_prompts(only={"message": "go", "prompt_type": "confirm"})
+            @pytest.mark.testerkit_prompts(only={"message": "go", "prompt_type": "confirm"})
             def test_one(prompt):
                 assert prompt() is True
             """
@@ -112,7 +112,7 @@ def test_prompt_fixture_named_lookup(pytester: pytest.Pytester) -> None:
         test_seq=textwrap.dedent(
             """
             import pytest
-            from litmus.prompts import set_prompt_handler
+            from testerkit.prompts import set_prompt_handler
 
             @pytest.fixture
             def captured():
@@ -130,7 +130,7 @@ def test_prompt_fixture_named_lookup(pytester: pytest.Pytester) -> None:
                 finally:
                     set_prompt_handler(None)
 
-            @pytest.mark.litmus_prompts(
+            @pytest.mark.testerkit_prompts(
                 op_setup={"message": "Insert UUT", "prompt_type": "confirm"},
                 pick={"message": "Pick fixture", "prompt_type": "choice",
                       "choices": ["bench_01", "bench_02"]},
@@ -157,7 +157,7 @@ def test_prompt_fixture_unknown_key_errors(pytester: pytest.Pytester) -> None:
             """
             import pytest
 
-            @pytest.mark.litmus_prompts(only={"message": "m", "prompt_type": "confirm"})
+            @pytest.mark.testerkit_prompts(only={"message": "m", "prompt_type": "confirm"})
             def test_typo(prompt):
                 prompt("oonly")
             """
@@ -165,7 +165,7 @@ def test_prompt_fixture_unknown_key_errors(pytester: pytest.Pytester) -> None:
     )
     result = pytester.runpytest("-v")
     result.assert_outcomes(failed=1)
-    result.stdout.fnmatch_lines(["*no such key in litmus_prompts markers*"])
+    result.stdout.fnmatch_lines(["*no such key in testerkit_prompts markers*"])
 
 
 def test_prompt_fixture_implicit_with_zero_entries_errors(
@@ -182,7 +182,7 @@ def test_prompt_fixture_implicit_with_zero_entries_errors(
     )
     result = pytester.runpytest("-v")
     result.assert_outcomes(failed=1)
-    result.stdout.fnmatch_lines(["*no litmus_prompts markers are in scope*"])
+    result.stdout.fnmatch_lines(["*no testerkit_prompts markers are in scope*"])
 
 
 def test_prompt_fixture_implicit_with_multiple_entries_errors(
@@ -194,7 +194,7 @@ def test_prompt_fixture_implicit_with_multiple_entries_errors(
             """
             import pytest
 
-            @pytest.mark.litmus_prompts(
+            @pytest.mark.testerkit_prompts(
                 a={"message": "a", "prompt_type": "confirm"},
                 b={"message": "b", "prompt_type": "confirm"},
             )
@@ -209,7 +209,7 @@ def test_prompt_fixture_implicit_with_multiple_entries_errors(
 
 
 def test_prompt_fixture_sidecar_yaml(pytester: pytest.Pytester) -> None:
-    """``litmus_prompts`` declared via sidecar YAML resolves identically."""
+    """``testerkit_prompts`` declared via sidecar YAML resolves identically."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -218,7 +218,7 @@ def test_prompt_fixture_sidecar_yaml(pytester: pytest.Pytester) -> None:
 
             @pytest.fixture(autouse=True)
             def _auto_confirm(monkeypatch):
-                monkeypatch.setenv("LITMUS_AUTO_CONFIRM", "1")
+                monkeypatch.setenv("TESTERKIT_AUTO_CONFIRM", "1")
 
             def test_sidecar(prompt):
                 assert prompt("setup") is True
@@ -242,13 +242,13 @@ def test_prompt_fixture_sidecar_yaml(pytester: pytest.Pytester) -> None:
 def test_prompt_fixture_per_test_overrides_file_level(
     pytester: pytest.Pytester,
 ) -> None:
-    """Per-test ``litmus_prompts`` entry with same key wins over file-level."""
+    """Per-test ``testerkit_prompts`` entry with same key wins over file-level."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
             import pytest
-            from litmus.prompts import set_prompt_handler
+            from testerkit.prompts import set_prompt_handler
 
             @pytest.fixture
             def captured():

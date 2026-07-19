@@ -76,7 +76,7 @@ and the split resolver; the model above is the root fix.
 | 1 | `site_index` null-by-default contradicts "always present" | change 1 (field → `int`, default 0) |
 | 2 | `RunStore.get_run()` drops `site_index`/`site_name` for measurement-less runs; wasted parquet re-read | read straight off the `runs_materialized` row; drop the parquet re-open for these two (bug fix, independently valid) |
 | 3 | int-parse-first resolver duplicated (`uut_provider` vs `hooks`) with diverging error text | change 2 — one `resolve_site_token()` + shared "known sites" formatter in `sites.py` |
-| 5 | `LITMUS_FIXTURE_SITE` env var written, never read | change 2 — have `fixture_config` consume it (saves a redundant YAML load), or delete |
+| 5 | `TESTERKIT_FIXTURE_SITE` env var written, never read | change 2 — have `fixture_config` consume it (saves a redundant YAML load), or delete |
 | 7 | no duplicate-site-name validation | change 5 (reject duplicate names) |
 | 8 | gantt skips null `site_index`; opposite of STDF's null→0 | change 4 — gate on session fan-out; null case gone |
 | 10 | `TestRun` lacks `site_index`/`site_name`, forcing ContextVar reach-around in `_row_helpers` | add the fields to `TestRun`, stamp in `RunScope.__init__`; uniform `test_run.X → row["X"]` |
@@ -95,7 +95,7 @@ with change 3's validator work.
 - **NI TestStand TSM** — `TestSocket.Index` is 0-based; single-site is `MyIndex=0, count=1` — a
   concrete value, never absent. **Two independent TestStand sequences each report "socket 0"**
   — the industry-standard tool already treats socket index as **per-execution (session-scoped)**,
-  exactly this model. (TestStand is a named Litmus migration path.)
+  exactly this model. (TestStand is a named TesterKit migration path.)
 - **OpenHTF** — models no site at all (parallelism = separate processes); orthogonal, but argues
   "if you keep the concept, make it concrete," not "allow null."
 - **Instrument sharing across independent runs** — handled by the per-resource file lock
@@ -145,7 +145,7 @@ per-lane deltas with last-wins-per-name merge). No schema impact, so it doesn't 
 The 0.3.0 half (changes 1, 2, 4, 5 + findings #2/#6/#10) landed on
 `feat/0.3.0-grain-reshape`. Notes for the next session:
 
-- **`LITMUS_FIXTURE_SITE`: deleted** (finding #5) — the round-trip-only test
+- **`TESTERKIT_FIXTURE_SITE`: deleted** (finding #5) — the round-trip-only test
   (`test_fixture_site_json_in_env`) was removed with it. The unified
   `fixture_config` fixture flatten now re-derives `sites[site_index]` from the
   loaded fixture YAML by `get_current_site_index()` uniformly (worker env var

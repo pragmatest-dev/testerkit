@@ -1,6 +1,6 @@
 # Step Hierarchy — runs, steps, vectors, measurements
 
-This page is the single reference for Litmus's run-data hierarchy: what each level represents, how the levels nest, and how they're identified in the event log and the materialized tables. Pair it with [Outcomes](outcomes.md) for what each level's verdict means and where it gets set, and [Step Manifest](step-manifest.md) for the planned-vs-executed reconciliation.
+This page is the single reference for TesterKit's run-data hierarchy: what each level represents, how the levels nest, and how they're identified in the event log and the materialized tables. Pair it with [Outcomes](outcomes.md) for what each level's verdict means and where it gets set, and [Step Manifest](step-manifest.md) for the planned-vs-executed reconciliation.
 
 ## The hierarchy
 
@@ -26,7 +26,7 @@ Events: `RunStarted` at session start, `RunEnded` at session end. The session al
 
 A step is a named, ordered unit. Two kinds, but they share one event type and one shape:
 
-1. **Container step (class container).** Synthesized by the pytest plugin when execution enters a test class. Methods inside the class push beneath it on the step stack. When the class is swept (class-level `@pytest.mark.litmus_sweeps`), one container step is emitted **per outer iteration** — each with its own `vector_index` and `inputs={outer_param: value}`.
+1. **Container step (class container).** Synthesized by the pytest plugin when execution enters a test class. Methods inside the class push beneath it on the step stack. When the class is swept (class-level `@pytest.mark.testerkit_sweeps`), one container step is emitted **per outer iteration** — each with its own `vector_index` and `inputs={outer_param: value}`.
 
 2. **Method step.** One per pytest-collected item. The test function's body is the step's work.
 
@@ -64,12 +64,12 @@ Events: `MeasurementRecorded`. Carries the full effective `inputs` dict — oute
 ## Worked example — swept class with method-level inner sweep
 
 ```python
-@pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])      # class-level → outer
+@pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])      # class-level → outer
 class TestPower:
     def test_warmup(self, voltage, measure):
         measure("vin_warmup", voltage)
 
-    @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])  # method-level → inner
+    @pytest.mark.testerkit_sweeps([{"current": [4, 5, 6]}])  # method-level → inner
     def test_load(self, voltage, current, measure):
         measure("vout_load", voltage * 1.1)
 
@@ -105,9 +105,9 @@ StepStarted ("TestPower",            vi=1, inputs={voltage:2}, ...)
 When the method uses the `vectors` fixture, pytest sees ONE item per outer iteration. The step has ONE outer identity (matching the outer-iteration position) and N in-body vector iterations, each bracketed by `VectorStarted` / `VectorEnded` events:
 
 ```python
-@pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
+@pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])
 class TestPower:
-    @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])
+    @pytest.mark.testerkit_sweeps([{"current": [4, 5, 6]}])
     def test_load(self, voltage, vectors, measure):
         for v in vectors:
             measure("vout", voltage * v["current"])

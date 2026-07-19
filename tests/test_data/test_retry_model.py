@@ -22,9 +22,9 @@ from uuid import uuid4
 
 import pyarrow.parquet as pq
 
-from litmus.data.backends._event_accumulator import EventAccumulator
-from litmus.data.backends.parquet import materialize_run_to_parquet
-from litmus.data.events import (
+from testerkit.data.backends._event_accumulator import EventAccumulator
+from testerkit.data.backends.parquet import materialize_run_to_parquet
+from testerkit.data.events import (
     RunStarted,
     StepEnded,
     StepStarted,
@@ -345,7 +345,7 @@ def test_rerun_iteration_vector_reads_own_attempt_step_span(tmp_path):
 
 
 def test_runscope_next_vector_occurrence_counts_per_point():
-    from litmus.execution.run_scope import RunScope
+    from testerkit.execution.run_scope import RunScope
 
     rs = RunScope(uut_serial="SN1", station_id="st1")
     assert rs.next_vector_occurrence("s", None, 0) == 0

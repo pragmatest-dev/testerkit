@@ -1,6 +1,6 @@
 # Choosing a Channel Verb — Write/Stream vs Latest/Live/Query
 
-A channel is a named numeric time-series — a DMM reading, a chamber temperature, a scope trace. Litmus splits the channel API into a **producer** side (you have data to record) and a **consumer** side (you want to read it). Picking the right verb is mostly about two questions: *how fast does the data arrive*, and *do you want to react to each value or just see the current one*.
+A channel is a named numeric time-series — a DMM reading, a chamber temperature, a scope trace. TesterKit splits the channel API into a **producer** side (you have data to record) and a **consumer** side (you want to read it). Picking the right verb is mostly about two questions: *how fast does the data arrive*, and *do you want to react to each value or just see the current one*.
 
 ## Producing — `write` vs `stream`
 
@@ -10,7 +10,7 @@ A channel is a named numeric time-series — a DMM reading, a chamber temperatur
 | A continuous run of samples (a sweep, a continuous acquisition) | `with channels.stream(name) as sink:` | a sink you write each sample into; name the channel once |
 
 ```python
-import litmus.channels as channels
+import testerkit.channels as channels
 
 # one-shot
 channels.write("chamber.temp", thermocouple.read())
@@ -64,7 +64,7 @@ The clearest way to choose: **slow → `latest`, fast → `live`.**
 
 ### Watch live, or read in a loop
 
-`latest` and `live` keep calling you — you hand Litmus a function and it calls that function each time new data lands, until you call the returned `unsub()`. Use this when something (a UI, a chart) should update on its own.
+`latest` and `live` keep calling you — you hand TesterKit a function and it calls that function each time new data lands, until you call the returned `unsub()`. Use this when something (a UI, a chart) should update on its own.
 
 To read on your own schedule, call `channels.query(...)` in a loop at whatever rate you want.
 

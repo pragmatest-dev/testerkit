@@ -27,8 +27,8 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from litmus.analysis.runs_query import RunsQuery
-from litmus.analysis.steps_query import StepsQuery
+from testerkit.analysis.runs_query import RunsQuery
+from testerkit.analysis.steps_query import StepsQuery
 
 
 def _write_test(path: Path, body: str) -> None:
@@ -38,10 +38,10 @@ def _write_test(path: Path, body: str) -> None:
 def _run_pytest(test_file: Path, *, session_id: str) -> subprocess.CompletedProcess:
     """Spawn ``pytest <test_file>`` writing to the canonical results dir.
 
-    ``session_id`` flows in via ``_LITMUS_SESSION_ID`` so the outer
+    ``session_id`` flows in via ``_TESTERKIT_SESSION_ID`` so the outer
     test scopes its assertions to exactly this subprocess's run.
     """
-    env = {**os.environ, "_LITMUS_SESSION_ID": session_id}
+    env = {**os.environ, "_TESTERKIT_SESSION_ID": session_id}
     return subprocess.run(
         [
             sys.executable,

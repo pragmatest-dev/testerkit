@@ -1,11 +1,11 @@
 # Tour of the Operator UI
 
-A map of the sidebar entries behind `litmus serve`, grouped by
+A map of the sidebar entries behind `testerkit serve`, grouped by
 the same section bands the sidebar uses. Use this as a "what does each
 sidebar entry do" lookup; the per-screen [reference pages](../../reference/operator-ui/)
 have the field-by-field detail.
 
-The operator UI starts when you run `litmus serve` from a project
+The operator UI starts when you run `testerkit serve` from a project
 root — by default it listens on `http://localhost:8000`. Open that
 URL in a browser; everything below is a click in the left sidebar.
 
@@ -105,7 +105,7 @@ the photo or capture this run saved" view.
 
 ## CONFIGURATION
 
-The entities Litmus tests against — stations, parts, fixtures,
+The entities TesterKit tests against — stations, parts, fixtures,
 instruments, tests, plus the visual designer that wires them
 together.
 
@@ -123,7 +123,7 @@ the file directly.
 ### Stations — `/stations`
 
 Browse, edit, and create stations. One station = one bench's worth
-of instruments. The list page also picks up stations Litmus has
+of instruments. The list page also picks up stations TesterKit has
 seen in run history but doesn't have YAML for — tagged with a
 `Configured` / `Observed` chip and filterable from the row above.
 
@@ -168,7 +168,7 @@ YAML on the bench shows up as `Observed`.
 
 ### UUTs — `/uuts`
 
-The list of every UUT serial Litmus has seen in run history. UUTs
+The list of every UUT serial TesterKit has seen in run history. UUTs
 aren't configured ahead of time — each serial is recorded as it's
 tested — so every row comes from run history; no
 `Configured` / `Observed` chip is needed. Columns: serial, part
@@ -178,7 +178,7 @@ number, lot, runs, passed, failed, last run.
 
 ### Tests — `/tests`
 
-A flat table inventory of the test directories Litmus discovered
+A flat table inventory of the test directories TesterKit discovered
 under `tests/`. Click a row for the detail view at `/tests/<path>`:
 the test source (read-only) and the colocated sidecar YAML side by
 side, plus a per-file `Launch Test` shortcut. The Launch Test form's
@@ -193,7 +193,7 @@ Test Path dropdown is populated from the same source.
 Browse the project's configured profiles. One profile = one
 named bundle of test config (`limits`, `sweeps`, `mocks`,
 `characteristics`, etc.) that overrides each test's sidecar at
-session start. Loaded from `litmus.yaml: profiles:` and
+session start. Loaded from `testerkit.yaml: profiles:` and
 `profiles/*.yaml`. Detail view shows the resolved YAML, the
 `extends:` inheritance chain, and a `Launch Test` shortcut that
 pre-fills `?test_profile=<name>`.
@@ -205,7 +205,7 @@ pre-fills `?test_profile=<name>`.
 ### Documentation — `/docs`
 
 The in-app docs viewer. Renders the same Markdown corpus
-[pragmatest.com](https://pragmatest.com/litmus/docs) renders. Most
+[pragmatest.com](https://pragmatest.com/testerkit/docs) renders. Most
 content is served locally; Mermaid diagrams load their renderer
 from `cdn.jsdelivr.net`, so air-gapped benches see code blocks
 where the diagrams would be.

@@ -70,7 +70,7 @@ The "I logged data" outcome. Not a "good" outcome and not a "bad" one — judgme
 
 - **Step-level**: `pytest.skip(...)`, `@pytest.mark.skip`, `@pytest.mark.skipif`, or a setup-phase skip exception. The test body either didn't run or stopped early.
 - **Run-level**: cascade rollup where the only contained outcomes were SKIPPED.
-- **Vector-level**: `VectorBuilder.skip(...)` on the `LitmusClient` builder path explicitly stamps SKIPPED. Not produced by the runtime cascade.
+- **Vector-level**: `VectorBuilder.skip(...)` on the `TesterKitClient` builder path explicitly stamps SKIPPED. Not produced by the runtime cascade.
 
 ### `ERRORED` — unhandled exception
 
@@ -97,7 +97,7 @@ The runs daemon was asked to write a run that never saw a `RunEnded` event. The 
 - The process was killed mid-flight (SIGKILL, segfault, OOM kill, host shutdown).
 - An exception bypassed teardown before finalization could run.
 
-The rig state is **unknown**. When a run is killed before it finalizes, Litmus records the unfinished run as ABORTED automatically — so a process that dies mid-run is never silently lost. A non-pytest runner can also mark a run ABORTED through the results API; see the [client reference](../../reference/runtime/client.md).
+The rig state is **unknown**. When a run is killed before it finalizes, TesterKit records the unfinished run as ABORTED automatically — so a process that dies mid-run is never silently lost. A non-pytest runner can also mark a run ABORTED through the results API; see the [client reference](../../reference/runtime/client.md).
 
 ABORTED on a parquet row means the run never closed cleanly — downstream tooling and operator runbooks should treat the rig as "physically inspect required."
 
@@ -143,7 +143,7 @@ An exception in a called function (e.g. driver raises a VISA timeout) does **not
 | `FAILED` | Rolls up from a FAILED measurement; or the vector body raised `AssertionError`; or `VectorBuilder.fail(...)` was called (results-API path) |
 | `PASSED` | Rolls up from a PASSED measurement |
 | `DONE` | Rolls up from a recorded-but-unjudged measurement |
-| `SKIPPED` | `VectorBuilder.skip(...)` explicit call (`LitmusClient` builder path only — not produced by the runtime cascade) |
+| `SKIPPED` | `VectorBuilder.skip(...)` explicit call (`TesterKitClient` builder path only — not produced by the runtime cascade) |
 | `None` | Default; vector ran but recorded nothing and didn't raise |
 
 ### Step level
@@ -167,7 +167,7 @@ A run's outcome rolls up through every measurement and step; it's written to the
 
 | Outcome | Triggering conditions |
 |---|---|
-| `ABORTED` | The run was killed before it finalized; Litmus records the unfinished run as ABORTED automatically. A non-pytest runner can also mark a run ABORTED via the results API. |
+| `ABORTED` | The run was killed before it finalized; TesterKit records the unfinished run as ABORTED automatically. A non-pytest runner can also mark a run ABORTED via the results API. |
 | `TERMINATED` | Rolls up from any step that landed TERMINATED |
 | `ERRORED` | Rolls up from any ERRORED step or measurement |
 | `FAILED` | Rolls up from any FAILED step or measurement |

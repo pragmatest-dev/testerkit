@@ -6,7 +6,7 @@ Design contract (see ``project_followup_parametrized_step_nesting``):
 
 * A test class always emits a ``StepStarted`` / ``StepEnded`` event pair as
   the parent of its methods, even when un-swept.
-* When the class is sweep-vectorized via ``litmus_sweeps``, one container
+* When the class is sweep-vectorized via ``testerkit_sweeps``, one container
   event pair is emitted **per outer iteration** — distinct events sharing
   one ``step_path`` but with distinct ``vector_index`` values and the
   outer-dim parameter values populated in ``inputs``.
@@ -15,7 +15,7 @@ Design contract (see ``project_followup_parametrized_step_nesting``):
 * Iteration outcomes are isolated: iteration N's container only rolls up
   iteration N's children, not prior iterations sharing the same step_path.
 
-Each test spawns a pytest subprocess with ``_LITMUS_SESSION_ID`` set so
+Each test spawns a pytest subprocess with ``_TESTERKIT_SESSION_ID`` set so
 queries scope precisely to this run's events. Event ordering assertions
 read the events table (emit order via ``(writer_key, event_offset)``); structural
 assertions read the materialized steps table via :class:`StepsQuery`.
@@ -32,9 +32,9 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from litmus.analysis.runs_query import RunsQuery
-from litmus.analysis.steps_query import StepRow, StepsQuery
-from litmus.data.event_store import EventStore
+from testerkit.analysis.runs_query import RunsQuery
+from testerkit.analysis.steps_query import StepRow, StepsQuery
+from testerkit.data.event_store import EventStore
 
 
 def _write_test(path: Path, body: str) -> None:
@@ -42,7 +42,7 @@ def _write_test(path: Path, body: str) -> None:
 
 
 def _run_pytest(test_file: Path, *, session_id: str) -> subprocess.CompletedProcess:
-    env = {**os.environ, "_LITMUS_SESSION_ID": session_id}
+    env = {**os.environ, "_TESTERKIT_SESSION_ID": session_id}
     return subprocess.run(
         [sys.executable, "-m", "pytest", str(test_file), "-v"],
         capture_output=True,
@@ -170,7 +170,7 @@ def test_class_sweep_emits_container_per_iteration(tmp_path: Path) -> None:
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
+        @pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])
         class TestSeq:
             def test_one(self, voltage):
                 assert voltage in (1, 2, 3)
@@ -234,12 +234,12 @@ def test_canonical_composed_sweep_order(tmp_path: Path) -> None:
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
+        @pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])
         class TestSeq:
             def test_a(self, voltage):
                 assert voltage in (1, 2, 3)
 
-            @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])
+            @pytest.mark.testerkit_sweeps([{"current": [4, 5, 6]}])
             def test_b(self, voltage, current):
                 assert voltage in (1, 2, 3)
                 assert current in (4, 5, 6)
@@ -503,7 +503,7 @@ def test_per_iteration_outcome_isolation(tmp_path: Path) -> None:
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
+        @pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])
         class TestSeq:
             def test_one(self, voltage):
                 assert voltage != 2, "only voltage=2 fails"
@@ -554,9 +554,9 @@ def test_swept_class_with_vectors_fixture_inner_sweep(tmp_path: Path) -> None:
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
+        @pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])
         class TestSeq:
-            @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])
+            @pytest.mark.testerkit_sweeps([{"current": [4, 5, 6]}])
             def test_b(self, voltage, vectors, measure):
                 for v in vectors:
                     measure("vout", voltage * v["current"])
@@ -661,11 +661,11 @@ def test_inner_loop_configure_is_logged(tmp_path: Path) -> None:
         test_file,
         """\
         import pytest
-        from litmus.execution._state import get_current_context
+        from testerkit.execution._state import get_current_context
 
-        @pytest.mark.litmus_sweeps([{"voltage": [1, 2]}])
+        @pytest.mark.testerkit_sweeps([{"voltage": [1, 2]}])
         class TestSeq:
-            @pytest.mark.litmus_sweeps([{"current": [4, 5]}])
+            @pytest.mark.testerkit_sweeps([{"current": [4, 5]}])
             def test_b(self, voltage, vectors, measure):
                 for v in vectors:
                     get_current_context().configure("trim", v["current"] * 10)
@@ -717,10 +717,10 @@ def test_vectors_fixture_outcome_rollup(tmp_path: Path) -> None:
         test_file,
         """\
         import pytest
-        from litmus.models.test_config import Limit
+        from testerkit.models.test_config import Limit
 
         class TestSeq:
-            @pytest.mark.litmus_sweeps([{"target": [10, 99, 30]}])
+            @pytest.mark.testerkit_sweeps([{"target": [10, 99, 30]}])
             def test_check(self, vectors, verify):
                 for v in vectors:
                     # verify(name, value, limit) records pass/fail against
@@ -777,7 +777,7 @@ def test_inputs_auto_projected_to_parquet(tmp_path: Path) -> None:
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
+        @pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])
         class TestSeq:
             def test_one(self, voltage):
                 assert voltage in (1, 2, 3)
@@ -809,7 +809,7 @@ def test_configure_overrides_parametrize_in_stored_inputs(tmp_path: Path) -> Non
         """\
         import pytest
 
-        @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
+        @pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])
         class TestSeq:
             def test_one(self, voltage, context):
                 context.configure("voltage", voltage + 100)

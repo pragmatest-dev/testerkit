@@ -1,11 +1,11 @@
-# Litmus AI-skill evals
+# TesterKit AI-skill evals
 
 Measures whether the AI-facing surfaces (the 11 skills at
-`src/litmus/skills/<name>/SKILL.md`) actually lead a generative AI to produce
-**correct, right-sized** Litmus artifacts — not just plausible-looking ones.
+`src/testerkit/skills/<name>/SKILL.md`) actually lead a generative AI to produce
+**correct, right-sized** TesterKit artifacts — not just plausible-looking ones.
 
-This is **dev tooling**. It lives outside `src/litmus` and calls a model itself;
-the Litmus platform never calls an LLM.
+This is **dev tooling**. It lives outside `src/testerkit` and calls a model itself;
+the TesterKit platform never calls an LLM.
 
 ## How it works
 
@@ -17,7 +17,7 @@ Two pieces:
    - **collects / passes** — real `pytest` run in an isolated project (with
      `--mock-instruments` / `--test-phase=...` / extra env where the task
      needs it) — most tasks (writing a test) are graded this way;
-   - **sidecar valid** — any `<test>.yaml` validates against litmus's own
+   - **sidecar valid** — any `<test>.yaml` validates against testerkit's own
      `SidecarConfig`, which also exercises `MeasurementLimitConfig` for any
      guardband-shaped (`{characteristic, guardband_pct}`) limit entry;
    - **station / part valid** — for scaffold tasks (`validate_yaml="station"`
@@ -26,7 +26,7 @@ Two pieces:
      pytest at all;
    - **cli** — for CLI-answer tasks (`expect_cli=...`), a structural check
      that the candidate's response/files literally contain the expected
-     `litmus <subcommand>` invocation, not prose describing one;
+     `testerkit <subcommand>` invocation, not prose describing one;
    - **minimal** — no over-scaffolding (no station/part/profile YAML, no
      `psu`/`dmm` fixtures below the rung that needs them);
    - **negative control** — a paired out-of-band variant must *fail*, proving the
@@ -37,19 +37,19 @@ Two pieces:
    grades it. Runs each task N times and reports a pass-rate, plus a
    **per-skill** rollup. Supports **vanilla vs skill-augmented** — with the
    skill, the augmentation context is that task's real
-   `src/litmus/skills/<skill>/SKILL.md` (run both to measure the lift the
+   `src/testerkit/skills/<skill>/SKILL.md` (run both to measure the lift the
    skill provides — the method Anthropic's skill guidance recommends). If a
    task's skill dir doesn't exist yet, the augmentation context is empty and
    the task simply runs vanilla instead of erroring.
 
 `tasks.py` is the task set as plain data, one representative task per skill
-(11 skills): the `litmus-tests` set is the original start-simple ladder (Rung 0
+(11 skills): the `testerkit-tests` set is the original start-simple ladder (Rung 0
 record-only → Rung 1 sidecar → Rung 2 mock instruments) plus over-engineering
 traps ("just log this" must *not* scaffold a station); every other skill
-(`litmus-mocks`, `litmus-stations`, `litmus-parts`, `litmus-profiles`,
-`litmus-sites`, `litmus-capture`, `litmus-analysis`, `litmus-debug`,
-`litmus-interactive`, `litmus-datasheets`) gets one task spanning its trigger.
-`litmus-datasheets`' task is `manual=True` (needs a real datasheet PDF fixture)
+(`testerkit-mocks`, `testerkit-stations`, `testerkit-parts`, `testerkit-profiles`,
+`testerkit-sites`, `testerkit-capture`, `testerkit-analysis`, `testerkit-debug`,
+`testerkit-interactive`, `testerkit-datasheets`) gets one task spanning its trigger.
+`testerkit-datasheets`' task is `manual=True` (needs a real datasheet PDF fixture)
 and is skipped by the automated runner. Kept as data so a future optimizer
 (DSPy/GEPA) can use it as a trainset.
 
@@ -85,7 +85,7 @@ point at any other model/provider; the tasks and grader are backend-agnostic.
   string replacement, so they're conclusive for typical scalar tests and
   `inconclusive` (`neg=?`) when they can't find a value to mutate.
 - **CLI-answer grading is structural, not semantic** — `expect_cli` only greps
-  for the literal `litmus <subcommand>` substring in the candidate's response/
+  for the literal `testerkit <subcommand>` substring in the candidate's response/
   files; it doesn't check the flags are right for the question asked. Good
   enough to catch "answered with prose instead of the tool," not to catch a
   subtly wrong filter.

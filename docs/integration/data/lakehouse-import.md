@@ -1,6 +1,6 @@
-# Importing Litmus run parquets into a lakehouse
+# Importing TesterKit run parquets into a lakehouse
 
-Each Litmus run produces **one sealed parquet** at
+Each TesterKit run produces **one sealed parquet** at
 `<data_dir>/runs/{date}/{timestamp}_{run_id8}_{serial}.parquet`. The
 8-char `run_id8` sits in a fixed position right after the timestamp; the
 serial trails and is omitted for dev/debug runs
@@ -26,7 +26,7 @@ This file is everything you need for a single run — sealed, atomic,
 write-once, portable. Drop the directory into S3, GCS, or your local lake;
 ingest however your warehouse/lakehouse prefers.
 
-This page shows the canonical transform for splitting a Litmus parquet
+This page shows the canonical transform for splitting a TesterKit parquet
 into the logical tables your warehouse expects.
 
 ## DuckDB (local, native)
@@ -62,14 +62,14 @@ equivalents (`SELECT col1, col2, …` or column lists at COPY time).
 
 ```sql
 -- Stage the run directory (or a glob over many days)
-CREATE OR REPLACE STAGE litmus_runs
+CREATE OR REPLACE STAGE testerkit_runs
   URL='s3://my-bucket/data/runs/'
   FILE_FORMAT = (TYPE = PARQUET);
 
 -- runs is derived via DISTINCT — run identity is denormalized onto every row
 COPY INTO runs FROM (
   SELECT DISTINCT $1:run_id::STRING, $1:uut_serial_number::STRING, /* ... */
-  FROM @litmus_runs/2026-05-08/20260508T120000Z_a1b2c3d4_SN001.parquet
+  FROM @testerkit_runs/2026-05-08/20260508T120000Z_a1b2c3d4_SN001.parquet
   (FILE_FORMAT => 'PARQUET')
 );
 
@@ -79,7 +79,7 @@ COPY INTO steps        FROM (… WHERE $1:record_type = 'step');
 COPY INTO measurements FROM (
   SELECT $1:run_id::STRING, $1:step_path::STRING,
          m.value:name::STRING, m.value:value::FLOAT, m.value:outcome::STRING, /* … */
-  FROM @litmus_runs/2026-05-08/20260508T120000Z_a1b2c3d4_SN001.parquet (FILE_FORMAT => 'PARQUET'),
+  FROM @testerkit_runs/2026-05-08/20260508T120000Z_a1b2c3d4_SN001.parquet (FILE_FORMAT => 'PARQUET'),
        LATERAL FLATTEN(input => $1:measurements) m
   WHERE $1:record_type = 'vector'
 );
@@ -92,24 +92,24 @@ orchestrator (Airflow, Dagster, dbt) that iterates over new parquet files.
 
 ```sql
 -- Create external table over the parquet glob
-CREATE OR REPLACE EXTERNAL TABLE litmus.run_rows
+CREATE OR REPLACE EXTERNAL TABLE testerkit.run_rows
 OPTIONS (
   format = 'PARQUET',
   uris = ['gs://my-bucket/data/runs/*.parquet']
 );
 
 -- Materialize three logical tables: runs via DISTINCT, others via record_type filter
-INSERT INTO litmus.runs
+INSERT INTO testerkit.runs
 SELECT DISTINCT run_id, uut_serial_number, station_hostname, run_started_at, run_ended_at,
        run_outcome, /* ... */
-FROM litmus.run_rows;
+FROM testerkit.run_rows;
 
-INSERT INTO litmus.steps        SELECT … WHERE record_type = 'step';
+INSERT INTO testerkit.steps        SELECT … WHERE record_type = 'step';
 
 -- Measurements are nested — UNNEST the repeated measurements field
-INSERT INTO litmus.measurements
+INSERT INTO testerkit.measurements
 SELECT run_id, step_path, m.name, m.value, m.outcome, /* … */
-FROM litmus.run_rows, UNNEST(measurements) AS m
+FROM testerkit.run_rows, UNNEST(measurements) AS m
 WHERE record_type = 'vector';
 ```
 
@@ -123,24 +123,24 @@ df = spark.read.parquet("s3://my-bucket/data/runs/")
 # runs is the DISTINCT projection of run-level columns from any row
 (df.select("run_id", "uut_serial_number", "station_hostname",
            "run_started_at", "run_ended_at", "run_outcome").distinct()
-   .write.mode("append").format("delta").saveAsTable("litmus.runs"))
+   .write.mode("append").format("delta").saveAsTable("testerkit.runs"))
 
 (df.where(F.col("record_type") == "step")
    .drop("measurements", "inputs", "outputs")
-   .write.mode("append").format("delta").saveAsTable("litmus.steps"))
+   .write.mode("append").format("delta").saveAsTable("testerkit.steps"))
 
 # Measurements are nested — explode the array, then expand the struct
 (df.where(F.col("record_type") == "vector")
    .select("run_id", "step_path", F.explode("measurements").alias("m"))
    .select("run_id", "step_path", "m.*")
-   .write.mode("append").format("delta").saveAsTable("litmus.measurements"))
+   .write.mode("append").format("delta").saveAsTable("testerkit.measurements"))
 ```
 
 ## Trino / Athena (Iceberg)
 
 ```sql
 -- Register the parquet directory as an external Iceberg table
-CREATE TABLE litmus.run_rows (
+CREATE TABLE testerkit.run_rows (
   record_type VARCHAR, run_id VARCHAR, uut_serial_number VARCHAR, /* full schema … */
 )
 WITH (
@@ -149,13 +149,13 @@ WITH (
 );
 
 -- runs is the DISTINCT projection; steps / measurements filter by record_type
-INSERT INTO litmus.runs         SELECT DISTINCT run_id, uut_serial_number, … FROM litmus.run_rows;
-INSERT INTO litmus.steps        SELECT … FROM litmus.run_rows WHERE record_type = 'step';
+INSERT INTO testerkit.runs         SELECT DISTINCT run_id, uut_serial_number, … FROM testerkit.run_rows;
+INSERT INTO testerkit.steps        SELECT … FROM testerkit.run_rows WHERE record_type = 'step';
 
 -- measurements is an ARRAY(ROW(...)) column on the vector rows — UNNEST it
-INSERT INTO litmus.measurements
+INSERT INTO testerkit.measurements
 SELECT run_id, step_path, m.name, m.value, m.outcome  -- …
-FROM litmus.run_rows, UNNEST(measurements) AS t(m)
+FROM testerkit.run_rows, UNNEST(measurements) AS t(m)
 WHERE record_type = 'vector';
 ```
 
@@ -174,7 +174,7 @@ meas   = duckdb.sql("SELECT run_id, step_path, vector_index, vector_retry, m.* F
 
 ## Why a single parquet (not three)
 
-Litmus stores one parquet per run for several reasons:
+TesterKit stores one parquet per run for several reasons:
 
 1. **One sealed atomic artifact per run** — write-once, portable, easy to
    archive / sync / inspect. Single file → single `mv` for atomic publish.
@@ -185,16 +185,16 @@ Litmus stores one parquet per run for several reasons:
    convention to learn.
 
 If you find yourself running the transform repeatedly, write it once as
-a dbt model, an Airflow DAG, or a `litmus export` recipe — the SQL is
+a dbt model, an Airflow DAG, or a `testerkit export` recipe — the SQL is
 short enough to live in any of them.
 
 ## Operational notes
 
 - **One-time vs incremental**: the queries above are idempotent if you
-  use `MERGE` / `ON CONFLICT` on `(run_id, …)` keys. Litmus parquets are
+  use `MERGE` / `ON CONFLICT` on `(run_id, …)` keys. TesterKit parquets are
   write-once per run_id; a re-run produces a new run_id, so deduplication
   by run_id is sufficient.
-- **Schema evolution**: Litmus's `RUN_ROW_SCHEMA` evolves additively
+- **Schema evolution**: TesterKit's `RUN_ROW_SCHEMA` evolves additively
   via column adds. Older parquets read forward-compatibly via
   `union_by_name=true` (DuckDB) or `mergeSchema=true` (Spark/Delta) /
   `name mapping` (Iceberg). The `schema_version` is stamped in parquet
@@ -212,7 +212,7 @@ short enough to live in any of them.
   `{vector_id_short}_{name}.{ext}`. Pre-2.0 parquets carried
   `file://_ref/…` URIs pointing to a sibling `{stem}_ref/` directory —
   that layout is legacy; treat those URIs as opaque and use `load_ref`
-  from `litmus.data.backends.parquet` to dereference either form. For the
+  from `testerkit.data.backends.parquet` to dereference either form. For the
   full lane struct schema, see [Reference → Parquet schema](../../reference/data/parquet-schema.md).
 
 

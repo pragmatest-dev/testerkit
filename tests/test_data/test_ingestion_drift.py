@@ -28,9 +28,9 @@ Two kinds of drift this file guards against, post projection-normalization
 
 from __future__ import annotations
 
-from litmus.analysis.runs_query import RunRow
-from litmus.data._accumulator_pool import INFLIGHT_RUNS_SCHEMA
-from litmus.data._runs_duckdb_daemon import (
+from testerkit.analysis.runs_query import RunRow
+from testerkit.data._accumulator_pool import INFLIGHT_RUNS_SCHEMA
+from testerkit.data._runs_duckdb_daemon import (
     _INSTRUMENTS_PERSISTED_COLUMNS,
     _LANE_PERSISTED_COLUMNS,
     _MEASUREMENTS_PERSISTED_COLUMNS,
@@ -38,8 +38,8 @@ from litmus.data._runs_duckdb_daemon import (
     _STEPS_PERSISTED_COLUMNS,
     _VECTORS_PERSISTED_COLUMNS,
 )
-from litmus.data.backends._row_helpers import LANE_FIELDS
-from litmus.data.schemas import _INSTRUMENT_STRUCT, _MEASUREMENT_STRUCT, RUN_ROW_SCHEMA
+from testerkit.data.backends._row_helpers import LANE_FIELDS
+from testerkit.data.schemas import _INSTRUMENT_STRUCT, _MEASUREMENT_STRUCT, RUN_ROW_SCHEMA
 
 # Non-run-scoped columns of RUN_ROW_SCHEMA — step / vector / measurement grain
 # and nested lanes. These belong to the step/measurement projections, not runs.
@@ -61,7 +61,7 @@ _ALIASES = {"run_started_at": "started_at", "run_ended_at": "ended_at", "run_out
 # Run columns known ONLY at finalization (absent from the RunStarted event), so
 # the LIVE overlay legitimately cannot carry them — they populate once the run
 # materializes to parquet.
-_FINALIZATION_ONLY = frozenset({"env_fingerprint", "litmus_version", "python_version"})
+_FINALIZATION_ONLY = frozenset({"env_fingerprint", "testerkit_version", "python_version"})
 
 
 def _collected_run_columns() -> set[str]:

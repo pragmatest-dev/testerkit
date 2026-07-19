@@ -39,7 +39,7 @@ The default tab is **Events**.
 
 ## Operator dialogs
 
-When a test hits a [`litmus_prompts`](../pytest/markers.md#litmus_prompts)
+When a test hits a [`testerkit_prompts`](../pytest/markers.md#testerkit_prompts)
 marker, the prompt renders as a modal on this page. The same
 session is also pushed to the
 [ACTIVE TESTS sidebar block](../../how-to/overview/operator-ui-tour.md#active-tests-dynamic)

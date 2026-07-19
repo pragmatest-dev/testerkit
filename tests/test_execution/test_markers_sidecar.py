@@ -17,7 +17,7 @@ pytest_plugins = ["pytester"]
 _INI = textwrap.dedent(
     """
     [pytest]
-    addopts = -p no:litmus -p litmus.pytest_plugin
+    addopts = -p no:testerkit -p testerkit.pytest_plugin
     asyncio_default_fixture_loop_scope = function
     """
 )
@@ -239,7 +239,7 @@ def test_per_test_mock_tightens_file_level(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=2)
 
 
-def test_litmus_mocks_forwards_side_effect(pytester: pytest.Pytester) -> None:
+def test_testerkit_mocks_forwards_side_effect(pytester: pytest.Pytester) -> None:
     """``side_effect`` and other ``unittest.mock.patch.object`` kwargs forward verbatim."""
     pytester.makeini(_INI)
     pytester.makepyfile(
@@ -310,7 +310,7 @@ def test_range_expander_in_parametrize_argvalues(pytester: pytest.Pytester) -> N
     result.assert_outcomes(passed=11)
 
 
-def test_litmus_retry_translates_to_flaky(pytester: pytest.Pytester) -> None:
+def test_testerkit_retry_translates_to_flaky(pytester: pytest.Pytester) -> None:
     """``retry`` translates to pytest-rerunfailures' ``flaky`` marker."""
     pytester.makeini(_INI)
     pytester.makepyfile(
@@ -340,8 +340,8 @@ def test_litmus_retry_translates_to_flaky(pytester: pytest.Pytester) -> None:
     result.stdout.fnmatch_lines(["*2 rerun*"])
 
 
-def test_litmus_retry_inline_decorator(pytester: pytest.Pytester) -> None:
-    """``@pytest.mark.litmus_retry`` inline routes through the same translator."""
+def test_testerkit_retry_inline_decorator(pytester: pytest.Pytester) -> None:
+    """``@pytest.mark.testerkit_retry`` inline routes through the same translator."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -350,7 +350,7 @@ def test_litmus_retry_inline_decorator(pytester: pytest.Pytester) -> None:
 
             COUNTER = {"n": 0}
 
-            @pytest.mark.litmus_retry(max_retries=1)
+            @pytest.mark.testerkit_retry(max_retries=1)
             def test_passes_on_second():
                 COUNTER["n"] += 1
                 assert COUNTER["n"] >= 2
@@ -362,7 +362,7 @@ def test_litmus_retry_inline_decorator(pytester: pytest.Pytester) -> None:
     result.stdout.fnmatch_lines(["*1 rerun*"])
 
 
-def test_litmus_retry_rejects_unknown_kwargs(pytester: pytest.Pytester) -> None:
+def test_testerkit_retry_rejects_unknown_kwargs(pytester: pytest.Pytester) -> None:
     """Unknown kwargs are caught by Pydantic at YAML load.
 
     ``RetryConfig.model_config = extra="forbid"`` rejects ``mystery_kwarg``

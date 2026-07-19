@@ -2,7 +2,7 @@
 
 **URL:** `/explore`
 
-A chart-based view of every measurement Litmus has recorded — filter,
+A chart-based view of every measurement TesterKit has recorded — filter,
 scope, and plot. The table-based
 [Results detail Measurements tab](results/detail.md#measurements) is
 scoped to one run; this view spans the whole index, lets you filter

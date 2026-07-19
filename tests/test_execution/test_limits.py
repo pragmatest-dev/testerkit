@@ -2,11 +2,11 @@
 
 import pytest
 
-from litmus.execution.limits import derive_limit
-from litmus.models.capability import AccuracySpec, RangeSpec, SpecBand
-from litmus.models.enums import Comparator, Direction, MeasurementFunction
-from litmus.models.part import PartCharacteristic
-from litmus.models.test_config import Limit
+from testerkit.execution.limits import derive_limit
+from testerkit.models.capability import AccuracySpec, RangeSpec, SpecBand
+from testerkit.models.enums import Comparator, Direction, MeasurementFunction
+from testerkit.models.part import PartCharacteristic
+from testerkit.models.test_config import Limit
 
 
 class TestDeriveLimit:

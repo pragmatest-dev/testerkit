@@ -16,9 +16,9 @@ Both shapes force the schema to be the source of truth, which means one row has 
 
 ## The inversion: events as primary, runs as projections
 
-Litmus emits a separate immutable event for each thing that happens: `RunStarted`, `StepStarted`, `MeasurementRecorded`, `StepEnded`, `RunEnded`. The event log is the source of truth. The Run/Step/Measurement views (parquet, DuckDB index) are derived projections — regenerable from the events at any time.
+TesterKit emits a separate immutable event for each thing that happens: `RunStarted`, `StepStarted`, `MeasurementRecorded`, `StepEnded`, `RunEnded`. The event log is the source of truth. The Run/Step/Measurement views (parquet, DuckDB index) are derived projections — regenerable from the events at any time.
 
-Most data systems treat the entity (Run) as primary and the audit log (events) as a secondary concern. Litmus inverts that: events are primary, the entity is a projection. That single inversion is what sidesteps the whole problem. Nothing ever needs an UPDATE because the view isn't authoritative — it's rebuilt from the events.
+Most data systems treat the entity (Run) as primary and the audit log (events) as a secondary concern. TesterKit inverts that: events are primary, the entity is a projection. That single inversion is what sidesteps the whole problem. Nothing ever needs an UPDATE because the view isn't authoritative — it's rebuilt from the events.
 
 ## Properties that fall out
 
@@ -32,11 +32,11 @@ Most data systems treat the entity (Run) as primary and the audit log (events) a
 
 ## The principled split
 
-Not everything is event-sourced — that would be the wrong shape for some data. Litmus splits along a clean line:
+Not everything is event-sourced — that would be the wrong shape for some data. TesterKit splits along a clean line:
 
 | Data shape | Pattern | Why |
 |---|---|---|
-| Configuration (`litmus.yaml`, `station.yaml`, parts, catalog) | CRUD via YAML, hand-edited | Operators evolve them deliberately over time |
+| Configuration (`testerkit.yaml`, `station.yaml`, parts, catalog) | CRUD via YAML, hand-edited | Operators evolve them deliberately over time |
 | Test execution data (runs, steps, measurements, events) | Append-only events → derived projections | Immutable historical record |
 | Channel sample data (high-rate time-series) | Append-only sample streams (event log carries metadata) | Same domain semantics, different physics — too large for the event log |
 
@@ -48,10 +48,10 @@ Annotations, retroactive flags, and RMA links don't break this — they're "new 
 
 In a CRUD world, "the database" is a single shared mutable structure every consumer reads and writes against. In an event-sourced world, the *events* are the shared contract — and each consumer can run *its own* materializer in *its own* process, on whatever cadence makes sense for that consumer. Different processes can care about different projections without coordinating.
 
-That's why Litmus's materializers take the shape they do:
+That's why TesterKit's materializers take the shape they do:
 
 - The runs daemon cares about an always-on, queryable view of recent runs, so it runs as a long-lived consumer: it collects events per in-flight run and, on `RunEnded`, writes the canonical per-run parquet. It also takes over for runs whose runner crashed. Same view, different trigger.
-- Each exporter (CSV, JSON, HDF5, STDF, …) replays events after the fact via `litmus export`, each in its own process at whatever cadence the operator invokes.
+- Each exporter (CSV, JSON, HDF5, STDF, …) replays events after the fact via `testerkit export`, each in its own process at whatever cadence the operator invokes.
 - Any future consumer — a Grafana exporter, a Snowflake pipeline, an analytics view — would run its own materializer in its own process at whatever cadence it likes (per-event, per-run, batched hourly). Sync or async, in-process or out, ephemeral or long-running — those are local choices, not architectural commitments.
 
 There's no "the materialization service" everyone has to wait on, no central writer that becomes a bottleneck. Each consumer's timing is local to its process; from the system's perspective they're all running independently, all deriving their own views from the same shared event log. That's the property that makes log-based architectures composable without coordination.

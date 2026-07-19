@@ -21,17 +21,17 @@ limits from stage 5 still apply.
 - Tests gained ``for connection in ctx.connections:`` loops; sidecar
   added ``characteristics: [rail_3v3]`` per test so the resolver
   auto-derives the right connections.
-- ``litmus.yaml`` adds ``default_station: bench_01`` and
+- ``testerkit.yaml`` adds ``default_station: bench_01`` and
   ``default_fixture: buck_3v3_bench``.
 
 ## Run it
 
 ```bash
 cd examples/06-station-catalog
-LITMUS_AUTO_CONFIRM=1 uv run pytest -v
+TESTERKIT_AUTO_CONFIRM=1 uv run pytest -v
 ```
 
-The ``LITMUS_AUTO_CONFIRM=1`` env var lets the
+The ``TESTERKIT_AUTO_CONFIRM=1`` env var lets the
 operator-prompt demo run without a tty (auto-confirms / picks the
 first choice). Drop it for an interactive bench run.
 
@@ -41,7 +41,7 @@ Three things click into place in this single chapter:
 
 1. **One station, many tests.** Change the PSU model once in
    ``stations/bench_01.yaml``; every test that uses ``psu`` follows.
-2. **Bring your own driver.** Litmus doesn't ship instrument drivers.
+2. **Bring your own driver.** TesterKit doesn't ship instrument drivers.
    Point ``driver:`` at your PyVISA / PyMeasure / vendor class; the
    catalog describes *what* the instrument can do, the driver class
    describes *how* to talk to it.
@@ -62,7 +62,7 @@ exercising fault paths. The ``mocks`` field patches one or more
 methods on a fixture for one test:
 
 ```python
-@pytest.mark.litmus_mocks([{"target": "dmm.measure_dc_voltage", "return_value": 4.5}])
+@pytest.mark.testerkit_mocks([{"target": "dmm.measure_dc_voltage", "return_value": 4.5}])
 def test_ovp_path_inline(verify, psu, dmm):
     psu.set_voltage(5.0)
     verify("v_overvoltage", dmm.measure_dc_voltage())   # 4.5, not 3.31
@@ -88,11 +88,11 @@ straight to ``unittest.mock.patch.object``, so ``side_effect``,
 Hardware test routinely needs a human in the loop: confirm the UUT
 is seated, pick a fixture variant, acknowledge a high-voltage step.
 The ``prompt`` fixture resolves named entries declared by ``prompts``
-fields (sidecar) or ``@pytest.mark.litmus_prompts`` decorators
+fields (sidecar) or ``@pytest.mark.testerkit_prompts`` decorators
 (inline) anywhere in scope:
 
 ```python
-@pytest.mark.litmus_prompts(
+@pytest.mark.testerkit_prompts(
     pick_fixture={
         "message": "Pick a fixture variant",
         "prompt_type": "choice",
@@ -119,7 +119,7 @@ test_operator_choice_sidecar:
 
 Each entry is a ``PromptConfig``: ``message``, optional
 ``prompt_type`` (``confirm`` / ``choice`` / ``input``), ``choices``,
-``timeout_seconds``. CI runs use ``LITMUS_AUTO_CONFIRM=1``;
+``timeout_seconds``. CI runs use ``TESTERKIT_AUTO_CONFIRM=1``;
 bench operators see a tty prompt; UI runners install their own
 handler.
 

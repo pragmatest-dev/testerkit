@@ -18,12 +18,12 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.channels.store import ChannelStore
-from litmus.data.event_log import EventLog
-from litmus.data.events import ChannelCheckpoint, FileCheckpoint
-from litmus.data.files.store import FileStore
-from litmus.data.files.streaming import _BaseSink
-from litmus.models.data_options import RUN_ORPHAN_TIMEOUT_SECONDS, SessionOptions, StreamTuning
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.event_log import EventLog
+from testerkit.data.events import ChannelCheckpoint, FileCheckpoint
+from testerkit.data.files.store import FileStore
+from testerkit.data.files.streaming import _BaseSink
+from testerkit.models.data_options import RUN_ORPHAN_TIMEOUT_SECONDS, SessionOptions, StreamTuning
 
 
 class CollectingLog(EventLog):

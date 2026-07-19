@@ -15,7 +15,7 @@ lives in its own file; shared behavior factors up through an
   (±1 %) limits
 - Added `profiles/characterization.yaml` — standalone, wide vectors
   sweep, no limits
-- Stripped the per-test `litmus_sweeps` + `litmus_limits` out of the
+- Stripped the per-test `testerkit_sweeps` + `testerkit_limits` out of the
   sidecar (`tests/test_rail.yaml`) for the rail tests — they come from
   the profile now. `TestIdle` still owns its limits in the sidecar
   because idle current doesn't vary by phase.
@@ -65,7 +65,7 @@ With all seven stages in place you've seen the full arc:
 ```
 vanilla pytest
   → verify + Parquet
-    → litmus_limits marker
+    → testerkit_limits marker
       → sidecar markers
         → station + catalog
           → part + fixture connections

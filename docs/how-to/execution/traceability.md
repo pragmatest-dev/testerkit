@@ -1,6 +1,6 @@
 # Measurement Traceability
 
-Every measurement Litmus records carries a fixed set of traceability fields. The platform stamps them automatically — you don't add them by hand unless you're passing raw values without using the `verify` fixture or a fixture connection.
+Every measurement TesterKit records carries a fixed set of traceability fields. The platform stamps them automatically — you don't add them by hand unless you're passing raw values without using the `verify` fixture or a fixture connection.
 
 ## What gets recorded
 
@@ -40,10 +40,10 @@ Every measurement row also carries the run's context fields — `uut_serial_numb
 
 ### Automatic (via `verify` with fixture connections)
 
-When your test uses `context.connections` or declares `@pytest.mark.litmus_characteristics`, `verify` stamps `uut_pin` and `characteristic_id` automatically from the active connection.
+When your test uses `context.connections` or declares `@pytest.mark.testerkit_characteristics`, `verify` stamps `uut_pin` and `characteristic_id` automatically from the active connection.
 
 ```python
-@pytest.mark.litmus_characteristics(["rail_3v3", "rail_5v"])
+@pytest.mark.testerkit_characteristics(["rail_3v3", "rail_5v"])
 def test_all_rails(self, context, dmm, verify):
     for conn in context.connections:
         verify("voltage", dmm.measure_dc_voltage())
@@ -52,7 +52,7 @@ def test_all_rails(self, context, dmm, verify):
 
 ### How `uut_pin` and `instrument_name` are stamped
 
-`verify` does not accept `uut_pin`, `instrument_name`, or `instrument_channel` as arguments. These fields are stamped automatically from the active part-spec characteristic and the active fixture connection — the same `@pytest.mark.litmus_characteristics` / `@pytest.mark.litmus_connections` binding shown in the section above.
+`verify` does not accept `uut_pin`, `instrument_name`, or `instrument_channel` as arguments. These fields are stamped automatically from the active part-spec characteristic and the active fixture connection — the same `@pytest.mark.testerkit_characteristics` / `@pytest.mark.testerkit_connections` binding shown in the section above.
 
 To control which pin and instrument appear on the measurement row, use the marker to select the right connection before calling `verify`. There is no hand-stamp path for these fields.
 
@@ -167,8 +167,8 @@ The CSV export drops the `measurement_` prefix relative to the DuckDB column nam
 For cross-run analytics, use `MeasurementsQuery`. The `measurements` view exposes fixed columns (`measurement_name`, `measurement_value`, `measurement_outcome`, `uut_pin`, `instrument_name`, etc.) directly. Input and output fields from `configure()` and `observe()` are accessed via `FieldRef`:
 
 ```python
-from litmus.analysis.measurements_query import MeasurementsQuery
-from litmus.analysis.measurement_facets import FieldRef, FilterSet
+from testerkit.analysis.measurements_query import MeasurementsQuery
+from testerkit.analysis.measurement_facets import FieldRef, FilterSet
 
 with MeasurementsQuery() as q:
     # Yield summary by part

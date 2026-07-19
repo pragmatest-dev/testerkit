@@ -16,9 +16,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from litmus.api.app import create_api_router
-from litmus.data.backends.parquet import ParquetBackend
-from litmus.data.models import (
+from testerkit.api.app import create_api_router
+from testerkit.data.backends.parquet import ParquetBackend
+from testerkit.data.models import (
     UUT,
     Measurement,
     Outcome,
@@ -51,8 +51,8 @@ def client_with_run_factory():
     via ``RunsQuery.get`` / ``StepsQuery.get`` so other tests' rows
     in the canonical store don't leak in.
     """
-    from litmus.data.data_dir import resolve_data_dir
-    from litmus.data.run_store import RunStore
+    from testerkit.data.data_dir import resolve_data_dir
+    from testerkit.data.run_store import RunStore
 
     results_root = resolve_data_dir()
     backend = ParquetBackend(data_dir=results_root)
@@ -60,7 +60,7 @@ def client_with_run_factory():
     def make(test_run: TestRun):
         parquet_path = backend.save_test_run(test_run)
         # Canonical daemon needs to know about this parquet so the
-        # API's typed queries find it; ``LITMUS_SKIP_DAEMON_NOTIFY``
+        # API's typed queries find it; ``TESTERKIT_SKIP_DAEMON_NOTIFY``
         # blocks the auto-notify, so we trigger it directly.
         notifier = RunStore()
         try:

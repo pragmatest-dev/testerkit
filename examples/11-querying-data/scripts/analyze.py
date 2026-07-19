@@ -25,7 +25,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from litmus.queries import EventStore, MeasurementsQuery, RunsQuery
+from testerkit.queries import EventStore, MeasurementsQuery, RunsQuery
 
 
 def _hr() -> None:
@@ -37,7 +37,7 @@ def main() -> None:
     if not data_dir.exists():
         raise SystemExit("No data/ directory — run scripts/seed_runs.py first.")
 
-    print("Litmus data discovery — querying through the public API")
+    print("TesterKit data discovery — querying through the public API")
     _hr()
 
     # Poll the runs daemon for ingest completion. After seeding, the
@@ -120,7 +120,7 @@ def main() -> None:
 
     _hr()
     print("\nUI counterpart for these queries:")
-    print("  uv run litmus serve --reload")
+    print("  uv run testerkit serve --reload")
     print("  http://localhost:8000/runs       — same RunsQuery, clickable")
     print("  http://localhost:8000/metrics    — yield + Pareto + Cpk")
     print("  http://localhost:8000/measurements — full parametric query")

@@ -33,11 +33,11 @@ import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.data.event_log import _IPC_SCHEMA
-from litmus.data.files.models import FileArtifactMetadata
-from litmus.data.schema_dispatch import dispatch, stamp_from_arrow_metadata
-from litmus.data.schema_versions import SchemaStore
-from litmus.data.schemas import RUN_ROW_SCHEMA
+from testerkit.data.event_log import _IPC_SCHEMA
+from testerkit.data.files.models import FileArtifactMetadata
+from testerkit.data.schema_dispatch import dispatch, stamp_from_arrow_metadata
+from testerkit.data.schema_versions import SchemaStore
+from testerkit.data.schemas import RUN_ROW_SCHEMA
 
 GOLDEN = Path(__file__).parent / "golden" / "schema_v0_1"
 

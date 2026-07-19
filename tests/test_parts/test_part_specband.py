@@ -3,7 +3,7 @@
 Covers PointSpec and ListSpec when-clauses in band_matches().
 """
 
-from litmus.models.capability import (
+from testerkit.models.capability import (
     AccuracySpec,
     ListSpec,
     PointSpec,

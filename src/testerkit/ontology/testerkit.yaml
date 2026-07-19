@@ -1,0 +1,1420 @@
+# TesterKit Ontology — v1 draft
+#
+# Every TesterKit concept, its canonical Pydantic model, and how it relates to
+# the others. Pydantic is the structural source of truth (types, validation,
+# field-level docs); this file adds (1) human-readable identity and summary,
+# (2) cross-concept relationships that Pydantic doesn't express, and
+# (3) authored-vs-runtime / persistence / category framing.
+#
+# CONSUMED BY:
+#   * docs/reference/ontology.md — generated glossary
+#   * docs/concepts/architecture-erd.md — generated Mermaid ERD
+#   * testerkit mcp tool `describe_concept` — AI agent discovery
+#   * CI check — every BaseModel under src/testerkit/models/ and
+#     src/testerkit/data/{models,events}.py must be referenced here, OR
+#     explicitly listed in `ontology_ignored:` below (with a reason).
+#
+# VERB VOCABULARY — every link is named for what it MEANS in TesterKit terms.
+# Generic verbs (`has`, `about`) are intentionally absent: each relationship
+# should answer "what does this link mean?" without forcing the reader to
+# look at the model. Adding a new verb requires explicit review.
+#
+#   Domain composition —
+#     exposes            Part exposes Pin / SignalGroup (physical interface).
+#     specifies          Part specifies PartCharacteristic (electrical spec).
+#     bundles            SignalGroup bundles BusSignal (bus members).
+#     parameterized_by   Capability parameterized_by Signal/Condition/Control/
+#                        Attribute/SpecBand (its measurable dimensions).
+#     equips             StationConfig/StationType equips instruments.
+#     offers             InstrumentCatalogEntry offers channels/attributes/
+#                        capabilities (what a make/model can do).
+#     identifies         Asset/Record identifies via InstrumentInfo.
+#     calibrated_per     Asset/Record calibrated_per CalibrationInfo.
+#     wires              FixtureConfig/FixtureSite wires FixtureConnection.
+#     partitions_into    FixtureConfig partitions_into FixtureSite (multi-UUT).
+#     routed_through     FixtureConnection routed_through SwitchRoute.
+#     declares           ProjectConfig declares config blocks (profiles,
+#                        multi_site, prompts).
+#     configures         TestEntry configures marker fields (limits, sweeps,
+#                        mocks, retry, prompts).
+#     nests              TestEntry nests TestEntry (recursive scope).
+#     resolves_via       MeasurementLimitConfig resolves_via bands/lookup/step.
+#     resolves_to        MeasurementLimitConfig resolves_to Limit at vector time.
+#     derives_from       MeasurementLimitConfig derives_from PartCharacteristic
+#                        (spec value + tolerance).
+#     applies_stimulus   TestVector applies_stimulus StimulusRecord.
+#
+#   Temporal containment —
+#     contains           Runtime sequence: Session → Run → Step/CollectedItem
+#                        → Vector → Measurement. Ordered, emerging over time.
+#
+#   Class / type-instance —
+#     inherits_from      Pydantic class inheritance.
+#     instance_of        Runtime entity is an occurrence of a definition
+#                        (UUT instance_of Part).
+#     instantiated_as    Inverse of instance_of (Part instantiated_as UUT).
+#
+#   Naming pointers (FK by id) — narrow; prefer a domain verb when one fits.
+#     references         A names B by id/name (non-owning pointer).
+#     extends            YAML config inheritance — B's fields merge into A
+#                        last-wins (ProfileConfig.extends).
+#
+#   Execution semantics —
+#     tests              TestRun tests UUT (the subject of testing).
+#     runs_on            TestRun runs_on Station (the bench).
+#     validates_against  Load-time contract check (StationConfig vs StationType).
+#
+#   Event semantics —
+#     emits              Entity emits Event during its lifecycle.
+#     records            Event records the state / occurrence of an Entity.
+#     paired_with        Start/end event pair (RunStarted ↔ RunEnded).
+#
+#   Config layering —
+#     overlays           Sidecar/Marker overlays a pytest test function.
+#
+#   Storage —
+#     stored_in          Concept lives in a Store (run_store / event_store /
+#                        channel_store). Whether a row got there raw or via
+#                        materialization is a property of the path, not the
+#                        concept — see the `run.materialized` event.
+#
+# CATEGORY VOCABULARY:
+#   definition       YAML-authored on disk — parts/, stations/, fixtures/,
+#                    catalog/, instruments/, testerkit.yaml.
+#   primitive        Reusable Pydantic shape — not authored on its own;
+#                    appears as a sub-field of definitions.
+#   config-overlay   Layered config applied at run time (markers, sidecars,
+#                    profiles).
+#   runtime          Created during test execution; lives in a Store.
+#   event            Discrete record in the event log.
+#   store            Persistence boundary.
+#   enum             Closed-set vocabulary (Outcome, Direction, …).
+#   lifecycle        Conceptual entity with no single Pydantic model
+#                    (Session, pytest test function).
+#   external         Boundary concept owned by another system (pytest item).
+
+version: 1
+
+
+# =============================================================================
+# DEFINITIONS — YAML-authored entities
+# =============================================================================
+
+concepts:
+
+  - id: project_config
+    category: definition
+    summary: >
+      Project root config. Names the default station/fixture/profile,
+      data dir, multi-site knobs, profiles, and required operator inputs.
+    model: testerkit.models.project.ProjectConfig
+    authored_at: testerkit.yaml
+    docs: docs/reference/configuration.md
+    relationships:
+      - { kind: declares,   target: profile_config }
+      - { kind: declares,   target: multi_site_config }
+      - { kind: declares,   target: prompt_config }      # required_inputs
+      - { kind: references, target: station_config }    # default_station
+      - { kind: references, target: fixture_config }    # default_fixture
+      - { kind: references, target: profile_config }    # default_profile
+
+  - id: profile_config
+    category: definition
+    summary: >
+      Named config set applied to a pytest session. Same flat shape as a
+      TestEntry plus profile-only description/facets/extends and an
+      optional station_type / fixture binding. Selected via CLI facets.
+    model: testerkit.models.project.ProfileConfig
+    authored_at: testerkit.yaml (under profiles:)
+    docs: docs/concepts/data/sessions.md
+    relationships:
+      - { kind: inherits_from,     target: test_entry }
+      - { kind: extends,           target: profile_config }   # ProfileConfig.extends
+      - { kind: references,        target: station_type }     # station_type binding
+      - { kind: references,        target: fixture_config }   # fixture binding
+
+  - id: multi_site_config
+    category: primitive
+    summary: Multi-site orchestration knobs (per-child grace seconds, etc.).
+    model: testerkit.models.project.MultiSiteConfig
+
+  - id: channel_options
+    category: primitive
+    summary: >
+      Channel-store data options — sink/segment-writer/push-relay tuning that
+      a project owns (testerkit.yaml under channels:).
+    model: testerkit.models.data_options.ChannelOptions
+    authored_at: testerkit.yaml (under channels:)
+
+  - id: file_options
+    category: primitive
+    summary: >
+      File-store data options — the blob-backend root URI plus streaming
+      frame-relay tuning (testerkit.yaml under files:).
+    model: testerkit.models.data_options.FileOptions
+    authored_at: testerkit.yaml (under files:)
+
+  - id: session_options
+    category: primitive
+    summary: >
+      Session liveness policy — the producer's will defaults (idle lease,
+      abandon grace, abandon reason) the owner stamps onto SessionStarted
+      (testerkit.yaml under session:).
+    model: testerkit.models.data_options.SessionOptions
+    authored_at: testerkit.yaml (under session:)
+
+  - id: stream_tuning
+    category: primitive
+    summary: >
+      Streaming liveness cadence — how often an active producer emits a
+      checkpoint (default lease/3). Shared by the channel + file
+      producers (testerkit.yaml under stream:).
+    model: testerkit.models.data_options.StreamTuning
+    authored_at: testerkit.yaml (under stream:)
+
+  - id: part
+    category: definition
+    summary: >
+      Spec for a thing-under-test: identity, pins, signal groups, and
+      characteristics. ATML "UUT Description".
+    model: testerkit.models.part.Part
+    authored_at: parts/*.yaml | parts/{id}/spec.yaml
+    docs: docs/concepts/configuration/parts.md
+    relationships:
+      - { kind: exposes,             target: pin }
+      - { kind: exposes,             target: signal_group }
+      - { kind: specifies,             target: part_characteristic }
+      - { kind: instantiated_as, target: uut }                   # inverse of uut.instance_of
+
+  - id: part_manifest
+    category: definition
+    summary: >
+      Per-part folder manifest tracking workflow position (parse →
+      review → derive → select station → generate tests → execute).
+    model: testerkit.models.part_manifest.PartManifest
+    authored_at: parts/{id}/manifest.yaml
+    relationships:
+      - { kind: references, target: part }
+
+  - id: pin
+    category: primitive
+    summary: >
+      Physical UUT pin with role classification (signal / ground / power /
+      reference) for fixture routing.
+    model: testerkit.models.part.Pin
+
+  - id: signal_group
+    category: primitive
+    summary: Grouped signals forming a bus interface (I2C, SPI, UART).
+    model: testerkit.models.part.SignalGroup
+    relationships:
+      - { kind: bundles, target: bus_signal }
+
+  - id: bus_signal
+    category: primitive
+    summary: One signal within a bus group; references a Pin by name.
+    model: testerkit.models.part.BusSignal
+    relationships:
+      - { kind: references, target: pin }
+
+  - id: part_characteristic
+    category: definition
+    summary: >
+      A UUT capability tied to a physical interface (pin/pins/net/
+      signal_group) with optional datasheet ref. Extends Capability —
+      the matching service pairs UUT OUTPUT characteristics with
+      instrument INPUT capabilities by direction flip.
+    model: testerkit.models.part.PartCharacteristic
+    authored_at: parts/*.yaml (under characteristics:)
+    docs: docs/concepts/configuration/capabilities.md
+    relationships:
+      - { kind: inherits_from, target: capability }
+      - { kind: references,    target: pin }
+
+  - id: station_config
+    category: definition
+    summary: >
+      Concrete bench deployment. Names a station_type for contract
+      validation; hostname enables session-start auto-match against
+      socket.gethostname().
+    model: testerkit.models.station.StationConfig
+    authored_at: stations/*.yaml
+    docs: docs/concepts/configuration/stations.md
+    relationships:
+      - { kind: equips,  target: station_instrument_config }
+      - { kind: references,         target: station_type }
+      - { kind: validates_against,  target: station_type }   # role-coverage check at session start
+
+  - id: station_instrument_config
+    category: primitive
+    summary: >
+      Single instrument entry in a station file — type, driver, resource,
+      optional catalog_ref, mock flag, channel mapping.
+    model: testerkit.models.station.StationInstrumentConfig
+    relationships:
+      - { kind: references, target: instrument_catalog_entry }   # catalog_ref
+
+  - id: station_type
+    category: definition
+    summary: >
+      Abstract station-type template. Declares required instrument roles +
+      types that concrete StationConfig deployments must cover.
+    model: testerkit.models.station.StationType
+    authored_at: stations/types/*.yaml
+    relationships:
+      - { kind: equips,  target: instrument_config }
+
+  - id: instrument_config
+    category: primitive
+    summary: >
+      Instrument-role declaration inside a StationType (type + driver +
+      settings, no resource). The contract a deployment must satisfy.
+    model: testerkit.models.station.InstrumentConfig
+
+  - id: instrument_catalog_entry
+    category: definition
+    summary: >
+      Universal tier of the 3-tier instrument model — what a make/model
+      can do. Channels, attributes, and a list of InstrumentCapability
+      entries. Tier 1 of (catalog → asset → record).
+    model: testerkit.models.catalog.InstrumentCatalogEntry
+    authored_at: catalog/**/*.yaml
+    docs: docs/reference/catalog/schema.md
+    relationships:
+      - { kind: offers,  target: channel_topology }
+      - { kind: offers,  target: attribute }
+      - { kind: offers,  target: instrument_capability }
+
+  - id: instrument_asset_file
+    category: definition
+    summary: >
+      Unit-specific tier of the 3-tier instrument model — a specific
+      physical device (serial, calibration) referencing a catalog entry.
+      Tier 2 of (catalog → asset → record).
+    model: testerkit.models.instrument_asset.InstrumentAssetFile
+    authored_at: instruments/*.yaml
+    relationships:
+      - { kind: references, target: instrument_catalog_entry }   # catalog_ref
+      - { kind: identifies,  target: instrument_info }
+      - { kind: calibrated_per,  target: calibration_info }
+
+  - id: fixture_config
+    category: definition
+    summary: >
+      Bench-to-UUT wiring. Either single-UUT connections or multi-site
+      sites; never both. station_types[] declares which abstract station
+      layouts this fixture can wire against.
+    model: testerkit.models.test_config.FixtureConfig
+    authored_at: fixtures/*.yaml
+    docs: docs/concepts/configuration/fixtures.md
+    relationships:
+      - { kind: wires,  target: fixture_connection }
+      - { kind: partitions_into,  target: fixture_site }
+      - { kind: references, target: part }         # part_id / part_family
+      - { kind: references, target: station_type }    # station_types[]
+
+  - id: fixture_connection
+    category: primitive
+    summary: >
+      Named UUT-pin ↔ instrument-channel pairing — the addressable unit
+      of fixture routing. Optionally carries a measurement function
+      (DMM for DC, scope for AC) and a SwitchRoute for switched fixtures.
+    model: testerkit.models.test_config.FixtureConnection
+    relationships:
+      - { kind: references, target: pin }                   # uut_pin
+      - { kind: references, target: measurement_function }  # function: MeasurementFunction | None
+      - { kind: routed_through,  target: switch_route }
+
+  - id: fixture_site
+    category: primitive
+    summary: One UUT site inside a multi-UUT fixture; has its own connection map.
+    model: testerkit.models.test_config.FixtureSite
+    relationships:
+      - { kind: wires,  target: fixture_connection }
+
+  - id: switch_route
+    category: primitive
+    summary: >
+      Switch channels to close before this connection's instrument can be
+      used; carries settling time.
+    model: testerkit.models.test_config.SwitchRoute
+
+
+# =============================================================================
+# CAPABILITY / SPEC PRIMITIVES — shared by parts and instruments
+# =============================================================================
+
+  - id: capability
+    category: primitive
+    summary: >
+      What a signal endpoint can do — base of both PartCharacteristic
+      (UUT side) and InstrumentCapability (bench side). Function +
+      direction + signals/conditions/controls/attributes. ATML/IVI/
+      IEEE 1641 lineage.
+    model: testerkit.models.capability.Capability
+    docs: docs/concepts/configuration/capabilities.md
+    relationships:
+      - { kind: references, target: measurement_function }   # function: MeasurementFunction
+      - { kind: references, target: direction }              # direction: Direction
+      - { kind: parameterized_by, target: signal }
+      - { kind: parameterized_by, target: condition }
+      - { kind: parameterized_by, target: control }
+      - { kind: parameterized_by, target: attribute }
+      - { kind: parameterized_by, target: spec_band }
+
+  - id: instrument_capability
+    category: primitive
+    summary: >
+      Capability + channel list + operational metadata. The instrument-
+      side dialect of the shared Capability shape.
+    model: testerkit.models.capability.InstrumentCapability
+    relationships:
+      - { kind: inherits_from, target: capability }
+
+  - id: spec_band
+    category: primitive
+    summary: >
+      Condition-dependent spec override — "at this operating point, here
+      are the specs." Empty `when:` always matches. Anchors the shared
+      "top-level default + optional when:-keyed override" pattern.
+    model: testerkit.models.capability.SpecBand
+
+  - id: signal
+    category: primitive
+    summary: A measurable/sourceable parameter (range + accuracy + resolution).
+    model: testerkit.models.capability.Signal
+
+  - id: condition
+    category: primitive
+    summary: >
+      Operating condition that affects accuracy (frequency, temperature,
+      NPLC, …). NOT user-adjustable — describes the envelope under
+      which specs were characterized.
+    model: testerkit.models.capability.Condition
+
+  - id: control
+    category: primitive
+    summary: A user-configurable knob (coupling, autorange, setpoint, …).
+    model: testerkit.models.capability.Control
+
+  - id: attribute
+    category: primitive
+    summary: >
+      Fixed hardware fact (bandwidth, sample rate, scpi_version) — value
+      or range or options, optionally banded.
+    model: testerkit.models.capability.Attribute
+
+  - id: channel_topology
+    category: primitive
+    summary: >
+      Physical topology of a single instrument channel — terminals,
+      connector type, ground topology, optional flag.
+    model: testerkit.models.capability.ChannelTopology
+
+  - id: instrument_info
+    category: primitive
+    summary: >
+      Identity queried from device (manufacturer/model/serial/firmware).
+      For VISA, parsed from *IDN?.
+    model: testerkit.models.instrument.InstrumentInfo
+
+  - id: calibration_info
+    category: primitive
+    summary: >
+      Calibration status from configuration (due/last/cert/lab). NOT
+      queryable from device — comes from the asset file.
+    model: testerkit.models.instrument.CalibrationInfo
+
+
+# =============================================================================
+# CONFIG OVERLAYS — markers, sidecars, profiles
+# =============================================================================
+
+  - id: test_entry
+    category: config-overlay
+    summary: >
+      Recursive node in a sidecar/profile tests: tree. Mirrors pytest's
+      node-id structure: class = branch with own marker fields + nested
+      tests:; function = leaf. Reserved keys at every level: runner,
+      tests. Every other key is a typed TesterKit-marker sub-model.
+    model: testerkit.models.test_config.TestEntry
+    docs: docs/concepts/execution/step-manifest.md
+    relationships:
+      - { kind: nests,  target: test_entry }                # recursive tests:
+      - { kind: configures,  target: measurement_limit_config }  # limits:
+      - { kind: configures,  target: sweep_entry }               # sweeps:
+      - { kind: configures,  target: mock_entry }                # mocks:
+      - { kind: configures,  target: retry_config }              # retry:
+      - { kind: configures,  target: prompt_config }             # prompts:
+
+  - id: sidecar_config
+    category: config-overlay
+    summary: >
+      Top-level shape of a per-test-module sidecar YAML. Same flat
+      TestEntry shape; the file root carries file-level marker fields
+      and a nested tests: tree.
+    model: testerkit.models.test_config.SidecarConfig
+    authored_at: tests/test_*.yaml
+    docs: docs/concepts/execution/step-manifest.md
+    relationships:
+      - { kind: inherits_from, target: test_entry }
+      - { kind: overlays,      target: pytest_test_function }
+
+  - id: testerkit_marker
+    category: config-overlay
+    summary: >
+      A @pytest.mark.testerkit_* decorator on a test. Anything authorable
+      in a sidecar's marker fields can also be written as a marker.
+      Same vocabulary; the marker form is closer to the code.
+    model: null
+    relationships:
+      - { kind: overlays, target: pytest_test_function }
+
+  - id: sweep_entry
+    category: primitive
+    summary: >
+      One sweep level — {argname: argvalues, …}. Multiple keys = a zipped
+      axis; all lengths must match (validated at YAML load).
+    model: testerkit.models.test_config.SweepEntry
+
+  - id: mock_entry
+    category: primitive
+    summary: >
+      Per-test mock — target ("<fixture>.<attr>") plus arbitrary
+      patch.object kwargs (return_value, side_effect, …).
+    model: testerkit.models.test_config.MockEntry
+
+  - id: retry_config
+    category: primitive
+    summary: >
+      Runner-neutral retry config — translates to flaky under pytest.
+      max_retries=0 means single execution (no retry).
+    model: testerkit.models.test_config.RetryConfig
+
+  - id: prompt_config
+    category: primitive
+    summary: >
+      Operator prompt — message + type (confirm/choice/input) + optional
+      timeout. Used for required_inputs and per-step dialogs.
+    model: testerkit.models.test_config.PromptConfig
+
+  - id: measurement_limit_config
+    category: primitive
+    summary: >
+      Per-measurement limit policy — direct, characteristic-derived,
+      banded, expression, lookup, step, or callable. The first matching
+      band (or the parent fallback) wins at vector resolve time.
+    model: testerkit.models.test_config.MeasurementLimitConfig
+    relationships:
+      - { kind: resolves_via, target: measurement_limit_config }   # bands:
+      - { kind: resolves_via, target: limit_lookup_config }
+      - { kind: resolves_via, target: limit_step_config }
+      - { kind: resolves_to,  target: limit }                      # to_limit() at vector time
+      - { kind: derives_from, target: part_characteristic }     # characteristic: + tolerance
+
+  - id: limit_lookup_config
+    category: primitive
+    summary: Lookup-table limit — value of `key` indexes a table of Limits.
+    model: testerkit.models.test_config.LimitLookupConfig
+
+  - id: limit_step_config
+    category: primitive
+    summary: >
+      Step-function limit — ranges with `below:` thresholds and a `default:`
+      catch-all.
+    model: testerkit.models.test_config.LimitStepConfig
+
+  - id: limit
+    category: primitive
+    summary: >
+      A resolved test limit — low/high/nominal + unit + comparator (GELE,
+      EQ, LE, …) + optional traceability (characteristic_id, spec_ref).
+      Per-comparator membership check via Limit.__contains__.
+    model: testerkit.models.test_config.Limit
+
+
+# =============================================================================
+# RUNTIME ENTITIES — created during test execution
+# =============================================================================
+
+  - id: session
+    category: lifecycle
+    summary: >
+      A pytest session or interactive Connect context, identified by a
+      session_id (UUID). Every event carries session_id; cross-store
+      joins use it as the parent key. No single Pydantic model — the
+      lifecycle is bracketed by SessionStarted/SessionEnded events.
+    model: null
+    docs: docs/concepts/data/sessions.md
+    relationships:
+      - { kind: contains, target: test_run }    # one or many (single-UUT vs multi-site)
+      - { kind: emits,    target: session_started }
+      - { kind: emits, target: session_ended }
+
+  - id: test_run
+    category: runtime
+    summary: >
+      One complete test execution against one UUT on one Station.
+      Carries UUT/part/station/fixture traceability, profile/facets,
+      git context, operator, collected items, executed steps, custom
+      metadata, and the final outcome.
+    model: testerkit.data.models.TestRun
+    docs: docs/concepts/data/data-stores.md
+    relationships:
+      - { kind: stored_in,  target: run_store }
+      - { kind: contains,   target: test_step }
+      - { kind: contains,   target: collected_item }
+      - { kind: tests,      target: uut }
+      - { kind: runs_on,    target: station_config }
+      - { kind: references, target: part }
+      - { kind: references, target: fixture_config }
+      - { kind: references, target: profile_config }     # profile name
+      - { kind: references, target: outcome }            # outcome: Outcome | None
+      - { kind: emits,      target: run_started }
+      - { kind: emits,      target: run_ended }
+
+  - id: test_step
+    category: runtime
+    summary: >
+      One pytest test function invocation. Contains TestVectors expanded
+      from sweep/parametrize. Carries code identity (node_id, file,
+      module, class, function, markers) and a stamped outcome.
+    model: testerkit.data.models.TestStep
+    relationships:
+      - { kind: stored_in,  target: run_store }
+      - { kind: contains,   target: test_vector }
+      - { kind: references, target: outcome }            # outcome: Outcome | None
+      - { kind: emits,      target: step_started }
+      - { kind: emits,      target: step_ended }
+
+  - id: test_vector
+    category: runtime
+    summary: >
+      One parameter-set execution of a step. Carries params (in_*),
+      observations (out_*), stimulus signal paths, measurements, retry
+      counter, and a per-vector outcome.
+    model: testerkit.data.models.TestVector
+    relationships:
+      - { kind: stored_in,  target: run_store }
+      - { kind: contains,   target: measurement }
+      - { kind: applies_stimulus, target: stimulus_record }
+      - { kind: references, target: outcome }            # outcome: Outcome | None
+
+  - id: measurement
+    category: runtime
+    summary: >
+      Single measurement — name, value, unit, limit fields, outcome.
+      Carries full signal path (uut_pin, instrument_name, resource,
+      channel, fixture_connection) for traceability. check_limit() is
+      the single comparator-aware judgment path.
+    model: testerkit.data.models.Measurement
+    relationships:
+      - { kind: stored_in,  target: run_store }
+      - { kind: references, target: outcome }            # outcome: Outcome | None
+      - { kind: references, target: limit }              # limit_low/high/nominal stamped from a Limit
+      - { kind: emits,      target: measurement_recorded }
+
+  - id: stimulus_record
+    category: runtime
+    summary: >
+      Captured stimulus (commanded inputs) — param/value/unit +
+      instrument/resource/channel + uut_pin + fixture_connection.
+    model: testerkit.data.models.StimulusRecord
+
+  - id: uut
+    category: runtime
+    summary: >
+      Physical instance of a Part — serial, part_number, revision,
+      lot_number. Created at run start from operator scan or CLI.
+    model: testerkit.data.models.UUT
+    docs: docs/concepts/architecture-erd.md
+    relationships:
+      - { kind: instance_of, target: part }
+
+  - id: collected_item
+    category: runtime
+    summary: >
+      Pytest-collected item with collection-time-assigned indices
+      (step_index, vector_index, vector_count_planned). Enables manifest
+      reconciliation against executed steps to detect unrun vectors.
+    model: testerkit.data.models.CollectedItem
+
+  - id: run_summary
+    category: runtime
+    summary: >
+      Lightweight run header read from the parquet index (no steps or
+      measurements). Powers the runs list view.
+    model: testerkit.data.models.RunSummary
+    relationships:
+      - { kind: stored_in,  target: run_store }
+      - { kind: references, target: test_run }   # same test_run_id space, projection
+
+  - id: waveform
+    category: runtime
+    summary: >
+      Time-series data shape — t0 + dt + Y[]. Time axis is reconstructed
+      from t0 + i*dt; no paired timestamps stored. The shape carried by
+      array-type channels and array-valued instrument reads. Not a field
+      on any other Pydantic model — flows through as data, not a typed
+      reference.
+    model: testerkit.data.models.Waveform
+
+  - id: xy_data
+    category: runtime
+    summary: >
+      Paired x/y arrays for related-but-non-time-series data — IV curves,
+      eye diagrams, S-parameter sweeps, optical spectra. The "Pattern B"
+      shape from §4: one discrete artifact per vector, routed to FileStore
+      via the serializer registry as a single .npz with x/y + optional
+      unit/name keys. Use parallel channels (stream) when the data is
+      continuous over time and live-subscribable; use XYData when it's a
+      complete captured dataset.
+    model: testerkit.data.models.XYData
+
+  - id: instrument_record
+    category: runtime
+    summary: >
+      Tier 3 of the 3-tier instrument model — runtime view combining
+      role + asset + identity + calibration + driver + catalog_ref + mock
+      flag. What the fixture/logger tracks during a session.
+    model: testerkit.models.instrument.InstrumentRecord
+    relationships:
+      - { kind: identifies,  target: instrument_info }
+      - { kind: calibrated_per,  target: calibration_info }
+      - { kind: references, target: instrument_catalog_entry }   # catalog_ref
+      - { kind: emits,      target: instrument_connected }
+      - { kind: emits,      target: instrument_disconnected }
+
+  - id: channel_descriptor
+    category: runtime
+    summary: >
+      Metadata for a live channel — value_type (scalar/array),
+      instrument_role, resource, unit. Written once when first seen.
+    model: testerkit.data.channels.models.ChannelDescriptor
+    relationships:
+      - { kind: stored_in,  target: channel_store }
+      - { kind: references, target: waveform }   # array-type channels carry Waveform-shaped data
+
+  - id: channel_sample
+    category: runtime
+    summary: >
+      Single channel data point delivered to subscribers — channel_id,
+      timestamp, value, unit, sample_interval, source_method.
+    model: testerkit.data.channels.models.ChannelSample
+    relationships:
+      - { kind: stored_in,  target: channel_store }
+      - { kind: references, target: channel_descriptor }
+
+
+# =============================================================================
+# STORES — persistence boundaries
+# =============================================================================
+
+  - id: run_store
+    category: store
+    summary: >
+      Materialized parquet read model for runs, steps, vectors,
+      measurements. Backed by a long-lived daemon ingesting RunEnded
+      cohorts into DuckDB-queryable parquet.
+    model: testerkit.data.run_store.RunStore
+    docs: docs/concepts/data/data-stores.md
+    docs_extra: docs/reference/data/parquet-schema.md
+
+  - id: event_store
+    category: store
+    summary: >
+      Append-only parquet log of every emitted Event. The source of
+      truth before materialization; subscribers tail it for live UI.
+    model: testerkit.data.event_store.EventStore
+    docs: docs/concepts/data/event-log.md
+
+  - id: channel_store
+    category: store
+    summary: >
+      Live waveform / streaming-data store served over Arrow Flight.
+      Subscribers receive ChannelSample batches in real time.
+    model: testerkit.data.channels.store.ChannelStore
+    docs: docs/concepts/data/flight-streaming.md
+
+
+# =============================================================================
+# EVENTS — every record type in the event log
+# =============================================================================
+
+  - id: event_base
+    category: event
+    summary: >
+      Base for all event log events. Carries id, occurred_at,
+      received_at, session_id, run_id (None for session-scope events).
+    model: testerkit.data.events.EventBase
+    relationships:
+      - { kind: stored_in, target: event_store }
+
+  # ---- Session events ----
+
+  - id: session_started
+    category: event
+    event_type: session.started
+    summary: >
+      Emitted once at session start (interactive or test orchestrator).
+      Session-wide metadata only — must NOT carry run_id.
+    model: testerkit.data.events.SessionStarted
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: paired_with,   target: session_ended }
+      - { kind: records,         target: session }
+
+  - id: session_ended
+    category: event
+    event_type: session.ended
+    summary: Emitted at session end. Must NOT carry run_id.
+    model: testerkit.data.events.SessionEnded
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: records,         target: session }
+
+  # ---- Run events ----
+
+  - id: run_started
+    category: event
+    event_type: run.started
+    summary: >
+      Emitted once per test run. Full run context — station/UUT/part/
+      operator/test phase/git/environment.
+    model: testerkit.data.events.RunStarted
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: paired_with,   target: run_ended }
+      - { kind: records,         target: test_run }
+
+  - id: run_ended
+    category: event
+    event_type: run.ended
+    summary: Emitted at the end of a test run with its final outcome.
+    model: testerkit.data.events.RunEnded
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: records,         target: test_run }
+
+  - id: run_materialized
+    category: event
+    event_type: run.materialized
+    summary: >
+      Emitted by a materializer after a run's state lands in a durable,
+      query-optimized backend. Distinct from run.ended — run can be
+      ended without yet being materialized.
+    model: testerkit.data.events.RunMaterialized
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: records,         target: test_run }
+
+  # ---- Site events (multi-UUT) ----
+
+  - id: site_started
+    category: event
+    event_type: site.started
+    summary: A UUT site begins execution. Carries site_index and uut_serial_number.
+    model: testerkit.data.events.SiteStarted
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: paired_with,   target: site_completed }
+
+  - id: site_completed
+    category: event
+    event_type: site.completed
+    summary: A UUT site finishes execution.
+    model: testerkit.data.events.SiteCompleted
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  - id: sync_arrived
+    category: event
+    event_type: sync.arrived
+    summary: Child process has reached a named sync point.
+    model: testerkit.data.events.SyncArrived
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: paired_with,   target: sync_release }
+
+  - id: sync_release
+    category: event
+    event_type: sync.release
+    summary: Orchestrator unblocks all slots at a sync point.
+    model: testerkit.data.events.SyncRelease
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  # ---- Fixture events ----
+
+  - id: instrument_connected
+    category: event
+    event_type: fixture.instrument_connected
+    summary: Instrument connected and identified — role + identity + calibration.
+    model: testerkit.data.events.InstrumentConnected
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: paired_with,   target: instrument_disconnected }
+      - { kind: records,         target: instrument_record }
+
+  - id: identity_verified
+    category: event
+    event_type: fixture.identity_verified
+    summary: Identity check — expected vs actual IDN per role.
+    model: testerkit.data.events.IdentityVerified
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  - id: calibration_warning
+    category: event
+    event_type: fixture.calibration_warning
+    summary: Calibration is near or past due for a role's instrument.
+    model: testerkit.data.events.CalibrationWarning
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  - id: uut_scanned
+    category: event
+    event_type: fixture.uut_scanned
+    summary: UUT serial scanned at run start (operator or barcode).
+    model: testerkit.data.events.UutScanned
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: records,         target: uut }
+
+  - id: instrument_disconnected
+    category: event
+    event_type: fixture.instrument_disconnected
+    summary: Instrument disconnected during teardown.
+    model: testerkit.data.events.InstrumentDisconnected
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  # ---- Test events ----
+
+  - id: step_started
+    category: event
+    event_type: test.step_started
+    summary: >
+      A step (or step+vector) is about to execute. Carries code identity
+      and the commanded sweep inputs.
+    model: testerkit.data.events.StepStarted
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: paired_with,   target: step_ended }
+      - { kind: records,         target: test_step }
+
+  - id: measurement_recorded
+    category: event
+    event_type: test.measurement
+    summary: >
+      One measurement landed — name, value, unit, outcome, limits, full
+      signal path, plus dynamic vector columns (inputs/outputs/custom).
+    model: testerkit.data.events.MeasurementRecorded
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: records,         target: measurement }
+
+  - id: observation
+    category: event
+    event_type: test.observation
+    summary: >
+      Emitted by Context.observe(key, value). Carries the observation
+      that landed in the vector's out_<name> column (scalar inline, or
+      claim URI when routed to ChannelStore or FileStore).
+    model: testerkit.data.events.Observation
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  - id: step_ended
+    category: event
+    event_type: test.step_ended
+    summary: >
+      Step (or step+vector) finished. Carries per-vector outcome and the
+      step-level aggregate.
+    model: testerkit.data.events.StepEnded
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: records,         target: test_step }
+
+  - id: vector_started
+    category: event
+    event_type: test.vector_started
+    summary: >
+      An in-body loop vector (Mode 2: the vectors fixture or a run_vector
+      loop) is entered. One per iteration, so data-less vectors stay visible
+      and offline/streaming projections don't drift.
+    model: testerkit.data.events.VectorStarted
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: paired_with,   target: vector_ended }
+
+  - id: vector_ended
+    category: event
+    event_type: test.vector_ended
+    summary: >
+      An in-body loop vector finished. Carries the vector's outcome and its
+      observations.
+    model: testerkit.data.events.VectorEnded
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  - id: steps_discovered
+    category: event
+    event_type: test.steps_discovered
+    summary: >
+      Full pytest-collected item list, emitted after instruments connect
+      and before steps execute. One per run.
+    model: testerkit.data.events.StepsDiscovered
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  # ---- Diagnostic events ----
+
+  - id: diagnostic_warning
+    category: event
+    event_type: diagnostic.warning
+    summary: Free-form warning with source/message/details.
+    model: testerkit.data.events.DiagnosticWarning
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  - id: diagnostic_error
+    category: event
+    event_type: diagnostic.error
+    summary: Free-form error with source/message/details.
+    model: testerkit.data.events.DiagnosticError
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  # ---- Route events ----
+
+  - id: route_closed
+    category: event
+    event_type: route.closed
+    summary: Switch channels closed to activate a fixture route.
+    model: testerkit.data.events.RouteClosed
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: paired_with,   target: route_opened }
+      - { kind: records,         target: fixture_connection }
+
+  - id: route_opened
+    category: event
+    event_type: route.opened
+    summary: Switch channels opened to deactivate a fixture route.
+    model: testerkit.data.events.RouteOpened
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: records,         target: fixture_connection }
+
+  # ---- Instrument events ----
+
+  - id: channel_started
+    category: event
+    event_type: channel.started
+    summary: >
+      A channel received its first sample in this session. Position 2
+      lifecycle event — emitted once per (channel_id, session_id) pair;
+      replaces the per-sample InstrumentRead event retired in v0.2.0.
+      Sample data lives in ChannelStore.
+    model: testerkit.data.events.ChannelStarted
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: references,    target: channel_descriptor }
+
+  - id: channel_ended
+    category: event
+    event_type: channel.ended
+    summary: >
+      A channel was sealed for this session — session ended OR retention
+      pruned. Consumers tracking "still being written to" vs "no more
+      data coming" key off this event.
+    model: testerkit.data.events.ChannelEnded
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: references,    target: channel_descriptor }
+
+  - id: channel_checkpoint
+    category: event
+    event_type: channel.checkpoint
+    summary: >
+      Low-rate liveness + progress marker from an active channel — uri +
+      sample_offset-so-far. Renews the session lease and records resumable
+      progress; emitted on a cadence (StreamTuning), never per sample.
+    model: testerkit.data.events.ChannelCheckpoint
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: references,    target: channel_descriptor }
+
+  - id: instrument_set
+    category: event
+    event_type: instrument.set
+    summary: A driver set method was called via proxy.
+    model: testerkit.data.events.InstrumentSet
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  - id: instrument_configure
+    category: event
+    event_type: instrument.configure
+    summary: A driver configure method was called via proxy.
+    model: testerkit.data.events.InstrumentConfigure
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  - id: instrument_reserved
+    category: event
+    event_type: instrument.reserved
+    summary: An exclusive instrument lease was acquired; carries waited_ms (contention wait).
+    model: testerkit.data.events.InstrumentReserved
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  - id: instrument_released
+    category: event
+    event_type: instrument.released
+    summary: An instrument lease was released (refcount reached zero).
+    model: testerkit.data.events.InstrumentReleased
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  # ---- File events ----
+
+  - id: file_started
+    category: event
+    event_type: file.started
+    summary: A stream began — file_id, format, optional file path.
+    model: testerkit.data.events.FileStarted
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: paired_with,   target: file_ended }
+
+  - id: file_ended
+    category: event
+    event_type: file.ended
+    summary: A stream ended.
+    model: testerkit.data.events.FileEnded
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  - id: file_checkpoint
+    category: event
+    event_type: file.checkpoint
+    summary: >
+      Low-rate liveness + progress marker from an active file stream — uri +
+      byte_offset-so-far. Renews the session lease and records resumable
+      progress; emitted on a cadence (StreamTuning), never per write.
+    model: testerkit.data.events.FileCheckpoint
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  # ---- Dialog events ----
+
+  - id: dialog_opened
+    category: event
+    event_type: dialog.opened
+    summary: An operator dialog opened, pausing test execution.
+    model: testerkit.data.events.DialogOpened
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: paired_with,   target: dialog_responded }
+
+  - id: dialog_responded
+    category: event
+    event_type: dialog.responded
+    summary: >
+      Operator responded — answered / cancelled / timed_out — with
+      duration_seconds.
+    model: testerkit.data.events.DialogResponded
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+
+# =============================================================================
+# ENUMS — closed-set vocabularies referenced by ontology entries
+# =============================================================================
+
+  - id: outcome
+    category: enum
+    summary: >
+      Canonical terminal outcome of a measurement / step / run — past
+      participles. Severity ladder (worst first):
+      ABORTED > TERMINATED > ERRORED > FAILED > PASSED > DONE > SKIPPED.
+      Use escalate_outcome() everywhere cascading is needed.
+    model: testerkit.data.models.Outcome
+
+  - id: direction
+    category: enum
+    summary: >
+      Signal direction (INPUT / OUTPUT). Capability matching pairs UUT
+      OUTPUT with instrument INPUT.
+    model: testerkit.models.enums.Direction
+
+  - id: measurement_function
+    category: enum
+    summary: >
+      Canonical measurement-function vocabulary — dc_voltage, ac_current,
+      resistance, frequency, waveform, etc. ATML/IVI-derived.
+    model: testerkit.models.enums.MeasurementFunction
+
+
+# =============================================================================
+# EXTERNAL — boundary concepts owned by other systems
+# =============================================================================
+
+  - id: pytest_test_function
+    category: external
+    summary: >
+      A pytest test function (`def test_...`) or test method. Owned by
+      pytest; TesterKit markers and sidecar config overlay on top of it.
+    model: null
+
+
+# =============================================================================
+# SLICES — named subgraphs the generator renders as Mermaid diagrams
+# =============================================================================
+#
+# Each slice is a story-shaped view over a subset of concepts. The generator
+# emits one Mermaid diagram per slice into docs/reference/ontology/slices/.
+# Slices may overlap (the same concept appears in multiple slices) — that's
+# expected: each slice tells a different story about it.
+#
+# Slice fields:
+#   id          slug; becomes the filename (slices/<id>.md)
+#   title       human-readable heading
+#   summary     one-paragraph framing — what story this slice tells
+#   layout      Mermaid graph direction: LR | TB | BT | RL
+#   concepts    explicit list of concept ids to include
+#   highlight   (optional) concepts to render with emphasis — anchors of
+#               the story; everything else is supporting cast
+#   edges       (optional) `all` (default) or a list of verbs to include.
+#               Useful when one slice cares about only `emits` / `about`.
+
+slices:
+
+  - id: runtime-anatomy
+    title: Composing a Test Run
+    summary: >
+      How a TestRun is composed from authored definitions (Part, Station,
+      Fixture, Profile) and decomposed into runtime entities (UUT, steps,
+      vectors, measurements). The canonical "what is a run made of" view.
+    layout: LR
+    highlight: [test_run]
+    concepts:
+      - project_config
+      - profile_config
+      - part
+      - part_characteristic
+      - station_config
+      - station_type
+      - fixture_config
+      - uut
+      - test_run
+      - test_step
+      - test_vector
+      - measurement
+
+  - id: event-lifecycle
+    title: Event Lifecycle of a Run
+    summary: >
+      Session and run events with their start/end pairings and what each
+      event is about. Shows how a single TestRun fans out into ~10 events
+      across its life, and where `emits` and `about` align versus diverge.
+    layout: LR
+    highlight: [test_run, session]
+    edges: [emits, records, paired_with]
+    concepts:
+      - session
+      - test_run
+      - test_step
+      - session_started
+      - session_ended
+      - run_started
+      - run_ended
+      - run_materialized
+      - step_started
+      - step_ended
+      - measurement_recorded
+      - uut_scanned
+      - uut
+
+  - id: config-layering
+    title: Config Layering — Profile, Sidecar, Marker
+    summary: >
+      Three authoring paths that overlay onto a pytest test function:
+      profile (session-wide), sidecar (per-module), marker (per-function).
+      All converge on the same TestEntry shape; profiles can extend each
+      other via last-wins merge.
+    layout: TB
+    highlight: [pytest_test_function]
+    concepts:
+      - project_config
+      - profile_config
+      - sidecar_config
+      - test_entry
+      - testerkit_marker
+      - pytest_test_function
+
+  - id: instrument-three-tier
+    title: Instrument Three-Tier Model
+    summary: >
+      Universal (catalog) → unit (asset) → runtime (record). Catalog entries
+      describe what a make/model can do; assets bind a serial to a catalog
+      entry with calibration; records are the live, role-mapped runtime view
+      the fixture/logger tracks.
+    layout: LR
+    highlight: [instrument_record]
+    concepts:
+      - instrument_catalog_entry
+      - instrument_asset_file
+      - instrument_record
+      - station_instrument_config
+      - station_config
+      - instrument_info
+      - calibration_info
+      - instrument_capability
+      - channel_topology
+      - attribute
+
+  - id: capability-and-matching
+    title: Capability Shape — Parts and Instruments Share It
+    summary: >
+      PartCharacteristic and InstrumentCapability inherit the same
+      Capability base. Matching pairs UUT OUTPUT with instrument INPUT
+      by direction flip — same fields, same shape, different sides of
+      the bench. SpecBand drives condition-dependent overrides on both.
+    layout: TB
+    highlight: [capability]
+    concepts:
+      - capability
+      - part_characteristic
+      - instrument_capability
+      - spec_band
+      - signal
+      - condition
+      - control
+      - attribute
+      - direction
+      - measurement_function
+
+  - id: fixture-routing
+    title: Fixture Routing — UUT Pin to Instrument Channel
+    summary: >
+      How a UUT pin reaches an instrument channel. FixtureConnection names
+      the pairing; SwitchRoute handles intervening matrix/mux switching;
+      RouteClosed/RouteOpened events record activation. Multi-UUT fixtures
+      use FixtureSite to scope per-site channel maps.
+    layout: LR
+    highlight: [fixture_connection]
+    concepts:
+      - fixture_config
+      - fixture_connection
+      - fixture_site
+      - switch_route
+      - pin
+      - station_instrument_config
+      - part
+      - route_closed
+      - route_opened
+
+  - id: stores-view
+    title: The Three Stores
+    summary: >
+      Which concepts live where. RunStore holds the materialized read model
+      (runs/steps/vectors/measurements). EventStore is the append-only raw
+      log every event lands in. ChannelStore is the live streaming-data tier.
+    layout: TB
+    highlight: [run_store, event_store, channel_store]
+    edges: [stored_in]
+    concepts:
+      - run_store
+      - event_store
+      - channel_store
+      - test_run
+      - test_step
+      - test_vector
+      - measurement
+      - run_summary
+      - event_base
+      - channel_descriptor
+      - channel_sample
+
+
+# =============================================================================
+# Models intentionally NOT in v1 ontology (with reason)
+# =============================================================================
+
+ontology_ignored:
+  - model: testerkit.models.capability.RangeSpec
+    reason: Scalar shape primitive (min/max/unit). Reusable inside many models; no semantic identity worth a concept node.
+  - model: testerkit.models.capability.PointSpec
+    reason: Scalar shape primitive (value + unit).
+  - model: testerkit.models.capability.ListSpec
+    reason: Scalar shape primitive (items + unit).
+  - model: testerkit.models.capability.AccuracySpec
+    reason: Scalar shape primitive — accuracy fields (pct_reading, pct_range, absolute, floor).
+  - model: testerkit.models.capability.ResolutionSpec
+    reason: Scalar shape primitive — bits/digits/value/unit.
+  - model: testerkit.models.capability.SpecQualifier
+    reason: Enum used only inside SpecBand; not authored on its own.
+  - model: testerkit.models.capability.ConditionKey
+    reason: String vocabulary for Capability.conditions keys. Documented as part of capability schema.
+  - model: testerkit.models.part.PinRole
+    reason: Enum on Pin.role. Documented as part of pin.
+  - model: testerkit.models.part_manifest.WorkflowStep
+    reason: Enum sequencing the datasheet-to-test workflow on PartManifest.
+  - model: testerkit.models.part_manifest.FileReferences
+    reason: File-path bag inside PartManifest.
+  - model: testerkit.models.instrument.ChannelKind
+    reason: Enum driving InstrumentProxy event emission (read/set/control/configure).
+  - model: testerkit.models.enums.WaveformShape
+    reason: Enum vocabulary.
+  - model: testerkit.models.enums.TerminalRole
+    reason: Enum vocabulary used inside ChannelTopology.terminals.
+  - model: testerkit.models.enums.GroundTopology
+    reason: Enum on ChannelTopology.ground.
+  - model: testerkit.models.enums.ConnectorType
+    reason: Enum on ChannelTopology.connector.
+  - model: testerkit.models.enums.MatchDepth
+    reason: Enum used by the matcher service.
+  - model: testerkit.models.enums.Comparator
+    reason: Enum on Limit.comparator (GELE, EQ, …).
+  - model: testerkit.models.enums.InstrumentType
+    reason: String vocabulary for instrument type discriminator.

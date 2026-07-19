@@ -30,7 +30,7 @@ _GUARDBAND_TASK = Task(
     "self_test_guardband_sidecar",
     "n/a — internal grader self-test fixture",
     rung=1,
-    skill="litmus-tests",
+    skill="testerkit-tests",
     requires_pytest=False,  # schema-only check; resolving the characteristic
     # at runtime needs an active part, which is out of scope for this fixture
 )

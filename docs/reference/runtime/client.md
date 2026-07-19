@@ -1,20 +1,20 @@
 # Python Client
 
-The `LitmusClient` provides a simple API for submitting test results from external tools — LabVIEW, TestStand, custom scripts, or any system that can call Python.
+The `TesterKitClient` provides a simple API for submitting test results from external tools — LabVIEW, TestStand, custom scripts, or any system that can call Python.
 
 ## Installation
 
 ```python
-from litmus import LitmusClient
+from testerkit import TesterKitClient
 ```
 
 ## Basic Usage
 
 ```python
-from litmus import LitmusClient
+from testerkit import TesterKitClient
 
 # Create client (results saved to ./results by default)
-client = LitmusClient()
+client = TesterKitClient()
 
 # Start a test run
 run = client.start_run(
@@ -34,10 +34,10 @@ run.finish()
 
 ## API Reference
 
-### LitmusClient
+### TesterKitClient
 
 ```python
-client = LitmusClient(data_dir="results")
+client = TesterKitClient(data_dir="results")
 ```
 
 **Methods:**
@@ -150,10 +150,10 @@ with run.step("voltage_sweep") as step:
 ## Complete Example
 
 ```python
-from litmus import LitmusClient
+from testerkit import TesterKitClient
 
 def run_production_test(serial_number: str):
-    client = LitmusClient(data_dir="./test_results")
+    client = TesterKitClient(data_dir="./test_results")
 
     run = client.start_run(
         uut_serial=serial_number,
@@ -184,16 +184,16 @@ def run_production_test(serial_number: str):
 
 ### From LabVIEW
 
-Call Python via LabVIEW's Python Node. Wrap `LitmusClient`'s chained-builder
+Call Python via LabVIEW's Python Node. Wrap `TesterKitClient`'s chained-builder
 API in a small helper:
 
 ```python
-# litmus_labview.py
-from litmus import LitmusClient
+# testerkit_labview.py
+from testerkit import TesterKitClient
 
 def submit_labview_run(serial, station, measurements):
     """measurements: list of dicts with name, value, low, high, unit."""
-    client = LitmusClient()
+    client = TesterKitClient()
     run = client.start_run(uut_serial=serial, station_id=station, test_phase="production")
     with run.step("labview_results") as step:
         for m in measurements:
@@ -201,7 +201,7 @@ def submit_labview_run(serial, station, measurements):
     return run.finish()
 ```
 
-Then call `litmus_labview.submit_labview_run` from LabVIEW's Python Node.
+Then call `testerkit_labview.submit_labview_run` from LabVIEW's Python Node.
 
 ### From TestStand
 
@@ -210,13 +210,13 @@ Use TestStand's Python adapter or call via subprocess:
 ```python
 # wrapper.py - called from TestStand
 import sys
-from litmus import LitmusClient
+from testerkit import TesterKitClient
 
 def submit_teststand_results(serial, station, results_json):
     import json
     results = json.loads(results_json)
 
-    client = LitmusClient()
+    client = TesterKitClient()
     run = client.start_run(
         uut_serial=serial,
         station_id=station,
@@ -236,12 +236,12 @@ def submit_teststand_results(serial, station, results_json):
 ```python
 #!/usr/bin/env python3
 import sys
-from litmus import LitmusClient
+from testerkit import TesterKitClient
 
 serial = sys.argv[1]
 voltage = float(sys.argv[2])
 
-client = LitmusClient()
+client = TesterKitClient()
 run = client.start_run(
     uut_serial=serial,
     station_id="cli_test",
@@ -258,7 +258,7 @@ sys.exit(0 if result.outcome == "passed" else 1)
 ## Querying Results
 
 ```python
-client = LitmusClient()
+client = TesterKitClient()
 
 # List recent runs — returns list[RunSummary] (Pydantic models, use attribute access)
 for run in client.list_runs(limit=10):

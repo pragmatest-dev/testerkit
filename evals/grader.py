@@ -1,11 +1,11 @@
-"""Deterministic grader for Litmus AI-skill evals — dev tooling, NOT shipped.
+"""Deterministic grader for TesterKit AI-skill evals — dev tooling, NOT shipped.
 
 Grades a *candidate project* (the files an AI produced for a task). Most tasks
 are runnable pytest tests, graded by RUNNING them:
 
 - collects?  pytest can import + collect the test
 - passes?    green under the task's pytest args (e.g. ``--mock-instruments``)
-- sidecar?   any ``<test>.yaml`` validates against litmus ``SidecarConfig``
+- sidecar?   any ``<test>.yaml`` validates against testerkit ``SidecarConfig``
              (this also exercises ``MeasurementLimitConfig`` for any guardband-
              shaped ``{characteristic, guardband_pct}`` limit entries)
 - minimal?   didn't over-scaffold — no forbidden files, no forbidden fixtures
@@ -17,12 +17,12 @@ A few tasks aren't runnable tests at all (``requires_pytest=False``):
 - station/part scaffold tasks — the artifact is ``stations/*.yaml`` /
   ``parts/*.yaml``, validated against the real ``StationConfig`` / ``Part``.
 - CLI-answer tasks (``expect_cli``) — the candidate should answer with the
-  right ``litmus <subcommand>`` invocation, not prose. Checked structurally by
+  right ``testerkit <subcommand>`` invocation, not prose. Checked structurally by
   grepping the candidate's response/files for the literal command.
 
-Reuses litmus's own Pydantic models so the grader can't drift from the real
+Reuses testerkit's own Pydantic models so the grader can't drift from the real
 schema. The platform never calls an LLM; this is offline dev tooling that lives
-outside ``src/litmus``.
+outside ``src/testerkit``.
 """
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ class Grade:
 def _run_pytest(project: Path, args, extra_env: dict | None = None) -> tuple:
     """Run pytest in an isolated project dir; return (collected, passed, failed, errors, output)."""
     (project / "pytest.ini").write_text("[pytest]\naddopts =\n")
-    env = {**os.environ, "LITMUS_SKIP_DAEMON_NOTIFY": "1", **(extra_env or {})}
+    env = {**os.environ, "TESTERKIT_SKIP_DAEMON_NOTIFY": "1", **(extra_env or {})}
     proc = subprocess.run(
         [sys.executable, "-m", "pytest", str(project), "-p", "no:cacheprovider", *list(args)],
         cwd=str(project),
@@ -110,7 +110,7 @@ def _sidecar_valid(project: Path):
     """Validate each ``<test>.yaml`` sidecar against the real SidecarConfig."""
     import yaml
 
-    from litmus.models.test_config import SidecarConfig
+    from testerkit.models.test_config import SidecarConfig
 
     sidecars = [
         tf.with_suffix(".yaml")
@@ -188,14 +188,14 @@ def _yaml_dir_valid(project: Path, subdir: str, model_cls):
 
 def _station_yaml_valid(project: Path):
     """Validate emitted ``stations/*.yaml`` against the real ``StationConfig``."""
-    from litmus.models.station import StationConfig
+    from testerkit.models.station import StationConfig
 
     return _yaml_dir_valid(project, "stations", StationConfig)
 
 
 def _part_yaml_valid(project: Path):
     """Validate emitted ``parts/*.yaml`` against the real ``Part`` model."""
-    from litmus.models.part import Part
+    from testerkit.models.part import Part
 
     return _yaml_dir_valid(project, "parts", Part)
 
@@ -205,7 +205,7 @@ def _measurement_limit_valid(entry: dict) -> tuple:
     guardband_pct}`` shape) against the real ``MeasurementLimitConfig`` —
     for checks where the artifact under test is a limit fragment rather
     than a full sidecar file."""
-    from litmus.models.test_config import MeasurementLimitConfig
+    from testerkit.models.test_config import MeasurementLimitConfig
 
     try:
         MeasurementLimitConfig.model_validate(entry)
@@ -216,7 +216,7 @@ def _measurement_limit_valid(entry: dict) -> tuple:
 
 def _cli_expect_valid(project: Path, expected: str):
     """Structural check for CLI-answer tasks: the candidate's response/files
-    must literally contain the expected ``litmus <subcommand>`` invocation —
+    must literally contain the expected ``testerkit <subcommand>`` invocation —
     proving it answered with the right ACTION, not prose that only
     describes one. ``runner.py`` persists the model's textual reply to
     ``.eval_response.txt`` inside the project dir before grading."""

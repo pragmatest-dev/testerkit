@@ -17,7 +17,7 @@ pytest_plugins = ["pytester"]
 _INI = textwrap.dedent(
     """
     [pytest]
-    addopts = -p no:litmus -p litmus.pytest_plugin
+    addopts = -p no:testerkit -p testerkit.pytest_plugin
     asyncio_default_fixture_loop_scope = function
     """
 )
@@ -128,7 +128,7 @@ def test_connections_marker_iterates_and_stamps_pin(pytester: pytest.Pytester) -
             def test_rail(verify, context):
                 seen = []
                 for conn in context.connections:
-                    from litmus.execution._state import get_active_connection
+                    from testerkit.execution._state import get_active_connection
                     seen.append(get_active_connection().name)
                     verify("v_rail", 3.30)
                 assert seen == ["vout_measure"]
@@ -193,7 +193,7 @@ def test_multi_pin_characteristic_iterates_all_connections(pytester: pytest.Pyte
         test_seq=textwrap.dedent(
             """
             def test_dropout(verify, context):
-                from litmus.execution._state import get_active_connection
+                from testerkit.execution._state import get_active_connection
                 seen = []
                 for _ in context.connections:
                     seen.append(get_active_connection().uut_pin)
@@ -312,7 +312,7 @@ def _write_two_char_part(pytester: pytest.Pytester) -> None:
 
 
 def test_multi_char_marker_iterates_union(pytester: pytest.Pytester) -> None:
-    """``litmus_characteristics: [a, b]`` → ``ctx.connections`` iterates the union."""
+    """``testerkit_characteristics: [a, b]`` → ``ctx.connections`` iterates the union."""
     pytester.makeini(_INI)
     _write_two_char_part(pytester)
     _write_fixture(pytester)
@@ -443,7 +443,7 @@ def test_per_limit_char_not_in_marker_errors(pytester: pytest.Pytester) -> None:
     )
     result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.stdout.fnmatch_lines(
-        ["*UsageError*idle_current*not declared in litmus_characteristics*"]
+        ["*UsageError*idle_current*not declared in testerkit_characteristics*"]
     )
 
 

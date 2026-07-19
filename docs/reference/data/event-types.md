@@ -1,8 +1,8 @@
 # Event types reference
 
-Every record in the Litmus event log inherits from `EventBase`. This page enumerates every event class, its `event_type` discriminator string, and the fields the class adds beyond the base.
+Every record in the TesterKit event log inherits from `EventBase`. This page enumerates every event class, its `event_type` discriminator string, and the fields the class adds beyond the base.
 
-The tables below are generated from source — `src/litmus/data/events.py`. To regenerate after touching the models, run:
+The tables below are generated from source — `src/testerkit/data/events.py`. To regenerate after touching the models, run:
 
 ```bash
 uv run python scripts/generate_reference_docs.py event-types
@@ -539,12 +539,12 @@ Emitted when an operator dialog receives a response.
 Every event class above is folded into the `Event` discriminated union for deserialization:
 
 ```python
-from litmus.data.events import Event
+from testerkit.data.events import Event
 
 event = Event.model_validate(json_payload)   # picks the right subclass by event_type
 ```
 
-`ALL_EVENTS` (a set of every class) and the per-category sets (`SESSION_EVENTS`, `RUN_EVENTS`, `SITE_EVENTS`, `FIXTURE_EVENTS`, `TEST_EVENTS`, `ROUTE_EVENTS`, `INSTRUMENT_EVENTS`, `DIAGNOSTIC_EVENTS`, `FILE_EVENTS`, `DIALOG_EVENTS`) are also exported from `litmus.data.events` for subscribers that filter by category.
+`ALL_EVENTS` (a set of every class) and the per-category sets (`SESSION_EVENTS`, `RUN_EVENTS`, `SITE_EVENTS`, `FIXTURE_EVENTS`, `TEST_EVENTS`, `ROUTE_EVENTS`, `INSTRUMENT_EVENTS`, `DIAGNOSTIC_EVENTS`, `FILE_EVENTS`, `DIALOG_EVENTS`) are also exported from `testerkit.data.events` for subscribers that filter by category.
 
 ## See also
 

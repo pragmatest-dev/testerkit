@@ -32,7 +32,7 @@ import pyarrow as pa
 import pyarrow.ipc as ipc
 import pytest
 
-from litmus.data.channels.models import (
+from testerkit.data.channels.models import (
     ARRAY_SCHEMA,
     SCALAR_SCHEMA,
     ChannelSample,
@@ -41,7 +41,7 @@ from litmus.data.channels.models import (
     sample_schema,
     sample_to_batch,
 )
-from litmus.data.channels.store import ChannelStore
+from testerkit.data.channels.store import ChannelStore
 
 
 def _make_store(tmp_path: Path, flush_threshold: int = 1000) -> ChannelStore:

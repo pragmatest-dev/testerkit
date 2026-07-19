@@ -1,13 +1,13 @@
 # Pause a test for operator input
 
-To pause a test and ask the operator to confirm a step, pick an option, or type a value, declare the prompts with the `litmus_prompts` marker and read each response by calling the `prompt` fixture. The mechanism is small — one marker, three prompt types, one fixture call. The example below shows the patterns; the design rules later help you write prompts an operator can act on with confidence.
+To pause a test and ask the operator to confirm a step, pick an option, or type a value, declare the prompts with the `testerkit_prompts` marker and read each response by calling the `prompt` fixture. The mechanism is small — one marker, three prompt types, one fixture call. The example below shows the patterns; the design rules later help you write prompts an operator can act on with confidence.
 
 ## The mechanism in 30 seconds
 
 ```python
 import pytest
 
-@pytest.mark.litmus_prompts(
+@pytest.mark.testerkit_prompts(
     insert_uut={"message": "Insert UUT, then click Confirm.", "prompt_type": "confirm"},
     pick_bench={"message": "Which bench?", "prompt_type": "choice",
                 "choices": ["bench_01", "bench_02"]},
@@ -25,7 +25,7 @@ specific wins). Routing of the prompt itself is automatic:
 1. If the operator UI is running, the prompt becomes a dialog in
    the browser (and lights up the amber **ACTIVE TESTS** sidebar
    block on every UI page).
-2. If `LITMUS_AUTO_CONFIRM=1` is set, it auto-resolves for CI /
+2. If `TESTERKIT_AUTO_CONFIRM=1` is set, it auto-resolves for CI /
    smoke runs.
 3. If stdin is a tty, it falls back to a terminal prompt.
 4. Otherwise the test raises `PromptUnavailableError`.
@@ -106,7 +106,7 @@ to wait indefinitely.
 
 ### 7. Match the marker level to the prompt's scope
 
-- File-level (`pytestmark = pytest.mark.litmus_prompts(...)` at module top) — for prompts every test in the module needs.
+- File-level (`pytestmark = pytest.mark.testerkit_prompts(...)` at module top) — for prompts every test in the module needs.
 - Class-scoped — for a group of tests that share a setup prompt.
 - Per-test — for prompts that only one test needs.
 
@@ -125,14 +125,14 @@ When the operator UI is up, each prompt becomes a modal at the live monitor. Tha
   the choices / input field, and an Acknowledge / Submit button.
 - Per-run dialog state preserved across page reloads.
 
-Test from the bench: run `litmus serve`, run a pytest that uses
+Test from the bench: run `testerkit serve`, run a pytest that uses
 `prompt`, then walk through what an operator would see. If
 something reads ambiguously in a modal, fix the wording before
 the production rollout.
 
 ## Tips
 
-- **For headless CI, set `LITMUS_AUTO_CONFIRM=1`.** This lets
+- **For headless CI, set `TESTERKIT_AUTO_CONFIRM=1`.** This lets
   prompts auto-resolve so your CI doesn't hang. Make sure the
   defaults in your prompt definitions still produce a useful pass
   (e.g., `choice` auto-picks the first option — order matters).
@@ -145,7 +145,7 @@ the production rollout.
 
 ## See also
 
-- [Reference → litmus_prompts marker](../../reference/pytest/markers.md#litmus_prompts)
+- [Reference → testerkit_prompts marker](../../reference/pytest/markers.md#testerkit_prompts)
 - [Concepts → Step hierarchy](../../concepts/execution/step-hierarchy.md) — where prompts sit in the run timeline
 - [Tour of the Operator UI](../overview/operator-ui-tour.md) — the ACTIVE TESTS sidebar block, which is your prompt-waiting signal
 - [Multi-UUT testing](multi-uut-testing.md) — prompts in subprocess-per-site setups

@@ -4,9 +4,9 @@ import os
 
 import pytest
 
-from litmus.data.models import UUT
-from litmus.execution.sites import ResolvedSite
-from litmus.execution.uut_provider import (
+from testerkit.data.models import UUT
+from testerkit.execution.sites import ResolvedSite
+from testerkit.execution.uut_provider import (
     CLIUUTProvider,
     EnvironmentUUTProvider,
     UUTProvider,
@@ -121,35 +121,35 @@ class TestEnvironmentUUTProvider:
     """EnvironmentUUTProvider resolves UUT from environment variables."""
 
     def test_global_serial(self, monkeypatch):
-        monkeypatch.setenv("LITMUS_UUT_SERIAL", "ENV_SN001")
+        monkeypatch.setenv("TESTERKIT_UUT_SERIAL", "ENV_SN001")
         provider = EnvironmentUUTProvider()
         assert provider.get_uut(0).serial == "ENV_SN001"
 
     def test_site_specific_serial(self, monkeypatch):
-        monkeypatch.setenv("LITMUS_UUT_SERIAL_SITE_0", "SN_A")
-        monkeypatch.setenv("LITMUS_UUT_SERIAL_SITE_1", "SN_B")
+        monkeypatch.setenv("TESTERKIT_UUT_SERIAL_SITE_0", "SN_A")
+        monkeypatch.setenv("TESTERKIT_UUT_SERIAL_SITE_1", "SN_B")
         provider = EnvironmentUUTProvider()
         assert provider.get_uut(0).serial == "SN_A"
         assert provider.get_uut(1).serial == "SN_B"
 
     def test_site_specific_overrides_global(self, monkeypatch):
-        monkeypatch.setenv("LITMUS_UUT_SERIAL", "GLOBAL")
-        monkeypatch.setenv("LITMUS_UUT_SERIAL_SITE_0", "SPECIFIC")
+        monkeypatch.setenv("TESTERKIT_UUT_SERIAL", "GLOBAL")
+        monkeypatch.setenv("TESTERKIT_UUT_SERIAL_SITE_0", "SPECIFIC")
         provider = EnvironmentUUTProvider()
         assert provider.get_uut(0).serial == "SPECIFIC"
 
     def test_no_serial_raises(self):
         provider = EnvironmentUUTProvider()
-        for key in ["LITMUS_UUT_SERIAL", "LITMUS_UUT_SERIAL_SITE_0"]:
+        for key in ["TESTERKIT_UUT_SERIAL", "TESTERKIT_UUT_SERIAL_SITE_0"]:
             os.environ.pop(key, None)
         with pytest.raises(ValueError, match="No UUT serial"):
             provider.get_uut(0)
 
     def test_metadata_from_env(self, monkeypatch):
-        monkeypatch.setenv("LITMUS_UUT_SERIAL", "SN001")
-        monkeypatch.setenv("LITMUS_UUT_PART_NUMBER", "PN-200")
-        monkeypatch.setenv("LITMUS_UUT_REVISION", "C")
-        monkeypatch.setenv("LITMUS_UUT_LOT_NUMBER", "LOT99")
+        monkeypatch.setenv("TESTERKIT_UUT_SERIAL", "SN001")
+        monkeypatch.setenv("TESTERKIT_UUT_PART_NUMBER", "PN-200")
+        monkeypatch.setenv("TESTERKIT_UUT_REVISION", "C")
+        monkeypatch.setenv("TESTERKIT_UUT_LOT_NUMBER", "LOT99")
         provider = EnvironmentUUTProvider()
         uut = provider.get_uut(0)
         assert uut.part_number == "PN-200"

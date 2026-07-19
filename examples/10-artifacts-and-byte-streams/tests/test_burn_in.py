@@ -30,8 +30,8 @@ from datetime import UTC, datetime
 from drivers import snapshot_uut
 from pydantic import BaseModel
 
-import litmus.files
-from litmus import Limit
+import testerkit.files
+from testerkit import Limit
 
 
 class BurnInReport(BaseModel):
@@ -66,7 +66,7 @@ def test_uut_burn_in(observe, verify, psu) -> None:
     # via ``observe("burn_log", log)`` stamps the sink's ``file://``
     # URI onto the active vector so the ``burn_log`` output lands on
     # the verify row alongside the other artifacts.
-    with litmus.files.stream("burn_log", format="jsonl") as log:
+    with testerkit.files.stream("burn_log", format="jsonl") as log:
         observe("burn_log", log)
         log.write({"ts": datetime.now(UTC).isoformat(), "event": "psu_on", "voltage_set": 5.0})
         psu.set_voltage(5.0)

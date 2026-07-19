@@ -7,7 +7,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.data._atomic import atomic_write_table, atomic_write_text
+from testerkit.data._atomic import atomic_write_table, atomic_write_text
 
 
 def test_atomic_write_table(tmp_path: Path) -> None:
@@ -27,7 +27,7 @@ def test_atomic_write_table_no_partial_on_failure(tmp_path: Path) -> None:
     table = pa.table({"x": [1]})
     path = tmp_path / "out.parquet"
 
-    with patch("litmus.data._atomic.pq.write_table", side_effect=RuntimeError("boom")):
+    with patch("testerkit.data._atomic.pq.write_table", side_effect=RuntimeError("boom")):
         with pytest.raises(RuntimeError, match="boom"):
             atomic_write_table(table, path)
 
@@ -49,7 +49,7 @@ def test_atomic_write_text_no_partial_on_failure(tmp_path: Path) -> None:
     """On failure, no partial file or temp file should remain."""
     path = tmp_path / "out.json"
 
-    with patch("litmus.data._atomic.os.write", side_effect=OSError("disk full")):
+    with patch("testerkit.data._atomic.os.write", side_effect=OSError("disk full")):
         with pytest.raises(OSError, match="disk full"):
             atomic_write_text("data", path)
 

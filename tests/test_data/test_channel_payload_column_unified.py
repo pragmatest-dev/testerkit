@@ -28,12 +28,12 @@ import pyarrow as pa
 import pyarrow.ipc as ipc
 import pytest
 
-from litmus.data.channels.models import (
+from testerkit.data.channels.models import (
     ARRAY_SCHEMA,
     SCALAR_SCHEMA,
     _infer_schema,
 )
-from litmus.data.channels.store import ChannelStore
+from testerkit.data.channels.store import ChannelStore
 
 
 def _make_store(tmp_path: Path) -> ChannelStore:
@@ -163,7 +163,7 @@ class TestArrayWritesLandInValueColumn:
 class TestSubscriptionPayloadShape:
     def test_array_subscription_dict_uses_value_key(self, tmp_path: Path) -> None:
         """Live subscription's normalized payload dict uses ``value`` key."""
-        from litmus.data.channels.models import ChannelSample
+        from testerkit.data.channels.models import ChannelSample
 
         store = _make_store(tmp_path)
         received: list[ChannelSample] = []

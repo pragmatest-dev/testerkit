@@ -30,7 +30,7 @@ from uuid import uuid4
 
 import yaml
 
-from litmus.analysis.runs_query import RunsQuery
+from testerkit.analysis.runs_query import RunsQuery
 
 
 def _write_multi_site_fixture(path: Path, site_count: int) -> None:
@@ -100,7 +100,7 @@ def _run_pytest(
 ) -> subprocess.CompletedProcess:
     """Run pytest in a subprocess writing to the canonical results dir.
 
-    ``session_id`` flows through the ``_LITMUS_SESSION_ID`` env so
+    ``session_id`` flows through the ``_TESTERKIT_SESSION_ID`` env so
     the outer test can identify exactly its own runs in the shared
     canonical store.
     """
@@ -119,7 +119,7 @@ def _run_pytest(
         args.append(f"--site={site}")
     if extra:
         args.extend(extra)
-    env = {**os.environ, "_LITMUS_SESSION_ID": session_id}
+    env = {**os.environ, "_TESTERKIT_SESSION_ID": session_id}
     return subprocess.run(args, capture_output=True, text=True, timeout=60, env=env)
 
 
@@ -236,7 +236,7 @@ class TestSiteFlag:
             "--uut-serial=SN42",
             "-v",
         ]
-        env = {**os.environ, "_LITMUS_SESSION_ID": session_id}
+        env = {**os.environ, "_TESTERKIT_SESSION_ID": session_id}
         result = subprocess.run(args, capture_output=True, text=True, timeout=60, env=env)
         assert result.returncode == 0, (
             f"pytest exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"

@@ -36,7 +36,7 @@ button. To see one session's samples, reach this page from that run.
 
 ## Chart
 
-Time-series chart of the filtered samples. Litmus decimates large
+Time-series chart of the filtered samples. TesterKit decimates large
 series to ~1,000 points (LTTB) so the chart stays responsive even for
 long-running captures. The
 visible decimation preserves visual shape: peaks and troughs at

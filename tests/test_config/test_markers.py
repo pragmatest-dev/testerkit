@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from litmus.models.test_config import (
+from testerkit.models.test_config import (
     MeasurementLimitConfig,
     MockEntry,
     PromptConfig,
@@ -20,7 +20,7 @@ from litmus.models.test_config import (
     SweepEntry,
     TestEntry,
 )
-from litmus.store import expand_ranges
+from testerkit.store import expand_ranges
 
 
 class TestTestEntryShape:
@@ -58,13 +58,13 @@ class TestTestEntryShape:
 
     def test_connections_list_form_binds_by_name(self) -> None:
         """List shape → bind to fixture-connection names (matches
-        ``litmus_characteristics`` positional list shape)."""
+        ``testerkit_characteristics`` positional list shape)."""
         entry = TestEntry.model_validate({"connections": ["vout", "vin_3v3"]})
         assert entry.connections == ["vout", "vin_3v3"]
 
     def test_connections_dict_form_binds_by_channel(self) -> None:
         """Dict shape → bind to instrument → channel selectors (matches
-        ``litmus_limits`` kwargs-by-name shape)."""
+        ``testerkit_limits`` kwargs-by-name shape)."""
         entry = TestEntry.model_validate({"connections": {"dmm": ["ch1", "ch2"], "psu": "ch1"}})
         assert entry.connections == {"dmm": ["ch1", "ch2"], "psu": "ch1"}
 
@@ -89,9 +89,9 @@ class TestTestEntryShape:
         assert entry.runner == {"markers": [{"flaky": {"reruns": 2}}]}
 
     def test_unknown_top_level_key_rejected(self) -> None:
-        # ``litmus_X`` is the typo for ``X`` — caught by ``extra="forbid"``.
+        # ``testerkit_X`` is the typo for ``X`` — caught by ``extra="forbid"``.
         with pytest.raises(ValueError, match="extra"):
-            TestEntry.model_validate({"litmus_limits": {}})
+            TestEntry.model_validate({"testerkit_limits": {}})
 
 
 class TestExpandRanges:

@@ -10,7 +10,7 @@ for temp in [-40, 25, 85]:               # outer — slow to change
             measure()
 ```
 
-`@pytest.mark.litmus_sweeps` declares that nested loop without you
+`@pytest.mark.testerkit_sweeps` declares that nested loop without you
 writing it. Each loop becomes one **test vector** — pytest runs your
 test once per combination, logs the values, and `context.changed("temp")`
 tells you when an outer loop just rolled over so you can do the
@@ -18,11 +18,11 @@ expensive setup (chamber soak) only when needed.
 
 Three places to declare vectors, all using the same shape:
 
-- **Inline Python** — `@pytest.mark.litmus_sweeps(...)` on the test function
+- **Inline Python** — `@pytest.mark.testerkit_sweeps(...)` on the test function
 - **Sidecar YAML** — `sweeps: [...]` next to the test file
 - **Profile YAML** — same shape, applied via the active profile (see [profiles guide](profiles.md))
 
-`litmus_sweeps` is the **recommended** marker for new tests.
+`testerkit_sweeps` is the **recommended** marker for new tests.
 Pytest's own `@pytest.mark.parametrize` keeps working unchanged for
 existing tests. Don't *mix* the two on a single test — pick one.
 
@@ -35,7 +35,7 @@ existing tests. Don't *mix* the two on a single test — pick one.
 Sweep one variable across some values. Test runs once per value:
 
 ```python
-@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0, 5.5]}])
+@pytest.mark.testerkit_sweeps([{"vin": [3.3, 5.0, 5.5]}])
 def test_x(vin): ...
 # 3 cases
 ```
@@ -53,7 +53,7 @@ table), put both keys in one dict. The two lists
 right away, before pytest tries to run anything:
 
 ```python
-@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0, 5.5], "expected": [3.30, 3.31, 3.30]}])
+@pytest.mark.testerkit_sweeps([{"vin": [3.3, 5.0, 5.5], "expected": [3.30, 3.31, 3.30]}])
 def test_x(vin, expected): ...
 # 3 cases — vin and expected step together
 ```
@@ -78,7 +78,7 @@ in one marker (or two list items in YAML). The order reads
 top-to-bottom as **outer-to-inner**:
 
 ```python
-@pytest.mark.litmus_sweeps([
+@pytest.mark.testerkit_sweeps([
     {"temp": [-40, 25, 85]},    # outer — changes 3 times
     {"vin": [3.3, 5.0, 5.5]},    # inner — changes every test
 ])
@@ -94,17 +94,17 @@ sweeps:
 
 ### Class-level sweeps (the outermost loop)
 
-When a test class is decorated with `@pytest.mark.litmus_sweeps`,
+When a test class is decorated with `@pytest.mark.testerkit_sweeps`,
 the marker applies to **every method in the class**. The class
 becomes the outer loop — pytest runs the entire class sequence
 once per outer iteration, in source order:
 
 ```python
-@pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])      # class-level → outermost
+@pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])      # class-level → outermost
 class TestPowerSequence:
     def test_warmup(self, voltage):
         ...                                          # runs 3 times
-    @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])  # method-level → inner
+    @pytest.mark.testerkit_sweeps([{"current": [4, 5, 6]}])  # method-level → inner
     def test_load_regulation(self, voltage, current):
         ...                                          # runs 9 times
     def test_cooldown(self, voltage):
@@ -152,7 +152,7 @@ Combine the patterns: outer loop is a single variable, inner loop
 has paired values:
 
 ```python
-@pytest.mark.litmus_sweeps([
+@pytest.mark.testerkit_sweeps([
     {"temp": [-40, 25, 85]},
     {"vin": [3, 4], "expected": [5, 6]},  # paired
 ])
@@ -176,7 +176,7 @@ by hand. Put the **slow / expensive** parameter at the top so it
 changes least often:
 
 ```python
-@pytest.mark.litmus_sweeps([
+@pytest.mark.testerkit_sweeps([
     {"temp": [-40, 25, 85]},              # outer — 20-min soak per change, runs 3 times
     {"vin": [4.5, 5.0, 5.5]},             # middle — 500-ms PSU settle, runs 9 times
     {"load": arange(0.0, 1.0, 0.2)},      # inner — instant, runs 45 times
@@ -186,9 +186,9 @@ changes least often:
 > **Note for pytest users:** this is **opposite** to
 > `@pytest.mark.parametrize`'s stacking convention, which puts the
 > bottom decorator at the outer loop. The pytest convention is a
-> well-known footgun; `litmus_sweeps` flips it (first list entry =
+> well-known footgun; `testerkit_sweeps` flips it (first list entry =
 > outer) so your code reads the way you'd write the equivalent
-> nested `for` loop. (One of the reasons `litmus_sweeps` is its own
+> nested `for` loop. (One of the reasons `testerkit_sweeps` is its own
 > marker rather than a rename.)
 
 ### Skip expensive setup with `context.changed()`
@@ -198,7 +198,7 @@ differs from the previous test case. Pair this with the outer-to-inner
 ordering to set up expensive things only when they actually change:
 
 ```python
-@pytest.mark.litmus_sweeps([
+@pytest.mark.testerkit_sweeps([
     {"temp": [-40, 25, 85]},
     {"vin": [4.5, 5.0, 5.5]},
     {"load": arange(0.0, 1.0, 0.2)},
@@ -223,7 +223,7 @@ Chamber sets 3 times. PSU sets 9 times. Load sets 45 times. The
 ## Generating values — `linspace`, `arange`, etc.
 
 Numeric sweeps usually want evenly-spaced or log-spaced points.
-Litmus provides Python helpers for inline use (with IDE autocomplete
+TesterKit provides Python helpers for inline use (with IDE autocomplete
 and type checking) and equivalent dict-form generators for YAML:
 
 | Inline helper | YAML form | What it does |
@@ -236,9 +236,9 @@ and type checking) and equivalent dict-form generators for YAML:
 | `list(range(start, stop))` | `{range: [start, stop]}` | Integer range |
 
 ```python
-from litmus import linspace, arange, logspace, repeat
+from testerkit import linspace, arange, logspace, repeat
 
-@pytest.mark.litmus_sweeps([
+@pytest.mark.testerkit_sweeps([
     {"vin": linspace(3.3, 5.5, 11)},      # 11 evenly-spaced
     {"freq": logspace(1, 6, 6)},          # 10 Hz to 1 MHz
     {"load": arange(0.0, 1.0, 0.1)},      # 0.0..0.9 step 0.1
@@ -255,7 +255,7 @@ sweeps:
 
 The dict-form generators work anywhere a list is expected — station
 channel arrays, fixture pin arrays, part spec conditions — not
-just inside `litmus_sweeps`.
+just inside `testerkit_sweeps`.
 
 ### Generated paired values
 
@@ -263,7 +263,7 @@ When two paired variables both come from generators, just put each
 as its own key. The list-length check catches mistakes:
 
 ```python
-@pytest.mark.litmus_sweeps([{
+@pytest.mark.testerkit_sweeps([{
     "vin": linspace(3.3, 5.5, 5),           # 5 points
     "expected": linspace(3.30, 3.32, 5),    # 5 points — pairs cleanly
 }])
@@ -284,10 +284,10 @@ error pointing at the mismatch.
 
 | Inline Python | YAML |
 |---|---|
-| `litmus_sweeps([{"vin": [3, 4]}])` | `sweeps:`<br>`  - {vin: [3, 4]}` |
-| `litmus_sweeps([{"vin": [3, 4], "expected": [5, 6]}])` | `sweeps:`<br>`  - {vin: [3, 4], expected: [5, 6]}` |
-| `litmus_sweeps([{"outer": [...]}, {"inner": [...]}])` | `sweeps:`<br>`  - {outer: [...]}`<br>`  - {inner: [...]}` |
-| `litmus_sweeps([{"vin": linspace(3, 5, 5)}])` | `sweeps:`<br>`  - {vin: {linspace: [3, 5, 5]}}` |
+| `testerkit_sweeps([{"vin": [3, 4]}])` | `sweeps:`<br>`  - {vin: [3, 4]}` |
+| `testerkit_sweeps([{"vin": [3, 4], "expected": [5, 6]}])` | `sweeps:`<br>`  - {vin: [3, 4], expected: [5, 6]}` |
+| `testerkit_sweeps([{"outer": [...]}, {"inner": [...]}])` | `sweeps:`<br>`  - {outer: [...]}`<br>`  - {inner: [...]}` |
+| `testerkit_sweeps([{"vin": linspace(3, 5, 5)}])` | `sweeps:`<br>`  - {vin: {linspace: [3, 5, 5]}}` |
 
 ---
 
@@ -295,11 +295,11 @@ error pointing at the mismatch.
 
 Sometimes you want the test body to own the loop — to amortize
 expensive setup, stream samples, or skip rows conditionally. Request
-the `vectors` fixture; Litmus pre-builds the full table and your
+the `vectors` fixture; TesterKit pre-builds the full table and your
 test iterates it as one pytest case:
 
 ```python
-@pytest.mark.litmus_sweeps([{"vin": linspace(3.3, 5.5, 5)}])
+@pytest.mark.testerkit_sweeps([{"vin": linspace(3.3, 5.5, 5)}])
 def test_sweep(vectors, psu, dmm, verify):
     psu.enable_output()
     for v in vectors:
@@ -324,9 +324,9 @@ The outer parameter must appear in the method signature so pytest
 can pass it as an argument:
 
 ```python
-@pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])              # outer
+@pytest.mark.testerkit_sweeps([{"voltage": [1, 2, 3]}])              # outer
 class TestLoadRegulation:
-    @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])          # inner
+    @pytest.mark.testerkit_sweeps([{"current": [4, 5, 6]}])          # inner
     def test_response(self, voltage, vectors, psu, eload, dmm, verify):
         #                  ^^^^^^^  ^^^^^^^
         #         outer param        inner matrix
@@ -359,7 +359,7 @@ condition before the inner loop fires off measurements.
 
 | Scenario | Use |
 |---|---|
-| Code-owned sweep, IDE-friendly | Inline `@pytest.mark.litmus_sweeps(...)` with `linspace` etc. |
+| Code-owned sweep, IDE-friendly | Inline `@pytest.mark.testerkit_sweeps(...)` with `linspace` etc. |
 | Operator-edited sweep (no code deploy) | Sidecar `sweeps: ...` |
 | Different sweeps per scenario | Profile YAML (selected by CLI facet) |
 | Test owns the loop (amortize setup) | `vectors` fixture in the signature |

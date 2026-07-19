@@ -1,6 +1,6 @@
 """Tests for discovery models."""
 
-from litmus.models.instrument import InstrumentInfo
+from testerkit.models.instrument import InstrumentInfo
 
 
 class TestInstrumentInfo:

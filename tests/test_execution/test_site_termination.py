@@ -21,14 +21,14 @@ import time
 from unittest import mock
 from uuid import uuid4
 
-from litmus.analysis.runs_query import RunsQuery
-from litmus.execution.site_runner import SiteRunner
+from testerkit.analysis.runs_query import RunsQuery
+from testerkit.execution.site_runner import SiteRunner
 
 
 def _wait_for_session_runs(session_id: str, expected: int, *, timeout: float = 3.0) -> list:
     """Bounded poll over RunsQuery for a specific session.
 
-    Same canonical daemon every Litmus client uses; filter by the
+    Same canonical daemon every TesterKit client uses; filter by the
     test's own ``session_id`` so we ignore everything else in the
     shared store.
     """
@@ -50,7 +50,7 @@ class TestSingleProcessTermination:
 
     def test_sigterm_during_test_lands_terminated(self, tmp_path):
         # Subprocess writes to the canonical data_dir (the singleton
-        # daemon every Litmus client shares). Test isolation is by the
+        # daemon every TesterKit client shares). Test isolation is by the
         # unique ``session_id`` we hand the subprocess via env.
         session_id = str(uuid4())
         marker = tmp_path / "started"
@@ -69,7 +69,7 @@ class TestSingleProcessTermination:
             )
         )
 
-        env = {**os.environ, "_LITMUS_SESSION_ID": session_id}
+        env = {**os.environ, "_TESTERKIT_SESSION_ID": session_id}
         proc = subprocess.Popen(
             [
                 sys.executable,
@@ -114,8 +114,8 @@ class TestSiteRunnerPropagateTermination:
 
     @staticmethod
     def _make_runner() -> SiteRunner:
-        from litmus.data.models import UUT
-        from litmus.execution.sites import ResolvedSite
+        from testerkit.data.models import UUT
+        from testerkit.execution.sites import ResolvedSite
 
         sites = [
             ResolvedSite(site_index=0),

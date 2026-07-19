@@ -34,10 +34,10 @@ from uuid import uuid4
 
 import pyarrow.parquet as pq
 
-from litmus.data.backends._event_accumulator import EventAccumulator
-from litmus.data.backends._row_helpers import decode_lane_structs
-from litmus.data.backends.parquet import materialize_run_to_parquet
-from litmus.data.events import (
+from testerkit.data.backends._event_accumulator import EventAccumulator
+from testerkit.data.backends._row_helpers import decode_lane_structs
+from testerkit.data.backends.parquet import materialize_run_to_parquet
+from testerkit.data.events import (
     MeasurementRecorded,
     Observation,
     RunStarted,
@@ -929,7 +929,7 @@ def test_row_c_inbody_loop_step_carries_setup_data(tmp_path):
 # ---------------------------------------------------------------------------
 # Permutation-table row G — nested method in a NON-swept class.
 #
-# Row G: `class C: def m(ctx)` — C plain (no litmus_sweeps), m has no own
+# Row G: `class C: def m(ctx)` — C plain (no testerkit_sweeps), m has no own
 # sweep → at-rest: C step vi=NULL, m step vi=NULL, ZERO vector rows for
 # either. Verifies null-vs-0 reconstruction: _parent_emitted_vectors("C/m")
 # is False (C emitted no VectorStarted), so m's at-rest vector_index is NULL.
@@ -1019,7 +1019,7 @@ def test_row_g_nested_method_unswept_class_vector_index_null(tmp_path):
 # Permutation-table row J — @parametrize method in a plain (unswept) class.
 #
 # Row J: `class C: @parametrize(v=[0,1]) def m(ctx)` — C is plain (not swept
-# with litmus_sweeps), m has its own Mode-1 parametrize variants → m emits
+# with testerkit_sweeps), m has its own Mode-1 parametrize variants → m emits
 # one VectorStarted/Ended per variant (vi=0/1). At rest:
 #   - C step row: vector_index=NULL (top-level, no enclosing loop)
 #   - C has NO vector rows (C is not swept)
@@ -1131,7 +1131,7 @@ def test_row_j_parametrize_method_in_plain_class(tmp_path):
     # → m step row vector_index=NULL even though m DOES have its own vectors below.
     assert steps["TestC/test_m"]["vector_index"] is None
 
-    # C has NO vector rows (C is not swept with litmus_sweeps).
+    # C has NO vector rows (C is not swept with testerkit_sweeps).
     c_vectors = [v for v in kinds.get("vector", []) if v["step_path"] == "TestC"]
     assert c_vectors == []
 

@@ -5,11 +5,11 @@ from textwrap import dedent
 
 import pytest
 
-from litmus.models.capability import CATALOG_SCHEMA_VERSION
-from litmus.models.enums import Direction, MeasurementFunction
-from litmus.store import load_catalog_entry, load_catalog_from_directory
+from testerkit.models.capability import CATALOG_SCHEMA_VERSION
+from testerkit.models.enums import Direction, MeasurementFunction
+from testerkit.store import load_catalog_entry, load_catalog_from_directory
 
-CATALOG_DIR = Path(__file__).parent.parent.parent / "src" / "litmus" / "catalog" / "generic"
+CATALOG_DIR = Path(__file__).parent.parent.parent / "src" / "testerkit" / "catalog" / "generic"
 
 
 class TestSchemaVersion:

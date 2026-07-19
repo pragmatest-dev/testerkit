@@ -1,5 +1,5 @@
-"""Tests for inline list-builders in :mod:`litmus.expand`, the YAML range
-expanders, and the list-of-dicts shape of ``@pytest.mark.litmus_sweeps``."""
+"""Tests for inline list-builders in :mod:`testerkit.expand`, the YAML range
+expanders, and the list-of-dicts shape of ``@pytest.mark.testerkit_sweeps``."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import textwrap
 
 import pytest
 
-from litmus import arange, geomspace, linspace, logspace, repeat
-from litmus.store import expand_ranges
+from testerkit import arange, geomspace, linspace, logspace, repeat
+from testerkit.store import expand_ranges
 
 pytest_plugins = ["pytester"]
 
@@ -54,7 +54,7 @@ def test_yaml_zipped_axes_via_multi_key(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -92,13 +92,13 @@ def test_yaml_zipped_axes_via_multi_key(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=6)
 
 
-def test_litmus_sweeps_multi_key_zips(pytester: pytest.Pytester) -> None:
+def test_testerkit_sweeps_multi_key_zips(pytester: pytest.Pytester) -> None:
     """Multi-key dict in one sweep entry zips paired axes."""
     pytester.makeini(
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -110,7 +110,7 @@ def test_litmus_sweeps_multi_key_zips(pytester: pytest.Pytester) -> None:
 
             seen = []
 
-            @pytest.mark.litmus_sweeps([{"vin": [3, 4, 5], "vout": [5, 7, 9]}])
+            @pytest.mark.testerkit_sweeps([{"vin": [3, 4, 5], "vout": [5, 7, 9]}])
             def test_pairs(vin, vout):
                 seen.append((vin, vout))
 
@@ -123,13 +123,13 @@ def test_litmus_sweeps_multi_key_zips(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=4)
 
 
-def test_litmus_sweeps_zip_dim_mismatch_raises(pytester: pytest.Pytester) -> None:
+def test_testerkit_sweeps_zip_dim_mismatch_raises(pytester: pytest.Pytester) -> None:
     """Multi-key sweep dict with mismatched lengths raises at decoration time."""
     pytester.makeini(
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -139,7 +139,7 @@ def test_litmus_sweeps_zip_dim_mismatch_raises(pytester: pytest.Pytester) -> Non
             """
             import pytest
 
-            @pytest.mark.litmus_sweeps([{"vin": [3, 4], "vout": [5, 6, 7]}])
+            @pytest.mark.testerkit_sweeps([{"vin": [3, 4], "vout": [5, 6, 7]}])
             def test_x(vin, vout): pass
             """
         )
@@ -150,11 +150,11 @@ def test_litmus_sweeps_zip_dim_mismatch_raises(pytester: pytest.Pytester) -> Non
     assert "same length" in combined
 
 
-def test_litmus_sweeps_stacked_top_is_outer(pytester: pytest.Pytester) -> None:
-    """Single-marker litmus_sweeps: first list entry = outer (slow), last = inner (fast).
+def test_testerkit_sweeps_stacked_top_is_outer(pytester: pytest.Pytester) -> None:
+    """Single-marker testerkit_sweeps: first list entry = outer (slow), last = inner (fast).
 
     Reads top-to-bottom in the list as outer-to-inner, matching a
-    nested ``for`` loop. Stacking multiple ``@pytest.mark.litmus_sweeps``
+    nested ``for`` loop. Stacking multiple ``@pytest.mark.testerkit_sweeps``
     decorators is rejected (tested separately) — multi-axis sweeps go
     in the single payload list.
     """
@@ -162,7 +162,7 @@ def test_litmus_sweeps_stacked_top_is_outer(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -174,7 +174,7 @@ def test_litmus_sweeps_stacked_top_is_outer(pytester: pytest.Pytester) -> None:
 
             seen = []
 
-            @pytest.mark.litmus_sweeps([
+            @pytest.mark.testerkit_sweeps([
                 {"temp": [25, 85]},   # outer (slowest)
                 {"vin": [3, 5]},      # inner (fastest)
             ])
@@ -196,17 +196,17 @@ def test_litmus_sweeps_stacked_top_is_outer(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=5)
 
 
-def test_stacked_litmus_sweeps_decorators_rejected(pytester: pytest.Pytester) -> None:
-    """Stacking two ``@pytest.mark.litmus_sweeps`` decorators raises ``UsageError``.
+def test_stacked_testerkit_sweeps_decorators_rejected(pytester: pytest.Pytester) -> None:
+    """Stacking two ``@pytest.mark.testerkit_sweeps`` decorators raises ``UsageError``.
 
-    One marker per Litmus type per function — multi-axis goes in the
+    One marker per TesterKit type per function — multi-axis goes in the
     list payload of a single marker.
     """
     pytester.makeini(
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -216,8 +216,8 @@ def test_stacked_litmus_sweeps_decorators_rejected(pytester: pytest.Pytester) ->
             """
             import pytest
 
-            @pytest.mark.litmus_sweeps([{"temp": [25, 85]}])
-            @pytest.mark.litmus_sweeps([{"vin": [3, 5]}])
+            @pytest.mark.testerkit_sweeps([{"temp": [25, 85]}])
+            @pytest.mark.testerkit_sweeps([{"vin": [3, 5]}])
             def test_x(temp, vin): pass
             """
         )
@@ -225,16 +225,16 @@ def test_stacked_litmus_sweeps_decorators_rejected(pytester: pytest.Pytester) ->
     result = pytester.runpytest("-v")
     assert result.ret != 0
     combined = "\n".join(result.outlines + result.errlines)
-    assert "stacked Litmus markers not allowed" in combined
+    assert "stacked TesterKit markers not allowed" in combined
 
 
-def test_litmus_sweeps_rejects_kwargs_form(pytester: pytest.Pytester) -> None:
+def test_testerkit_sweeps_rejects_kwargs_form(pytester: pytest.Pytester) -> None:
     """Old kwargs shape ``(vin=[...])`` raises — list-of-dicts is canonical."""
     pytester.makeini(
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
+            addopts = -p no:testerkit -p testerkit.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -244,7 +244,7 @@ def test_litmus_sweeps_rejects_kwargs_form(pytester: pytest.Pytester) -> None:
             """
             import pytest
 
-            @pytest.mark.litmus_sweeps(vin=[3, 4])
+            @pytest.mark.testerkit_sweeps(vin=[3, 4])
             def test_x(vin): pass
             """
         )

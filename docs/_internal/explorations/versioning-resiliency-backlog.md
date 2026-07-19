@@ -54,7 +54,7 @@ Each item lists a **Trigger** (the symptom that makes it worth building) and a *
   inherently per-version** (`sys.executable -m …` from the client's own venv), so a "global daemon" can
   only ever be a *registry*, never a *supervisor* that spawns foreign versions — which caps how much a
   standing agent buys until true coexistence is needed.
-- **Trigger:** two litmus versions querying one shared `data_dir` at overlapping times (version-skewed
+- **Trigger:** two testerkit versions querying one shared `data_dir` at overlapping times (version-skewed
   projects sharing the global store), or daemon RAM/thrash pressure.
 - **Design:** `derived-index-versioning.md` §2, §11.1 (singleton-per-fingerprint; result-equivalence
   capability key; launch-is-per-version; registry-not-supervisor). Adopt Gradle's daemon-lifecycle
@@ -62,7 +62,7 @@ Each item lists a **Trigger** (the symptom that makes it worth building) and a *
   `--status` visibility). Composes with the req-6 serving-tier swap (`acquire → opaque location` is
   already the seam).
 - **Shared with F:** the fix lands in the **shared `DaemonManager.acquire`** (all four stores subclass
-  it) — reuse-key changes from `litmus_version` to fingerprint via a subclass hook. So B and **F (#64
+  it) — reuse-key changes from `testerkit_version` to fingerprint via a subclass hook. So B and **F (#64
   cross-store parity)** are the *same seam*: do the base fix once and every store gets per-version
   binding. See §F.
 - **Cost / risk:** largest item; revises the singleton lifecycle. No cheaper option exists (one daemon
@@ -72,14 +72,14 @@ Each item lists a **Trigger** (the symptom that makes it worth building) and a *
 
 - **What:** (1) a **size-aware** prune default (reap by *size × age*, not age alone, so a large store
   gets reclaimed while a small one is left alone); (2) a **post-upgrade version-change nudge** — suggest
-  `litmus setup` + `litmus data index prune` once, on a detected version bump.
+  `testerkit setup` + `testerkit data index prune` once, on a detected version bump.
 - **Why deferred:** retention barely matters at small scale (dormant epochs are inert, tens of MB;
   rebuild ~seconds). The **size-gated `old_epoch_hint`** (fires ≥ 1 GiB, shipped) already covers the
   visible case. A startup nudge needs a *new* cross-cutting mechanism (global last-seen-version state +
   an every-command hook) — over-reach without a real need.
 - **Trigger:** large stores hitting real disk pressure, or user demand for post-upgrade nudging.
 - **Design:** `derived-index-versioning.md` §6 (retention = LRU-by-dormancy, cache-not-data, "not going
-  back" is an explicit human action). Current state: `litmus data index prune` + the size-gated setup
+  back" is an explicit human action). Current state: `testerkit data index prune` + the size-gated setup
   hint.
 
 ## D. XDG runtime-dir hygiene
@@ -87,7 +87,7 @@ Each item lists a **Trigger** (the symptom that makes it worth building) and a *
 - **What:** move the daemon's **runtime rendezvous** (socket / pid / port / lock / state files) out of
   the data dir into `platformdirs.user_runtime_dir` (`$XDG_RUNTIME_DIR`), keyed by
   `(data-dir, fingerprint)`. The single seam is `data_cmd._resolve_runs_dir`.
-- **Why deferred:** works today (co-mingled in the data dir). The smell is that `litmus data import`
+- **Why deferred:** works today (co-mingled in the data dir). The smell is that `testerkit data import`
   must *scrub stale pid/port state* copied from another machine — runtime artifacts riding along with
   durable data they don't belong with.
 - **Trigger:** the import stale-state scrub becomes a real bug, **or** P3-b's per-fingerprint state-file
@@ -98,7 +98,7 @@ Each item lists a **Trigger** (the symptom that makes it worth building) and a *
 ## E. API / consumer-contract versioning
 
 - **What:** version the **consumer-facing** contracts — Query API return models, MCP tool responses,
-  HTTP/JSON endpoints, `litmus show -f json/csv` — so an upgrade doesn't silently break user code,
+  HTTP/JSON endpoints, `testerkit show -f json/csv` — so an upgrade doesn't silently break user code,
   dashboards, or integrations. A **distinct axis** from data versioning: data-survives vs.
   consumer-code-survives.
 - **Why deferred:** deliberately a **1.0** concern. Pre-1.0 the API is expected to churn (SemVer 0.x);
@@ -125,7 +125,7 @@ Each item lists a **Trigger** (the symptom that makes it worth building) and a *
      retention (§C, §6) apply to all four unchanged.
   2. **Shared spine — extract once, all four benefit:**
      - **Per-fingerprint daemon binding belongs in `DaemonManager.acquire` itself** (it reuses by
-       `litmus_version` today). Change the reuse key to the **fingerprint via a subclass hook**, done
+       `testerkit_version` today). Change the reuse key to the **fingerprint via a subclass hook**, done
        once in the base → every store gets correct per-version binding. Runs overrides the hook with
        `_projection_fingerprint`; the others override as they gain a fingerprint. **This is the same
        seam as item B (P3-b)** — B and F share it; do the base fix once and both land.
@@ -169,10 +169,10 @@ and expensive to build speculatively; wake each one only when its symptom is rea
 Until P2/P3 land, the dev-loop friction they'd smooth is handled by procedure, not code:
 
 - **Changed the projection** (schema DDL, `_create_views`, `_*_PERSISTED_COLUMNS`, an adapter, or the
-  whitelist)? The fingerprint moved → run `litmus data reindex` (or `litmus data index build --rebuild`)
+  whitelist)? The fingerprint moved → run `testerkit data reindex` (or `testerkit data index build --rebuild`)
   before the next interactive query, so a stale daemon doesn't serve the old shape.
 - **Changed the at-rest parquet shape** (extraction/materialization)? Wipe `data/` — reindex alone
   won't help; old parquet keeps the old shape.
-- **Stuck daemon / "column not found" that won't clear?** `litmus data reindex`, and kill any stray
-  `litmus mcp serve` before daemon-spawning test runs.
+- **Stuck daemon / "column not found" that won't clear?** `testerkit data reindex`, and kill any stray
+  `testerkit mcp serve` before daemon-spawning test runs.
 - Tests need nothing — conftest kills daemons + resets `data/` at session start.

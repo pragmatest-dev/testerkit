@@ -1,6 +1,6 @@
 # Step 8: Capability Matching
 
-**Goal:** Understand how Litmus matches parts to compatible stations.
+**Goal:** Understand how TesterKit matches parts to compatible stations.
 
 ## The Problem
 
@@ -85,11 +85,11 @@ The matcher functions and the `/api/match` endpoint check through range. Two fin
 ### Python API
 
 ```python
-from litmus.matching.service import (
+from testerkit.matching.service import (
     find_compatible_stations,
     check_station_compatibility,
 )
-from litmus.store import get_part
+from testerkit.store import get_part
 
 # Load the power_board part spec
 part = get_part("power_board")

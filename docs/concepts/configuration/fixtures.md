@@ -1,6 +1,6 @@
 # Fixtures
 
-A **fixture** in Litmus is a YAML file at `fixtures/<name>.yaml` that maps UUT pins to station instruments. It's the bridge that lets a test say "measure the voltage at pin `VOUT`" without knowing which DMM channel `VOUT` happens to be wired to on this particular bench.
+A **fixture** in TesterKit is a YAML file at `fixtures/<name>.yaml` that maps UUT pins to station instruments. It's the bridge that lets a test say "measure the voltage at pin `VOUT`" without knowing which DMM channel `VOUT` happens to be wired to on this particular bench.
 
 > **Naming collision.** "Fixture" overloads. Throughout this page, "fixture" means **hardware test fixture** — the YAML pin-map. When the test signature has `def test_x(pins, dmm, verify): ...`, the names `pins`, `dmm`, `verify` are **pytest fixtures** — Python objects the [pytest plugin](../../reference/pytest/fixtures.md) synthesizes (in part from your hardware fixture YAML). When this page needs the pytest sense it says "pytest fixture".
 
@@ -49,7 +49,7 @@ This is also what makes a measurement traceable: every value flows through a nam
 | Multiple UUTs running in parallel | Required — see [Multi-UUT scaling](#multi-uut-scaling-sites-shared-instruments-switching) |
 | Production traceability — every measurement records its UUT-side pin | Required — `uut_pin` is the connection field that flows into the parquet row |
 
-For development without any fixture, see [Mock mode](../../how-to/configuration/mock-mode.md) and the per-role auto-fixtures in [Litmus fixtures](../../reference/pytest/fixtures.md#per-role-auto-fixtures).
+For development without any fixture, see [Mock mode](../../how-to/configuration/mock-mode.md) and the per-role auto-fixtures in [TesterKit fixtures](../../reference/pytest/fixtures.md#per-role-auto-fixtures).
 
 ## Data model
 
@@ -147,7 +147,7 @@ That auto-population is the traceability payoff: tests stay clean, parquet rows 
 
 ## Routing one pin to different instruments by measurement
 
-One UUT pin can route to different instruments depending on what you're measuring. Set `function:` on each connection and Litmus picks the connection whose `(pin, function)` matches, instead of pin alone:
+One UUT pin can route to different instruments depending on what you're measuring. Set `function:` on each connection and TesterKit picks the connection whose `(pin, function)` matches, instead of pin alone:
 
 ```yaml
 connections:
@@ -164,7 +164,7 @@ connections:
     instrument_channel: "1"
 ```
 
-A test asking for `VOUT` with no function context falls back to first-match by pin. A test bound to a specific characteristic (via `litmus_characteristics`) picks the connection whose `function` matches.
+A test asking for `VOUT` with no function context falls back to first-match by pin. A test bound to a specific characteristic (via `testerkit_characteristics`) picks the connection whose `function` matches.
 
 When `function` is unset, the first connection for that pin is used.
 
@@ -202,7 +202,7 @@ sites:
         instrument_channel: "2"
 ```
 
-Litmus runs each site in parallel; each site's test sees only its own connections. A site's 0-based position in the list is its `site_index` — **never authored**, always the list position, so there's no field to typo or get out of sync with the actual order. This is the same shape as a bare single-UUT fixture: `connections:` directly on the fixture is site_index 0 with no list around it. `connections` and `sites` are two views of one model, not two separate features — the list is what makes a fixture multi-site, and its length is the site count. There's no way to declare a gap in the list; a site exists because it has an entry.
+TesterKit runs each site in parallel; each site's test sees only its own connections. A site's 0-based position in the list is its `site_index` — **never authored**, always the list position, so there's no field to typo or get out of sync with the actual order. This is the same shape as a bare single-UUT fixture: `connections:` directly on the fixture is site_index 0 with no list around it. `connections` and `sites` are two views of one model, not two separate features — the list is what makes a fixture multi-site, and its length is the site count. There's no way to declare a gap in the list; a site exists because it has an entry.
 
 `name:` is an optional human label ("left", "right") for a site that otherwise has no identity beyond its index — it's frozen onto every row that site produces, so renaming a site in the fixture YAML later doesn't change what a historical run's rows say. Fixture loading rejects a bare-integer name (`name: "1"`) with a clear error: `--site` and `--uut-serials` resolve a token as an index first and a name second, so a numeric name would be unreachable (shadowed by the index it looks like) rather than silently wrong. Use a non-numeric label (`"S1"`, `"pos1"`) if you need a silkscreen-style number.
 
@@ -210,7 +210,7 @@ Per-site `uut_resource` overrides the fixture-level value. See [Multi-UUT testin
 
 ### Shared instruments
 
-When multiple sites reference the same instrument role (e.g. both sites' `dmm` connections point at the bench's single DMM), Litmus treats it as a **shared** instrument. It connects once and shares it across the parallel site workers — each one calls it as if it owned it.
+When multiple sites reference the same instrument role (e.g. both sites' `dmm` connections point at the bench's single DMM), TesterKit treats it as a **shared** instrument. It connects once and shares it across the parallel site workers — each one calls it as if it owned it.
 
 Locking is per **resource** (the VISA address, COM port, or other connection identifier), so roles sharing one physical connection take turns, while roles on separate connections run at the same time.
 
@@ -231,7 +231,7 @@ For a single instrument fanned out to multiple UUT positions through a relay mat
         settling_ms: 10
 ```
 
-Switch routes activate on demand — the first time a test touches that instrument, Litmus closes the listed switch channels, waits the settling time, then takes the measurement. Multiple sites can share one instrument through different routes. Switches (instruments with `type: switch`) are exempt from the take-turns locking — closing channels in parallel is the point of the matrix.
+Switch routes activate on demand — the first time a test touches that instrument, TesterKit closes the listed switch channels, waits the settling time, then takes the measurement. Multiple sites can share one instrument through different routes. Switches (instruments with `type: switch`) are exempt from the take-turns locking — closing channels in parallel is the point of the matrix.
 
 ## Selecting a fixture at run time
 
@@ -331,5 +331,5 @@ The recorded measurement row carries `uut_pin=VOUT`, `instrument_name=dmm`, `cha
 - [Tutorial step 9 — Production ready](../../tutorial/09-production.md) — first hands-on with fixtures + sidecar config
 - [How-to — Configuring stations](../../how-to/configuration/configuring-stations.md) — the station YAML reference
 - [How-to — Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) — sites, shared instruments, parallel workers in practice
-- [Litmus fixtures](../../reference/pytest/fixtures.md) — the `pins`, `instruments`, `instrument`, `fixture_manager`, `connections` pytest fixtures that read this YAML
+- [TesterKit fixtures](../../reference/pytest/fixtures.md) — the `pins`, `instruments`, `instrument`, `fixture_manager`, `connections` pytest fixtures that read this YAML
 - [Configuration reference](../../reference/configuration.md) — fixture YAML schema field-by-field

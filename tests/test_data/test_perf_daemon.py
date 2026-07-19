@@ -32,12 +32,12 @@ from typing import Any
 
 import pytest
 
-from litmus.analysis.measurement_facets import ColumnSchema, FieldRef, FilterSet
-from litmus.analysis.measurements_query import MeasurementsQuery
-from litmus.analysis.runs_query import RunsQuery
-from litmus.data import runs_duckdb_manager
-from litmus.data._flight_query import _drop_pooled_client
-from litmus.data.data_dir import resolve_data_dir
+from testerkit.analysis.measurement_facets import ColumnSchema, FieldRef, FilterSet
+from testerkit.analysis.measurements_query import MeasurementsQuery
+from testerkit.analysis.runs_query import RunsQuery
+from testerkit.data import runs_duckdb_manager
+from testerkit.data._flight_query import _drop_pooled_client
+from testerkit.data.data_dir import resolve_data_dir
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -74,7 +74,7 @@ def _ensure_daemon_live() -> str:
 
     Uses the production probe function to avoid duplicating logic.
     """
-    from litmus.data._flight_query import probe_sql
+    from testerkit.data._flight_query import probe_sql
 
     runs_dir = resolve_data_dir() / "runs"
     for _attempt in range(2):
@@ -145,7 +145,7 @@ def test_runs_filter_options(benchmark, warm_daemon):
 
     Hard cap: 100ms. Baseline: ~13ms.
     """
-    from litmus.ui.shared.services import get_runs_filter_options
+    from testerkit.ui.shared.services import get_runs_filter_options
 
     result = benchmark(get_runs_filter_options)
     assert isinstance(result, dict)
@@ -276,9 +276,9 @@ def test_warm_measurements_query_under_200ms():
 # measures the production inputs/outputs EAV join under a unique part.
 # ---------------------------------------------------------------------------
 
-_PARAM_RUNS = int(os.environ.get("LITMUS_PERF_RUNS", "30"))
-_PARAM_STEPS = int(os.environ.get("LITMUS_PERF_STEPS", "10"))  # one vector per step
-_PARAM_MEAS = int(os.environ.get("LITMUS_PERF_MEAS", "10"))
+_PARAM_RUNS = int(os.environ.get("TESTERKIT_PERF_RUNS", "30"))
+_PARAM_STEPS = int(os.environ.get("TESTERKIT_PERF_STEPS", "10"))  # one vector per step
+_PARAM_MEAS = int(os.environ.get("TESTERKIT_PERF_MEAS", "10"))
 _PARAM_EXPECTED = _PARAM_RUNS * _PARAM_STEPS * _PARAM_MEAS  # nested measurements
 
 
@@ -295,9 +295,9 @@ def parametric_dataset() -> str:
     from datetime import UTC, datetime
     from uuid import uuid4
 
-    from litmus.data.backends.parquet import ParquetBackend
-    from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
-    from litmus.data.run_store import RunStore
+    from testerkit.data.backends.parquet import ParquetBackend
+    from testerkit.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
+    from testerkit.data.run_store import RunStore
 
     part = f"perf-param-{uuid4().hex[:8]}"
     t0 = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
@@ -455,9 +455,9 @@ def test_distinct_values_cross_filter(benchmark, parametric_dataset):
 # (flat fact + MAP, no EAV build). Run: pytest -m benchmark -k ingest -s
 # ---------------------------------------------------------------------------
 
-_INGEST_RUNS = int(os.environ.get("LITMUS_INGEST_RUNS", "40"))
-_INGEST_STEPS = int(os.environ.get("LITMUS_INGEST_STEPS", "10"))
-_INGEST_MEAS = int(os.environ.get("LITMUS_INGEST_MEAS", "10"))
+_INGEST_RUNS = int(os.environ.get("TESTERKIT_INGEST_RUNS", "40"))
+_INGEST_STEPS = int(os.environ.get("TESTERKIT_INGEST_STEPS", "10"))
+_INGEST_MEAS = int(os.environ.get("TESTERKIT_INGEST_MEAS", "10"))
 
 
 @pytest.mark.benchmark(group="daemon-ingest")
@@ -467,9 +467,9 @@ def test_ingest_throughput():
     from datetime import UTC, datetime
     from uuid import uuid4
 
-    from litmus.data.backends.parquet import ParquetBackend
-    from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
-    from litmus.data.run_store import RunStore
+    from testerkit.data.backends.parquet import ParquetBackend
+    from testerkit.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
+    from testerkit.data.run_store import RunStore
 
     _ensure_daemon_live()
     part = f"perf-ingest-{uuid4().hex[:8]}"
@@ -541,12 +541,12 @@ def test_ingest_throughput():
 def test_ingest_phase_breakdown(tmp_path):
     """Time each ingest phase for one parquet on a fresh, uncontended DB —
     isolates where the projection SQL spends. Run: pytest -m benchmark -k
-    phase_breakdown -s. Scale via LITMUS_PHASE_VEC / LITMUS_PHASE_MEAS."""
+    phase_breakdown -s. Scale via TESTERKIT_PHASE_VEC / TESTERKIT_PHASE_MEAS."""
     import time as _t
     from datetime import UTC, datetime
     from uuid import uuid4
 
-    from litmus.data._runs_duckdb_daemon import (
+    from testerkit.data._runs_duckdb_daemon import (
         _bulk_insert_measurement_rows,
         _bulk_insert_measurements,
         _bulk_insert_runs,
@@ -555,11 +555,11 @@ def test_ingest_phase_breakdown(tmp_path):
         _index_io_and_refs,
         _open_index,
     )
-    from litmus.data.backends.parquet import ParquetBackend
-    from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
+    from testerkit.data.backends.parquet import ParquetBackend
+    from testerkit.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 
-    n_vec = int(os.environ.get("LITMUS_PHASE_VEC", "100"))
-    n_meas = int(os.environ.get("LITMUS_PHASE_MEAS", "50"))
+    n_vec = int(os.environ.get("TESTERKIT_PHASE_VEC", "100"))
+    n_meas = int(os.environ.get("TESTERKIT_PHASE_MEAS", "50"))
     t0d = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
     t1d = datetime(2026, 6, 1, 12, 1, 0, tzinfo=UTC)
     run = TestRun(
@@ -621,8 +621,8 @@ def _seed_phase_parquet(tmp_path, n_vec: int, n_meas: int, serial: str = "PHASE-
     from datetime import UTC, datetime
     from uuid import uuid4
 
-    from litmus.data.backends.parquet import ParquetBackend
-    from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
+    from testerkit.data.backends.parquet import ParquetBackend
+    from testerkit.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 
     t0d = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
     t1d = datetime(2026, 6, 1, 12, 1, 0, tzinfo=UTC)
@@ -670,7 +670,7 @@ def test_meas_rows_split(tmp_path):
     """
     import time as _t
 
-    from litmus.data._runs_duckdb_daemon import (
+    from testerkit.data._runs_duckdb_daemon import (
         _LANE_TABLES,
         _ensure_schema,
         _lane_insert,
@@ -679,8 +679,8 @@ def test_meas_rows_split(tmp_path):
         _sql_escape,
     )
 
-    n_vec = int(os.environ.get("LITMUS_PHASE_VEC", "100"))
-    n_meas = int(os.environ.get("LITMUS_PHASE_MEAS", "50"))
+    n_vec = int(os.environ.get("TESTERKIT_PHASE_VEC", "100"))
+    n_meas = int(os.environ.get("TESTERKIT_PHASE_MEAS", "50"))
     pq = _seed_phase_parquet(tmp_path, n_vec, n_meas)
     escaped = _sql_escape(pq)
     src = f"read_parquet('{escaped}', union_by_name=true)"
@@ -714,7 +714,7 @@ def test_batch_io_refs_matches_per_file(tmp_path):
     measurement_refs rows as the per-file path — catchup correctness guard for
     the filename-as-file_path + PARTITION BY filename rewrite. Deterministic,
     in-process (no daemon); runs in the normal suite."""
-    from litmus.data._runs_duckdb_daemon import (
+    from testerkit.data._runs_duckdb_daemon import (
         _batch_index_io_and_refs,
         _ensure_schema,
         _index_io_and_refs,
@@ -752,10 +752,10 @@ def test_catchup_throughput(tmp_path):
     """Cold batch-ingest of a backlog of N on-disk parquets — the catchup path
     (``_ingest_file_batch``) a daemon runs on startup/recovery. Fresh DB, no
     daemon process. Run: -m benchmark -k catchup -s. Scale via
-    LITMUS_CATCHUP_RUNS / LITMUS_CATCHUP_VEC / LITMUS_CATCHUP_MEAS."""
+    TESTERKIT_CATCHUP_RUNS / TESTERKIT_CATCHUP_VEC / TESTERKIT_CATCHUP_MEAS."""
     import time as _t
 
-    from litmus.data._runs_duckdb_daemon import (
+    from testerkit.data._runs_duckdb_daemon import (
         _batch_index_io_and_refs,
         _batch_insert_measurement_rows,
         _bulk_insert_measurements,
@@ -765,9 +765,9 @@ def test_catchup_throughput(tmp_path):
         _open_index,
     )
 
-    n = int(os.environ.get("LITMUS_CATCHUP_RUNS", "50"))
-    n_vec = int(os.environ.get("LITMUS_CATCHUP_VEC", "10"))
-    n_meas = int(os.environ.get("LITMUS_CATCHUP_MEAS", "10"))
+    n = int(os.environ.get("TESTERKIT_CATCHUP_RUNS", "50"))
+    n_vec = int(os.environ.get("TESTERKIT_CATCHUP_VEC", "10"))
+    n_meas = int(os.environ.get("TESTERKIT_CATCHUP_MEAS", "10"))
     # Same serial — distinct files come from the run_id in the filename.
     paths = [_seed_phase_parquet(tmp_path, n_vec, n_meas) for _ in range(n)]
 

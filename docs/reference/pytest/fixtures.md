@@ -1,8 +1,8 @@
-# Litmus fixtures
+# TesterKit fixtures
 
 The bundled pytest plugin registers a set of public fixtures. Take any of them in a test's signature; pytest resolves and injects them by name. Names beginning with `_` are internal and may change without notice.
 
-This page is the comprehensive reference. For a guided introduction see the [tutorial](../../tutorial/); for the seven `@pytest.mark.litmus_*` markers see [Litmus markers](markers.md).
+This page is the comprehensive reference. For a guided introduction see the [tutorial](../../tutorial/); for the seven `@pytest.mark.testerkit_*` markers see [TesterKit markers](markers.md).
 
 ## At a glance
 
@@ -70,10 +70,10 @@ def test_inline_check(dmm, limits):
 
 ### `prompt` — function
 
-Returns a callable that resolves operator prompts declared via `@pytest.mark.litmus_prompts`:
+Returns a callable that resolves operator prompts declared via `@pytest.mark.testerkit_prompts`:
 
 ```python
-@pytest.mark.litmus_prompts(
+@pytest.mark.testerkit_prompts(
     inspect={"message": "Verify LED is GREEN", "prompt_type": "confirm"},
 )
 def test_visual(prompt, verify):
@@ -81,7 +81,7 @@ def test_visual(prompt, verify):
     verify("led_state", read_led_color())
 ```
 
-See [`litmus_prompts`](markers.md#litmus_prompts) for the marker shape.
+See [`testerkit_prompts`](markers.md#testerkit_prompts) for the marker shape.
 
 ---
 
@@ -211,7 +211,7 @@ Returns a `Context` exposing the run / UUT / station / vector state for the acti
 | `context.station` | `StationConfig \| None` | Active station config (= `station_config` fixture). |
 | `context.run` | `TestRun \| None` | The current `TestRun`. |
 | `context.limits` | `LimitsView` | Read-only view of the active limits. |
-| `context.characteristics` | `tuple[str, ...]` | Active characteristic IDs from `litmus_characteristics`. |
+| `context.characteristics` | `tuple[str, ...]` | Active characteristic IDs from `testerkit_characteristics`. |
 
 ```python
 def test_rail(context, psu, dmm, verify):
@@ -221,7 +221,7 @@ def test_rail(context, psu, dmm, verify):
 
 ### `connections` — function
 
-Returns the `ConnectionIterator` resolved from `litmus_characteristics` / `litmus_connections` markers, or `None` when no markers are declared.
+Returns the `ConnectionIterator` resolved from `testerkit_characteristics` / `testerkit_connections` markers, or `None` when no markers are declared.
 
 ```python
 def test_per_pin(connections, dmm):
@@ -274,7 +274,7 @@ For per-test or per-vector state, use `context` instead.
 
 ### `mock_instruments` — session
 
-Returns `bool`. True when `--mock-instruments` was passed or `LITMUS_MOCK_INSTRUMENTS=1` is set. The same flag drives the `instruments` fixture's behavior; tests rarely take it directly except for diagnostic branches.
+Returns `bool`. True when `--mock-instruments` was passed or `TESTERKIT_MOCK_INSTRUMENTS=1` is set. The same flag drives the `instruments` fixture's behavior; tests rarely take it directly except for diagnostic branches.
 
 ---
 
@@ -284,7 +284,7 @@ Two fixtures that drive the test body's iteration shape, not just expose data. `
 
 ### `vectors` — function
 
-Taking `vectors` in the test signature switches collection to **self-loop mode**: the function-level vector sources (`@pytest.mark.parametrize`, function-level `litmus_sweeps`, sidecar `sweeps:`, profile overrides) are consolidated into one matrix at collection time, and the test runs as a single pytest case. (Class- or module-level `litmus_sweeps` still fan out as separate pytest cases — one per outer condition — each running the consolidated inner matrix.) The test body iterates the matrix itself:
+Taking `vectors` in the test signature switches collection to **self-loop mode**: the function-level vector sources (`@pytest.mark.parametrize`, function-level `testerkit_sweeps`, sidecar `sweeps:`, profile overrides) are consolidated into one matrix at collection time, and the test runs as a single pytest case. (Class- or module-level `testerkit_sweeps` still fan out as separate pytest cases — one per outer condition — each running the consolidated inner matrix.) The test body iterates the matrix itself:
 
 ```python
 def test_sweep(vectors, psu, dmm, measure):
@@ -299,7 +299,7 @@ Choose self-loop mode when an outer setup (thermal soak, supply ramp) shouldn't 
 
 ### `sync` — session
 
-Yields a `SyncPoint` for multi-UUT coordination when running in worker mode (`_LITMUS_SITE_INDEX` is set), or `None` in single-site mode. `sync.wait(name, timeout=...)` blocks until every site reaches the same name:
+Yields a `SyncPoint` for multi-UUT coordination when running in worker mode (`_TESTERKIT_SITE_INDEX` is set), or `None` in single-site mode. `sync.wait(name, timeout=...)` blocks until every site reaches the same name:
 
 ```python
 def test_measure_hot(dmm, sync):
@@ -335,8 +335,8 @@ These names are not hard-coded — they come from your station YAML at session s
 
 ## See also
 
-- [Litmus markers](markers.md) — the seven `@pytest.mark.litmus_*` decorators and their sidecar equivalents
+- [TesterKit markers](markers.md) — the seven `@pytest.mark.testerkit_*` decorators and their sidecar equivalents
 - [pytest-native reference](../overview/pytest-native.md) — how the bundled plugin uses pytest's own collection / fixtures / markers
 - [Models](../data/models.md) — `Limit`, `MeasurementLimitConfig`, `PartContext`, `StationConfig`, `FixtureConfig` field shapes
-- [Test vectors & sweeps](../../how-to/execution/vector-expansion.md) — `litmus_sweeps`, `parametrize`, and the `vectors` self-loop fixture
-- [Spec-driven testing](../../how-to/execution/spec-driven-testing.md) — `litmus_characteristics` + `connections` workflow
+- [Test vectors & sweeps](../../how-to/execution/vector-expansion.md) — `testerkit_sweeps`, `parametrize`, and the `vectors` self-loop fixture
+- [Spec-driven testing](../../how-to/execution/spec-driven-testing.md) — `testerkit_characteristics` + `connections` workflow

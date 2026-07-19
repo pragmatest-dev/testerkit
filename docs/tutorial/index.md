@@ -1,14 +1,14 @@
 # Tutorials
 
-Two independent ways to learn Litmus — pick the one that fits how you want to start. They are not a sequence: the Quick Start is **not** "step 0" of the step-by-step path.
+Two independent ways to learn TesterKit — pick the one that fits how you want to start. They are not a sequence: the Quick Start is **not** "step 0" of the step-by-step path.
 
 ## Quick Start
 
-`litmus init quick_start --starter` scaffolds a complete project — part spec, station, fixture, a test, and config — that passes `pytest` immediately with mock instruments. Best when you want to see the whole thing working first, then read the walkthrough to understand each piece.
+`testerkit init quick_start --starter` scaffolds a complete project — part spec, station, fixture, a test, and config — that passes `pytest` immediately with mock instruments. Best when you want to see the whole thing working first, then read the walkthrough to understand each piece.
 
 ```bash
-pip install litmus-test
-litmus init quick_start --starter && cd quick_start
+pip install testerkit
+testerkit init quick_start --starter && cd quick_start
 pytest
 ```
 
@@ -22,7 +22,7 @@ Start from nothing — a bare `conftest.py` with one mock fixture — and add a 
 |------|------|-------------------|
 | [1. First Test](01-first-test.md) | Run something | pytest, project structure |
 | [2. Running Without Hardware](02-mock-instruments.md) | Use mock mode | `--mock-instruments`, `mock_config` (station-config block of canned return values used when `--mock-instruments` is on) |
-| [3. pytest-native tests](03-fixtures.md) | Log measurements | the core per-test [Litmus fixtures](../reference/overview/pytest-native.md) — `context` is the ambient run/UUT/station/vector state (always available; carries sweep params when present, observations always), `verify` records the measurement row AND raises on FAIL, `measure` records the row without raising (plus ~17 other public fixtures the plugin exposes — see [litmus-fixtures](../reference/pytest/fixtures.md)) |
+| [3. pytest-native tests](03-fixtures.md) | Log measurements | the core per-test [TesterKit fixtures](../reference/overview/pytest-native.md) — `context` is the ambient run/UUT/station/vector state (always available; carries sweep params when present, observations always), `verify` records the measurement row AND raises on FAIL, `measure` records the row without raising (plus ~17 other public fixtures the plugin exposes — see [testerkit-fixtures](../reference/pytest/fixtures.md)) |
 | [4. Add Limits](04-limits.md) | Pass/fail criteria | [Limit](../reference/data/models.md), Measurement, [Outcome](../reference/data/models.md#enum-outcome) |
 | [5. Test Configuration](05-configuration.md) | Configure in YAML | [sidecar](05-configuration.md) (YAML next to a test file carrying vectors and limits) |
 | [6. Part Specifications](06-specifications.md) | Define [parts](../concepts/configuration/parts.md) | parts/*.yaml, [characteristics](../concepts/configuration/capabilities.md) |
@@ -38,7 +38,7 @@ Start from nothing — a bare `conftest.py` with one mock fixture — and add a 
 
 - Python 3.11 or later
 - Basic familiarity with pytest
-- Litmus installed (`pip install litmus-test`)
+- TesterKit installed (`pip install testerkit`)
 
 ## Time Commitment
 

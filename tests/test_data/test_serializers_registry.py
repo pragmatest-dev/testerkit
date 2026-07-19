@@ -2,14 +2,14 @@
 
 Item 12 promotes the previously-hardcoded type dispatch in
 ``FileStore._write`` and ``save_ref_to_dir`` to a single registry
-in :mod:`litmus.data.files.serializers`. Adds:
+in :mod:`testerkit.data.files.serializers`. Adds:
 
 - Built-in handlers for Path / Waveform / bytes / Pydantic BaseModel
   / numpy ndarray (priority-ordered)
 - Opportunistic handlers for PIL.Image (PNG) and pandas.DataFrame
   (Parquet) — registered only when the library is importable
 - ``register_serializer(predicate, ...)`` for custom types
-- The ``litmus_serialize(dest) -> Path`` protocol — objects that
+- The ``testerkit_serialize(dest) -> Path`` protocol — objects that
   know their own format can take precedence over the registry
 - Pickle as last-resort fallback, emitting ``RuntimeWarning``
   naming the type so the codebase moves toward typed serializers
@@ -30,14 +30,14 @@ import numpy as np
 import pytest
 from pydantic import BaseModel
 
-from litmus.data.files import FileStore, register_serializer
-from litmus.data.files.serializers import (
+from testerkit.data.files import FileStore, register_serializer
+from testerkit.data.files.serializers import (
     PICKLE_FALLBACK,
     Serializer,
     _reset_registry_for_tests,
     find_serializer,
 )
-from litmus.data.models import Waveform
+from testerkit.data.models import Waveform
 
 
 @pytest.fixture(autouse=True)
@@ -210,19 +210,19 @@ class TestRegisterSerializer:
 
 
 # --------------------------------------------------------------------- #
-# litmus_serialize protocol — objects that know their own format         #
+# testerkit_serialize protocol — objects that know their own format         #
 # --------------------------------------------------------------------- #
 
 
-class TestLitmusSerializeProtocol:
+class TestTesterKitSerializeProtocol:
     def test_protocol_takes_precedence_over_registry(self, tmp_path: Path) -> None:
-        """An object exposing ``litmus_serialize`` uses its own writer."""
+        """An object exposing ``testerkit_serialize`` uses its own writer."""
 
         class MyArtifact:
-            litmus_extension = ".myz"
-            litmus_mime = "application/x-myz"
+            testerkit_extension = ".myz"
+            testerkit_mime = "application/x-myz"
 
-            def litmus_serialize(self, dest: Path) -> Path:
+            def testerkit_serialize(self, dest: Path) -> Path:
                 dest.write_text("MYZ:custom-format")
                 return dest
 
@@ -235,10 +235,10 @@ class TestLitmusSerializeProtocol:
         assert landed.read_text() == "MYZ:custom-format"
 
     def test_protocol_defaults_when_attributes_omitted(self) -> None:
-        """Without ``litmus_extension`` / ``litmus_mime``, defaults apply."""
+        """Without ``testerkit_extension`` / ``testerkit_mime``, defaults apply."""
 
         class Bare:
-            def litmus_serialize(self, dest: Path) -> Path:
+            def testerkit_serialize(self, dest: Path) -> Path:
                 dest.write_bytes(b"x")
                 return dest
 
@@ -302,7 +302,7 @@ class TestSaveRefToDirShareRegistry:
     but uses the same dispatch table as FileStore."""
 
     def test_custom_registration_affects_save_ref_to_dir(self, tmp_path: Path) -> None:
-        from litmus.data.backends._row_helpers import save_ref_to_dir
+        from testerkit.data.backends._row_helpers import save_ref_to_dir
 
         class _CustomFormat:
             pass
@@ -324,7 +324,7 @@ class TestSaveRefToDirShareRegistry:
         assert files[0].read_text() == "CUSTOM"
 
     def test_save_ref_to_dir_pickle_warning_fires(self, tmp_path: Path) -> None:
-        from litmus.data.backends._row_helpers import save_ref_to_dir
+        from testerkit.data.backends._row_helpers import save_ref_to_dir
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")

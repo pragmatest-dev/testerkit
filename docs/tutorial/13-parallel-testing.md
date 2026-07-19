@@ -155,7 +155,7 @@ You'll also see pytest print `no tests ran` from the orchestrator process itself
 Two workers means two independent runs, each with its own serial:
 
 ```cli
-uv run litmus runs --limit 5
+uv run testerkit runs --limit 5
 ```
 
 ```
@@ -167,7 +167,7 @@ Run ID     Started                    UUT Serial      Project              Stati
 
 Site 0 (`left`) ran as `SN-A`, site 1 (`right`) ran as `SN-B`. Each run's parquet carries the `site_index` / `site_name` it was frozen with at start — `SN-A` recorded `site_index=0, site_name="left"`, `SN-B` recorded `site_index=1, site_name="right"`. That freeze point matters: rename a site in the fixture YAML next month and this run's rows still read the name that was active when it ran. See [Multi-UUT testing → Parquet Data](../how-to/execution/multi-uut-testing.md#parquet-data) for the DuckDB query shape over those columns.
 
-Give it a few seconds before querying — ingest lands a beat after the summary prints. If `litmus runs` comes back empty right after the run, re-run the command.
+Give it a few seconds before querying — ingest lands a beat after the summary prints. If `testerkit runs` comes back empty right after the run, re-run the command.
 
 ## Experimenting with serial assignment
 
@@ -215,19 +215,19 @@ No `[site:N]` prefix, no `Multi-UUT Results` banner — this ran in the current 
 
 ## Why the shared instrument doesn't collide
 
-`psu` and `dmm` are one physical box each in this example, shared by both sites. Litmus serializes calls to a shared instrument so `left` and `right` never talk to it at the same instant — you didn't write a lock anywhere in `test_dual_rail.py` for that to be true. Mock instruments are the one exception: under `--mock-instruments` each site gets its own mock state, so a fault injected on one site's `dmm` never leaks into the other's.
+`psu` and `dmm` are one physical box each in this example, shared by both sites. TesterKit serializes calls to a shared instrument so `left` and `right` never talk to it at the same instant — you didn't write a lock anywhere in `test_dual_rail.py` for that to be true. Mock instruments are the one exception: under `--mock-instruments` each site gets its own mock state, so a fault injected on one site's `dmm` never leaks into the other's.
 
 For sync points, per-site environment variables, and debugging a hung or failing site, see [Multi-UUT testing](../how-to/execution/multi-uut-testing.md) — the full reference this chapter walked through.
 
 ## You've completed the tutorial
 
-You've taken a suite from a bare `conftest.py` with one mock fixture through production traceability, live monitoring, and now parallel execution across multiple UUT positions on one bench. The full worked example for this step lives in [`examples/12-parallel-sites`](https://github.com/pragmatest-dev/litmus/tree/main/examples/12-parallel-sites) — clone it, wipe its `data/` directory, and re-run any of the commands above against real output of your own.
+You've taken a suite from a bare `conftest.py` with one mock fixture through production traceability, live monitoring, and now parallel execution across multiple UUT positions on one bench. The full worked example for this step lives in [`examples/12-parallel-sites`](https://github.com/pragmatest-dev/testerkit/tree/main/examples/12-parallel-sites) — clone it, wipe its `data/` directory, and re-run any of the commands above against real output of your own.
 
 ## Next Steps
 
 - [Multi-UUT testing](../how-to/execution/multi-uut-testing.md) — the full recipe: sync points, environment variables, debugging failures
 - [Fixtures → Multi-UUT scaling](../concepts/configuration/fixtures.md#multi-uut-scaling-sites-shared-instruments-switching) — the design behind sites, shared instruments, and switched routing
 - [Configuration reference](../reference/configuration.md#fixture-yaml) — fixture YAML field-by-field
-- [CLI reference](../reference/cli.md) — every `litmus` command
+- [CLI reference](../reference/cli.md) — every `testerkit` command
 
 ← [Step 12: Continuous Monitoring](12-continuous-monitoring.md)  |  [Tutorial index](index.md)

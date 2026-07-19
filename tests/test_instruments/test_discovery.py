@@ -1,12 +1,12 @@
 """Tests for instrument discovery module."""
 
-from litmus.instruments.discovery import (
+from testerkit.instruments.discovery import (
     DiscoveryProtocol,
     get_protocol,
     list_protocols,
     parse_idn,
 )
-from litmus.models.instrument import InstrumentInfo
+from testerkit.models.instrument import InstrumentInfo
 
 
 class TestParseIdn:
@@ -133,14 +133,14 @@ class TestVisaDiscovery:
 
     def test_discover_visa_returns_list(self):
         """discover_visa returns a list (possibly empty without hardware)."""
-        from litmus.instruments.discovery import discover_visa
+        from testerkit.instruments.discovery import discover_visa
 
         result = discover_visa()
         assert isinstance(result, list)
 
     def test_get_info_visa_returns_none_for_invalid(self):
         """get_info_visa returns None for invalid resource."""
-        from litmus.instruments.discovery import get_info_visa
+        from testerkit.instruments.discovery import get_info_visa
 
         result = get_info_visa("INVALID::RESOURCE::STRING")
         assert result is None
@@ -151,7 +151,7 @@ class TestUnifiedDiscovery:
 
     def test_discover_returns_dict(self):
         """discover() returns dict mapping protocol to resources."""
-        from litmus.instruments.discovery import discover
+        from testerkit.instruments.discovery import discover
 
         result = discover(["visa"])
         assert isinstance(result, dict)
@@ -160,7 +160,7 @@ class TestUnifiedDiscovery:
 
     def test_discover_multiple_protocols(self):
         """discover() can scan multiple protocols."""
-        from litmus.instruments.discovery import discover
+        from testerkit.instruments.discovery import discover
 
         result = discover(["visa", "serial"])
         assert "visa" in result
@@ -168,7 +168,7 @@ class TestUnifiedDiscovery:
 
     def test_discover_and_identify(self):
         """discover_and_identify returns tuples of (resource, info)."""
-        from litmus.instruments.discovery import discover_and_identify
+        from testerkit.instruments.discovery import discover_and_identify
 
         result = discover_and_identify(["visa"])
         assert isinstance(result, dict)
@@ -180,7 +180,7 @@ class TestUnifiedDiscovery:
 
     def test_get_info_unknown_protocol(self):
         """get_info returns None for unknown protocol."""
-        from litmus.instruments.discovery import get_info
+        from testerkit.instruments.discovery import get_info
 
         result = get_info("unknown_protocol_xyz", "some_resource")
         assert result is None

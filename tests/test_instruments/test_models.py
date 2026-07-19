@@ -2,7 +2,7 @@
 
 from datetime import UTC, date, datetime, timedelta
 
-from litmus.models.instrument import (
+from testerkit.models.instrument import (
     CalibrationInfo,
     InstrumentInfo,
     InstrumentRecord,

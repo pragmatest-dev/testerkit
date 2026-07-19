@@ -1,30 +1,30 @@
 # Test Harness Integration
 
-> **For new pytest projects, use the plugin: [Litmus fixtures](../../reference/pytest/fixtures.md) (`context`, `verify`, `measure`, `pins`, … — 20 in total) and [Litmus markers](../../reference/pytest/markers.md) (`litmus_limits`, `litmus_sweeps`, …) handle setup automatically.** `TestHarness` is the imperative entry point for non-pytest runners (Robot Framework, unittest, custom harnesses) or for situations where you need explicit lifecycle control.
+> **For new pytest projects, use the plugin: [TesterKit fixtures](../../reference/pytest/fixtures.md) (`context`, `verify`, `measure`, `pins`, … — 20 in total) and [TesterKit markers](../../reference/pytest/markers.md) (`testerkit_limits`, `testerkit_sweeps`, …) handle setup automatically.** `TestHarness` is the imperative entry point for non-pytest runners (Robot Framework, unittest, custom harnesses) or for situations where you need explicit lifecycle control.
 
-> If you only need to **record results** (run → steps → measurements → finish) from an external system, use **[`LitmusClient`](../data/results-api.md)** — it wires the session/run events and persistence for you in ~4 lines:
+> If you only need to **record results** (run → steps → measurements → finish) from an external system, use **[`TesterKitClient`](../data/results-api.md)** — it wires the session/run events and persistence for you in ~4 lines:
 > ```python
-> client = LitmusClient()
+> client = TesterKitClient()
 > run = client.start_run(uut_serial="SN12345", station_id="bench_1")
 > with run.step("voltage_check") as step:
 >     step.measure("vcc", 3.31, unit="V", low=3.0, high=3.6)
 > run.finish()
 > ```
-> Reach for `TestHarness` when you need its **test-execution machinery**: vector expansion, retry loops, spec-driven limit resolution, operator prompts, and channel writes. `TestHarness` is the lower-level engine; `LitmusClient` is the thin results path.
+> Reach for `TestHarness` when you need its **test-execution machinery**: vector expansion, retry loops, spec-driven limit resolution, operator prompts, and channel writes. `TestHarness` is the lower-level engine; `TesterKitClient` is the thin results path.
 
-`TestHarness` (in `litmus.execution.harness`) wraps the same machinery the pytest plugin uses: vector expansion, retry, limit resolution, measurement logging with full traceability.
+`TestHarness` (in `testerkit.execution.harness`) wraps the same machinery the pytest plugin uses: vector expansion, retry, limit resolution, measurement logging with full traceability.
 
 ## What you wire up yourself
 
-If you don't need the harness's execution machinery, prefer `LitmusClient`, which does all of the wiring below for you. The rest of this section is for when you want a `TestHarness` and explicit control of the run boundaries.
+If you don't need the harness's execution machinery, prefer `TesterKitClient`, which does all of the wiring below for you. The rest of this section is for when you want a `TestHarness` and explicit control of the run boundaries.
 
 `TestHarness` writes through a `RunScope`. The logger only persists events to disk when it has an `EventLog` attached. The pytest plugin wires this up automatically; outside pytest you do it yourself:
 
 ```python
-from litmus.queries import EventStore
-from litmus.data.events import RunStarted, SessionStarted
-from litmus.execution.harness import TestHarness
-from litmus.execution.run_scope import RunScope
+from testerkit.queries import EventStore
+from testerkit.data.events import RunStarted, SessionStarted
+from testerkit.execution.harness import TestHarness
+from testerkit.execution.run_scope import RunScope
 
 logger = RunScope(
     uut_serial="SN12345",
@@ -62,7 +62,7 @@ harness = TestHarness(logger=logger, step_name="test_output_voltage")
 
 # Close the run: finalize() emits RunEnded only — caller is responsible for
 # closing the session and the event log.
-from litmus.data.events import SessionEnded
+from testerkit.data.events import SessionEnded
 
 logger.finalize()                                                     # emits RunEnded and closes the open step
 logger.event_log.emit(SessionEnded(session_id=logger.test_run.session_id))
@@ -74,8 +74,8 @@ logger.event_log.close()
 Confirm the run landed:
 
 ```cli
-litmus runs            # the run appears with its run_id, serial, station, outcome
-litmus show <run_id>   # full run detail
+testerkit runs            # the run appears with its run_id, serial, station, outcome
+testerkit show <run_id>   # full run detail
 ```
 
 Runs write under the `data_dir` you passed to `RunScope`.
@@ -172,7 +172,7 @@ Limit resolution order (when `limit=` is not passed):
 3. The active part context's `get_limit(name, **vector_params)` — vector params are passed as condition kwargs so the right `SpecBand` is selected
 4. `None` — measurement recorded as unchecked
 
-Pass a `Limit` object (`from litmus import Limit`) for explicit limits. The sidecar-style dict shape (`{"low": 3.0, "high": 3.6, "unit": "V"}`) goes in `config["limits"]`, not as the `limit=` kwarg.
+Pass a `Limit` object (`from testerkit import Limit`) for explicit limits. The sidecar-style dict shape (`{"low": 3.0, "high": 3.6, "unit": "V"}`) goes in `config["limits"]`, not as the `limit=` kwarg.
 
 ## Steps
 
@@ -245,7 +245,7 @@ def log_voltage(ctx, dmm):
 ## Spec-driven limits
 
 ```python
-from litmus.parts.context import PartContext
+from testerkit.parts.context import PartContext
 
 part_ctx = PartContext.from_file("parts/power_board.yaml", guardband_pct=10)
 
@@ -261,21 +261,21 @@ harness.measure("output_voltage", float(dmm.measure_dc_voltage()))
 
 ## Comparison with pytest-native
 
-| Concern | `LitmusClient` | `TestHarness` | pytest-native |
+| Concern | `TesterKitClient` | `TestHarness` | pytest-native |
 |---|---|---|---|
 | Use when | Recording results only (no vectors/retry/limits/prompts); persistence handled for you | Embedding execution machinery (vectors, retry, limits, prompts, channel writes) in a non-pytest runner | Writing new tests under pytest |
 | Lifecycle | `start_run()` / `run.finish()` | Explicit (`step()`, `run_vector()`) | Implicit (pytest collection + hooks) |
 | Vector expansion | Not supported | Configure via `config["vectors"]` | `@pytest.mark.parametrize` / sidecar `sweeps:` |
-| Limit resolution | Inline `low=`/`high=` per measurement | Explicit `limits=` / `part_context=` | Fixture + marker chain (see [Litmus fixtures](../../reference/pytest/fixtures.md) + [Litmus markers](../../reference/pytest/markers.md)) |
+| Limit resolution | Inline `low=`/`high=` per measurement | Explicit `limits=` / `part_context=` | Fixture + marker chain (see [TesterKit fixtures](../../reference/pytest/fixtures.md) + [TesterKit markers](../../reference/pytest/markers.md)) |
 | Trace context | Not supported | `harness.context.*` | `context` fixture |
 | Instrument access | Caller-managed | Caller-managed | Auto-fixtures from station YAML |
 
-If you can use pytest-native, prefer it — every feature works out of the box. If you only need to record results from an external system, use `LitmusClient`. Reach for `TestHarness` when you need its execution machinery and the embedding environment leaves you no choice.
+If you can use pytest-native, prefer it — every feature works out of the box. If you only need to record results from an external system, use `TesterKitClient`. Reach for `TestHarness` when you need its execution machinery and the embedding environment leaves you no choice.
 
 ## See also
 
-- [Litmus fixtures](../../reference/pytest/fixtures.md) + [Litmus markers](../../reference/pytest/markers.md) — preferred entry point for pytest projects
-- [pytest-native reference](../../reference/overview/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
-- [Existing pytest projects](pytest-existing.md) — adopt Litmus from a working pytest suite
+- [TesterKit fixtures](../../reference/pytest/fixtures.md) + [TesterKit markers](../../reference/pytest/markers.md) — preferred entry point for pytest projects
+- [pytest-native reference](../../reference/overview/pytest-native.md) — how TesterKit tests use pytest's own collection / fixtures / markers
+- [Existing pytest projects](pytest-existing.md) — adopt TesterKit from a working pytest suite
 - [Results API](../data/results-api.md) — post results from any external system without running a harness
 - [Models](../../reference/data/models.md) — `Limit`, `RetryConfig`, `PromptConfig` shapes

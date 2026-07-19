@@ -10,12 +10,12 @@ from uuid import uuid4
 
 import pyarrow.parquet as pq
 
-from litmus.data.backends._event_accumulator import EventAccumulator
-from litmus.data.backends.parquet import (
+from testerkit.data.backends._event_accumulator import EventAccumulator
+from testerkit.data.backends.parquet import (
     materialize_run_to_parquet,
     reconstruct_test_run_from_file,
 )
-from litmus.data.events import (
+from testerkit.data.events import (
     InstrumentConnected,
     MeasurementRecorded,
     RunStarted,

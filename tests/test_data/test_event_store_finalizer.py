@@ -22,8 +22,8 @@ from __future__ import annotations
 import gc
 import weakref
 
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.event_store import EventStore
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.event_store import EventStore
 
 
 def test_finalizer_registered_on_construction() -> None:

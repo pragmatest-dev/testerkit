@@ -2,7 +2,7 @@
 
 Capture a scope trace in a test, store it in ChannelStore, and verify rise time and overshoot against limits — so every failing measurement row links directly to the supporting waveform.
 
-> **Prerequisites.** A scope driver class with a `capture() -> Waveform` method (mock or real); the `observe` and `verify` fixtures from the bundled pytest plugin (taken by name in the test signature, no import); `Limit` and `Waveform` imported from `litmus`.
+> **Prerequisites.** A scope driver class with a `capture() -> Waveform` method (mock or real); the `observe` and `verify` fixtures from the bundled pytest plugin (taken by name in the test signature, no import); `Limit` and `Waveform` imported from `testerkit`.
 
 ## Step 1: Define the scope driver
 
@@ -10,7 +10,7 @@ Your driver class must return `Waveform` from its acquisition method. `Waveform`
 
 ```python
 # drivers/scope.py
-from litmus import Waveform
+from testerkit import Waveform
 
 class Scope:
     """Oscilloscope interface — block-mode capture only."""
@@ -31,7 +31,7 @@ For a mock, pass a zero-argument callable to `Mock` — the callable runs on eve
 ```python
 # conftest.py
 import pytest
-from litmus import Mock
+from testerkit import Mock
 from drivers import Scope, synthesize_psu_step_response
 
 @pytest.fixture(scope="session")
@@ -58,8 +58,8 @@ Write pure functions that work on `wf.Y` and `wf.dt`, then pass each result to `
 
 ```python
 import math
-from litmus import Limit
-from litmus import Waveform
+from testerkit import Limit
+from testerkit import Waveform
 
 
 def compute_rise_time_us(wf: Waveform, *, v_final: float, low: float = 0.1, high: float = 0.9) -> float:

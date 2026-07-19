@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "litmus-example-11-querying-data"
+name = "testerkit-example-11-querying-data"
 version = "0.0.0"
 description = "Stage 11: consumer-side / data-analyst usage — RunsQuery, MeasurementsQuery, channel queries"
 requires-python = ">=3.11"
-dependencies = ["litmus-test"]
+dependencies = ["testerkit"]
 
 [tool.uv.sources]
-litmus-test = { workspace = true }
+testerkit = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 bypass-selection = true

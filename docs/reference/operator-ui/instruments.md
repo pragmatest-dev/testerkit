@@ -50,7 +50,7 @@ Clicking a Configured row jumps to the asset detail view at `/instruments/{id}`.
 Observed rows are not clickable — no YAML file exists to display.
 
 When no instrument assets are configured or observed, the tab shows a blue
-hint card pointing at `litmus station init` to discover instruments and create
+hint card pointing at `testerkit station init` to discover instruments and create
 asset files.
 
 ## Detail — `/instruments/{id}`
@@ -98,7 +98,7 @@ simulation editing.
 ## Underlying data
 
 - Catalog types come from the project's `catalog/` directory plus
-  the bundled generic catalog (`litmus.catalog.generic`)
+  the bundled generic catalog (`testerkit.catalog.generic`)
 - Inventory assets come from `instruments/*.yaml`, plus observed-only
   assets seen in run history (no YAML file)
 
@@ -110,7 +110,7 @@ for asset files.
 
 - **Add a new instrument type to the project's catalog** — open
   `/instruments/new`, fill the type form.
-- **Discover instruments on the bench** — run `litmus station init`
+- **Discover instruments on the bench** — run `testerkit station init`
   from the project root; it discovers instruments, prompts you to
   assign a role to each, and writes an asset YAML for the ones you
   assign (plus a station YAML).
@@ -122,5 +122,5 @@ for asset files.
 - [Configuration reference → Catalog](../catalog/schema.md)
 - [Concepts → Capabilities](../../concepts/configuration/capabilities.md) — how
   catalog capabilities feed station ↔ part matching
-- [`litmus station init`](../cli.md#cli-station-init) — discover
+- [`testerkit station init`](../cli.md#cli-station-init) — discover
   instruments and create asset YAML

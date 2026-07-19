@@ -2,7 +2,7 @@
 
 import pytest
 
-from litmus.execution.vectors import (
+from testerkit.execution.vectors import (
     Vector,
     expand_product,
     expand_vectors,

@@ -1,8 +1,8 @@
-"""``litmus.files.stream`` power-user verb — C5 integration.
+"""``testerkit.files.stream`` power-user verb — C5 integration.
 
 Tests the top-level verb shape (the stub from C3b is now real):
 
-- ``with litmus.files.stream(name, format=...) as sink:`` yields a
+- ``with testerkit.files.stream(name, format=...) as sink:`` yields a
   working :class:`StreamingSink`
 - session_id resolves from the active Context when not passed
 - session_id arg overrides the Context's
@@ -27,10 +27,10 @@ from uuid import uuid4
 import orjson
 import pytest
 
-import litmus.files
-from litmus.data.events import FileEnded
-from litmus.data.files import _reset_for_tests, get_filestore
-from litmus.execution._state import (
+import testerkit.files
+from testerkit.data.events import FileEnded
+from testerkit.data.files import _reset_for_tests, get_filestore
+from testerkit.execution._state import (
     get_current_run_scope,
     push_current_context,
     reset_current_context,
@@ -68,7 +68,7 @@ class FakeContext:
 @pytest.fixture
 def _isolated_filestore(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Bind the FileStore singleton to tmp_path."""
-    from litmus.data.files import store as store_module
+    from testerkit.data.files import store as store_module
 
     monkeypatch.setattr(store_module, "resolve_data_dir", lambda _=None: tmp_path)
     _reset_for_tests()
@@ -92,7 +92,7 @@ def _logger_slot() -> Iterator[None]:
 class TestSessionIdResolution:
     def test_explicit_session_id_wins(self, _isolated_filestore: None) -> None:
         sid = str(uuid4())
-        with litmus.files.stream("explicit", format="raw", session_id=sid) as sink:
+        with testerkit.files.stream("explicit", format="raw", session_id=sid) as sink:
             sink.write(b"x")
         assert sid in sink.uri
 
@@ -101,7 +101,7 @@ class TestSessionIdResolution:
         ctx = FakeContext(sid)
         token = push_current_context(ctx)  # type: ignore[arg-type]
         try:
-            with litmus.files.stream("from_ctx", format="raw") as sink:
+            with testerkit.files.stream("from_ctx", format="raw") as sink:
                 sink.write(b"x")
             assert sid in sink.uri
         finally:
@@ -109,14 +109,14 @@ class TestSessionIdResolution:
 
     def test_raises_without_session_or_context(self, _isolated_filestore: None) -> None:
         # Pytest's ``context`` fixture pushes a Context onto the
-        # ContextVar via the autouse ``_litmus_push_params``. Clear
+        # ContextVar via the autouse ``_testerkit_push_params``. Clear
         # the var explicitly to exercise the "no context" error path.
-        from litmus.execution._state import _current_context_var  # noqa: PLC0415
+        from testerkit.execution._state import _current_context_var  # noqa: PLC0415
 
         token = _current_context_var.set(None)
         try:
             with pytest.raises(RuntimeError, match="No active session_id"):
-                with litmus.files.stream("orphan", format="raw") as _:
+                with testerkit.files.stream("orphan", format="raw") as _:
                     pass
         finally:
             _current_context_var.reset(token)
@@ -137,7 +137,7 @@ class TestEventLogResolution:
         logger = FakeLogger(log, run_id=run_id)
         set_current_run_scope(logger)  # type: ignore[arg-type]
 
-        with litmus.files.stream("with_log", format="raw", session_id=sid) as sink:
+        with testerkit.files.stream("with_log", format="raw", session_id=sid) as sink:
             sink.write(b"abc")
         del sink  # quiet ruff F841 — context-managed by `with`
 
@@ -153,7 +153,7 @@ class TestEventLogResolution:
         """A test_run-less logger or no logger emits nothing — but still writes."""
         sid = str(uuid4())
         # Make sure no logger is active by NOT pushing one
-        with litmus.files.stream("silent", format="raw", session_id=sid) as sink:
+        with testerkit.files.stream("silent", format="raw", session_id=sid) as sink:
             sink.write(b"abc")
         # The artifact reads back through the store.
         assert get_filestore().read(sink.uri) == b"abc"
@@ -167,14 +167,14 @@ class TestEventLogResolution:
 class TestFormatsViaVerb:
     def test_raw(self, _isolated_filestore: None) -> None:
         sid = str(uuid4())
-        with litmus.files.stream("daq", format="raw", session_id=sid) as sink:
+        with testerkit.files.stream("daq", format="raw", session_id=sid) as sink:
             sink.write(b"hello")
             sink.write(b"-world")
         assert get_filestore().read(sink.uri) == b"hello-world"
 
     def test_jsonl(self, _isolated_filestore: None) -> None:
         sid = str(uuid4())
-        with litmus.files.stream("events", format="jsonl", session_id=sid) as sink:
+        with testerkit.files.stream("events", format="jsonl", session_id=sid) as sink:
             sink.write({"a": 1})
             sink.write({"b": 2})
         lines = (get_filestore().read(sink.uri) or b"").splitlines()
@@ -186,7 +186,7 @@ class TestFormatsViaVerb:
         np = pytest.importorskip("numpy")
 
         sid = str(uuid4())
-        with litmus.files.stream("capture", format="tdms", session_id=sid) as sink:
+        with testerkit.files.stream("capture", format="tdms", session_id=sid) as sink:
             sink.write(nptdms.ChannelObject("daq", "ch1", np.array([1.0, 2.0])))
 
         # tdms needs a seekable local path; the local backend published it there.
@@ -200,7 +200,7 @@ class TestFormatsViaVerb:
         np = pytest.importorskip("numpy")
 
         sid = str(uuid4())
-        with litmus.files.stream("capture", format="h5", session_id=sid) as sink:
+        with testerkit.files.stream("capture", format="h5", session_id=sid) as sink:
             sink.write({"v": np.array([1.0, 2.0, 3.0])})
 
         files = list(tmp_path.glob(f"files/*/{sid}/capture.h5"))
@@ -225,7 +225,7 @@ class TestCloseOnContextExit:
 
         captured_sink: Any = None
         with pytest.raises(ValueError):
-            with litmus.files.stream("crash", format="raw", session_id=sid) as sink:
+            with testerkit.files.stream("crash", format="raw", session_id=sid) as sink:
                 captured_sink = sink
                 sink.write(b"partial")
                 raise ValueError("boom")
@@ -243,7 +243,7 @@ class TestCloseOnContextExit:
         logger = FakeLogger(log)
         set_current_run_scope(logger)  # type: ignore[arg-type]
 
-        with litmus.files.stream("double", format="raw", session_id=sid) as sink:
+        with testerkit.files.stream("double", format="raw", session_id=sid) as sink:
             sink.write(b"x")
         # Idempotent close — direct call after context exit
         sink.close()
@@ -270,7 +270,7 @@ class TestStreamReadbackAndLifecycle:
         logger = FakeLogger(log)
         set_current_run_scope(logger)  # type: ignore[arg-type]
 
-        with litmus.files.stream("live", format="raw", session_id=sid) as sink:
+        with testerkit.files.stream("live", format="raw", session_id=sid) as sink:
             sink.write(b"first-")
             sink.write(b"second-")
             sink.write(b"third")

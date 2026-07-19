@@ -1,6 +1,6 @@
 """Tests for signal/atexit cleanup registry."""
 
-from litmus.signals import _callbacks, _run_all, deregister_cleanup, register_cleanup
+from testerkit.signals import _callbacks, _run_all, deregister_cleanup, register_cleanup
 
 
 class TestSignalRegistry:

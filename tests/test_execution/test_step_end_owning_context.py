@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from litmus.data.events import StepEnded
-from litmus.execution._state import push_current_context, reset_current_context
-from litmus.execution.harness import Context, TestHarness
-from litmus.execution.run_scope import RunScope
+from testerkit.data.events import StepEnded
+from testerkit.execution._state import push_current_context, reset_current_context
+from testerkit.execution.harness import Context, TestHarness
+from testerkit.execution.run_scope import RunScope
 
 
 class _FakeLog:

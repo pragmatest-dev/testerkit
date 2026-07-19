@@ -1,10 +1,10 @@
 # Concepts
 
-Why Litmus is built the way it is. Concepts are grouped by what you're trying to understand. Each group has its own index; jump to the page you care about, or read top-to-bottom for the full mental model.
+Why TesterKit is built the way it is. Concepts are grouped by what you're trying to understand. Each group has its own index; jump to the page you care about, or read top-to-bottom for the full mental model.
 
 ## Overview
 
-[Overview index →](overview/index.md). The platform's mental model from above — what Litmus is, what it isn't, and why pytest sits underneath.
+[Overview index →](overview/index.md). The platform's mental model from above — what TesterKit is, what it isn't, and why pytest sits underneath.
 
 - [Architecture](overview/architecture.md) — system-level view of parts, stations, fixtures, and runs
 - [Platform vs framework](overview/platform-vs-framework.md) — what the platform owns vs what the runner owns

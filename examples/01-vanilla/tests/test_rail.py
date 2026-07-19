@@ -6,7 +6,7 @@ This file uses only native pytest primitives:
 * ``psu`` and ``dmm`` fixtures from ``conftest.py``
 * ``@pytest.mark.parametrize`` for a sweep
 
-No Litmus features are in use. Running ``pytest -v`` reports pass/fail
+No TesterKit features are in use. Running ``pytest -v`` reports pass/fail
 and nothing else — the measured values are not captured anywhere the
 next engineer can see. Stage 2 fixes that.
 """

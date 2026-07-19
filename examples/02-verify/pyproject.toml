@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "litmus-example-02-verify"
+name = "testerkit-example-02-verify"
 version = "0.0.0"
 description = "Stage 2: verify + Parquet logging (Limit objects inline in Python)"
 requires-python = ">=3.11"
-dependencies = ["litmus-test", "pytest"]
+dependencies = ["testerkit", "pytest"]
 
 [tool.uv.sources]
-litmus-test = { workspace = true }
+testerkit = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 bypass-selection = true

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from litmus.store import _read_yaml, load_part
+from testerkit.store import _read_yaml, load_part
 
 
 def _write(path: Path, content: str) -> Path:

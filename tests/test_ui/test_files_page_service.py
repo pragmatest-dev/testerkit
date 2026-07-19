@@ -1,6 +1,6 @@
 """Service-layer tests for the ``/files`` operator UI page.
 
-The page (``litmus.ui.pages.files.list``) reads through
+The page (``testerkit.ui.pages.files.list``) reads through
 ``list_recent_files`` + the FileStore byte API. ``list_recent_files``
 now reads exclusively through the files catalog daemon (no tree walk),
 so these tests exercise it against the **shared canonical daemon** —
@@ -21,10 +21,10 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.files import FileStore, _reset_for_tests
-from litmus.data.files.catalog_manager import acquire, release
-from litmus.ui.shared import services
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.files import FileStore, _reset_for_tests
+from testerkit.data.files.catalog_manager import acquire, release
+from testerkit.ui.shared import services
 
 _CANONICAL = resolve_data_dir()
 

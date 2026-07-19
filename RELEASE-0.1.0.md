@@ -55,7 +55,7 @@ locked yet.
   `vector_retry` / `max_retries`. `retry_count` rollup column on
   `steps_persisted`. Commit `f995cd5`.
 - [x] **Event-sourcing rationale documented.** `docs/concepts/why-event-
-  sourcing.md` — why Litmus inverts the usual data model (events
+  sourcing.md` — why TesterKit inverts the usual data model (events
   primary, runs/steps/measurements as projections); the CRUD trap
   it dodges; properties that fall out (replay, time-travel,
   cross-correlation, composable consumers); the principled split
@@ -64,34 +64,34 @@ locked yet.
 - [x] **API stability + versioning framing.** `docs/explorations/api-
   stability-and-versioning.md` — survey of industry patterns
   (Stripe, GitHub, Kubernetes, Iceberg, Delta, Avro, kubectl, Axon,
-  Greg Young, semver) applied to Litmus's six contract surfaces.
+  Greg Young, semver) applied to TesterKit's six contract surfaces.
   HARD vs SOFT split; 0.1.0 vs 1.0 work bucketing. Commit `ebf77f4`.
 - [x] **Public Python API explicit-contract pass — RESOLVED.**
-  Decision documented in the API stability doc: `litmus.analysis.*`
+  Decision documented in the API stability doc: `testerkit.analysis.*`
   stays internal for 0.1.0 (already classified internal in
   `docs/audits/public-api.md:66-67`); HTTP/CLI/UI/MCP wrappers are
   the external contract. The Python classes are implementation;
   refactor freely behind the wrappers. No work to ship.
 - [x] **Curated docs bundled into the wheel.** `pip install
-  litmus-test` users now get the user-facing Diátaxis tiers
+  testerkit` users now get the user-facing Diátaxis tiers
   (`tutorial`, `integration`, `concepts`, `guides`, `reference`) at
-  `litmus/_docs/` for the in-app `/docs/...` browser. `audits/`,
+  `testerkit/_docs/` for the in-app `/docs/...` browser. `audits/`,
   `explorations/`, and contributor-only material correctly excluded.
   Commit `092e2ba`.
 - [x] **Cut transports + public `EventSubscriber` protocol +
   non-parquet exporters** (the "three stores only" decision).
-  Removed ~2200 LoC of public surface; kept `litmus export` as
+  Removed ~2200 LoC of public surface; kept `testerkit export` as
   internal CLI machinery (private subscribers + replay). Cloud
   destinations defer to consumer-side recipes in
   `docs/integration/lakehouse-import.md`. Commit `145c89e`.
 - [x] **MCP tool-surface review + naming convention.** Reviewed
   the 12 MCP tools, written naming convention into
-  `mcp/server.py` module docstring, renamed bare `litmus` →
-  `litmus_project` for explicit scope. Other 11 names already
-  follow the convention (snake_case `litmus_<verb>` for actions,
-  `litmus_<noun>` for domain-scoped read tools). Commit `27cfbe4`.
+  `mcp/server.py` module docstring, renamed bare `testerkit` →
+  `testerkit_project` for explicit scope. Other 11 names already
+  follow the convention (snake_case `testerkit_<verb>` for actions,
+  `testerkit_<noun>` for domain-scoped read tools). Commit `27cfbe4`.
 - [x] **Catalog schema freeze.** Pinned at `CATALOG_SCHEMA_VERSION
-  = "1.0"` in `src/litmus/models/capability.py`. Additive-only
+  = "1.0"` in `src/testerkit/models/capability.py`. Additive-only
   evolution within 1.0; rename / removal / type narrowing
   forbidden. `docs/capability-schema.md` declares the freeze
   status. `tests/test_catalog/test_loader.py::TestSchemaVersion`
@@ -99,9 +99,9 @@ locked yet.
 
 ## Open — Tier 1 (must land before 0.1.0 tag)
 
-- [ ] **Operator-facing vocabulary sweep — continuation.** `@litmus.test`,
-  `litmus_characteristics`, `litmus_connections`, `@pytest.mark.
-  litmus_*`. `data_dir` rename was the first slice; one fresh-eyes
+- [ ] **Operator-facing vocabulary sweep — continuation.** `@testerkit.test`,
+  `testerkit_characteristics`, `testerkit_connections`, `@pytest.mark.
+  testerkit_*`. `data_dir` rename was the first slice; one fresh-eyes
   pass on the rest. Effort: medium.
 
 ## Open — Tier 2 (good-to-have for 0.1.0; reframed as 1.0-prep work)

@@ -17,13 +17,13 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.benchmark.core import BenchContext
-from litmus.benchmark.workloads import build_cases
-from litmus.benchmark.workloads import build_run as _build_run
-from litmus.benchmark.workloads import make_measurement as _make_measurement
-from litmus.data.channels.store import ChannelStore
-from litmus.data.event_store import EventStore
-from litmus.data.events import SessionStarted
+from testerkit.benchmark.core import BenchContext
+from testerkit.benchmark.workloads import build_cases
+from testerkit.benchmark.workloads import build_run as _build_run
+from testerkit.benchmark.workloads import make_measurement as _make_measurement
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.event_store import EventStore
+from testerkit.data.events import SessionStarted
 
 # ---------------------------------------------------------------------------
 # Fixtures — ONE daemon per module
@@ -54,8 +54,8 @@ def channel_store(tmp_path: Path) -> Generator[ChannelStore]:
 
 
 # ``_make_measurement`` and ``_build_run`` are imported from
-# ``litmus.benchmark.workloads`` (above) — the SAME builders the
-# ``litmus benchmark`` CLI uses, so CI numbers and user-reported numbers
+# ``testerkit.benchmark.workloads`` (above) — the SAME builders the
+# ``testerkit benchmark`` CLI uses, so CI numbers and user-reported numbers
 # can never drift. The registry-driven ``TestSharedWorkloads`` below
 # exercises every shipped workload through that single definition.
 
@@ -181,7 +181,7 @@ class TestEventStorePayloadFilterPerf:
         Post-item-21: this should collapse to near-zero (typed Arrow
         access — no per-row Python JSON parse).
         """
-        from litmus.data.event_store import _parse_event_row
+        from testerkit.data.event_store import _parse_event_row
 
         sid = uuid4()
         for i in range(10_000):
@@ -243,7 +243,7 @@ class TestEventStorePayloadFilterPerf:
         API path.
         """
         sid = uuid4()
-        from litmus.data.events import InstrumentConnected
+        from testerkit.data.events import InstrumentConnected
 
         # 10k mixed events; ~1/4 have the role we'll filter for
         for i in range(10_000):
@@ -309,7 +309,7 @@ class TestEventStoreTypedColumnPushdownPerf:
                 "ORDER BY received_at"
             )
             rows = event_store._flight_query(sql)
-            from litmus.data.event_store import _parse_event_row
+            from testerkit.data.event_store import _parse_event_row
 
             return [_parse_event_row(r) for r in rows]
 
@@ -328,7 +328,7 @@ class TestEventStoreTypedColumnPushdownPerf:
         ``event_matches_role`` per row in Python.
         """
         sid = uuid4()
-        from litmus.data.events import InstrumentConnected
+        from testerkit.data.events import InstrumentConnected
 
         for i in range(10_000):
             if i % 4 == 0:
@@ -438,7 +438,7 @@ class TestFileStorePerf:
     def test_write_bytes(self, tmp_path: Path, benchmark, size_kb: int):
         """Write raw bytes blobs. Lower bound on FileStore throughput —
         no serialization cost beyond the disk write + sidecar metadata."""
-        from litmus.data.files.store import FileStore
+        from testerkit.data.files.store import FileStore
 
         store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
@@ -456,7 +456,7 @@ class TestFileStorePerf:
         + sidecar metadata + atomic file write."""
         import numpy as np  # noqa: PLC0415
 
-        from litmus.data.files.store import FileStore
+        from testerkit.data.files.store import FileStore
 
         store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
@@ -474,8 +474,8 @@ class TestFileStorePerf:
         canonical Y / dt / t0 / attributes shape used by example 08."""
         import numpy as np  # noqa: PLC0415
 
-        from litmus.data.files.store import FileStore
-        from litmus.data.models import Waveform
+        from testerkit.data.files.store import FileStore
+        from testerkit.data.models import Waveform
 
         store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
@@ -492,7 +492,7 @@ class TestFileStorePerf:
     def test_read_bytes(self, tmp_path: Path, benchmark, size_kb: int):
         """Read a previously-written bytes blob via FileStore.resolve_uri
         + file open. Models the operator UI / RunsQuery hot path."""
-        from litmus.data.files.store import FileStore
+        from testerkit.data.files.store import FileStore
 
         store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
@@ -509,7 +509,7 @@ class TestFileStorePerf:
         """Pure locate cost (resolve key + size, no byte read). Models the
         worst-case for retention / pruning passes that locate many URIs in a
         tight loop."""
-        from litmus.data.files.store import FileStore
+        from testerkit.data.files.store import FileStore
 
         store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
@@ -553,7 +553,7 @@ class TestFileStreamPerf:
         import gc  # noqa: PLC0415
         import time  # noqa: PLC0415
 
-        from litmus.data.files.store import FileStore
+        from testerkit.data.files.store import FileStore
 
         store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
@@ -599,7 +599,7 @@ class TestFileStreamPerf:
     def test_stream_raw(self, tmp_path: Path, benchmark, chunk_kb: int):
         """Raw byte stream — lowest-level streaming path. Bound on the
         platform's sustained byte rate before format overhead."""
-        from litmus.data.files.store import FileStore
+        from testerkit.data.files.store import FileStore
 
         store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
@@ -619,7 +619,7 @@ class TestFileStreamPerf:
     def test_stream_jsonl(self, tmp_path: Path, benchmark, rows_per_chunk: int):
         """JSONL stream — typical pattern for accumulating typed event
         rows or per-vector measurement dumps."""
-        from litmus.data.files.store import FileStore
+        from testerkit.data.files.store import FileStore
 
         store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
@@ -644,7 +644,7 @@ class TestFileStreamPerf:
         nptdms = pytest.importorskip("nptdms")
         import numpy as np  # noqa: PLC0415
 
-        from litmus.data.files.store import FileStore
+        from testerkit.data.files.store import FileStore
 
         store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
@@ -667,7 +667,7 @@ class TestFileStreamPerf:
         del h5py
         import numpy as np  # noqa: PLC0415
 
-        from litmus.data.files.store import FileStore
+        from testerkit.data.files.store import FileStore
 
         store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
@@ -697,15 +697,15 @@ class TestChannelStreamPerf:
         the comparison surfaces context-manager overhead per write."""
         import random
 
-        from litmus.data.channels.store import ChannelStore
-        from litmus.execution._state import set_channel_store
+        from testerkit.data.channels.store import ChannelStore
+        from testerkit.execution._state import set_channel_store
 
         store = ChannelStore(tmp_path, uuid4(), flush_threshold=50)
         store.open()
-        # Wire the ContextVar so litmus.channels.stream finds the store.
+        # Wire the ContextVar so testerkit.channels.stream finds the store.
         set_channel_store(store)
         try:
-            import litmus.channels as channels_mod  # noqa: PLC0415
+            import testerkit.channels as channels_mod  # noqa: PLC0415
 
             samples = [random.gauss(0, 1) for _ in range(n_samples)]
 
@@ -735,8 +735,8 @@ def _writer_event_worker(n_events: int, seed: int) -> tuple[float, int]:
     import time
     from uuid import uuid4
 
-    from litmus.data.event_store import EventStore
-    from litmus.data.events import MeasurementRecorded
+    from testerkit.data.event_store import EventStore
+    from testerkit.data.events import MeasurementRecorded
 
     store = EventStore()
     sid = uuid4()
@@ -775,9 +775,9 @@ def _writer_channel_worker(n_samples: int, seed: int) -> tuple[float, int]:
     from pathlib import Path
     from uuid import uuid4
 
-    from litmus.data.channels.store import ChannelStore
+    from testerkit.data.channels.store import ChannelStore
 
-    store_dir = Path(tempfile.mkdtemp(prefix="litmus_perf_ch_"))
+    store_dir = Path(tempfile.mkdtemp(prefix="testerkit_perf_ch_"))
     store = ChannelStore(store_dir, uuid4(), flush_threshold=50)
     store.open()
     ok = 0
@@ -796,7 +796,7 @@ def _writer_filestore_worker(n_artifacts: int, payload_kb: int, seed: int) -> tu
     import time
     from uuid import uuid4
 
-    from litmus.data.files.store import FileStore
+    from testerkit.data.files.store import FileStore
 
     store = FileStore()
     sid = str(uuid4())
@@ -940,9 +940,9 @@ class TestConcurrencyPerf:
 @pytest.fixture(scope="module")
 def populated_runs() -> list[str]:
     """Save + index 100 runs on the canonical store once, for query latency."""
-    from litmus.data.backends.parquet import ParquetBackend
-    from litmus.data.data_dir import resolve_data_dir
-    from litmus.data.run_store import RunStore
+    from testerkit.data.backends.parquet import ParquetBackend
+    from testerkit.data.data_dir import resolve_data_dir
+    from testerkit.data.run_store import RunStore
 
     backend = ParquetBackend(data_dir=resolve_data_dir())
     store = RunStore()
@@ -967,9 +967,9 @@ class TestRunsPerf:
 
     @pytest.mark.benchmark(group="runs-write")
     def test_save_and_index_throughput(self, benchmark) -> None:
-        from litmus.data.backends.parquet import ParquetBackend
-        from litmus.data.data_dir import resolve_data_dir
-        from litmus.data.run_store import RunStore
+        from testerkit.data.backends.parquet import ParquetBackend
+        from testerkit.data.data_dir import resolve_data_dir
+        from testerkit.data.run_store import RunStore
 
         backend = ParquetBackend(data_dir=resolve_data_dir())
         store = RunStore()
@@ -984,7 +984,7 @@ class TestRunsPerf:
 
     @pytest.mark.benchmark(group="runs-query", warmup=True, min_rounds=30, disable_gc=True)
     def test_list_recent_latency(self, populated_runs: list[str], benchmark) -> None:
-        from litmus.analysis.runs_query import RunsQuery
+        from testerkit.analysis.runs_query import RunsQuery
 
         def list_page():
             with RunsQuery() as q:
@@ -995,7 +995,7 @@ class TestRunsPerf:
 
     @pytest.mark.benchmark(group="runs-query", warmup=True, min_rounds=30, disable_gc=True)
     def test_steps_for_run_latency(self, populated_runs: list[str], benchmark) -> None:
-        from litmus.analysis.steps_query import StepsQuery
+        from testerkit.analysis.steps_query import StepsQuery
 
         run_id = populated_runs[0]
 
@@ -1008,7 +1008,7 @@ class TestRunsPerf:
 
     @pytest.mark.benchmark(group="runs-query", warmup=True, min_rounds=30, disable_gc=True)
     def test_yield_summary_latency(self, populated_runs: list[str], benchmark) -> None:
-        from litmus.analysis.measurements_query import MeasurementsQuery
+        from testerkit.analysis.measurements_query import MeasurementsQuery
 
         def rollup():
             with MeasurementsQuery() as q:
@@ -1021,9 +1021,9 @@ def _writer_runs_worker(n_runs: int, seed: int) -> tuple[float, int]:
     """Save + index ``n_runs`` runs; return (wall_seconds, ok_count)."""
     import time
 
-    from litmus.data.backends.parquet import ParquetBackend
-    from litmus.data.data_dir import resolve_data_dir
-    from litmus.data.run_store import RunStore
+    from testerkit.data.backends.parquet import ParquetBackend
+    from testerkit.data.data_dir import resolve_data_dir
+    from testerkit.data.run_store import RunStore
 
     backend = ParquetBackend(data_dir=resolve_data_dir())
     store = RunStore()
@@ -1073,9 +1073,9 @@ class TestFilesCatalogQueryPerf:
 
     @pytest.mark.benchmark(group="files-catalog-query", warmup=True, min_rounds=30, disable_gc=True)
     def test_catalog_resolve_latency(self, benchmark) -> None:
-        from litmus.data.data_dir import resolve_data_dir
-        from litmus.data.files.catalog_manager import acquire, release, resolve_uri
-        from litmus.data.files.store import FileStore
+        from testerkit.data.data_dir import resolve_data_dir
+        from testerkit.data.files.catalog_manager import acquire, release, resolve_uri
+        from testerkit.data.files.store import FileStore
 
         files_dir = resolve_data_dir() / "files"
         acquire(files_dir)
@@ -1093,9 +1093,9 @@ class TestFilesCatalogQueryPerf:
 
     @pytest.mark.benchmark(group="files-catalog-query", warmup=True, min_rounds=30, disable_gc=True)
     def test_catalog_list_recent_latency(self, benchmark) -> None:
-        from litmus.data.data_dir import resolve_data_dir
-        from litmus.data.files.catalog_manager import acquire, list_recent, release
-        from litmus.data.files.store import FileStore
+        from testerkit.data.data_dir import resolve_data_dir
+        from testerkit.data.files.catalog_manager import acquire, list_recent, release
+        from testerkit.data.files.store import FileStore
 
         files_dir = resolve_data_dir() / "files"
         acquire(files_dir)
@@ -1114,12 +1114,12 @@ class TestFilesCatalogQueryPerf:
 
 
 # ---------------------------------------------------------------------------
-# Shared workloads — the SAME definitions ``litmus benchmark`` runs
+# Shared workloads — the SAME definitions ``testerkit benchmark`` runs
 #
 # These prove the shipped CLI workloads stay green and that the test
 # suite and the CLI share one definition (no drift). Each runs against
 # the canonical store (the daemon paths the CLI exercises in its temp
-# dir), driven through ``litmus.benchmark.workloads``.
+# dir), driven through ``testerkit.benchmark.workloads``.
 # ---------------------------------------------------------------------------
 
 
@@ -1138,7 +1138,7 @@ class TestSharedWorkloads:
         asserts the case executes without error — that the shared workload
         definition still works (no drift between CLI and CI).
         """
-        from litmus.data.data_dir import resolve_data_dir
+        from testerkit.data.data_dir import resolve_data_dir
 
         ctx = BenchContext(resolve_data_dir())
         try:

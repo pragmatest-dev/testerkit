@@ -9,8 +9,8 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.event_store import EventStore
-from litmus.data.events import FileStarted, SessionStarted
+from testerkit.data.event_store import EventStore
+from testerkit.data.events import FileStarted, SessionStarted
 
 
 @pytest.fixture(scope="module")
@@ -72,7 +72,7 @@ class TestEmitAndQuery:
         exercised by a different event class; the query must return
         all three. Events with no role linkage are excluded.
         """
-        from litmus.data.events import (
+        from testerkit.data.events import (
             ChannelStarted,
             InstrumentConnected,
             InstrumentSet,

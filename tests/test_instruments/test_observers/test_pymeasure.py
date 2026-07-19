@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from litmus.data.events import ChannelStarted, InstrumentSet
-from litmus.instruments.observer import InstrumentEventBuilder
-from litmus.instruments.observers.pymeasure import PyMeasureObserver, build_channel_map
-from litmus.models.instrument import ChannelKind
+from testerkit.data.events import ChannelStarted, InstrumentSet
+from testerkit.instruments.observer import InstrumentEventBuilder
+from testerkit.instruments.observers.pymeasure import PyMeasureObserver, build_channel_map
+from testerkit.models.instrument import ChannelKind
 
 
 class CollectingLog:

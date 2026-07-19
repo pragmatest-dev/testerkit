@@ -1,0 +1,13 @@
+name: testerkit-dev
+# Project-local data dir for dev work:
+# - ``pytest`` runs from this repo write here, NOT the global
+#   ``~/.local/share/testerkit/data`` store. Keeps test fixtures
+#   from polluting the global store an operator may also use for
+#   real hardware data on the same machine.
+# - ``testerkit serve`` from this repo root surfaces those test
+#   results in the UI, so devs see what their tests just produced
+#   without flipping between dirs.
+#
+# ``/data/`` is in ``.gitignore``. Easy to ``rm -rf data``
+# when something gets wedged.
+data_dir: data

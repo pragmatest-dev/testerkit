@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from litmus.api._mime import sniff_mime
+from testerkit.api._mime import sniff_mime
 
 
 @pytest.mark.parametrize(

@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep
+from testerkit.data.models import UUT, Measurement, Outcome, TestRun, TestStep
 
 
 class TestOutcomeEnum:
@@ -161,7 +161,7 @@ class TestTestStep:
 
     def test_step_with_vectors(self):
         m = Measurement(name="voltage", value=5.0)
-        from litmus.data.models import TestVector
+        from testerkit.data.models import TestVector
 
         vector = TestVector(measurements=[m])
         step = TestStep(name="measure_voltage", vectors=[vector])

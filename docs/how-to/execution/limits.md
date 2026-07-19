@@ -1,6 +1,6 @@
 # Test Limits
 
-Limits define pass/fail criteria for measurements. Litmus checks every `verify(...)` and `measure(...)` call against a configured `Limit` and records the outcome.
+Limits define pass/fail criteria for measurements. TesterKit checks every `verify(...)` and `measure(...)` call against a configured `Limit` and records the outcome.
 
 ## Limit structure
 
@@ -45,7 +45,7 @@ A limit needs at least one policy field that tells `verify` what to check. The f
 ```python
 import pytest
 
-@pytest.mark.litmus_limits(
+@pytest.mark.testerkit_limits(
     output_voltage={"low": 3.234, "high": 3.366, "unit": "V"},
     efficiency={"characteristic": "efficiency"},    # delegate to part spec
     startup_current={"high": 50, "comparator": "LE", "unit": "mA"},
@@ -58,9 +58,9 @@ def test_rails(context, measure, dmm):
 Class-level applies to every method; method-level overrides per-key:
 
 ```python
-@pytest.mark.litmus_limits(output_voltage={"low": 3.2, "high": 3.4})
+@pytest.mark.testerkit_limits(output_voltage={"low": 3.2, "high": 3.4})
 class TestPowerBoard:
-    @pytest.mark.litmus_limits(output_voltage={"low": 3.25, "high": 3.35})  # tighter
+    @pytest.mark.testerkit_limits(output_voltage={"low": 3.25, "high": 3.35})  # tighter
     def test_precise(self, measure, dmm): ...
 
     def test_normal(self, measure, dmm): ...     # uses class-level
@@ -108,7 +108,7 @@ Matching rules:
 - Siblings to `bands:` are the catch-all by design — used when no band's `when:` matches. No `when: {}` entry needed.
 - No catch-all + no band match: the parent has no policy fields, so the measurement records in characterization mode (`outcome=DONE`, no pass/fail). Provide siblings if you want strict behavior.
 
-The match is performed against the active row's values, so it works with both `@pytest.mark.parametrize` and Litmus sweeps — every iteration re-checks against the current row.
+The match is performed against the active row's values, so it works with both `@pytest.mark.parametrize` and TesterKit sweeps — every iteration re-checks against the current row.
 
 The default cascade keeps repetition out of the YAML. Common fields (`unit`, `characteristic`) live once at the top; bands carry only what changes. Bands can use the same policy fields as a flat limit — `low` / `high` / `nominal`, or `tolerance_pct` against a part characteristic:
 
@@ -129,15 +129,15 @@ A limit without `bands:` is the flat scalar shape (`output_voltage: {low: 3.2, h
 measure("v", val, limit={"low": 3.2, "high": 3.4, "unit": "V"})
 ```
 
-Same shape works on `verify(name, value, limit={...})`. Need the model object for type-checking or as a shared constant? Import from the top-level package: `from litmus import Limit`.
+Same shape works on `verify(name, value, limit={...})`. Need the model object for type-checking or as a shared constant? Import from the top-level package: `from testerkit import Limit`.
 
 ## Part-spec delegation (`characteristic:`)
 
 `characteristic: "<char_name>"` looks up the characteristic on the active `PartContext` and inherits its limits and units. Works in markers and sidecar:
 
 ```python
-# part selected via --part=power_board_v1 or litmus.yaml / profile
-@pytest.mark.litmus_limits(output_voltage={"characteristic": "output_voltage"})
+# part selected via --part=power_board_v1 or testerkit.yaml / profile
+@pytest.mark.testerkit_limits(output_voltage={"characteristic": "output_voltage"})
 def test_rails(...): ...
 ```
 
@@ -180,7 +180,7 @@ If you genuinely want to record without judging, use `measure(name, value)` inst
 2. **Use `characteristic:`** to delegate to part-spec characteristics instead of duplicating values
 3. **Keep operator-tuned values in a sidecar `limits:` field** so non-developers can edit them
 4. **Match names** — the first argument to `verify` / `measure` must match the limit key
-5. **Never hardcode** — no `assert 3.0 <= v <= 3.6` in test bodies; use `limits` (sidecar / profile) or `@pytest.mark.litmus_limits` (inline) or the part spec
+5. **Never hardcode** — no `assert 3.0 <= v <= 3.6` in test bodies; use `limits` (sidecar / profile) or `@pytest.mark.testerkit_limits` (inline) or the part spec
 
 
 ## See also

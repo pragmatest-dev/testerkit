@@ -6,7 +6,7 @@ import uuid
 import pytest
 
 # Generate a unique run ID for this test session (shared across all tests in this process)
-_SESSION_RUN_ID = os.environ.get("_LITMUS_RUN_ID") or str(uuid.uuid4())
+_SESSION_RUN_ID = os.environ.get("_TESTERKIT_RUN_ID") or str(uuid.uuid4())
 
 
 def _get_run_id() -> str:
@@ -17,7 +17,7 @@ def _get_run_id() -> str:
 @pytest.mark.asyncio
 async def test_with_confirm_dialog():
     """Test that prompts operator for confirmation."""
-    from litmus.api.dialogs import get_dialog_manager
+    from testerkit.api.dialogs import get_dialog_manager
 
     manager = get_dialog_manager()
     run_id = _get_run_id()
@@ -43,7 +43,7 @@ async def test_with_confirm_dialog():
 @pytest.mark.asyncio
 async def test_with_input_dialog():
     """Test that prompts operator for input."""
-    from litmus.api.dialogs import get_dialog_manager
+    from testerkit.api.dialogs import get_dialog_manager
 
     manager = get_dialog_manager()
     run_id = _get_run_id()
@@ -60,7 +60,7 @@ async def test_with_input_dialog():
         pytest.fail("Operator did not provide input")
 
     serial = response.value
-    # Under LITMUS_AUTO_CONFIRM the value is "" (matches _auto_confirm); a
+    # Under TESTERKIT_AUTO_CONFIRM the value is "" (matches _auto_confirm); a
     # real operator session would return a typed serial.
     assert serial is not None, "Serial number response missing"
     print(f"Operator entered serial: {serial!r}")
@@ -69,7 +69,7 @@ async def test_with_input_dialog():
 @pytest.mark.asyncio
 async def test_with_choice_dialog():
     """Test that prompts operator to select an option."""
-    from litmus.api.dialogs import get_dialog_manager
+    from testerkit.api.dialogs import get_dialog_manager
 
     manager = get_dialog_manager()
     run_id = _get_run_id()

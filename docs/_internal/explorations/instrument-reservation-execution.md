@@ -60,7 +60,7 @@ in 0.3.0). Built on the **existing two-path architecture** (file-lock + orchestr
      reservations. Both expose the full `reserve`/`release_reservation`/`with reservation()`
      grain API. (`instrument(role, reserve=...)` mirrors PyVISA `open(access_mode=...)`.)
      Verb is `connect`/`disconnect` (not open/close — that's the underlying driver's verb;
-     connect/disconnect is the Litmus session layer, also consistent with `litmus.connect(station)`).
+     connect/disconnect is the TesterKit session layer, also consistent with `testerkit.connect(station)`).
    - **B — reserve is refcounted re-entrant** (= VISA `viLock` lock-count; the lone direct
      precedent — DAQmx `-50103`/Ophyd `RedundantStaging` error instead, TestStand deadlocks).
      Non-negotiable: recursion is the only model that doesn't deadlock on nested steps.
@@ -104,7 +104,7 @@ in 0.3.0). Built on the **existing two-path architecture** (file-lock + orchestr
 ## North-star acceptance scenario (2026-06-29)
 
 The end-to-end demo the cluster builds toward: a pytest run **and** an interactive UI
-(`litmus serve`), same project, sharing one instrument.
+(`testerkit serve`), same project, sharing one instrument.
 1. UI watches the run **live** via channels (exists today).
 2. While tests run, UI **observes** the instrument/test signals **lease-free** (channel
    subscribe, no reserve) — **#12**.
@@ -192,7 +192,7 @@ query; ties `project_followup_channel_isolation_per_slot`).
     is NOT the projection-drift bug class (which is the *same* data computed two ways): the
     inputs genuinely differ. (a) The **streaming/event path** (pytest → events → accumulator)
     derives the set from the reservation events (`_event_accumulator.py` unions by
-    `(step_index, step_retry)`). (b) The **batch path** (`LitmusClient.RunBuilder.finish` →
+    `(step_index, step_retry)`). (b) The **batch path** (`TesterKitClient.RunBuilder.finish` →
     `save_test_run` → `build_step_manifest`, `parquet.py:267-278`) has **no reservation concept
     at all** (`client.py` contains zero `reserve`/pool usage) — it uses the caller-provided
     `TestStep.instrument_records`, the only authoritative input it has. Same semantic
@@ -241,7 +241,7 @@ isolation we don't enforce yet). → **#31** (control model + good-citizen guida
 traceability — so the participating path is also the easiest/richest path; the incentive
 gradient points toward going through it, not bypassing. Connecting gets you *available*
 (connect); good-citizen guidance turns that into *reserved* when driving shared hardware.
-Residual the carrot misses (→ #18): raw non-Litmus scripts that never connect, and the §4.3
+Residual the carrot misses (→ #18): raw non-TesterKit scripts that never connect, and the §4.3
 served-path hole. Bonus: because everyone already wants the front door, #18's "connecting =
 joining the coordinator" is a free, invisible upgrade.
 
@@ -360,17 +360,17 @@ no-run/bench usage captured) for a quieter log. Decide alongside #18's coverage 
   pyright(0/0/0); 1021 instrument+data tests pass (independently re-verified; the "unused
   import" diagnostic was a stale mid-edit snapshot). The pre-commit FULL suite caught two
   registration gaps the subset run missed — new BaseModels must be in the ontology
-  (`ontology/litmus.yaml`) and assigned a `_EVENT_CATEGORIES` group (regenerate
+  (`ontology/testerkit.yaml`) and assigned a `_EVENT_CATEGORIES` group (regenerate
   `event-types.md`); both added. Lesson: new event/model types need ontology + reference-docs
   registration, only the full gate catches it. `InstrumentConnected` already IS the "attach"
   event (no separate Attached event needed; the split sharpened it to mean attached/available
   vs Reserved=exclusively-held). Next: Phase 4 (pytest auto-wrap + #26).
 - 2026-06-29: **Verb rename DONE** — `attach`→`connect`, `release`→`disconnect`/
   `disconnect_all` across `pool.py`/`connect.py`/plugin/UI/tests + docs (`reserve`/
-  `release_reservation` and the events untouched). connect/disconnect is the Litmus session
+  `release_reservation` and the events untouched). connect/disconnect is the TesterKit session
   layer, distinct from the driver's open/close: a survey (PyMeasure/QCoDeS/Lantz/InstrumentKit/
   PyVISA/OpenTAP/OpenHTF) found open/close dominant AT THE DRIVER LAYER — which is exactly why
-  Litmus uses `connect` (avoids collision; matches `litmus.connect(station)`). The proxy is a
+  TesterKit uses `connect` (avoids collision; matches `testerkit.connect(station)`). The proxy is a
   `connect` that does NOT open a driver (borrows the one server-held session). ruff/format/
   pyright(0/0/0); 445 tests pass; stray-name grep clean. Library prior-art for #18
   (RPyC/Pyro5/`multiprocessing.managers`/Tango; verify QCoDeS-removed-remote) parked in

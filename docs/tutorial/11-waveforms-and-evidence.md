@@ -25,8 +25,8 @@ See [The Three Test-Author Verbs](../concepts/data/three-verbs.md) for the model
 
 import math
 
-from litmus import Limit
-from litmus import Waveform
+from testerkit import Limit
+from testerkit import Waveform
 
 
 def compute_rise_time_us(wf: Waveform, *, v_final: float, low: float = 0.1, high: float = 0.9) -> float:
@@ -66,7 +66,7 @@ What each line does:
 4. `compute_rise_time_us` / `compute_overshoot_v` — pure functions that work on `wf.Y` (sample values) and `wf.dt` (sample interval in seconds).
 5. `verify(...)` — records a parquet measurement row with value, limit, and the `scope_step` output. Both rows carry the same URI.
 
-`observe` and `verify` are pytest fixtures provided by Litmus's bundled plugin — they appear as parameters in the test signature with no import needed.
+`observe` and `verify` are pytest fixtures provided by TesterKit's bundled plugin — they appear as parameters in the test signature with no import needed.
 
 ## The mock scope
 
@@ -110,7 +110,7 @@ def synthesize_psu_step_response() -> Waveform:
 ```python
 # conftest.py
 
-from litmus import Mock
+from testerkit import Mock
 
 @pytest.fixture(scope="session")
 def scope(mock_instruments) -> Scope:
@@ -133,12 +133,12 @@ pytest runs one test — `test_psu_step_response` — with both `rise_time_us` a
 Then start the operator UI:
 
 ```cli
-uv run litmus serve --reload
+uv run testerkit serve --reload
 ```
 
 ## What landed on disk
 
-The example keeps its data local (set via `data_dir: data` in `litmus.yaml`):
+The example keeps its data local (set via `data_dir: data` in `testerkit.yaml`):
 
 ```
 data/

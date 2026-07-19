@@ -21,9 +21,9 @@ from uuid import uuid4
 import pytest
 from pydantic import BaseModel
 
-from litmus.data.data_dir import resolve_data_dir
-from litmus.data.files import _reset_for_tests, get_filestore
-from litmus.execution.harness import Context, TestHarness
+from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.files import _reset_for_tests, get_filestore
+from testerkit.execution.harness import Context, TestHarness
 
 # --------------------------------------------------------------------- #
 # fixtures + helpers                                                    #

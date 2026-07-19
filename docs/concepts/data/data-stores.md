@@ -1,6 +1,6 @@
-# The Litmus data stores
+# The TesterKit data stores
 
-Litmus uses four complementary data stores, each optimized for a different access pattern. Together they provide a complete picture of test activity.
+TesterKit uses four complementary data stores, each optimized for a different access pattern. Together they provide a complete picture of test activity.
 
 ## Overview
 
@@ -96,16 +96,16 @@ Sessions are not a stored entity — they're derived from events at query time.
 
 ## Where the data dir lives
 
-`<data_dir>` defaults to a shared per-user directory so every project on the machine sees the same results pool — `litmus runs`, `litmus serve`, and DuckDB queries see everything.
+`<data_dir>` defaults to a shared per-user directory so every project on the machine sees the same results pool — `testerkit runs`, `testerkit serve`, and DuckDB queries see everything.
 
 Resolution order (first match wins):
 
 1. Explicit `--data-dir` argument or `data_dir=` parameter
-2. `data_dir` field in the project's `litmus.yaml`
-3. `LITMUS_HOME` environment variable
-4. `~/.local/share/litmus/data/` (platform default via `platformdirs`)
+2. `data_dir` field in the project's `testerkit.yaml`
+3. `TESTERKIT_HOME` environment variable
+4. `~/.local/share/testerkit/data/` (platform default via `platformdirs`)
 
-To isolate a project's results from the shared pool, add to `litmus.yaml`:
+To isolate a project's results from the shared pool, add to `testerkit.yaml`:
 
 ```yaml
 name: my-project
@@ -114,7 +114,7 @@ data_dir: data       # writes to ./data/ instead of the global pool
 
 ## Schema evolution — HARD contract
 
-Parquet files are the permanent record. Each litmus version may add columns; older files simply lack them. The parquet artifact is a **HARD contract**: changes must be additive because written files cannot be retroactively rewritten when a new version ships.
+Parquet files are the permanent record. Each testerkit version may add columns; older files simply lack them. The parquet artifact is a **HARD contract**: changes must be additive because written files cannot be retroactively rewritten when a new version ships.
 
 Until the 1.0 cut, the following invariants hold:
 
@@ -127,7 +127,7 @@ Until the 1.0 cut, the following invariants hold:
 ```sql
 -- DuckDB handles mixed schemas automatically
 SELECT station_id, project_name, run_outcome
-FROM read_parquet('~/.local/share/litmus/data/runs/**/*.parquet',
+FROM read_parquet('~/.local/share/testerkit/data/runs/**/*.parquet',
                   union_by_name=true)
 ```
 
@@ -135,33 +135,33 @@ Schema rewrites and column removals are deferred to the 1.0 cut, when a migratio
 
 ## The DuckDB query index
 
-Every store keeps a DuckDB index alongside its data files, to speed up queries like `litmus runs` and the web UI. The index is always a **disposable cache** — delete it and it rebuilds from the parquet or Arrow files underneath. Deleting an index file never loses data.
+Every store keeps a DuckDB index alongside its data files, to speed up queries like `testerkit runs` and the web UI. The index is always a **disposable cache** — delete it and it rebuilds from the parquet or Arrow files underneath. Deleting an index file never loses data.
 
 Two index shapes are in use, depending on the store:
 
-**RunStore — content-addressed.** The runs index file name embeds a short fingerprint of the query it serves — the shape of the projection plus the Litmus version that built it — as `_index.<fingerprint>.duckdb`. A query or schema change never rewrites an existing file in place: it produces a different fingerprint, and the next build writes a *new* file alongside any older ones. Multiple fingerprints can sit in the same `<data_dir>/runs/` directory at once — an older Litmus version (or another project pinned to an older release) reading the same results keeps opening its own file, untouched by a newer index being built next to it.
+**RunStore — content-addressed.** The runs index file name embeds a short fingerprint of the query it serves — the shape of the projection plus the TesterKit version that built it — as `_index.<fingerprint>.duckdb`. A query or schema change never rewrites an existing file in place: it produces a different fingerprint, and the next build writes a *new* file alongside any older ones. Multiple fingerprints can sit in the same `<data_dir>/runs/` directory at once — an older TesterKit version (or another project pinned to an older release) reading the same results keeps opening its own file, untouched by a newer index being built next to it.
 
 **ChannelStore and FileStore — a single `_index.duckdb`.** These two stores have not adopted the content-addressed model yet; each keeps one index file that's reused (or, on a schema change, deleted and rebuilt) in place. Same disposable-cache guarantee, no coexisting versions.
 
 ### Managing runs-index files
 
-`litmus data index` manages the RunStore's index files (called *epochs* — one per fingerprint):
+`testerkit data index` manages the RunStore's index files (called *epochs* — one per fingerprint):
 
 ```cli
-$ litmus data index list
+$ testerkit data index list
   FINGERPRINT   SCHEMA  BUILT BY  SEEN BY       RUNS   SIZE    LAST SEEN
 * a1b2c3d4e5f6  3       0.3.0     0.3.0         1,204  18.2 MB just now
   f0e1d2c3b4a5  2       0.2.4     0.2.4, 0.3.0  1,204  17.9 MB 6 days ago
 
-$ litmus data index build            # warm the current epoch
-$ litmus data index rm f0e1d2c3b4a5  # drop one epoch by its fingerprint prefix
-$ litmus data index prune            # reap epochs no recent version has touched
+$ testerkit data index build            # warm the current epoch
+$ testerkit data index rm f0e1d2c3b4a5  # drop one epoch by its fingerprint prefix
+$ testerkit data index prune            # reap epochs no recent version has touched
 ```
 
-- `list` — every epoch present, with its fingerprint, schema version, the Litmus version that built it, every version that has since read it, row count, size, and last access.
-- `build` — warms the epoch matching the currently installed Litmus version by ingesting from parquet. `--rebuild` discards it first for a clean rebuild.
+- `list` — every epoch present, with its fingerprint, schema version, the TesterKit version that built it, every version that has since read it, row count, size, and last access.
+- `build` — warms the epoch matching the currently installed TesterKit version by ingesting from parquet. `--rebuild` discards it first for a clean rebuild.
 - `rm <fingerprint-prefix>` — deletes one epoch. Refuses to remove the epoch actively serving queries unless `--force`.
-- `prune` — removes epochs no recent Litmus version has touched, always keeping the current epoch and (by default) the three most-recently-seen others.
+- `prune` — removes epochs no recent TesterKit version has touched, always keeping the current epoch and (by default) the three most-recently-seen others.
 
 None of these touch the parquet files. Every command is safe to run at any time — the worst case is that the next query pays the cost of a rebuild.
 
@@ -169,16 +169,16 @@ To force a full rebuild of the channels or files index, delete `_index.duckdb` u
 
 ## Mixed versions on one machine
 
-When multiple projects use different Litmus versions but share the global results directory:
+When multiple projects use different TesterKit versions but share the global results directory:
 
 | Layer | What happens | User impact |
 |---|---|---|
 | Parquet files | Each version writes its own schema. Newer files may have more columns. | NULL values for columns that didn't exist when the file was written. |
-| Runs query index | Content-addressed: each Litmus version reads and writes its own epoch file, keyed by its own fingerprint. Old and new epochs coexist in `<data_dir>/runs/` without contention. | `litmus data index list` shows every epoch present; nothing to migrate by hand. Run `litmus data index prune` to reclaim disk from epochs no version uses anymore. |
+| Runs query index | Content-addressed: each TesterKit version reads and writes its own epoch file, keyed by its own fingerprint. Old and new epochs coexist in `<data_dir>/runs/` without contention. | `testerkit data index list` shows every epoch present; nothing to migrate by hand. Run `testerkit data index prune` to reclaim disk from epochs no version uses anymore. |
 | Channels / files query index | A single shared index file per store. | Rare cross-version friction can still surface here; delete `_index.duckdb` in that store's directory to force a rebuild. |
 | Web UI / CLI | Shows whatever the current process's index has. | Some fields may be empty for older runs. |
 
-The rule: newer is always a superset. An older Litmus version reading newer results ignores unknown columns; a newer version reading older results sees NULL for missing columns. No version corrupts or downgrades another's data.
+The rule: newer is always a superset. An older TesterKit version reading newer results ignores unknown columns; a newer version reading older results sees NULL for missing columns. No version corrupts or downgrades another's data.
 
 ## See also
 
@@ -186,10 +186,10 @@ The rule: newer is always a superset. An older Litmus version reading newer resu
 
 - [Reference → Parquet schema](../../reference/data/parquet-schema.md) — column-level reference for the materialized run rows
 - [Reference → Query API](../../reference/data/query-api.md) — `RunsQuery` / `StepsQuery` / `MeasurementsQuery` — the read path over the run store
-- [Reference → `litmus data index`](../../reference/cli.md#cli-data-index) — full flag reference for `list` / `build` / `rm` / `prune`
+- [Reference → `testerkit data index`](../../reference/cli.md#cli-data-index) — full flag reference for `list` / `build` / `rm` / `prune`
 - [How-to → Querying events](../../how-to/data/querying-events.md), [Querying channels](../../how-to/data/querying-channels.md) — task recipes against each store
 - [How-to → Export results](../../how-to/data/export-results.md) — pulling rows out of the parquet store
-- [Integration → Lakehouse import](../../integration/data/lakehouse-import.md) — pulling Litmus parquet into your warehouse
+- [Integration → Lakehouse import](../../integration/data/lakehouse-import.md) — pulling TesterKit parquet into your warehouse
 
 **Sibling concepts:**
 

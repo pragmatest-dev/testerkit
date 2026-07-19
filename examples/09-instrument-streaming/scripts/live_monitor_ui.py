@@ -31,9 +31,9 @@ from uuid import uuid4
 
 from nicegui import ui
 
-import litmus.channels as channels
-from litmus.data.channels.store import ChannelStore
-from litmus.data.data_dir import resolve_data_dir
+import testerkit.channels as channels
+from testerkit.data.channels.store import ChannelStore
+from testerkit.data.data_dir import resolve_data_dir
 
 _PRODUCE_HZ = 50
 _STOP = threading.Event()
@@ -148,4 +148,4 @@ def page() -> None:
 
 if __name__ in {"__main__", "__mp_main__"}:
     print("Live monitor on http://localhost:8080  (Ctrl-C to stop)")
-    ui.run(port=8080, reload=False, show=False, title="Litmus — Live Monitor")
+    ui.run(port=8080, reload=False, show=False, title="TesterKit — Live Monitor")

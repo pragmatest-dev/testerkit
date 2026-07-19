@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 import pyarrow as pa
 import pytest
 
-from litmus.data.channels.models import (
+from testerkit.data.channels.models import (
     ChannelDescriptor,
     _infer_field_type,
     _infer_schema,
@@ -222,7 +222,7 @@ def test_channel_descriptor_value_type_default_carries_leaf() -> None:
 
 
 def test_waveform_field_renamed_to_attributes() -> None:
-    from litmus.data.models import Waveform
+    from testerkit.data.models import Waveform
 
     wf = Waveform(t0=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC), dt=1e-6, Y=[1.0, 2.0])
     assert hasattr(wf, "attributes")
@@ -230,7 +230,7 @@ def test_waveform_field_renamed_to_attributes() -> None:
 
 
 def test_waveform_attributes_settable_via_kwarg() -> None:
-    from litmus.data.models import Waveform
+    from testerkit.data.models import Waveform
 
     wf = Waveform(
         t0=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC),

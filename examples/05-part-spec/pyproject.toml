@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "litmus-example-05-part-spec"
+name = "testerkit-example-05-part-spec"
 version = "0.0.0"
 description = "Stage 5: part YAML drives spec-aware limits — still on the conftest bench"
 requires-python = ">=3.11"
-dependencies = ["litmus-test", "pytest"]
+dependencies = ["testerkit", "pytest"]
 
 [tool.uv.sources]
-litmus-test = { workspace = true }
+testerkit = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 bypass-selection = true

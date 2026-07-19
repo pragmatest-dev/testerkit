@@ -11,14 +11,14 @@ from typing import Any
 
 import pytest
 
-from litmus.execution.profiles import (
+from testerkit.execution.profiles import (
     ProfileError,
     flatten_profile_chain,
     resolve_active_profile,
 )
-from litmus.models.project import ProfileConfig, ProjectConfig
-from litmus.models.test_config import MeasurementLimitConfig, SweepEntry, TestEntry
-from litmus.store import load_project
+from testerkit.models.project import ProfileConfig, ProjectConfig
+from testerkit.models.test_config import MeasurementLimitConfig, SweepEntry, TestEntry
+from testerkit.store import load_project
 
 
 def _make_project(profiles: dict[str, ProfileConfig]) -> ProjectConfig:
@@ -218,7 +218,7 @@ class TestResolveActiveProfileWithExtends:
         with pytest.raises(ProfileError, match="No profile matches the facet query"):
             resolve_active_profile(None, {"test_phase": "production"}, project)
 
-    def test_parent_reachable_via_litmus_profile_name(self) -> None:
+    def test_parent_reachable_via_testerkit_profile_name(self) -> None:
         parent = ProfileConfig(
             tests={"test_rail": TestEntry(limits=_v_rail(low=3.2))},
         )
@@ -244,50 +244,50 @@ class TestResolveActiveProfileWithExtends:
 
 class TestProfilesDirLoader:
     def test_discovers_yaml_files_keyed_by_stem(self, tmp_path: Path) -> None:
-        (tmp_path / "litmus.yaml").write_text("name: p\n")
+        (tmp_path / "testerkit.yaml").write_text("name: p\n")
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
         (profiles_dir / "production.yaml").write_text("facets: {test_phase: production}\n")
         (profiles_dir / "characterization.yaml").write_text(
             "facets: {test_phase: characterization}\n"
         )
-        project = load_project(tmp_path / "litmus.yaml")
+        project = load_project(tmp_path / "testerkit.yaml")
         assert set(project.profiles) == {"production", "characterization"}
         assert project.profiles["production"].facets == {"test_phase": "production"}
 
     def test_inline_and_sidecar_profiles_coexist(self, tmp_path: Path) -> None:
-        (tmp_path / "litmus.yaml").write_text(
+        (tmp_path / "testerkit.yaml").write_text(
             "name: p\nprofiles:\n  inline:\n    facets: {test_phase: validation}\n"
         )
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
         (profiles_dir / "production.yaml").write_text("facets: {test_phase: production}\n")
-        project = load_project(tmp_path / "litmus.yaml")
+        project = load_project(tmp_path / "testerkit.yaml")
         assert set(project.profiles) == {"inline", "production"}
 
     def test_name_conflict_raises(self, tmp_path: Path) -> None:
-        (tmp_path / "litmus.yaml").write_text(
+        (tmp_path / "testerkit.yaml").write_text(
             "name: p\nprofiles:\n  prod:\n    facets: {test_phase: production}\n"
         )
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
         (profiles_dir / "prod.yaml").write_text("facets: {test_phase: production}\n")
         with pytest.raises(ValueError, match="Profile name conflict: 'prod'"):
-            load_project(tmp_path / "litmus.yaml")
+            load_project(tmp_path / "testerkit.yaml")
 
     def test_no_profiles_dir_is_fine(self, tmp_path: Path) -> None:
-        (tmp_path / "litmus.yaml").write_text("name: p\n")
-        project = load_project(tmp_path / "litmus.yaml")
+        (tmp_path / "testerkit.yaml").write_text("name: p\n")
+        project = load_project(tmp_path / "testerkit.yaml")
         assert project.profiles == {}
 
     def test_empty_profiles_dir_is_fine(self, tmp_path: Path) -> None:
-        (tmp_path / "litmus.yaml").write_text("name: p\n")
+        (tmp_path / "testerkit.yaml").write_text("name: p\n")
         (tmp_path / "profiles").mkdir()
-        project = load_project(tmp_path / "litmus.yaml")
+        project = load_project(tmp_path / "testerkit.yaml")
         assert project.profiles == {}
 
     def test_extends_roundtrips_through_yaml(self, tmp_path: Path) -> None:
-        (tmp_path / "litmus.yaml").write_text("name: p\n")
+        (tmp_path / "testerkit.yaml").write_text("name: p\n")
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
         (profiles_dir / "family.yaml").write_text(
@@ -296,7 +296,7 @@ class TestProfilesDirLoader:
         (profiles_dir / "leaf.yaml").write_text(
             "extends: family\nfacets: {test_phase: production}\n"
         )
-        project = load_project(tmp_path / "litmus.yaml")
+        project = load_project(tmp_path / "testerkit.yaml")
         leaf = project.profiles["leaf"]
         assert leaf.extends == "family"
         merged = flatten_profile_chain("leaf", project)

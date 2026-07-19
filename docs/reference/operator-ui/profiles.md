@@ -2,7 +2,7 @@
 
 **URLs:** `/profiles` (list), `/profiles/{name}` (detail)
 
-A profile is a named configuration set declared in `litmus.yaml` under `profiles:` or
+A profile is a named configuration set declared in `testerkit.yaml` under `profiles:` or
 as a standalone file in `profiles/*.yaml`. It carries session-wide test configuration —
 limits, mocks, markers, retry rules — plus metadata that ties the profile to a
 station type and a fixture, with optional facet labels. Profiles are config-only: they exist in YAML and
@@ -16,7 +16,7 @@ total count.
 
 | Column | What it shows |
 |---|---|
-| Name | The profile name (key in `litmus.yaml` or YAML filename stem) |
+| Name | The profile name (key in `testerkit.yaml` or YAML filename stem) |
 | Extends | The parent profile this profile inherits from, or `—` if none |
 | Station Type | The `station_type` this profile requires at session start, or `—` if unset |
 | Fixture | The fixture ID this profile selects, or `—` if unset |
@@ -35,7 +35,7 @@ When no profiles are declared in the project, the table is replaced with a card:
 
 > No profiles configured.
 >
-> Add profile YAML files under profiles/ or declare them inline in litmus.yaml.
+> Add profile YAML files under profiles/ or declare them inline in testerkit.yaml.
 > See the profiles reference for the schema.
 
 ## Detail — `/profiles/{name}`
@@ -77,7 +77,7 @@ with a "← Back to Profiles" link.
 
 Profiles are loaded by merging two sources at server start:
 
-1. The `profiles:` block declared inline in `litmus.yaml`.
+1. The `profiles:` block declared inline in `testerkit.yaml`.
 2. Any `profiles/*.yaml` files in the project root (loaded by filename stem).
 
 A name collision between an inline entry and a file raises an error at load time.
