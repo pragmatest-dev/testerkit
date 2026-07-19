@@ -78,9 +78,12 @@ def create_sidebar():
     with ui.left_drawer(value=True).classes("bg-slate-900 text-white") as drawer:
         drawer.props("width=240 behavior=desktop overlay=false bordered")
 
-        # Logo
+        # Logo — the primary wordmark (cream text + green accent, transparent)
+        # is the variant meant for a dark ground, which the drawer already is.
         with ui.column().classes("p-4"):
-            ui.label("TesterKit").classes("text-2xl font-bold")
+            ui.image("/static/branding/testerkit-wordmark.svg").classes("w-40").props(
+                'fit=contain no-spinner alt="TesterKit"'
+            )
             ui.label("Hardware Test Platform").classes("text-xs text-slate-400")
 
         ui.separator().classes("bg-slate-700")
@@ -222,7 +225,10 @@ def create_layout(title: str = "TesterKit"):
     _ = title  # used by ``ui.run`` / page metadata; not rendered here
     with ui.header().classes("bg-white border-b border-slate-200 shadow-sm"):
         with ui.row().classes("items-center gap-2 w-full"):
-            ui.label("⚡").classes("text-lg")  # ⚡ favicon-style branding
+            # Bare mark (green on transparent) — the header ground is light.
+            ui.image("/static/branding/testerkit-mark.svg").classes("w-6 h-6").props(
+                'fit=contain no-spinner alt="TesterKit"'
+            )
             ui.label("TesterKit").classes("text-lg font-semibold text-slate-800")
             ui.element("div").classes("flex-1")  # spacer pushes the bell right
             _create_dialogs_bell()

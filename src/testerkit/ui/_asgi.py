@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import sys
 import time
+from pathlib import Path
 
 
 def _log(msg: str) -> None:
@@ -57,7 +58,7 @@ if not core.app.config.has_run_config:
         reload=True,
         title="TesterKit",
         viewport="width=device-width, initial-scale=1",
-        favicon="\u26a1",
+        favicon=Path(__file__).resolve().parent / "static" / "branding" / "favicon-32.png",
         dark=False,
         language="en-US",
         binding_refresh_interval=0.1,

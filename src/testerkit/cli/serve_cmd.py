@@ -45,6 +45,6 @@ def serve(host: str, port: int, reload: bool):
             port=port,
             reload=False,
             title="TesterKit",
-            favicon="⚡",
+            favicon=_PKG_ROOT / "ui" / "static" / "branding" / "favicon-32.png",
             timeout_graceful_shutdown=2,
         )
