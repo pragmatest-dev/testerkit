@@ -104,6 +104,17 @@ daemon exists the hook is four dead env vars nobody points at, so we don't ship
 it. It's recorded here because the proof is the deliverable: req 6's gate is
 "architecture *proven* swap-ready," not "hook shipped."
 
+**Phase-1 correction — store-and-forward supersedes this for the first server (GH-65).**
+The central-server spike settled that the first hosted server does NOT use this
+serving-tier swap. Benches keep spawning their own LOCAL daemons; a **forwarder tails
+each bench's event WAL** and replicates it to the server through the public
+`testerkit.replication` surface (`read_segments` + `ingest_replicated`). So pointing a
+client at a remote daemon is not on the Phase-1 critical path — this recipe stays
+deferred (and its gate, "architecture proven swap-ready," is already met). It would only
+become relevant for a *different* serving model — a thin client reading directly from a
+central daemon — which Phase 1 does not adopt. The store-and-forward path is why the
+remote-`acquire()` hook was dropped from Phase 1 rather than built.
+
 **Why deferring is safe (not the FileStore trap).** Every store's client already
 resolves its daemon via `<store>_manager.acquire(dir) -> opaque grpc:// location`,
 then `FlightQueryClient(location)`. The location is *already opaque* — clients
