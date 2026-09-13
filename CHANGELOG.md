@@ -19,6 +19,11 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
   rejected) so a forwarder can advance its cursor on accepted rows only.
 - `TESTERKIT_RUN_ORPHAN_TIMEOUT` env override for the runs-daemon orphan-sweep
   timeout (ops tuning + tests).
+- Public replication surface `testerkit.replication` (GH-65) for store-and-forward:
+  `read_segments()` reads a data dir's event WAL past a per-writer cursor, and
+  `ingest_replicated()` ingests those events into another data dir exactly-once
+  (id-keyed dedup), returning a `BatchDisposition`. The one sanctioned direct
+  reader of the raw event IPC files; everything else reads via the Query API.
 
 ### Changed
 

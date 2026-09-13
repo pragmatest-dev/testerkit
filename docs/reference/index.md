@@ -33,6 +33,7 @@ The shapes the system writes. If you're reading parquet, the event log, or any e
 - [Parquet schema](data/parquet-schema.md) — every column in the run parquet, the `record_type` discriminator, how retries land.
 - [Output formats](data/outputs.md) — what `testerkit show -f <fmt>` and `testerkit export` produce for HTML / PDF / JSON / CSV / STDF / HDF5 / TDMS / MDF4.
 - [Query API](data/query-api.md) — `RunsQuery`, `StepsQuery`, `MeasurementsQuery`. The public read path the UI and HTTP API both use (generated).
+- [Replication](data/replication.md) — `read_segments` / `ingest_replicated`, the two functions a bench → central-server replication forwarder builds on.
 
 ## Runtime
 
