@@ -164,6 +164,16 @@ fixed byte, so a replication client advances its cursor on accepted rows only. K
 (deferred to the server workstream): the in-memory sealed set grows unbounded — fine per-bench,
 revisit for the many-bench aggregator.
 
+**Finality has one exception — a synthetic abort is supersedable (GH-64).** A run force-closed
+by the orphan sweep gets a SYNTHETIC `RunEnded(aborted, derived=True)` and materializes as
+aborted. If the producer comes back and finishes for real, the real (non-derived) `run.ended`
+supersedes it: the runs daemon RE-HYDRATES the run from the durable event log (replay → fresh
+accumulator; the real terminal wins by `received_at`) and overwrites the aborted projection
+(idempotent `ON CONFLICT DO UPDATE`). Event-sourced by construction — the projection is rebuilt
+from the log, not patched, and no state is retained between abort and completion. A REAL terminal
+stays final; only a derived/synthetic one is supersedable. Normal on the replication server (a
+bench offline past the sweep timeout, then forwarding its buffered real `run.ended`).
+
 **Producers vs consumers.** Sessions are **producer-only**. Readers (operator UI, MCP, CLI,
 materializer) hold a **session-less service connection**, query/subscribe across sessions, and emit
 no lifecycle events (as today — the query path never calls `emit()`). **Reader → writer is

@@ -17,6 +17,18 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
   the fence is now enforced identically on both the live and file-ingest paths, and
   the events `do_put` ack reports a per-batch disposition (inserted / deduped /
   rejected) so a forwarder can advance its cursor on accepted rows only.
+- `TESTERKIT_RUN_ORPHAN_TIMEOUT` env override for the runs-daemon orphan-sweep
+  timeout (ops tuning + tests).
+
+### Changed
+
+- Replica-aware orphan sweep (GH-64): producer pid liveness is applied only when
+  the producer ran on this host (a replicated session's pid is meaningless here);
+  a verified-live local producer is never force-closed for being quiet (fixes a
+  pre-existing over-abort); inactivity is measured from event source time, not
+  receive time. A late real `run.ended` after a synthetic abort now re-hydrates the
+  run from the event log and overwrites the aborted result instead of leaving it
+  stuck as aborted.
 
 ## [0.4.0] - 2026-07-18
 

@@ -36,6 +36,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import duckdb
 import pyarrow as pa
@@ -51,6 +52,7 @@ from testerkit.data._accumulator_pool import (
     INFLIGHT_STEPS_SCHEMA,
     AccumulatorPool,
     OpenRun,
+    typed_from_dict,
 )
 from testerkit.data._daemon_lifecycle import _installed_version, _pid_alive
 from testerkit.data._duckdb_flight_server import (
@@ -58,6 +60,7 @@ from testerkit.data._duckdb_flight_server import (
     start_flight_server_in_daemon,
 )
 from testerkit.data._sql_helpers import sql_escape as _sql_escape
+from testerkit.data.backends._event_accumulator import EventAccumulator
 from testerkit.data.backends.parquet import materialize_run_to_parquet
 from testerkit.data.models import Outcome
 from testerkit.data.runs_duckdb_manager import RunsDuckDBManager
@@ -2210,7 +2213,9 @@ def daemon_run(runs_dir: Path) -> None:
     # watcher loop and letting the events backlog grow under bursty
     # load. Live-runs UI would lag by seconds when many runs finish
     # in close succession.
-    materialize_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
+    # (run_id, outcome, supersede). supersede=True → re-hydrate a synthetic-abort
+    # run from the durable log and overwrite it with its real completion (#64).
+    materialize_queue: queue.Queue[tuple[str, str | None, bool]] = queue.Queue()
 
     # Real shared inflight overlay tables (NOT per-connection temp views),
     # so the UNION views in ``_create_views`` resolve on every cursor and
@@ -2276,7 +2281,13 @@ def daemon_run(runs_dir: Path) -> None:
                 logger.warning("overlay sync failed: %s", exc)
 
     # ── Materialize one run from the pool ───────────────────────────
-    def _materialize_and_emit(run_id: str, outcome: str | None) -> None:
+    def _materialize_and_emit(
+        run_id: str,
+        outcome: str | None,
+        *,
+        acc: EventAccumulator | None = None,
+        supersede: bool = False,
+    ) -> None:
         """Write the run's parquet, ingest it, emit ``RunMaterialized``.
 
         Called from the materialize worker thread (NOT the event-
@@ -2295,7 +2306,8 @@ def daemon_run(runs_dir: Path) -> None:
         ``run_id`` (already materialized and evicted), this is a
         no-op.
         """
-        acc = pool.get(run_id)
+        if acc is None:
+            acc = pool.get(run_id)
         if acc is None:
             return
         # Diagnostic instrumentation for task #211 (intermittent partial
@@ -2349,8 +2361,20 @@ def daemon_run(runs_dir: Path) -> None:
                 logger.debug("Materialized-guard query failed (non-fatal): %s", exc)
                 already = None
             if already is not None:
-                pool.evict(run_id)
-                return
+                # A row already exists. Normally that means a redundant
+                # re-dispatch → skip. The exception is SUPERSEDE (#64): a real
+                # (non-derived) run.ended completing a run that was materialized
+                # as a synthetic abort. A real terminal is authoritative and
+                # overwrites the aborted row (ON CONFLICT DO UPDATE); a synthetic
+                # or duplicate one does not. ``supersede`` covers the re-hydrate
+                # path (fresh acc from the log); ``terminal_is_real`` covers the
+                # race where the real run.ended lands before the abort's eviction.
+                terminal_is_real = acc._run_ended is not None and not getattr(
+                    acc._run_ended, "derived", False
+                )
+                if not (supersede or terminal_is_real):
+                    pool.evict(run_id)
+                    return
             # One atomic transaction per run: the six ingest statements
             # (runs / steps / measurements / io+refs / measurement-rows) commit
             # together, so a concurrent reader never sees a half-materialized
@@ -2414,6 +2438,54 @@ def daemon_run(runs_dir: Path) -> None:
             # but defensive). Evict directly.
             pool.evict(run_id)
 
+    def _rehydrate_and_supersede(run_id: str) -> None:
+        """A real ``run.ended`` arrived for a run already materialized as a
+        synthetic abort (the sweep force-closed it, then the producer came back
+        and finished). Re-derive the run from the durable event log and overwrite
+        the aborted row with the true completion (#64, RE-HYDRATE).
+
+        Event-sourced by construction: the projection is rebuilt from the log
+        rather than patched in place, and no state is retained between the abort
+        and the completion. Idempotent — the ``events`` replay carries both the
+        synthetic and the real terminal; the accumulator keeps the last (the real
+        one, later ``received_at``), so the outcome is authoritative.
+        """
+        es = event_store_box[0]
+        if es is None:
+            return
+        # Only supersede something that is actually materialized; otherwise a
+        # stray/out-of-order run.ended is not ours to act on.
+        with write_lock:
+            try:
+                exists = conn.execute(
+                    "SELECT 1 FROM runs_materialized WHERE run_id = ? LIMIT 1", [run_id]
+                ).fetchone()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Supersede materialized-check failed: %s", exc)
+                return
+        if exists is None:
+            return
+        try:
+            rows = es.events(run_id=UUID(run_id))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Supersede replay query failed for %s: %s", run_id, exc)
+            return
+        acc = EventAccumulator()
+        for row in rows:
+            typed = typed_from_dict(row)
+            if typed is not None:
+                acc.on_event(typed)
+        # Rebuilt run must be complete and its terminal must be the REAL one; if
+        # the log still shows only the synthetic terminal there is nothing to
+        # supersede with.
+        if acc._run_started is None or acc._run_ended is None:
+            return
+        if getattr(acc._run_ended, "derived", False):
+            return
+        logger.info("Superseding synthetic abort for run %s with real completion", run_id)
+        _materialize_and_emit(run_id, acc._run_ended.outcome, acc=acc, supersede=True)
+        pool.evict(run_id)  # drop the stray terminal-only accumulator
+
     # ── Event dispatch ──────────────────────────────────────────────
     def _on_event(evt: dict[str, Any]) -> None:
         """Dispatch one event from the EventStore subscription.
@@ -2455,7 +2527,14 @@ def daemon_run(runs_dir: Path) -> None:
             run_id_str = str(rid)
             acc = pool.get(run_id_str)
             if acc is not None and acc._run_started is not None and acc._run_ended is not None:
-                materialize_queue.put((run_id_str, acc._run_ended.outcome))
+                materialize_queue.put((run_id_str, acc._run_ended.outcome, False))
+            elif et == "run.ended" and not evt.get("derived"):
+                # A REAL run.ended with no complete accumulator means the
+                # RunStarted was already evicted — the run is materialized. A real
+                # terminal for a materialized run is only ever the supersede of a
+                # synthetic abort (replay excludes materialized runs, so it is
+                # never a re-delivery). Re-hydrate and overwrite (#64).
+                materialize_queue.put((run_id_str, None, True))
 
     # ── Materialize worker thread ────────────────────────────────────
     def _materialize_worker() -> None:
@@ -2473,8 +2552,11 @@ def daemon_run(runs_dir: Path) -> None:
             except queue.Empty:
                 continue
             try:
-                run_id, outcome = item
-                _materialize_and_emit(run_id, outcome)
+                run_id, outcome, supersede = item
+                if supersede:
+                    _rehydrate_and_supersede(run_id)
+                else:
+                    _materialize_and_emit(run_id, outcome)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("materialize worker error: %s", exc)
             finally:

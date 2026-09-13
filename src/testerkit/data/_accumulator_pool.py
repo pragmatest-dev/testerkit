@@ -89,6 +89,22 @@ _EVENT_CLASSES: dict[str, type] = {
 }
 
 
+def typed_from_dict(evt_dict: dict[str, Any]) -> Any | None:
+    """Convert one raw event dict (from the events subscription or an
+    ``EventStore.events`` query) into its typed Pydantic event, or ``None`` if the
+    type is unknown or the payload doesn't validate. Shared by the live dispatch
+    path and the orphan sweep's re-hydrate replay so both parse identically."""
+    et = evt_dict.get("event_type")
+    cls = _EVENT_CLASSES.get(str(et) if et else "")
+    if cls is None:
+        return None
+    try:
+        return cls.model_validate(evt_dict)
+    except Exception as exc:  # noqa: BLE001 — a bad event must not kill the caller
+        logger.debug("Skipping unparseable event %s: %s", et, exc)
+        return None
+
+
 class AccumulatorPool:
     """Thread-safe pool of per-run :class:`EventAccumulator` instances.
 
@@ -143,14 +159,8 @@ class AccumulatorPool:
         Run-bearing events route into the accumulator keyed by
         ``run_id``, creating it on first sight.
         """
-        et = evt_dict.get("event_type")
-        cls = _EVENT_CLASSES.get(str(et) if et else "")
-        if cls is None:
-            return
-        try:
-            typed = cls.model_validate(evt_dict)
-        except Exception as exc:  # noqa: BLE001 — bad event must not kill watcher
-            logger.debug("Pool skipping unparseable event %s: %s", et, exc)
+        typed = typed_from_dict(evt_dict)
+        if typed is None:
             return
 
         if isinstance(typed, SessionStarted):
