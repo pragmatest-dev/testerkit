@@ -20,17 +20,73 @@ import threading
 import warnings
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 from urllib.parse import parse_qs
 
 import duckdb
 import pyarrow as pa
 import pyarrow.flight as flight
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from testerkit.data._daemon_lifecycle import DaemonManager
 
 _ACK = b"\x01"
+
+
+class BatchDisposition(BaseModel):
+    """Per-batch outcome returned in the do_put ack for hooks that report one
+    (the events terminal fence). ``inserted`` + ``deduped`` + ``len(rejected_ids)``
+    accounts for every submitted row: ``inserted`` landed new, ``deduped`` were
+    already present (``ON CONFLICT DO NOTHING``), ``rejected_ids`` were dropped by
+    the fence (post-seal producer revival). A replication client advances its
+    cursor on ``inserted``/``deduped`` only, never on ``rejected_ids``.
+
+    Serialized to JSON on the ack wire; hooks that don't report a disposition keep
+    the legacy one-byte ``_ACK`` instead."""
+
+    inserted: int = 0
+    deduped: int = 0
+    rejected_ids: list[str] = Field(default_factory=list)
+
+
+class PutResult(NamedTuple):
+    """A put-hook return that carries both the rows to fan out to subscribers
+    (``published`` — as before) and the batch disposition to report in the ack.
+    Only hooks that report a disposition return this; others return a plain
+    ``pa.Table | None`` and get the legacy ack."""
+
+    published: pa.Table | None
+    disposition: BatchDisposition
+
+
+def _unpack_hook_result(
+    result: pa.Table | None | PutResult,
+) -> tuple[pa.Table | None, BatchDisposition | None]:
+    """Normalize a put-hook return into ``(published, disposition)``. A plain
+    table (or ``None``) is a legacy hook with no disposition."""
+    if isinstance(result, PutResult):
+        return result.published, result.disposition
+    return result, None
+
+
+def _parse_ack_disposition(buf: pa.Buffer | bytes | None) -> BatchDisposition | None:
+    """Parse a do_put ack buffer into a :class:`BatchDisposition`, or ``None`` for
+    the legacy one-byte ack (or an unparseable payload — logged, never fatal to a
+    drain, since the write itself already succeeded)."""
+    if buf is None:
+        return None
+    raw = bytes(buf)  # pyarrow.Buffer or bytes
+    if raw == _ACK:
+        return None
+    try:
+        return BatchDisposition.model_validate_json(raw)
+    except ValueError:  # pydantic ValidationError subclasses ValueError
+        logging.getLogger(__name__).debug(
+            "FlightPutStream: unparseable do_put ack (%d bytes) — ignoring", len(raw)
+        )
+        return None
+
 
 # do_get ticket marker (in the SQL slot) that requests a live push
 # subscription instead of a one-shot query: ``db_name\0__SUBSCRIBE__``.
@@ -242,29 +298,43 @@ class FlightPutStream:
                 if not self._recover_locked():
                     raise
 
-    def drain(self) -> None:
-        """Block until all pending writes are confirmed by the server."""
+    def drain(self) -> list[BatchDisposition]:
+        """Block until all pending writes are confirmed by the server, returning
+        the per-batch dispositions in send order. Batches whose ack is the legacy
+        one-byte marker (non-events paths) contribute no disposition, so the list
+        may be shorter than the number of drained batches."""
         with self._lock:
             if self._reader is None or self._pending_acks == 0:
-                return
+                return []
             try:
-                for _ in range(self._pending_acks):
-                    self._reader.read()
+                dispositions = self._read_acks_locked(self._pending_acks)
                 self._pending_acks = 0
                 self._unacked.clear()
+                return dispositions
             except (OSError, flight.FlightError, pa.ArrowException):
                 # Daemon died mid-drain — reacquire, resend, confirm once more.
                 if self._recover_locked():
                     try:
-                        for _ in range(self._pending_acks):
-                            self._reader.read()
+                        dispositions = self._read_acks_locked(self._pending_acks)
                         self._pending_acks = 0
                         self._unacked.clear()
-                        return
+                        return dispositions
                     except (OSError, flight.FlightError, pa.ArrowException):
                         pass
                 self._reset()
                 raise
+
+    def _read_acks_locked(self, count: int) -> list[BatchDisposition]:
+        """Read ``count`` acks off the metadata channel, parsing each into a
+        disposition where present. Caller holds ``self._lock``."""
+        out: list[BatchDisposition] = []
+        if self._reader is None:
+            return out
+        for _ in range(count):
+            disp = _parse_ack_disposition(self._reader.read())
+            if disp is not None:
+                out.append(disp)
+        return out
 
     def close(self) -> None:
         """Drain pending acks, then close the stream and client."""
@@ -378,7 +448,7 @@ class DuckDBFlightServer(flight.FlightServerBase):
         # transaction lands. See the invariants doc, rule E1 vs R1.
         self._parallel = parallel
         self._tls = threading.local()
-        self._put_hooks: dict[str, Callable[[pa.Table], pa.Table | None]] = {}
+        self._put_hooks: dict[str, Callable[[pa.Table], pa.Table | None | PutResult]] = {}
         self._query_hooks: dict[str, Callable[[str], pa.Table]] = {}
         # Live push: per-db subscriber queues + the Arrow schema each
         # subscription stream yields. A ``do_get`` with the
@@ -455,7 +525,9 @@ class DuckDBFlightServer(flight.FlightServerBase):
             for buf in dead:
                 subs.remove(buf)
 
-    def register_put_hook(self, db_name: str, hook: Callable[[pa.Table], pa.Table | None]) -> None:
+    def register_put_hook(
+        self, db_name: str, hook: Callable[[pa.Table], pa.Table | None | PutResult]
+    ) -> None:
         """Register a custom do_put handler for a database name.
 
         The hook receives the Arrow table and is responsible for inserting
@@ -680,12 +752,14 @@ class DuckDBFlightServer(flight.FlightServerBase):
 
             table = pa.Table.from_batches([batch])
             published: pa.Table | None = None
+            disposition: BatchDisposition | None = None
             if parallel:
                 if hook is not None:
                     # Hook returns canonical rows to fan out (events rows
-                    # stamped with event_number) or None. It manages its
-                    # own thread-local cursor + retry — no lock here.
-                    published = hook(table)
+                    # stamped with event_number) or None — or a PutResult that
+                    # also carries a per-batch disposition (the events fence).
+                    # It manages its own thread-local cursor + retry — no lock.
+                    published, disposition = _unpack_hook_result(hook(table))
                 elif reg_target is not None:
                     reg_target.register(view_name, table)
                     reg_target.execute(
@@ -696,7 +770,7 @@ class DuckDBFlightServer(flight.FlightServerBase):
             else:
                 with self._lock:
                     if hook is not None:
-                        published = hook(table)
+                        published, disposition = _unpack_hook_result(hook(table))
                     elif conn is not None:
                         conn.register("_put_batch", table)
                         conn.execute(f"INSERT INTO {table_name} BY NAME SELECT * FROM _put_batch")
@@ -709,8 +783,14 @@ class DuckDBFlightServer(flight.FlightServerBase):
             if published is not None and self._subscribers.get(db_name):
                 self._publish(db_name, published)
 
-            # Ack: batch committed, safe to query
-            writer.write(pa.py_buffer(_ACK))
+            # Ack: batch committed, safe to query. Hooks that report a
+            # disposition (the events fence) send it as JSON so a replication
+            # client can advance its cursor on inserted/deduped only; all other
+            # paths keep the legacy one-byte ack.
+            if disposition is not None:
+                writer.write(pa.py_buffer(disposition.model_dump_json().encode()))
+            else:
+                writer.write(pa.py_buffer(_ACK))
 
     def shutdown(self) -> None:
         """Stop the server, ending any live subscription streams first.
@@ -739,7 +819,7 @@ def start_flight_server_in_daemon(
     daemon_dir: Path,
     db_name: str,
     conn: duckdb.DuckDBPyConnection,
-    put_hook: Callable[[pa.Table], pa.Table | None] | None,
+    put_hook: Callable[[pa.Table], pa.Table | None | PutResult] | None,
     port_file_name: str,
     thread_name: str,
     extra_setup: Callable[[DuckDBFlightServer], None] | None = None,

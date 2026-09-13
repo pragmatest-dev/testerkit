@@ -124,6 +124,13 @@ class EventBase(BaseModel):
     # completions through — so a run's async ``RunMaterialized`` still lands after
     # its session has sealed. Producers never set it.
     derived: bool = False
+    # ``True`` for events arriving via the replication path — already fenced at
+    # their source daemon and re-ingested here (re-ingest / replay after outage).
+    # The terminal fence exempts them for the same reason as ``derived``: both are
+    # trusted, non-producer origin, not post-seal revival. Stamped by the
+    # replication ingest primitive (GH-65); local producers never set it. JSON-only
+    # (no typed column) so the events DDL / projection fingerprint is unchanged.
+    replicated: bool = False
 
     def typed_payload_values(self) -> dict[str, str | None]:
         """Return promoted column values for this event as ``{col: str | None}``.

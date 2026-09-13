@@ -149,6 +149,21 @@ event from any process. Reconciliation: the grace window rescues a slow session;
 revival — a johnny-come-lately must open a NEW session (ZK semantics). The reaper is the one allowed
 foreign writer of a terminal event.
 
+**Fence exemptions + replication readiness (GH-62 / GH-63).** The spine-side fence's real invariant
+is *reject untrusted **producer** revival after seal* — not "no writes after seal". Two write kinds
+are exempt because they are trusted, non-producer origin: the daemon's own completions (`derived`)
+and re-ingests arriving over the replication path (`replicated`, a new base field on the event, a
+sibling of `derived`; producers never set it, so the fence exempts a replicated re-ingest of a sealed
+session). The marker is an honor-system JSON flag with the same trust profile as `derived`: the fence
+is a **correctness guardrail against buggy revival, not an auth boundary** — the auth boundary is the
+server ingest (token + TLS). The fence is now applied identically on **both** write paths — the live
+put-hook and the background IPC file-ingest, which also feeds the sealed set from each `SessionEnded`
+it reads — so a revival that reached an IPC file is not resurrected on a later re-derive (GH-63). The
+do_put ack carries a per-batch disposition (`inserted` / `deduped` / `rejected_ids`) instead of a
+fixed byte, so a replication client advances its cursor on accepted rows only. Known scaling limit
+(deferred to the server workstream): the in-memory sealed set grows unbounded — fine per-bench,
+revisit for the many-bench aggregator.
+
 **Producers vs consumers.** Sessions are **producer-only**. Readers (operator UI, MCP, CLI,
 materializer) hold a **session-less service connection**, query/subscribe across sessions, and emit
 no lifecycle events (as today — the query path never calls `emit()`). **Reader → writer is

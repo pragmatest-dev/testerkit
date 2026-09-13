@@ -10,6 +10,14 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ## [Unreleased]
 
+### Added
+
+- Replication groundwork for store-and-forward (GH-62 / GH-63): events carry a
+  `replicated` flag that is exempt from the terminal fence (alongside `derived`),
+  the fence is now enforced identically on both the live and file-ingest paths, and
+  the events `do_put` ack reports a per-batch disposition (inserted / deduped /
+  rejected) so a forwarder can advance its cursor on accepted rows only.
+
 ## [0.4.0] - 2026-07-18
 
 **Litmus is now TesterKit.** Releases through 0.3.1 shipped as `litmus-test`;

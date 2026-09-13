@@ -21,6 +21,7 @@ The pre-commit hook runs the same generator in `--check` mode, so source / docs 
 | `session_id` | `UUID` | *via* `uuid4()` |
 | `run_id` | `UUID \| None` | `None` |
 | `derived` | `bool` | `False` |
+| `replicated` | `bool` | `False` |
 <!-- GENERATED:event-types-base-fields:end -->
 
 `event_type` is the discriminator — every subclass declares it as a `Literal` with a fixed string value (shown as the section heading below).
