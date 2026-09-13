@@ -10,6 +10,7 @@ from testerkit.cli import (  # noqa: F401,E402
     data_cmd,
     discover_cmd,
     docs_cmd,
+    forward_cmd,
     instrument,
     mcp_cmd,
     metrics,

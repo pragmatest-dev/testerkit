@@ -201,6 +201,18 @@ Export a test run or session to a different format via event replay.
 | `-o`/`--output-dir` | `text` | Output directory |
 | `--data-dir` | `text` | Data directory |
 
+### `testerkit forward` {#cli-forward}
+
+Forward this bench's event WAL to a central server (store-and-forward).
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `--url` | `text` | Server ingest base URL (or $TESTERKIT_FORWARD_URL) |
+| `--data-dir` | `path` | Data dir to forward (default: resolved project data dir) |
+| `--interval` | `float` | Seconds between polls  *(default: `5.0`)* |
+| `--timeout` | `float` | Per-request HTTP timeout (seconds)  *(default: `30.0`)* |
+| `--once` | `flag` | Forward what's available, then exit |
+
 ### `testerkit grafana` (group) {#cli-grafana}
 
 Grafana dashboard provisioning and data server.
