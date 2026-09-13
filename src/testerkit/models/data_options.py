@@ -17,6 +17,8 @@ by scope (store or session) and by *who can change them*:
 
 from __future__ import annotations
 
+import os
+
 from pydantic import BaseModel, Field, model_validator
 
 # A run with no events for this long is force-closed by the runs daemon's orphan
@@ -25,6 +27,23 @@ from pydantic import BaseModel, Field, model_validator
 # renews the session lease, so the run is always reaped first). The runs daemon
 # imports this as its sweep timeout; SessionOptions validates the lease against it.
 RUN_ORPHAN_TIMEOUT_SECONDS = 900.0
+
+# Env override for the orphan-sweep timeout, needed for ops tuning and tests (the
+# default is 900s — impractical to wait out in a test). An invalid value falls
+# back to the default.
+RUN_ORPHAN_TIMEOUT_ENV = "TESTERKIT_RUN_ORPHAN_TIMEOUT"
+
+
+def resolve_orphan_timeout() -> float:
+    """The runs-daemon orphan-sweep timeout: the ``TESTERKIT_RUN_ORPHAN_TIMEOUT``
+    env override (seconds) if set and parseable, else ``RUN_ORPHAN_TIMEOUT_SECONDS``."""
+    raw = os.environ.get(RUN_ORPHAN_TIMEOUT_ENV)
+    if raw is None:
+        return RUN_ORPHAN_TIMEOUT_SECONDS
+    try:
+        return float(raw)
+    except ValueError:
+        return RUN_ORPHAN_TIMEOUT_SECONDS
 
 
 class ChannelOptions(BaseModel):

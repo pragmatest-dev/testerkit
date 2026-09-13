@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import queue
+import socket
 import sys
 import threading
 import warnings
@@ -49,6 +50,7 @@ from testerkit.data._accumulator_pool import (
     INFLIGHT_RUNS_SCHEMA,
     INFLIGHT_STEPS_SCHEMA,
     AccumulatorPool,
+    OpenRun,
 )
 from testerkit.data._daemon_lifecycle import _installed_version, _pid_alive
 from testerkit.data._duckdb_flight_server import (
@@ -71,7 +73,7 @@ from testerkit.data.schema_versions import (
     KNOWN_SCHEMA_VERSIONS,
     SchemaStore,
 )
-from testerkit.models.data_options import RUN_ORPHAN_TIMEOUT_SECONDS
+from testerkit.models.data_options import resolve_orphan_timeout
 from testerkit.models.enums import Comparator
 
 # Columns whose semantic type is a closed enum (Pydantic StrEnum), not
@@ -2522,7 +2524,7 @@ def daemon_run(runs_dir: Path) -> None:
         ingests, emits ``RunMaterialized``. Same code path as a clean
         producer-side close.
         """
-        orphan_timeout = RUN_ORPHAN_TIMEOUT_SECONDS
+        orphan_timeout = resolve_orphan_timeout()
         while not stop_event.is_set():
             stop_event.wait(timeout=30.0)
             if stop_event.is_set():
@@ -2537,25 +2539,18 @@ def daemon_run(runs_dir: Path) -> None:
         if es is None:
             return  # not yet attached; nothing to emit through
         now = datetime.now(UTC)
-        for run_id, _acc, pid, last_event_at in pool.open_runs():
-            is_orphan = False
-            reason = ""
-            if pid is not None:
-                alive = _check_pid_liveness(pid)
-                if alive is False:
-                    is_orphan = True
-                    reason = f"producer pid {pid} no longer exists"
-            if not is_orphan and last_event_at is not None:
-                if (now - last_event_at).total_seconds() > orphan_timeout:
-                    is_orphan = True
-                    reason = f"no events for {orphan_timeout:.0f}s"
+        local_hostname = socket.gethostname()
+        for run in pool.open_runs():
+            is_orphan, reason = _classify_orphan(
+                run, now=now, orphan_timeout=orphan_timeout, local_hostname=local_hostname
+            )
             if not is_orphan:
                 continue
             try:
-                _emit_synthetic_run_ended(es, run_id, now)
-                logger.info("Finalizing orphan run %s as aborted (%s)", run_id, reason)
+                _emit_synthetic_run_ended(es, run.run_id, now)
+                logger.info("Finalizing orphan run %s as aborted (%s)", run.run_id, reason)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Failed to emit synthetic RunEnded for %s: %s", run_id, exc)
+                logger.warning("Failed to emit synthetic RunEnded for %s: %s", run.run_id, exc)
 
     def _emit_synthetic_run_ended(es: Any, run_id: str, occurred_at: datetime) -> None:
         """Emit ``RunEnded(outcome="aborted")`` for an orphan.
@@ -2698,6 +2693,38 @@ def _check_pid_liveness(pid: int) -> bool | None:
         return True
     except OSError:
         return None
+
+
+def _classify_orphan(
+    run: OpenRun,
+    *,
+    now: datetime,
+    orphan_timeout: float,
+    local_hostname: str,
+    pid_liveness: Callable[[int], bool | None] = _check_pid_liveness,
+) -> tuple[bool, str]:
+    """Pure decision: is this open run an orphan, and why? Extracted from the
+    sweep closure so it is importable and unit-testable (no daemon/pool needed).
+
+    Producer pid liveness is authoritative ONLY when the producer ran on THIS
+    host — a replicated/foreign session's pid is meaningless in this process, so
+    it is never pid-checked here (that is the locality gate). A verified-live
+    local producer is NOT an orphan even if it has been quiet past the timeout
+    (the ``alive is True`` short-circuit — a busy-but-silent local run must not be
+    aborted). Otherwise — non-local, no pid, or indeterminate liveness — fall back
+    to the source-time inactivity clock.
+    """
+    pid = run.pid
+    if pid is not None and run.station_hostname == local_hostname:
+        alive = pid_liveness(pid)
+        if alive is False:
+            return True, f"producer pid {pid} no longer exists"
+        if alive is True:
+            return False, ""  # verified live — never abort on inactivity
+        # alive is None → indeterminate; fall through to the inactivity clock
+    if run.last_event_at is not None and (now - run.last_event_at).total_seconds() > orphan_timeout:
+        return True, f"no events for {orphan_timeout:.0f}s"
+    return False, ""
 
 
 if __name__ == "__main__":
