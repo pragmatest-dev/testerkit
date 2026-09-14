@@ -1,29 +1,59 @@
-"""``testerkit forward`` — store-and-forward this bench's event WAL to a server.
+"""``testerkit forward`` — store-and-forward this bench's data to a server.
 
-A thin loop over the public replication surface: read complete event batches from the
-local WAL past a durable cursor, POST them to a central server's authed ``/ingest``, and
-advance the cursor only on rows the server accepted. Exactly-once falls out of the
-server's ``id`` dedup, so a crash-and-resume simply re-sends and de-dupes.
+A thin loop over the public replication surface. Events forward unconditionally
+(unchanged default behavior, on since the original B1 build): read complete event
+batches from the local WAL past a durable cursor, POST them to a central server's authed
+``/ingest``, and advance the cursor only on rows the server accepted. Exactly-once falls
+out of the server's ``id`` dedup, so a crash-and-resume simply re-sends and de-dupes.
+
+Channel segments and file blobs forward ADDITIONALLY, opt-in via ``--channels`` /
+``--files`` (docs/22 Part B) — a plain ``testerkit forward`` with neither flag behaves
+exactly as before either flag existed. Both use the same store-and-forward shape as
+events (durable local cursor, advance only on a server-accepted POST), but since neither
+a channel segment nor a file blob has a WAL-style row ``id`` to dedup by, the "cursor" is
+a set of already-forwarded identifiers (segment path / file URI) rather than an offset —
+see ``testerkit.replication.read_closed_channel_segments`` /
+``read_new_file_records``. Channel segments carry no server-side dedup at all (each POST
+always creates a new object) and file blobs dedup server-side by content hash — see
+``docs/22-channels-files-spec.md`` Part B and the module-level REVIEW notes below for
+exactly what that means for exactly-once here.
 
 Meant to run standing (systemd/container) — it is NOT a DaemonManager daemon. Auth is a
 per-bench machine token in ``TESTERKIT_FORWARD_TOKEN``; the server URL is ``--url`` or
 ``TESTERKIT_FORWARD_URL``.
+
+REVIEW NEEDED — the ``/ingest/channels/{channel_id}`` and ``/ingest/files`` endpoints
+this module POSTs to do not exist on the server yet (testerkit-server's
+``ingest_channel_segment`` / ``ingest_file_blob`` are an unwired seam — see
+``testerkit_server/object_ingest.py``'s own module comment). The wire shapes below are
+this side's proposal, not a confirmed contract; channel/file forwarding cannot be
+end-to-end verified until the server side lands. Do not enable ``--channels``/``--files``
+against a real server without confirming its endpoints match.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from testerkit.cli.root import main
+
+if TYPE_CHECKING:
+    import pyarrow as pa
+
+    from testerkit.replication import ChannelSegment, FileRecord
 
 _TOKEN_ENV = "TESTERKIT_FORWARD_TOKEN"
 _URL_ENV = "TESTERKIT_FORWARD_URL"
@@ -35,22 +65,55 @@ _BENCH_LOCAL_EVENT_TYPES = frozenset({"run.materialized"})
 log = logging.getLogger("testerkit.forward")
 
 
-def _load_cursor(path: Path) -> dict[str, int]:
+def _load_json(path: Path) -> dict:
     try:
-        raw = json.loads(path.read_text())
-        return {str(k): int(v) for k, v in raw.items()}
+        return json.loads(path.read_text())
     except (OSError, ValueError):
         return {}
 
 
-def _save_cursor(path: Path, cursor: dict[str, int]) -> None:
+def _save_json(path: Path, obj: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix="._fwd-", suffix=".json")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(cursor, f)
+        json.dump(obj, f)
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)
+
+
+def _load_cursor(path: Path) -> dict[str, int]:
+    raw = _load_json(path)
+    try:
+        return {str(k): int(v) for k, v in raw.items()}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _save_cursor(path: Path, cursor: dict[str, int]) -> None:
+    _save_json(path, cursor)
+
+
+def _load_channels_cursor(path: Path) -> set[str]:
+    """The set of channel-segment ``rel_path`` values already forwarded."""
+    return set(_load_json(path).get("sent", []))
+
+
+def _save_channels_cursor(path: Path, sent: set[str]) -> None:
+    _save_json(path, {"sent": sorted(sent)})
+
+
+def _load_files_cursor(path: Path) -> tuple[set[str], set[str]]:
+    """``(sent_uris, sent_hashes)`` — the per-record cursor (URIs already
+    forwarded, never resent) plus a bandwidth-only content-hash dedup set
+    (bytes already shipped once from this bench are never re-uploaded under a
+    different URI; the server would just no-op dedupe them anyway)."""
+    raw = _load_json(path)
+    return set(raw.get("sent_uris", [])), set(raw.get("sent_hashes", []))
+
+
+def _save_files_cursor(path: Path, sent_uris: set[str], sent_hashes: set[str]) -> None:
+    _save_json(path, {"sent_uris": sorted(sent_uris), "sent_hashes": sorted(sent_hashes)})
 
 
 def _to_ipc_bytes(table) -> bytes:
@@ -116,6 +179,281 @@ def _forward_once(
     return disp
 
 
+# --------------------------------------------------------------------------- #
+# Channel segments (opt-in via --channels)                                    #
+# --------------------------------------------------------------------------- #
+
+# Envelope columns a closed segment carries alongside its payload (mirrors
+# ``ChannelIndex._INDEX_ENVELOPE`` — kept as its own copy here since that one
+# is a private implementation detail of the index, not a shared constant).
+_SEGMENT_ENVELOPE = frozenset(
+    {"received_at", "sampled_at", "source_method", "session_id", "sample_interval", "sample_offset"}
+)
+
+
+def _channel_wire_table(segment: ChannelSegment) -> pa.Table:
+    """Build the minimal per-sample wire table
+    ``testerkit_server.object_ingest.ingest_channel_segment`` expects
+    (``channel_id, session_id, session_short, t, offset, value`` + optional
+    ``dtype, units, schema_kind`` — see ``testerkit_server/channels_backend.py``'s
+    module docstring) from one closed local segment.
+
+    ASSUMPTION (REVIEW NEEDED): the local segment's ``received_at`` (always
+    present, system-side write time) is what maps to the server's windowing
+    column ``t`` — NOT ``sampled_at`` (nullable, hardware-side). This changes
+    what a windowed query's [t0, t1] means for hardware-timestamped channels;
+    ``sampled_at`` rides along as an extra passthrough column in case a future
+    server revision prefers it. For a scalar/array channel, the local
+    ``value`` column is passed through with its native Arrow type unchanged
+    (numeric stats on the server side work as-is); for an arbitrary struct
+    channel (no ``value`` column locally — its fields are spread across
+    top-level columns), the non-envelope columns are folded into one
+    JSON-encoded ``value`` string, same as ``ChannelIndex``'s own at-rest
+    encoding — the server's numeric stats computation is then a no-op for
+    those rows (not raised as an error, just skipped), also REVIEW NEEDED.
+    """
+    import pyarrow as pa
+
+    from testerkit.data.channels.models import ChannelDescriptor, encode_value
+
+    table = segment.table
+    n = table.num_rows
+    names = table.column_names
+
+    meta = (table.schema.metadata or {}).get(b"testerkit.channel_descriptor")
+    desc = ChannelDescriptor.model_validate_json(meta) if meta else None
+    value_type = desc.value_type if desc is not None else None
+    schema_kind = value_type.split(":")[0] if value_type else None
+    unit = desc.unit if desc is not None else None
+
+    session_ids = table.column("session_id").to_pylist() if "session_id" in names else [None] * n
+    session_id = next((s for s in session_ids if s), None)
+    session_short = session_id[:8] if session_id else None
+
+    if "value" in names:
+        value_col = table.column("value")
+    else:
+        rows = table.to_pylist()
+        payloads = [{k: v for k, v in r.items() if k not in _SEGMENT_ENVELOPE} for r in rows]
+        value_col = pa.array([encode_value(p) for p in payloads], type=pa.utf8())
+
+    sampled_at_col = (
+        table.column("sampled_at")
+        if "sampled_at" in names
+        else pa.array([None] * n, type=pa.timestamp("us", tz="UTC"))
+    )
+    offset_col = (
+        table.column("sample_offset").cast(pa.int64())
+        if "sample_offset" in names
+        else pa.array([None] * n, type=pa.int64())
+    )
+    source_method_col = (
+        table.column("source_method")
+        if "source_method" in names
+        else pa.array([""] * n, type=pa.utf8())
+    )
+
+    return pa.table(
+        {
+            "channel_id": pa.array([segment.channel_id] * n, type=pa.utf8()),
+            "session_id": pa.array(session_ids, type=pa.utf8()),
+            "session_short": pa.array([session_short] * n, type=pa.utf8()),
+            "t": table.column("received_at"),
+            "sampled_at": sampled_at_col,
+            "offset": offset_col,
+            "source_method": source_method_col,
+            "value": value_col,
+            "dtype": pa.array([value_type] * n, type=pa.utf8()),
+            "units": pa.array([unit] * n, type=pa.utf8()),
+            "schema_kind": pa.array([schema_kind] * n, type=pa.utf8()),
+        }
+    )
+
+
+def _post_channel_segment(
+    url: str, token: str, channel_id: str, table: pa.Table, *, timeout: float
+) -> dict:
+    """POST one closed segment to the proposed ``/ingest/channels/{channel_id}``
+    endpoint (Arrow IPC body, same transport as events' ``/ingest``). REVIEW
+    NEEDED: this endpoint does not exist on the server yet (see module
+    docstring) — response shape assumed to mirror
+    ``ingest_channel_segment``'s return, ``{"segment_key", "row_count"}``.
+    """
+    body = _to_ipc_bytes(table)
+    req = urllib.request.Request(
+        url.rstrip("/") + f"/ingest/channels/{urllib.parse.quote(channel_id, safe='')}",
+        data=body,
+        method="POST",
+        headers={"Content-Type": _ARROW_CONTENT_TYPE, "Authorization": f"Bearer {token}"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — our own server URL
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _forward_channels_once(
+    channels_dir: Path, cursor_path: Path, url: str, token: str, *, timeout: float
+) -> dict | None:
+    """Forward every closed channel segment not yet in the durable cursor.
+
+    Persists the cursor after EACH accepted segment (not batched at the end):
+    since a channel segment has no server-side dedup key (every accepted POST
+    always creates a new object — see ``ingest_channel_segment``'s docstring),
+    the only exactly-once guard is this bench never resending a path it has
+    already gotten a 2xx for. Persisting per-segment bounds a crash's replay
+    window to at most the one segment in flight, rather than the whole batch.
+    A raised exception (network/HTTP error) stops the pass without recording
+    that segment — it re-sends next poll, same as the events path.
+    """
+    from testerkit.replication import read_closed_channel_segments
+
+    sent = _load_channels_cursor(cursor_path)
+    segments = read_closed_channel_segments(channels_dir, sent)
+    if not segments:
+        return None
+    forwarded = 0
+    rows = 0
+    for seg in segments:
+        wire = _channel_wire_table(seg)
+        disp = _post_channel_segment(url, token, seg.channel_id, wire, timeout=timeout)
+        sent.add(seg.rel_path)
+        _save_channels_cursor(cursor_path, sent)
+        forwarded += 1
+        rows += disp.get("row_count") or 0
+    return {"segments": forwarded, "rows": rows}
+
+
+# --------------------------------------------------------------------------- #
+# File blobs (opt-in via --files)                                             #
+# --------------------------------------------------------------------------- #
+
+
+def _post_file_blob(url: str, token: str, record: FileRecord, *, timeout: float) -> dict:
+    """POST one blob + its sidecar to the proposed ``/ingest/files`` endpoint
+    as ``multipart/form-data`` (a "meta" JSON field + a "file" binary field —
+    chosen over a base64-in-JSON envelope so large blobs don't pay a ~33%
+    size inflation, and over headers-only metadata since a sidecar's
+    ``attributes`` bag has no size guarantee). REVIEW NEEDED: this endpoint
+    does not exist on the server yet (see module docstring); response shape
+    assumed to mirror ``ingest_file_blob``'s return, ``{"content_hash",
+    "inserted"}``. ``step_path`` is always ``None`` — local FileStore has no
+    such field to source it from (see the forward extension's review notes).
+    """
+    boundary = uuid.uuid4().hex
+    meta = {
+        "name": record.name,
+        "mime": record.metadata.mime,
+        "run_id": record.metadata.run_id,
+        "session_id": record.session_id,
+        "step_path": None,
+        "sidecar": record.metadata.model_dump(mode="json"),
+    }
+    mime = record.metadata.mime or "application/octet-stream"
+    body = b"".join(
+        [
+            f"--{boundary}\r\n".encode(),
+            b'Content-Disposition: form-data; name="meta"\r\n\r\n',
+            json.dumps(meta).encode("utf-8"),
+            b"\r\n",
+            f"--{boundary}\r\n".encode(),
+            f'Content-Disposition: form-data; name="file"; filename="{record.name}"\r\n'.encode(),
+            f"Content-Type: {mime}\r\n\r\n".encode(),
+            record.data,
+            f"\r\n--{boundary}--\r\n".encode(),
+        ]
+    )
+    req = urllib.request.Request(
+        url.rstrip("/") + "/ingest/files",
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Authorization": f"Bearer {token}",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — our own server URL
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _forward_files_once(
+    files_dir: Path, cursor_path: Path, url: str, token: str, *, timeout: float
+) -> dict | None:
+    """Forward every new FileStore artifact not yet in the durable cursor.
+
+    Content-hash addressed per docs/22 Part B: bytes already forwarded once
+    from this bench (tracked in ``sent_hashes``) are never re-uploaded even
+    under a different URI — the server dedupes by hash anyway, so this is a
+    bandwidth optimization, not a correctness requirement. The per-URI cursor
+    (``sent_uris``) is the correctness mechanism: a record is retired
+    (added to ``sent_uris``) only after either a confirmed 2xx POST or a local
+    hash-dedup skip, and the cursor is persisted after EACH record for the
+    same crash-window reasoning as channel segments.
+    """
+    from testerkit.replication import read_new_file_records
+
+    sent_uris, sent_hashes = _load_files_cursor(cursor_path)
+    records = read_new_file_records(files_dir, sent_uris)
+    if not records:
+        return None
+    forwarded = 0
+    skipped = 0
+    for rec in records:
+        content_hash = hashlib.sha256(rec.data).hexdigest()
+        if content_hash in sent_hashes:
+            sent_uris.add(rec.uri)
+            _save_files_cursor(cursor_path, sent_uris, sent_hashes)
+            skipped += 1
+            continue
+        _post_file_blob(url, token, rec, timeout=timeout)
+        sent_uris.add(rec.uri)
+        sent_hashes.add(content_hash)
+        _save_files_cursor(cursor_path, sent_uris, sent_hashes)
+        forwarded += 1
+    return {"files": forwarded, "skipped_dupe": skipped}
+
+
+def _forward_all_once(  # noqa: PLR0913
+    events_dir: Path,
+    events_cursor_path: Path,
+    channels_dir: Path,
+    channels_cursor_path: Path,
+    files_dir: Path,
+    files_cursor_path: Path,
+    url: str,
+    token: str,
+    *,
+    timeout: float,
+    channels: bool,
+    files: bool,
+) -> dict:
+    """Run one poll pass over every enabled store.
+
+    Events always run — this is exactly the original (pre-Part-B) behavior,
+    unconditional. Channels/files run only when their flag is enabled, so a
+    plain ``testerkit forward`` (``channels=False, files=False``) does exactly
+    what it did before either existed: one ``_forward_once`` call, nothing
+    else. Any store's failure raises out of this function immediately (the
+    caller's existing retry/backoff handles it exactly as it did for events
+    alone — a channel/file forward failure never silently swallows; it also
+    never blocks a store that already sent this pass, since each has already
+    advanced its own cursor by the time a later store raises).
+    """
+    result: dict[str, dict] = {}
+    disp = _forward_once(events_dir, events_cursor_path, url, token, timeout=timeout)
+    if disp is not None:
+        result["events"] = disp
+    if channels:
+        cdisp = _forward_channels_once(
+            channels_dir, channels_cursor_path, url, token, timeout=timeout
+        )
+        if cdisp is not None:
+            result["channels"] = cdisp
+    if files:
+        fdisp = _forward_files_once(files_dir, files_cursor_path, url, token, timeout=timeout)
+        if fdisp is not None:
+            result["files"] = fdisp
+    return result
+
+
 @main.command()
 @click.option("--url", default=None, help=f"Server ingest base URL (or ${_URL_ENV})")
 @click.option(
@@ -127,8 +465,33 @@ def _forward_once(
 @click.option("--interval", default=5.0, help="Seconds between polls")
 @click.option("--timeout", default=30.0, help="Per-request HTTP timeout (seconds)")
 @click.option("--once", is_flag=True, help="Forward what's available, then exit")
-def forward(url: str | None, data_dir: str | None, interval: float, timeout: float, once: bool):
-    """Forward this bench's event WAL to a central server (store-and-forward)."""
+@click.option(
+    "--channels/--no-channels",
+    default=False,
+    help="Also forward closed channel segments (off by default — events-only otherwise; "
+    "REVIEW NEEDED, see module docstring)",
+)
+@click.option(
+    "--files/--no-files",
+    default=False,
+    help="Also forward new file blobs + sidecars (off by default — events-only otherwise; "
+    "REVIEW NEEDED, see module docstring)",
+)
+def forward(  # noqa: PLR0913
+    url: str | None,
+    data_dir: str | None,
+    interval: float,
+    timeout: float,
+    once: bool,
+    channels: bool,
+    files: bool,
+):
+    """Forward this bench's event WAL to a central server (store-and-forward).
+
+    With ``--channels`` / ``--files``, also forwards closed channel segments
+    and new file blobs (docs/22 Part B) — off by default, so a plain
+    ``testerkit forward`` behaves exactly as it did before either existed.
+    """
     from testerkit.data.data_dir import resolve_data_dir
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -142,13 +505,34 @@ def forward(url: str | None, data_dir: str | None, interval: float, timeout: flo
     resolved = resolve_data_dir(Path(data_dir) if data_dir else None)
     events_dir = resolved / "events"
     cursor_path = events_dir / "_forward_cursor.json"
+    channels_dir = resolved / "channels"
+    channels_cursor_path = channels_dir / "_forward_cursor.json"
+    files_dir = resolved / "files"
+    files_cursor_path = files_dir / "_forward_cursor.json"
     log.info("forwarding %s → %s", events_dir, server)
+    if channels:
+        log.info("forwarding channel segments: %s → %s", channels_dir, server)
+    if files:
+        log.info("forwarding file blobs: %s → %s", files_dir, server)
 
     backoff = interval
     while True:
         try:
-            disp = _forward_once(events_dir, cursor_path, server, token, timeout=timeout)
+            result = _forward_all_once(
+                events_dir,
+                cursor_path,
+                channels_dir,
+                channels_cursor_path,
+                files_dir,
+                files_cursor_path,
+                server,
+                token,
+                timeout=timeout,
+                channels=channels,
+                files=files,
+            )
             backoff = interval  # reset after a clean pass
+            disp = result.get("events")
             if disp is not None:
                 log.info(
                     "forwarded: inserted=%s deduped=%s rejected=%s",
@@ -156,6 +540,10 @@ def forward(url: str | None, data_dir: str | None, interval: float, timeout: flo
                     disp.get("deduped"),
                     len(disp.get("rejected_ids", [])),
                 )
+            if "channels" in result:
+                log.info("forwarded channel segments: %s", result["channels"])
+            if "files" in result:
+                log.info("forwarded file blobs: %s", result["files"])
         except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError) as exc:
             # Transient — the cursor did NOT advance, so the batch re-sends next pass.
             log.warning("forward failed (will retry): %s", exc)

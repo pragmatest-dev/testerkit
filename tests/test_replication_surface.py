@@ -26,13 +26,27 @@ def test_replication_exposes_the_two_verbs() -> None:
     assert callable(replication.ingest_replicated)
 
 
+def test_replication_exposes_the_channel_and_file_forward_readers() -> None:
+    """docs/22 Part B — the read-only forwarding surface for channel segments
+    and file blobs (no local ingest counterpart; the receiver is a central
+    server's object storage, not another local data dir)."""
+    assert callable(replication.read_closed_channel_segments)
+    assert callable(replication.read_new_file_records)
+    assert replication.ChannelSegment is not None
+    assert replication.FileRecord is not None
+
+
 def test_replication_dunder_all_matches_actual_exports() -> None:
     assert set(replication.__all__) == {
         "BatchDisposition",
+        "ChannelSegment",
         "EVENT_CATALOG_VERSION",
         "EVENT_LOG_SCHEMA_VERSION",
         "EVENT_WAL_SCHEMA",
+        "FileRecord",
         "ingest_replicated",
+        "read_closed_channel_segments",
+        "read_new_file_records",
         "read_segments",
     }
     # Every name in __all__ actually resolves on the module.
