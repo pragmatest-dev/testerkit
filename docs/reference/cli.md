@@ -212,6 +212,8 @@ Forward this bench's event WAL to a central server (store-and-forward).
 | `--interval` | `float` | Seconds between polls  *(default: `5.0`)* |
 | `--timeout` | `float` | Per-request HTTP timeout (seconds)  *(default: `30.0`)* |
 | `--once` | `flag` | Forward what's available, then exit |
+| `--channels`/`--no-channels` | `flag` | Also forward closed channel segments (off by default — events-only otherwise; REVIEW NEEDED, see module docstring) |
+| `--files`/`--no-files` | `flag` | Also forward new file blobs + sidecars (off by default — events-only otherwise; REVIEW NEEDED, see module docstring) |
 
 ### `testerkit grafana` (group) {#cli-grafana}
 

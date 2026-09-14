@@ -20,11 +20,32 @@ Identity is preserved end to end: ``id`` (the dedup key), ``occurred_at`` (sourc
 time), ``writer_key`` and ``event_offset`` are carried verbatim. ``received_at`` and
 ``event_number`` are re-stamped by the receiving daemon — both are per-daemon-local
 by definition, so re-stamping them is correct, not lossy.
+
+Two additional READ-ONLY verbs support forwarding channel segments and file blobs
+to a *different* kind of receiver — a central server's object-storage ingest
+(``testerkit_server.object_ingest.ingest_channel_segment`` /
+``ingest_file_blob``), not another local data dir. There is no local
+``ingest_channel_*`` / ``ingest_file_*`` counterpart here because the receiving
+side already lives server-side; this module only reads the bench's own stores:
+
+* :func:`read_closed_channel_segments` — the sanctioned direct reader of
+  **closed** channel segment files (never the one a producer is still writing).
+* :func:`read_new_file_records` — the sanctioned direct reader of FileStore
+  blobs + their sidecars, past a set of already-forwarded URIs.
+
+Both skip a caller-supplied "already forwarded" set instead of taking an
+offset-style cursor: unlike an event WAL (one growing file per writer), a
+channel segment or a file blob is a whole, immutable, singly-written unit the
+moment it exists — so the durable cursor a caller persists (see
+``testerkit.cli.forward_cmd``) is simply the set of identifiers already sent,
+not a position to resume from.
 """
 
 from __future__ import annotations
 
 import json
+import re
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
@@ -36,6 +57,7 @@ from testerkit.data._duckdb_flight_server import BatchDisposition, FlightPutStre
 from testerkit.data._ipc_writer import read_ipc_batches
 from testerkit.data.event_log import _IPC_SCHEMA, EVENT_LOG_SCHEMA_VERSION
 from testerkit.data.events import EVENT_CATALOG_VERSION
+from testerkit.data.files.models import FileArtifactMetadata
 
 #: The Arrow IPC schema of an event WAL segment (envelope columns + typed payload
 #: columns), carrying the two version stamps in its metadata. A replicated segment
@@ -165,11 +187,144 @@ def ingest_replicated(data_dir: Path, table: pa.Table) -> BatchDisposition:
     return total
 
 
+# --------------------------------------------------------------------------- #
+# Channel segments — read-only forwarding surface (docs/22 Part B)            #
+# --------------------------------------------------------------------------- #
+
+# Segment filename convention: ``{channel_id}_{session_short}[_NNN].arrow``
+# (see ``ChannelStore._ensure_writer`` / ``_ChannelWriter.path``). Mirrors the
+# identical pattern in ``ChannelStore.list_channel_refs`` and
+# ``ChannelIndex._scan_disk`` — channel_id may itself contain ``_``, so the
+# greedy group only works because the filename is anchored on the trailing
+# 8-hex-char session_short (+ optional zero-padded rotation suffix).
+_SEGMENT_NAME_RE = re.compile(r"^(.+)_([0-9a-f]{8})(?:_\d+)?$")
+
+
+@dataclass(frozen=True)
+class ChannelSegment:
+    """One closed, complete channel segment ready to forward.
+
+    ``rel_path`` (POSIX, relative to the channels dir) is the stable dedup
+    identifier a caller's cursor tracks — a segment is written exactly once
+    then closed immutable (see ``ChannelStore``/``_ChannelWriter``), so a path
+    is never reused or reopened once it exists as a complete file.
+    """
+
+    channel_id: str
+    rel_path: str
+    table: pa.Table
+
+
+def read_closed_channel_segments(
+    channels_dir: Path, sent: set[str] | frozenset[str]
+) -> list[ChannelSegment]:
+    """Read every CLOSED channel segment under ``channels_dir`` not already in
+    ``sent`` (the caller's durable set of forwarded ``rel_path`` values).
+
+    The sanctioned direct reader of channel segment files for forwarding — the
+    channels analogue of :func:`read_segments`. A channel segment is opened,
+    written, and closed (EOS written) within a single flush of the producer's
+    ``_ChannelWriter``, so a file that reads back as a complete Arrow IPC
+    stream IS closed and will never be appended to again; one still being
+    written (a rare, brief race — see ``_ChannelWriter._flush_pending``) fails
+    to parse and is simply skipped, to be picked up once the write completes on
+    a later poll. This is the exact tolerance ``ChannelIndex._scan_disk``
+    already relies on for the same files.
+
+    An empty segment (zero rows — shouldn't normally occur, since a segment is
+    only created by a flush of buffered samples) is skipped rather than
+    forwarded. Channel ids that don't match the expected filename convention
+    are skipped (defensive — e.g. a stray non-segment ``.arrow`` file).
+    """
+    out: list[ChannelSegment] = []
+    for seg in sorted(channels_dir.glob("*/*.arrow")):
+        rel = seg.relative_to(channels_dir).as_posix()
+        if rel in sent:
+            continue
+        m = _SEGMENT_NAME_RE.match(seg.stem)
+        if not m:
+            continue
+        try:
+            table = ipc.open_stream(pa.OSFile(str(seg), "rb")).read_all()
+        except (pa.ArrowInvalid, OSError):
+            # Still being written (or torn) — not closed yet; retry next poll.
+            continue
+        if table.num_rows == 0:
+            continue
+        out.append(ChannelSegment(channel_id=m.group(1), rel_path=rel, table=table))
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# File blobs — read-only forwarding surface (docs/22 Part B)                  #
+# --------------------------------------------------------------------------- #
+
+_FILE_SIDECAR_SUFFIX = ".meta.json"
+
+
+@dataclass(frozen=True)
+class FileRecord:
+    """One FileStore artifact (blob bytes + its sidecar) ready to forward.
+
+    ``uri`` (the ``file://...`` URI ``FileStore.write`` returned) is the
+    stable per-record identifier a caller's cursor tracks — FileStore never
+    reuses or overwrites a key once published (see ``FileStore._unique_filename``).
+    """
+
+    uri: str
+    session_id: str
+    name: str
+    data: bytes
+    metadata: FileArtifactMetadata
+
+
+def read_new_file_records(files_dir: Path, sent: set[str] | frozenset[str]) -> list[FileRecord]:
+    """Read every FileStore artifact under ``files_dir`` whose ``uri`` is not
+    already in ``sent`` (the caller's durable set of forwarded URIs).
+
+    The sanctioned direct reader of FileStore blobs for forwarding — the files
+    analogue of :func:`read_segments`. Mirrors
+    ``testerkit.data.files.catalog.scan_sidecars``'s discovery walk (glob the
+    ``{date}/{session_id}/{name}.meta.json`` sidecars, resolve each to its
+    blob) but reads the blob bytes back too, since a forwarder ships the
+    artifact itself rather than cataloging it in place.
+
+    A sidecar whose blob is missing, or that fails to parse/read, is skipped
+    silently (defensive — the same tolerance ``scan_sidecars`` applies) and
+    picked up again on a later poll once/if it resolves. Reads the whole blob
+    into memory: fine for typical artifact sizes, a known limitation for very
+    large files (see the forward extension's review notes).
+    """
+    out: list[FileRecord] = []
+    for sidecar in sorted(files_dir.glob(f"*/*/*{_FILE_SIDECAR_SUFFIX}")):
+        blob = sidecar.with_name(sidecar.name[: -len(_FILE_SIDECAR_SUFFIX)])
+        if not blob.exists():
+            continue
+        session_id = blob.parent.name
+        name = blob.name
+        uri = f"file://{blob.parent.parent.name}/{session_id}/{name}"
+        if uri in sent:
+            continue
+        try:
+            metadata = FileArtifactMetadata.model_validate_json(sidecar.read_text())
+            data = blob.read_bytes()
+        except (OSError, ValueError):
+            continue
+        out.append(
+            FileRecord(uri=uri, session_id=session_id, name=name, data=data, metadata=metadata)
+        )
+    return out
+
+
 __all__ = [
     "EVENT_CATALOG_VERSION",
     "EVENT_LOG_SCHEMA_VERSION",
     "EVENT_WAL_SCHEMA",
     "BatchDisposition",
+    "ChannelSegment",
+    "FileRecord",
     "ingest_replicated",
+    "read_closed_channel_segments",
+    "read_new_file_records",
     "read_segments",
 ]
