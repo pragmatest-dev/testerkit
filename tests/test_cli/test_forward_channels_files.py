@@ -88,27 +88,21 @@ def test_channel_wire_table_scalar_passthrough(tmp_path: Path) -> None:
     wire = forward_cmd._channel_wire_table(seg)
 
     assert wire.num_rows == 1
+    # Real testerkit segment shape (docs/25 re-alignment) — the columns
+    # `ChannelIndex` reads; `channel_id` rides in the URL, `value_type`/`units`
+    # ride in the ChannelDescriptor schema metadata (not columns).
     assert set(wire.column_names) == {
-        "channel_id",
-        "session_id",
-        "session_short",
-        "t",
+        "received_at",
         "sampled_at",
-        "offset",
-        "source_method",
         "value",
-        "dtype",
-        "units",
-        "schema_kind",
+        "source_method",
+        "session_id",
+        "sample_interval",
+        "sample_offset",
     }
-    assert wire.column("channel_id").to_pylist() == ["psu.voltage"]
     assert wire.column("value").to_pylist() == [3.3]  # native float, not JSON-wrapped
-    assert wire.column("dtype").to_pylist() == ["scalar:float"]
-    assert wire.column("units").to_pylist() == ["V"]
-    assert wire.column("schema_kind").to_pylist() == ["scalar"]
-    assert wire.column("offset").to_pylist() == [0]
-    session_id = wire.column("session_id").to_pylist()[0]
-    assert wire.column("session_short").to_pylist() == [session_id[:8]]
+    assert wire.column("sample_offset").to_pylist() == [0]
+    assert (wire.schema.metadata or {}).get(b"testerkit.channel_descriptor") is not None
 
 
 def test_channel_wire_table_struct_value_is_json_encoded(tmp_path: Path) -> None:
@@ -119,9 +113,12 @@ def test_channel_wire_table_struct_value_is_json_encoded(tmp_path: Path) -> None
 
     wire = forward_cmd._channel_wire_table(seg)
     assert wire.num_rows == 1
+    # struct channel (no native `value` column) → JSON-encoded, exactly as
+    # ChannelIndex encodes it at rest, so the server's decode_value_column
+    # round-trips it.
     value = wire.column("value").to_pylist()[0]
     assert json.loads(value) == {"a": 1, "b": 2}
-    assert wire.column("schema_kind").to_pylist() == ["struct"]
+    assert (wire.schema.metadata or {}).get(b"testerkit.channel_descriptor") is not None
 
 
 def test_channel_wire_table_array_passthrough(tmp_path: Path) -> None:
@@ -131,8 +128,10 @@ def test_channel_wire_table_array_passthrough(tmp_path: Path) -> None:
     seg = read_closed_channel_segments(tmp_path / "channels", sent=set())[0]
 
     wire = forward_cmd._channel_wire_table(seg)
+    # array channel: native list `value` passed through unchanged (one row per
+    # capture), sample_interval preserved.
     assert wire.column("value").to_pylist() == [[1.0, 2.0, 3.0]]
-    assert wire.column("schema_kind").to_pylist() == ["array"]
+    assert wire.column("sample_interval").to_pylist() == [0.001]
 
 
 # --------------------------------------------------------------------------- #

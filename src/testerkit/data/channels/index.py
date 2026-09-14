@@ -16,11 +16,9 @@ read filters by a ``session_id`` query parameter, never an instance field.
 
 from __future__ import annotations
 
-import json
 import re
 import threading
 import time
-from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -35,6 +33,8 @@ from testerkit.data.channels.models import (
     ChannelSample,
     encode_value,
 )
+from testerkit.data.channels.window import decimate_table as _decimate_table
+from testerkit.data.channels.window import decode_value_column
 from testerkit.data.schema_dispatch import (
     SchemaVersionRefused,
     dispatch,
@@ -57,53 +57,10 @@ def _to_utc(dt: datetime | None) -> datetime | None:
     return dt.astimezone(UTC)
 
 
-def _lttb_indices(values: Sequence[float], n_out: int) -> list[int]:
-    """Largest Triangle Three Buckets downsampling — return selected indices.
-
-    Visually lossless: preserves peaks, valleys, and shape better than naive
-    stride decimation. Delegates to ``tsdownsample`` (compiled LTTB); first and
-    last points are always kept.
-
-    Reference: Sveinn Steinarsson, "Downsampling Time Series for Visual
-    Representation", MSc thesis, University of Iceland, 2013.
-    """
-    n = len(values)
-    if n <= n_out or n_out < 3:
-        return list(range(n))
-    # Heavy deps deferred off the module import path — only the decimation
-    # (query w/ max_points) path pays numpy/tsdownsample's load.
-    import numpy as np  # noqa: PLC0415
-    from tsdownsample import LTTBDownsampler  # noqa: PLC0415
-
-    indices = LTTBDownsampler().downsample(np.asarray(values, dtype=float), n_out=n_out)
-    return [int(i) for i in indices]
-
-
-def _decimate_table(table: pa.Table, max_points: int) -> pa.Table:
-    """Apply LTTB decimation to an Arrow table.
-
-    Uses the ``value`` column for scalar channels, or row index for
-    struct/array channels (where there's no single numeric column).
-    """
-    n = len(table)
-    if n <= max_points:
-        return table
-
-    # Find best column for LTTB area calculation
-    if "value" in table.schema.names:
-        col = table.column("value")
-        try:
-            values = [float(v.as_py()) for v in col]
-        except (TypeError, ValueError):
-            # Non-numeric value column — fall back to stride
-            indices = list(range(0, n, max(1, n // max_points)))[:max_points]
-            return table.take(indices)
-    else:
-        # Struct/array channel — use row index as proxy (preserves time density)
-        values = list(range(n))
-
-    indices = _lttb_indices(values, max_points)
-    return table.take(indices)
+# `lttb_indices` / `decimate_table` / `decode_value_column` now live in
+# `testerkit.data.channels.window` (single-sourced with the cloud serving tier);
+# `decimate_table` is imported above aliased as `_decimate_table` so existing
+# importers (e.g. `channels/store.py`) are unchanged.
 
 
 class ChannelIndex:
@@ -612,7 +569,7 @@ class ChannelIndex:
 
         if last_n is not None and table.num_rows > last_n:
             table = table.slice(table.num_rows - last_n)
-        table = self._decode_value_column(table)
+        table = decode_value_column(table)
         if max_points is not None and table.num_rows > max_points:
             table = _decimate_table(table, max_points)
         return table
@@ -640,25 +597,3 @@ class ChannelIndex:
                 seen.add(key)
             keep.append(i)
         return table if len(keep) == table.num_rows else table.take(keep)
-
-    @staticmethod
-    def _decode_value_column(table: pa.Table) -> pa.Table:
-        """JSON-decode the VARCHAR ``value`` column back to typed values.
-
-        Inverse of ``encode_value``: non-JSON strings pass through (matches
-        ``batch_row_to_sample``). Values within one channel are homogeneous,
-        so Arrow infers a single column type.
-        """
-        if "value" not in table.column_names or table.num_rows == 0:
-            return table
-        decoded: list[Any] = []
-        for v in table.column("value").to_pylist():
-            if v is None:
-                decoded.append(None)
-                continue
-            try:
-                decoded.append(json.loads(v))
-            except (json.JSONDecodeError, TypeError):
-                decoded.append(v)
-        idx = table.column_names.index("value")
-        return table.set_column(idx, "value", pa.array(decoded))

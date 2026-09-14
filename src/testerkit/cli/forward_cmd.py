@@ -192,43 +192,31 @@ _SEGMENT_ENVELOPE = frozenset(
 
 
 def _channel_wire_table(segment: ChannelSegment) -> pa.Table:
-    """Build the minimal per-sample wire table
-    ``testerkit_server.object_ingest.ingest_channel_segment`` expects
-    (``channel_id, session_id, session_short, t, offset, value`` + optional
-    ``dtype, units, schema_kind`` — see ``testerkit_server/channels_backend.py``'s
-    module docstring) from one closed local segment.
+    """Build the wire table for ``/ingest/channels/{channel_id}`` — testerkit's
+    REAL channel-segment shape (docs/25 re-alignment): the same columns
+    ``ChannelIndex`` reads — ``received_at, sampled_at, value, source_method,
+    session_id, sample_interval, sample_offset`` — carrying the segment's
+    ``ChannelDescriptor`` in the Arrow schema metadata so the server catalog can
+    read ``value_type``/``units`` without a registry lookup. The server stores
+    this shape as-is and windows it on ``received_at``. ``channel_id`` is NOT a
+    column — it rides in the ingest URL.
 
-    ASSUMPTION (REVIEW NEEDED): the local segment's ``received_at`` (always
-    present, system-side write time) is what maps to the server's windowing
-    column ``t`` — NOT ``sampled_at`` (nullable, hardware-side). This changes
-    what a windowed query's [t0, t1] means for hardware-timestamped channels;
-    ``sampled_at`` rides along as an extra passthrough column in case a future
-    server revision prefers it. For a scalar/array channel, the local
-    ``value`` column is passed through with its native Arrow type unchanged
-    (numeric stats on the server side work as-is); for an arbitrary struct
-    channel (no ``value`` column locally — its fields are spread across
-    top-level columns), the non-envelope columns are folded into one
-    JSON-encoded ``value`` string, same as ``ChannelIndex``'s own at-rest
-    encoding — the server's numeric stats computation is then a no-op for
-    those rows (not raised as an error, just skipped), also REVIEW NEEDED.
+    ``value`` typing: a scalar/array channel already has a native ``value``
+    column — passed through unchanged. A struct channel (no ``value`` column; its
+    fields spread across top-level columns) folds its non-envelope fields into
+    one JSON-encoded ``value`` string, exactly as ``ChannelIndex`` encodes them
+    at rest, so the server's ``decode_value_column`` round-trips it.
     """
     import pyarrow as pa
 
-    from testerkit.data.channels.models import ChannelDescriptor, encode_value
+    from testerkit.data.channels.models import encode_value
 
     table = segment.table
     n = table.num_rows
     names = table.column_names
 
-    meta = (table.schema.metadata or {}).get(b"testerkit.channel_descriptor")
-    desc = ChannelDescriptor.model_validate_json(meta) if meta else None
-    value_type = desc.value_type if desc is not None else None
-    schema_kind = value_type.split(":")[0] if value_type else None
-    unit = desc.unit if desc is not None else None
-
-    session_ids = table.column("session_id").to_pylist() if "session_id" in names else [None] * n
-    session_id = next((s for s in session_ids if s), None)
-    session_short = session_id[:8] if session_id else None
+    def _col(name, typ):  # noqa: ANN001, ANN202 — pa arrays, local helper
+        return table.column(name) if name in names else pa.array([None] * n, type=typ)
 
     if "value" in names:
         value_col = table.column("value")
@@ -237,37 +225,23 @@ def _channel_wire_table(segment: ChannelSegment) -> pa.Table:
         payloads = [{k: v for k, v in r.items() if k not in _SEGMENT_ENVELOPE} for r in rows]
         value_col = pa.array([encode_value(p) for p in payloads], type=pa.utf8())
 
-    sampled_at_col = (
-        table.column("sampled_at")
-        if "sampled_at" in names
-        else pa.array([None] * n, type=pa.timestamp("us", tz="UTC"))
-    )
-    offset_col = (
-        table.column("sample_offset").cast(pa.int64())
-        if "sample_offset" in names
-        else pa.array([None] * n, type=pa.int64())
-    )
-    source_method_col = (
-        table.column("source_method")
-        if "source_method" in names
-        else pa.array([""] * n, type=pa.utf8())
-    )
-
-    return pa.table(
+    wire = pa.table(
         {
-            "channel_id": pa.array([segment.channel_id] * n, type=pa.utf8()),
-            "session_id": pa.array(session_ids, type=pa.utf8()),
-            "session_short": pa.array([session_short] * n, type=pa.utf8()),
-            "t": table.column("received_at"),
-            "sampled_at": sampled_at_col,
-            "offset": offset_col,
-            "source_method": source_method_col,
+            "received_at": _col("received_at", pa.timestamp("us", tz="UTC")),
+            "sampled_at": _col("sampled_at", pa.timestamp("us", tz="UTC")),
             "value": value_col,
-            "dtype": pa.array([value_type] * n, type=pa.utf8()),
-            "units": pa.array([unit] * n, type=pa.utf8()),
-            "schema_kind": pa.array([schema_kind] * n, type=pa.utf8()),
+            "source_method": _col("source_method", pa.utf8()),
+            "session_id": _col("session_id", pa.utf8()),
+            "sample_interval": _col("sample_interval", pa.float64()),
+            "sample_offset": _col("sample_offset", pa.int64()),
         }
     )
+    # Preserve the ChannelDescriptor (+ any other) segment metadata so the server
+    # can read value_type/units at ingest — single-sourced with the local index.
+    meta = table.schema.metadata
+    if meta:
+        wire = wire.replace_schema_metadata(meta)
+    return wire
 
 
 def _post_channel_segment(
