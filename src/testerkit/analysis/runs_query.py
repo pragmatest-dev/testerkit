@@ -52,6 +52,36 @@ _VALID_USAGE_STATS_COLUMNS = frozenset(
 )
 
 
+def usage_stats_sql(by: str) -> str:
+    """Pure, no-I/O SQL builder for :meth:`RunsQuery.usage_stats` — factored
+    out of the method so a divergent-query parity test (e.g. a cloud service
+    that re-implements this aggregation on its own SQL dialect) can import
+    the real formula instead of hand-copying it into the test file.
+
+    ``by`` must be a column present in the ``runs`` table; an invalid name
+    raises ``ValueError`` before any SQL is built, exactly as ``usage_stats``
+    itself validates.
+    """
+    if by not in _VALID_USAGE_STATS_COLUMNS:
+        raise ValueError(
+            f"usage_stats: invalid group-by column {by!r}. "
+            f"Must be one of {sorted(_VALID_USAGE_STATS_COLUMNS)}."
+        )
+    return f"""
+        SELECT
+            {by} AS value,
+            COUNT(*) AS runs,
+            COUNT(*) FILTER (WHERE outcome = 'passed') AS pass_count,
+            COUNT(*) FILTER (WHERE outcome = 'failed') AS fail_count,
+            COUNT(*) FILTER (WHERE outcome = 'errored') AS errored_count,
+            MAX(started_at) AS last_run
+        FROM runs
+        WHERE {by} IS NOT NULL
+        GROUP BY {by}
+        ORDER BY runs DESC
+    """
+
+
 class RunRow(BaseModel):
     """One row from the ``runs`` table — denormalized run-level summary.
 
@@ -404,24 +434,7 @@ class RunsQuery:
         daemon returns one row per distinct value rather than up to
         ``limit`` full run rows — safe regardless of total run count.
         """
-        if by not in _VALID_USAGE_STATS_COLUMNS:
-            raise ValueError(
-                f"usage_stats: invalid group-by column {by!r}. "
-                f"Must be one of {sorted(_VALID_USAGE_STATS_COLUMNS)}."
-            )
-        sql = f"""
-            SELECT
-                {by} AS value,
-                COUNT(*) AS runs,
-                COUNT(*) FILTER (WHERE outcome = 'passed') AS pass_count,
-                COUNT(*) FILTER (WHERE outcome = 'failed') AS fail_count,
-                COUNT(*) FILTER (WHERE outcome = 'errored') AS errored_count,
-                MAX(started_at) AS last_run
-            FROM runs
-            WHERE {by} IS NOT NULL
-            GROUP BY {by}
-            ORDER BY runs DESC
-        """
+        sql = usage_stats_sql(by)
         return self._query_dicts(sql)
 
     def describe_columns(self) -> ColumnSchema:

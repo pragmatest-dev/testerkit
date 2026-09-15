@@ -1,12 +1,22 @@
 """Shared steps / measurement_facts projection SQL — sibling of ``run_projection``.
 
-Single source of truth for the step- and measurement-grain projections that turn
-measurement-grain per-run Parquet into flat rows, used by BOTH the local daemon's
-derivation and the cloud serving tier (`testerkit-server`), so a bench and the
-cloud can never derive a different ``steps`` / ``measurement_facts`` shape from the
-same data. ``source_sql`` is any relation exposing the measurement-grain columns
-(e.g. ``read_parquet([...], filename=true, union_by_name=true)`` — local paths or
-``s3://``). Pure SQL builders, no I/O — same discipline as ``run_projection``.
+The step- and measurement-grain projections that turn measurement-grain per-run
+Parquet into flat rows. ``source_sql`` is any relation exposing the measurement-grain
+columns (e.g. ``read_parquet([...], filename=true, union_by_name=true)`` — local
+paths or ``s3://``). Pure SQL builders, no I/O — same discipline as ``run_projection``.
+
+**Who uses this (accurately).** The cloud serving tier (`testerkit-server`) imports
+these builders directly, so its ``steps`` / ``measurement_facts`` shape is derived
+from testerkit, not a cloud copy. The local runs daemon retains its OWN equivalent
+derivation (``_runs_duckdb_daemon._bulk_insert_steps`` / ``_measurement_unnest_insert``)
+— it is NOT yet rewired to import this module (that would be an additive daemon change,
+a flagged follow-up). The two are separate implementations of the same projection;
+what keeps them honest is that BOTH are validated against testerkit's real
+event→accumulator→unified-rows output (this module by
+``tests/test_data/test_measurement_projection.py``'s real-derive parity; the daemon by
+its own ``StepsQuery``/``MeasurementsQuery`` tests), so neither can silently diverge
+from the derived truth. A direct projection==daemon SQL-equality test is the
+defense-in-depth follow-up.
 
 **On ``measurement_facts`` and ``step_name`` (intentional, not a divergence).**
 Locally, ``step_name`` lives on the fuller ``measurements`` VIEW (a join of the lean
