@@ -63,6 +63,7 @@ from testerkit.data._sql_helpers import sql_escape as _sql_escape
 from testerkit.data.backends._event_accumulator import EventAccumulator
 from testerkit.data.backends.parquet import materialize_run_to_parquet
 from testerkit.data.models import Outcome
+from testerkit.data.run_projection import runs_projection_select
 from testerkit.data.runs_duckdb_manager import RunsDuckDBManager
 from testerkit.data.schema_dispatch import (
     _ADAPTERS,
@@ -1308,42 +1309,12 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
     (``num_measurements``, ``num_steps``).
     """
     flist = _file_list_sql(parquet_paths)
+    source = f"read_parquet({flist}, filename=true, union_by_name=true)"
+    # Projection SELECT is shared with the cloud query service (run_projection.py),
+    # so the bench and the cloud can never derive a different runs shape.
     conn.execute(f"""
         INSERT INTO runs_materialized BY NAME
-        SELECT
-            run_id,
-            filename AS file_path,
-            session_id,
-            site_index,
-            site_name,
-            uut_serial_number, uut_part_number, uut_revision, uut_lot_number,
-            station_id, station_name, station_hostname,
-            fixture_id,
-            run_outcome AS outcome,
-            run_started_at AS started_at,
-            run_ended_at AS ended_at,
-            CAST(COALESCE(
-                SUM(len(measurements)) FILTER (WHERE record_type <> 'measurement'), 0
-            ) AS INTEGER)
-                AS num_measurements,
-            CAST(COUNT(*) FILTER (WHERE record_type = 'step') AS INTEGER)
-                AS num_steps,
-            test_phase, part_id, part_name, part_revision,
-            station_type, station_location, operator_id, operator_name, project_name,
-            git_commit, git_branch, git_remote,
-            python_version, testerkit_version, env_fingerprint
-FROM read_parquet({flist}, filename=true, union_by_name=true)
-        WHERE run_id IS NOT NULL
-        GROUP BY
-            filename, run_id, session_id, site_index, site_name,
-            uut_serial_number, uut_part_number, uut_revision, uut_lot_number,
-            station_id, station_name, station_hostname,
-            fixture_id,
-            run_outcome, run_started_at, run_ended_at,
-            test_phase, part_id, part_name, part_revision,
-            station_type, station_location, operator_id, operator_name, project_name,
-            git_commit, git_branch, git_remote,
-            python_version, testerkit_version, env_fingerprint
+        {runs_projection_select(source)}
 ON CONFLICT (run_id) DO UPDATE SET
             file_path = excluded.file_path,
             session_id = excluded.session_id,
