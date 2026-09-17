@@ -25,6 +25,7 @@ import pyarrow as pa
 import pytest
 
 from testerkit.data._accumulator_pool import AccumulatorPool
+from testerkit.data.backends._row_helpers import encode_lane_structs
 from testerkit.data.backends.parquet import _build_unified_rows_from_acc
 from testerkit.data.event_store import _parse_event_row
 from testerkit.data.events import (
@@ -35,8 +36,10 @@ from testerkit.data.events import (
     StepStarted,
 )
 from testerkit.data.measurement_projection import (
+    LANE_ROW_COLUMNS,
     MEASUREMENT_FACTS_COLUMNS,
     STEPS_COLUMNS,
+    lanes_projection_select,
     measurement_facts_projection_select,
     steps_projection_select,
 )
@@ -80,6 +83,20 @@ def test_measurement_facts_columns_match_projection() -> None:
     assert live_columns == tuple(name for name, _ in MEASUREMENT_FACTS_COLUMNS), (
         "measurement_projection.MEASUREMENT_FACTS_COLUMNS has drifted from "
         "measurement_facts_projection_select's actual output columns."
+    )
+
+
+def test_lane_columns_match_projection() -> None:
+    empty = pa.Table.from_pylist([], schema=RUN_ROW_SCHEMA)
+    con, source = _source(empty)
+    try:
+        rel = con.execute(lanes_projection_select(source))
+        live_columns = tuple(d[0] for d in rel.description)
+    finally:
+        con.close()
+    assert live_columns == tuple(name for name, _ in LANE_ROW_COLUMNS), (
+        "measurement_projection.LANE_ROW_COLUMNS has drifted from "
+        "lanes_projection_select's actual output columns."
     )
 
 
@@ -296,3 +313,78 @@ def test_measurement_facts_occurrence_index_discriminates_repeats() -> None:
     dicts = sorted((dict(zip(cols, r, strict=True)) for r in result), key=lambda d: d["step_index"])
     assert [d["occurrence_index"] for d in dicts] == [0, 1]
     assert [d["measurement_value"] for d in dicts] == [1.0, 2.0]
+
+
+# --------------------------------------------------------------------------- #
+# lanes_projection_select — behavioral (inputs/outputs EAV)                   #
+# --------------------------------------------------------------------------- #
+
+
+def _lane_vector_row(*, run_id: str, session_id: str) -> dict:
+    """One ``record_type='vector'`` row carrying real encoded lane structs —
+    built via ``encode_lane_structs`` (the actual at-rest encoder), not
+    hand-rolled dicts. Unpopulated ``RUN_ROW_SCHEMA`` fields default to None,
+    same convention as ``test_observation_pin.py``'s ``_make_vector_row``."""
+    populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
+    populated.update(
+        {
+            "record_type": "vector",
+            "run_id": run_id,
+            "session_id": session_id,
+            "uut_serial_number": "SN-LANE",
+            "step_name": "sweep_vin",
+            "step_index": 0,
+            "step_path": "sweep/vin",
+            "step_retry": 0,
+            "vector_index": 2,
+            "vector_outer_index": None,
+            "vector_retry": 0,
+            "inputs": encode_lane_structs({"vin": 5.5, "note": "sweep-point"}, units={"vin": "V"}),
+            "outputs": encode_lane_structs({"vout": 3.3}, units={"vout": "V"}),
+            "measurements": [],
+        }
+    )
+    return populated
+
+
+def _table_from_rows(rows: list[dict]) -> pa.Table:
+    cols = {f.name: [row.get(f.name) for row in rows] for f in RUN_ROW_SCHEMA}
+    return pa.table(cols, schema=RUN_ROW_SCHEMA)
+
+
+def test_lanes_projection_one_row_per_lane_entry() -> None:
+    run_id = str(uuid.uuid4())
+    session_id = str(uuid.uuid4())
+    table = _table_from_rows([_lane_vector_row(run_id=run_id, session_id=session_id)])
+
+    con, source = _source(table)
+    try:
+        result = con.execute(lanes_projection_select(source)).fetchall()
+        cols = [d[0] for d in con.description]
+    finally:
+        con.close()
+
+    dicts = [dict(zip(cols, r, strict=True)) for r in result]
+    assert len(dicts) == 3  # 2 input entries + 1 output entry
+
+    by_role_name = {(d["role"], d["name"]): d for d in dicts}
+    assert set(by_role_name) == {("input", "vin"), ("input", "note"), ("output", "vout")}
+
+    vin = by_role_name[("input", "vin")]
+    assert vin["value_json"] == "5.5"
+    assert vin["value"] == pytest.approx(5.5)
+    assert vin["unit"] == "V"
+    assert vin["step_path"] == "sweep/vin"
+    assert vin["vector_index"] == 2
+    assert vin["uut_serial_number"] == "SN-LANE"
+
+    note = by_role_name[("input", "note")]
+    assert note["value_json"] == '"sweep-point"'
+    assert note["value"] is None  # non-numeric — TRY_CAST yields NULL
+    assert note["unit"] is None
+
+    vout = by_role_name[("output", "vout")]
+    assert vout["value_json"] == "3.3"
+    assert vout["value"] == pytest.approx(3.3)
+    assert vout["unit"] == "V"
+    assert vout["run_id"] == run_id

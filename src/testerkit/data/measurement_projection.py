@@ -1,9 +1,14 @@
-"""Shared steps / measurement_facts projection SQL — sibling of ``run_projection``.
+"""Shared steps / measurement_facts / lanes projection SQL — sibling of
+``run_projection``.
 
-The step- and measurement-grain projections that turn measurement-grain per-run
-Parquet into flat rows. ``source_sql`` is any relation exposing the measurement-grain
-columns (e.g. ``read_parquet([...], filename=true, union_by_name=true)`` — local
-paths or ``s3://``). Pure SQL builders, no I/O — same discipline as ``run_projection``.
+The step-, measurement-, and lane-grain projections that turn measurement-grain
+per-run Parquet into flat rows. ``source_sql`` is any relation exposing the
+measurement-grain columns (e.g. ``read_parquet([...], filename=true, union_by_name=true)``
+— local paths or ``s3://``). Pure SQL builders, no I/O — same discipline as
+``run_projection``. ``lanes_projection_select`` (docs/25 #70 stage 1) is the
+inputs/outputs EAV counterpart to ``measurement_facts_projection_select``:
+same carrier rows and grain-key expressions, over the ``inputs``/``outputs``
+LIST<STRUCT> lanes instead of ``measurements``.
 
 **Who uses this (accurately).** The cloud serving tier (`testerkit-server`) imports
 these builders directly, so its ``steps`` / ``measurement_facts`` shape is derived
@@ -219,6 +224,150 @@ def steps_projection_select(source_sql: str) -> str:
             {STEP_DURATION_S_EXPR},
             measurement_count, markers
         FROM grain"""
+
+
+# ``lanes`` (inputs/outputs EAV) flat-row columns, in order — MUST match
+# `lanes_projection_select`'s SELECT list order exactly (drift-guarded).
+# Denormalized run context (same set as `MEASUREMENT_FACTS_COLUMNS`) + the
+# lane's carrier grain key + its own ``(role, name, value)`` payload.
+LANE_ROW_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("run_id", "STRING"),
+    ("file_path", "STRING"),
+    ("session_id", "STRING"),
+    ("site_index", "INTEGER"),
+    ("site_name", "STRING"),
+    ("uut_serial_number", "STRING"),
+    ("uut_part_number", "STRING"),
+    ("uut_revision", "STRING"),
+    ("uut_lot_number", "STRING"),
+    ("station_id", "STRING"),
+    ("station_name", "STRING"),
+    ("station_hostname", "STRING"),
+    ("fixture_id", "STRING"),
+    ("test_phase", "STRING"),
+    ("part_id", "STRING"),
+    ("part_name", "STRING"),
+    ("part_revision", "STRING"),
+    ("station_type", "STRING"),
+    ("station_location", "STRING"),
+    ("operator_id", "STRING"),
+    ("operator_name", "STRING"),
+    ("project_name", "STRING"),
+    ("run_started_at", "TIMESTAMP"),
+    ("run_ended_at", "TIMESTAMP"),
+    ("run_outcome", "STRING"),
+    ("step_index", "INTEGER"),
+    ("step_path", "STRING"),
+    ("step_retry", "INTEGER"),
+    ("vector_index", "INTEGER"),
+    ("vector_outer_index", "INTEGER"),
+    ("vector_retry", "INTEGER"),
+    ("role", "STRING"),
+    ("name", "STRING"),
+    ("value_json", "STRING"),
+    ("value", "FLOAT64"),
+    ("unit", "STRING"),
+)
+
+# Which lane list column feeds which ``role`` literal — the EAV split is a
+# UNION ALL over both, not two separate tables (unlike the local daemon's
+# ``inputs``/``outputs`` tables — see `_lane_unnest_select`'s docstring).
+_LANE_ROLES: tuple[tuple[str, str], ...] = (
+    ("inputs", "input"),
+    ("outputs", "output"),
+)
+
+
+def _lane_value_json_expr(alias: str) -> str:
+    """Reconstruct a lane entry's raw value as JSON text.
+
+    The at-rest lane struct (``_row_helpers.LANE_FIELDS``) is a type-dispatched
+    EAV, not a single raw-value column: ``value_type`` selects exactly one
+    ``value_*`` lane (``_lane_entry`` / ``_lane_value``), and only ``list``/
+    ``dict`` entries are pre-encoded as JSON text in ``value_json`` at write
+    time. This expression is the SQL twin of ``_lane_value`` fused with
+    ``json.dumps``: it dispatches on ``value_type`` the same way, and uses
+    DuckDB's ``to_json`` to serialize whichever typed lane holds the value so
+    every entry — scalar or nested — has one JSON-text representation.
+    """
+    return f"""CASE
+                WHEN {alias}.value_type IN ('list', 'dict') THEN {alias}.value_json
+                WHEN {alias}.value_type = 'scalar:bool' THEN to_json({alias}.value_bool)
+                WHEN {alias}.value_type = 'scalar:int' THEN to_json({alias}.value_int)
+                WHEN {alias}.value_type = 'scalar:float' THEN to_json({alias}.value_double)
+                WHEN {alias}.value_type = 'scalar:datetime' THEN to_json({alias}.value_timestamp)
+                ELSE to_json({alias}.value_text)
+            END"""
+
+
+def _lane_unnest_select(source_sql: str, *, col: str, role: str) -> str:
+    """One role's half of the ``lanes_projection_select`` UNION ALL —
+    UNNESTs ``v.{col}`` (``inputs`` or ``outputs``) from step AND vector rows,
+    tagging every row with the literal ``role``.
+
+    Grain-key expressions (``step_index``/``step_path``/``step_retry``/
+    ``vector_index``/``vector_outer_index``/``vector_retry``) are byte-identical
+    to `measurement_facts_projection_select`'s, so a lane row joins cleanly to
+    its carrier's measurement-fact rows on that key (same discipline the
+    daemon's ``_lane_insert`` documents for its own ``step_retry``/
+    ``vector_retry`` normalization).
+    """
+    proj_vi = "CASE WHEN v.record_type = 'vector' THEN v.vector_index END"
+    proj_vr = "CASE WHEN v.record_type = 'vector' THEN COALESCE(v.vector_retry, 0) END"
+    ctx_v = ",\n            ".join(f"v.{c}" for c in _RUN_CONTEXT_COLUMNS)
+    return f"""
+        SELECT
+            v.run_id, v.filename AS file_path,
+            {ctx_v},
+            v.run_started_at, v.run_ended_at,
+            CAST(v.run_outcome AS VARCHAR) AS run_outcome,
+            v.step_index, v.step_path, COALESCE(v.step_retry, 0) AS step_retry,
+            {proj_vi} AS vector_index,
+            v.vector_outer_index,
+            {proj_vr} AS vector_retry,
+            '{role}' AS role,
+            u.name AS name,
+            {_lane_value_json_expr("u")} AS value_json,
+            u.unit
+        FROM {source_sql} AS v, UNNEST(v.{col}) AS t(u)
+        WHERE v.run_id IS NOT NULL AND v.record_type IN ('step', 'vector')"""
+
+
+def lanes_projection_select(source_sql: str) -> str:
+    """Flat, long/EAV rows over the nested ``inputs``/``outputs`` lanes — one
+    row per lane entry, UNNESTed from step AND vector rows.
+
+    Mirrors `measurement_facts_projection_select`'s shape (denormalized run
+    context, same carrier rows, same grain-key expressions) but over the
+    ``inputs``/``outputs`` LIST<STRUCT> columns instead of ``measurements``.
+    ``role`` distinguishes an ``inputs`` entry from an ``outputs`` one (a
+    UNION ALL of both lists into one relation, not the local daemon's two
+    separate ``inputs``/``outputs`` tables — a projection is a single SELECT).
+
+    ``value_json`` is the lane's raw value reconstructed as JSON text (see
+    :func:`_lane_value_json_expr` — the lane struct is a type-dispatched EAV,
+    not a single raw-value column at rest); ``value`` is a ``TRY_CAST`` of
+    that JSON to DOUBLE, so a numeric lane (a swept input, a scalar output) is
+    queryable as a number and a non-numeric one (a string, a URI, a JSON list/
+    dict) comes through as NULL rather than raising.
+    """
+    role_selects = [
+        _lane_unnest_select(source_sql, col=col, role=role) for col, role in _LANE_ROLES
+    ]
+    union_sql = "\n            UNION ALL\n            ".join(role_selects)
+    return f"""
+        WITH lanes AS ({union_sql}
+        )
+        SELECT
+            run_id, file_path,
+            {", ".join(_RUN_CONTEXT_COLUMNS)},
+            run_started_at, run_ended_at, run_outcome,
+            step_index, step_path, step_retry,
+            vector_index, vector_outer_index, vector_retry,
+            role, name, value_json,
+            TRY_CAST(value_json AS DOUBLE) AS value,
+            unit
+        FROM lanes"""
 
 
 def _occurrence_index_expr(*, vector_index_expr: str) -> str:
