@@ -13,7 +13,7 @@ TesterKit is a Python-native hardware test platform for the AI-assisted era.
 | [Concepts](concepts/) | Parts, stations, capabilities, fixtures, and matching |
 | [Reference](reference/runtime/api.md) | MCP tools, HTTP endpoints, CLI, models |
 | [Integration](integration/) | Adopt TesterKit with existing tests and infrastructure |
-| [Examples](https://github.com/pragmatest-dev/testerkit/tree/main/examples) | Seven runnable example projects, each one rung of the framework adoption ladder (01-vanilla → 07-profiles) |
+| [Examples](https://github.com/pragmatest-dev/testerkit/tree/main/examples) | Twelve runnable example projects: a seven-rung adoption ladder (01-vanilla → 07-profiles), plus five standalone topical examples (08-waveform-evidence → 12-parallel-sites) |
 
 ## Quick Start
 

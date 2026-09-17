@@ -62,7 +62,7 @@ come from the TesterKit plugin for pytest. No conftest.py needed.
 After the starter project runs, the recommended progression:
 
 1. **[Tutorial](./docs/tutorial/index.md)** — Twelve short chapters from a first test through continuous production monitoring. Read in order; each builds on the last.
-2. **[Examples](./examples/README.md)** — A seven-step learning chain (`01-vanilla` → `07-profiles`), each a diff off the last, plus standalone data-tier examples. Clone, run, modify.
+2. **[Examples](./examples/README.md)** — A seven-step learning chain (`01-vanilla` → `07-profiles`), each a diff off the last, plus five standalone topical examples (`08-waveform-evidence` → `12-parallel-sites`) covering evidence, streaming, artifacts, querying, and multi-site. Clone, run, modify.
 3. **[Concepts](./docs/concepts/index.md)** — Reference for the vocabulary: station, fixture, part, sequence, capability, vector.
 
 When you're ready to leave mocks behind, [Real Instruments](./docs/tutorial/07-real-instruments.md) covers the transition.
