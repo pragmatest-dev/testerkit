@@ -1117,6 +1117,89 @@ rather than reinventing (or worse, under-thinking) it.
 
 ---
 
+## 15. `machine_id` — framework placement
+
+**Scope note:** the identity *model and rationale* (why a machine needs a
+stable identity distinct from hostname/station, how it relates to the
+observed-instance identity work) lives in the adjacent server-side design
+doc, `testerkit-server/docs/29-observed-instance-identity.md`, and in this
+repo's own `docs/_internal/explorations/station-machine-identity-prior-art.md`
+(prior-art survey of how TestStand/OpenHTF/etc. assign station/machine
+identity — see its §1.1 TestStand `StationOptions.StationID`, config-assigned
+with an optional GUID default, as the closest existing precedent). This
+section documents only the concrete framework-side placement — where the
+value lives on disk, how it's created, and what it's named — not a
+re-derivation of the identity model itself.
+
+- **Value**: a random **uuid4 GUID**, generated once. Not derived from
+  hardware, hostname, or any composite key — a bare opaque identity token for
+  this machine, in the same spirit as the `best-available-identity` resolver
+  in doc 29 preferring a device-unique id when hardware provides one, except
+  here there is no comparable "hardware-provided" signal for *the framework's
+  own host* to key off, so a generated GUID is the whole answer rather than a
+  fallback tier.
+- **Persistence**: global, **`~/.testerkit/machine_id`** — one file per
+  machine, a sibling of `credentials` under the `~/.testerkit/` home (§4.1),
+  shared by every project checkout and every installed TesterKit version on
+  the box (same shared-global-tier status as `credentials`; the multi-version
+  coexistence care in §14.4 applies to this file too — it should be
+  version-tolerant/stamped if it ever grows beyond a bare string).
+- **Persisted SEPARATELY from `credentials`.** `machine_id` and
+  `~/.testerkit/credentials` are two distinct files, not two fields of one
+  file. Deleting/rotating the token (§7) must never touch `machine_id`, and
+  vice versa — the identity of the box and its current auth grant are
+  independent lifecycles. This is the same "credential sits outside cache/
+  so a cache-clean can't de-auth" discipline in §5.3, applied to a different
+  pair: identity must survive a token wipe, and a token wipe must not require
+  regenerating identity.
+- **Creation: lazy, on first need, via one shared accessor.** A single
+  `get_or_create_machine_id()` function is the chokepoint — read the file if
+  it exists, else generate a uuid4, write it, and return it — mirroring
+  `resolve_data_dir()`'s role as *the* place path/identity resolution happens
+  rather than each call site re-deriving it (§3.2's "genuinely the
+  chokepoint" framing, and §3.3's "any dotfolder migration must introduce a
+  single `home()`-style accessor" lesson extended to this second piece of
+  global state). Callers: run-stamping (the new `machine_id` run column,
+  below), `testerkit connect`, `testerkit forward` — every call site that
+  needs "which machine is this" reads through the one accessor, never
+  re-implements the read-or-generate logic.
+- **Generate-on-first-run, NEVER baked into images.** A golden/base image used
+  to provision multiple benches must not ship a pre-populated
+  `~/.testerkit/machine_id` — that would make every bench cloned from the
+  image report the same identity, defeating the entire point of a
+  per-machine token. Image-prep tooling must explicitly **blank**
+  (delete) `~/.testerkit/machine_id` before an image is captured, the same
+  way cloud AMI/golden-image practice blanks `/etc/machine-id` before
+  capture so each boot regenerates its own. The lazy-create accessor above
+  makes this safe by construction: the first process on the newly-cloned
+  bench that calls `get_or_create_machine_id()` regenerates a fresh, correct
+  GUID.
+- **New run column: `machine_id`.** Stamped next to the `station_*` columns
+  (`station_id`, `station_name`, `station_type`, `station_location`,
+  `station_hostname` — `src/testerkit/data/backends/_row_helpers.py:320-324`,
+  `:485-489`, `:553-557`, `:582-586`) as a sibling field on the same run-row
+  models/dicts, populated from `get_or_create_machine_id()` rather than from
+  station config. Adding it is a durable-schema change to every store that
+  carries these row shapes — it **triggers a `schema_version` bump** (§14.2,
+  `src/testerkit/data/schema_versions.py`) and the same multi-version
+  coexistence care already spelled out in §14 (refuse-and-regenerate for
+  readers that don't understand the new stamp; never a silent misparse of a
+  row that now has one more column than an older version expects).
+- **Naming, one line**: `machine_id` is an **application-level GUID that this
+  repo's own accessor creates and owns** — it is explicitly **not** the
+  systemd/OS `/etc/machine-id` (a different, OS-provisioned identity this
+  doc's `machine_id` deliberately does not read or reuse; the "blank before
+  imaging" precedent above is borrowed from that OS convention, not the value
+  itself). The name `machine_id` was chosen over two rejected alternatives:
+  `system_id` (too close to "station" — this doc and doc 29 both already use
+  "station" for the config-assigned test-station identity, so `system_id`
+  would read as a synonym and invite confusion with `station_id`) and
+  `node_id` (collides with pytest's own `nodeid` vocabulary already in use
+  in this codebase — `step_node_id` exists as a column/field today — so
+  `node_id` would misread as "which test node" rather than "which machine").
+
+---
+
 ## Appendix — verification log (files opened, functions read)
 
 - `src/testerkit/data/data_dir.py` (full)
