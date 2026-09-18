@@ -207,7 +207,7 @@ Forward this bench's event WAL to a central server (store-and-forward).
 
 | Argument / option | Type | Description |
 |---|---|---|
-| `--url` | `text` | Server ingest base URL (or $TESTERKIT_FORWARD_URL) |
+| `--url` | `text` | Server ingest base URL (or $TESTERKIT_URL) |
 | `--data-dir` | `path` | Data dir to forward (default: resolved project data dir) |
 | `--interval` | `float` | Seconds between polls  *(default: `5.0`)* |
 | `--timeout` | `float` | Per-request HTTP timeout (seconds)  *(default: `30.0`)* |

@@ -19,8 +19,8 @@ always creates a new object) and file blobs dedup server-side by content hash �
 exactly what that means for exactly-once here.
 
 Meant to run standing (systemd/container) — it is NOT a DaemonManager daemon. Auth is a
-per-bench machine token in ``TESTERKIT_FORWARD_TOKEN``; the server URL is ``--url`` or
-``TESTERKIT_FORWARD_URL``.
+per-bench machine token in ``TESTERKIT_TOKEN``; the server URL is ``--url`` or
+``TESTERKIT_URL``.
 
 REVIEW NEEDED — the ``/ingest/channels/{channel_id}`` and ``/ingest/files`` endpoints
 this module POSTs to do not exist on the server yet (testerkit-server's
@@ -55,8 +55,8 @@ if TYPE_CHECKING:
 
     from testerkit.replication import ChannelSegment, FileRecord
 
-_TOKEN_ENV = "TESTERKIT_FORWARD_TOKEN"
-_URL_ENV = "TESTERKIT_FORWARD_URL"
+_TOKEN_ENV = "TESTERKIT_TOKEN"
+_URL_ENV = "TESTERKIT_URL"
 _ARROW_CONTENT_TYPE = "application/vnd.apache.arrow.stream"
 # The bench's own derivation signal — dropped so the SERVER re-derives runs itself
 # (forwarding it would evict the server's accumulator before it materializes).
