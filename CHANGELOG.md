@@ -16,7 +16,7 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ### Fixed
 
-## [0.4.1] - 2026-09-18
+## [0.5.0] - 2026-09-18
 
 ### Added
 
@@ -592,8 +592,8 @@ Initial public release on PyPI as `testerkit`.
   transports (`s3`, `gcs`, `azure`, `sftp`), and integrations (`pymeasure`,
   `ni`, `lxi`, `grafana`, `pdf`, `sbom`)
 
-[Unreleased]: https://github.com/pragmatest-dev/testerkit/compare/v0.4.1...HEAD
-[0.4.1]: https://github.com/pragmatest-dev/testerkit/compare/v0.4.0...v0.4.1
+[Unreleased]: https://github.com/pragmatest-dev/testerkit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/pragmatest-dev/testerkit/compare/v0.4.0...v0.5.0
 [0.2.0]: https://github.com/pragmatest-dev/testerkit/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/pragmatest-dev/testerkit/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/pragmatest-dev/testerkit/releases/tag/v0.1.2
