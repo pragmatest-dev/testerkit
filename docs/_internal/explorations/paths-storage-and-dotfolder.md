@@ -955,6 +955,168 @@ to the server integration currently in flight on this branch.
 
 ---
 
+## 14. Multi-version coexistence & concurrency (shared global store)
+
+**Future-work guidance, not something to implement now** — recorded here
+because it directly constrains how any *new* global artifact this doc
+proposes (`machine_id`, `credentials`) should be shaped, and because it is
+the same care lvkit takes with its own shared global home (§2).
+
+**The situation:** multiple repos on one machine each pin their **own**
+TesterKit version (one venv per checkout — the normal `uv`/editable-install
+pattern this repo itself uses), but all of them **share** the global
+`~/.testerkit/` store (§4.1, §5.1 step 4). Different package versions
+therefore read and write the same on-disk store concurrently — an older
+checkout's daemon and a newer checkout's daemon can both be pointed at
+`~/.testerkit/data/runs/` at the same time. This is not a new problem this
+doc introduces: it is the status quo today under
+`~/.local/share/testerkit/data/`, and the codebase already has three
+purpose-built mechanisms for it, verified below. They are described here as
+**existing, working infrastructure to build on**, not as gaps.
+
+### 14.1 Content-addressed derived index — coexistence, not clobbering
+
+`src/testerkit/data/_index_epoch.py`:
+
+- `index_file_name(fingerprint)` (`:33-40`) names the on-disk index
+  `` f"_index.{fingerprint[:12]}.duckdb" `` — a 12-hex-char prefix of a full
+  64-char content fingerprint. This is exactly what was observed live on
+  disk in §4.1a (`_index.927a7b67dc38.duckdb` for runs,
+  `_index.5060fe6df3b6.duckdb` for events).
+- The **filename** is keyed on the fingerprint alone — two package builds
+  that produce a *different* projection (schema DDL, adapter registry;
+  see the module's own description of what feeds the fingerprint,
+  `:160-164`) get **different files**, so an older and a newer version
+  sharing one global store never overwrite each other's index; each simply
+  opens its own content-addressed file (or builds it fresh the first time).
+  Two versions that happen to produce the *identical* projection collapse
+  onto the **same** file and share it — "the sharing collapse," named
+  explicitly in `stamp_epochs_ledger`'s docstring (`:239-241`,
+  ``"a behaviorally-identical projection can be, and often is, opened by
+  several package versions"``).
+- The **`(testerkit_version, schema_version, fingerprint)` triple** is
+  stamped as in-file *provenance*, not baked into the filename:
+  `stamp_index_meta` (`:53-85`) writes all three into an `_index_meta` table
+  inside the opened DuckDB file (`:74-80`) — this is how a human or
+  `testerkit data index list` can tell *which* versions built or touched a
+  given content-addressed file, and it's why the module doc frames content-
+  addressing as "the filename is the gate, the in-file `_index_meta` is
+  provenance" (module docstring, `:4-6`).
+- The **`_epochs.json`** ledger (`stamp_epochs_ledger`, `:226-281`;
+  `read_epochs_ledger`, `:283-313`) is the cross-version visibility layer:
+  every distinct `testerkit_version` that has ever opened a given
+  fingerprint's index gets appended to that entry's `seen_by` set
+  (`:235-236,271`) — this is precisely the bookkeeping a shared, multi-repo,
+  multi-version store needs to answer "which package versions have touched
+  this index," and it already exists, on disk, today (confirmed present:
+  `~/.local/share/testerkit/data/{runs,events}/_epochs.json`, §4.1a).
+- Corruption/incomplete-build self-heal (`open_index`, `:134-223`) discards
+  and rebuilds **only the index file itself** — never parquet — so a crash
+  in one version's process can never destroy another version's ability to
+  read the same durable data; only the disposable derived cache is at risk,
+  and it self-heals.
+
+### 14.2 Schema-version whitelist — refuse-and-regenerate, not misread
+
+`src/testerkit/data/schema_versions.py`:
+
+- Every durable artifact (`SchemaStore.RUNS`, `EVENTS_ENVELOPE`,
+  `EVENT_CATALOG`, `CHANNELS`, `FILES`, `:41-58`) carries a schema-version
+  stamp; `CURRENT_SCHEMA_VERSION` (`:64-70`) is the one home for "what a
+  freshly-written artifact of this kind looks like today" — currently `"0.1"`
+  for every store (module comment `:14-15`: deliberately decoupled from the
+  package version — schema `0.1` at package `0.3.0` is not a mismatch).
+- `KNOWN_SCHEMA_VERSIONS` (`:82-85`) is the **whitelist-dispatch** set each
+  store's reader checks a stamp against — `CURRENT_SCHEMA_VERSION` ∪ any
+  `_LEGACY_READABLE` versions that store still ships an adapter for
+  (`_LEGACY_READABLE` is empty today for every store, `:76`, since nothing
+  has yet reached a second schema epoch). The module docstring states the
+  refusal behavior explicitly: *"Unstamped artifacts are unsupported by
+  design (regenerate)"* (`:33`) and *"Anything not in this set is refused at
+  read time (\"unsupported schema version\"); an absent stamp is refused as
+  unstamped/pre-baseline (\"regenerate\")"* (`:79-81`).
+- This is the deliberate opposite failure mode from silent misreading: an
+  **older** TesterKit version that encounters a **newer** store's schema
+  stamp (once a future epoch bump ships) refuses cleanly rather than
+  attempting to parse a shape it doesn't understand — the module frames this
+  as "coexist-always + optional-migrate" (`:11`, cross-referencing
+  `docs/_internal/explorations/schema-versioning-migration.md`).
+
+### 14.3 Cross-process file locks — the concurrency primitive, with its known limit
+
+`src/testerkit/instruments/locks.py` (full file read in §3.3 already; cited
+again here for the concurrency angle specifically):
+
+- Uses `filelock` (`FileLock`, imported `:22`) — OS-level `fcntl.flock()` on
+  Linux/macOS — so a lock **auto-releases on process death, including
+  `SIGKILL`** (module docstring `:1-4`), which is exactly the property a
+  shared store touched by independently-versioned, independently-crashable
+  processes needs: a killed daemon from one repo's venv can never leave a
+  stale lock that blocks a different repo's venv.
+- `_lock_dir()` (`:34-37`) anchors these lock files under
+  `_testerkit_home() / "locks"` — already global, already shared across
+  every version and every project checkout on the machine (this is the
+  existing behavior §3.3/§4.1a's target layout carries forward unchanged
+  into `~/.testerkit/locks/`).
+- **Documented limitation, not silently glossed over**: the module docstring
+  states it plainly — *"`filelock` uses `fcntl.flock()` on Linux/macOS, which
+  only works on a single machine. Cross-machine coordination is future
+  work"* (`:8-9`). Multi-**version**, single-machine concurrency is covered;
+  multi-**machine** concurrency (e.g. two benches both trying to reach the
+  same instrument over a network) is explicitly out of scope for this
+  primitive today.
+
+### 14.4 Requirements this imposes on the new global artifacts
+
+Given the three mechanisms above already handle "many versions, one shared
+store" for the *existing* global state (derived indexes, durable parquet/WAL,
+instrument locks), the **new** global artifacts this doc introduces
+(`~/.testerkit/machine_id`-or-equivalent identity state, and
+`~/.testerkit/credentials`, §4.1/§6.2/§7) should be held to the same bar:
+
+1. **New global state must be version-tolerant/stamped.** Neither
+   `machine_id` nor `credentials` has a format defined yet (both are, today,
+   simple opaque strings — a token, an identity value) — low risk *today*,
+   but the schema-versioning module's own lesson applies: stamp a version
+   field into whatever structured shape these files eventually take (even a
+   trivial `{"v": 1, ...}` envelope), so a future format change doesn't lock
+   an older repo's TesterKit out of a file it needs to at least *recognize*,
+   the same way `schema_versions.py` lets a reader say "I don't understand
+   this stamp" instead of misparsing silently.
+2. **Favor coexistence over in-place format bumps for shared DURABLE
+   state.** The index's content-addressed-by-fingerprint approach (§14.1) is
+   the model: different versions get different files instead of one file
+   different versions fight over. "Refuse unsupported → regenerate"
+   (§14.2's behavior) is the right call for *derived* state a single repo
+   owns, but it is a real UX cliff for something living in the **shared**
+   global store — an older repo cannot safely "regenerate" the machine's
+   global credential/identity file out from under a newer repo that is
+   concurrently relying on it. Project-local `.testerkit/data/` (owned by
+   one repo, one version at a time in practice) can afford to be stricter;
+   anything in the **global** shared tier should default to coexistence.
+3. **Migration must not strand a concurrently-running older version.** The
+   don't-clobber migration guard in §9 already carries this spirit for the
+   litmus/XDG → `.testerkit/` move; the same principle extends forward to
+   any later shared-global-store schema change: prefer versioned/additive
+   artifacts (a new file, a new key, a new content-address) over destructive
+   in-place rewrites for anything under `~/.testerkit/` that more than one
+   installed version might touch concurrently.
+4. **Cache stays strictly deletable.** `cache/` (§4.1, §5.3) carries no
+   cross-version compatibility burden at all by construction — any format
+   change there is safe by definition, the same guarantee lvkit's
+   `cleanup_legacy_cache()` (§2) already relies on to freely `rmtree` whole
+   cache subtrees on its own layout-version bumps. This is the one tier
+   where "just delete and rebuild" is always the correct answer regardless
+   of how many versions are touching the store.
+
+None of the above is a call to build anything today — `machine_id` and
+`credentials` don't exist yet (§3.4, §7), and the mechanisms in §14.1-14.3
+are cited as prior art to follow, not gaps to fill. This section exists so
+that whoever implements §4.1/§6.2/§7 inherits this constraint deliberately
+rather than reinventing (or worse, under-thinking) it.
+
+---
+
 ## Appendix — verification log (files opened, functions read)
 
 - `src/testerkit/data/data_dir.py` (full)
@@ -971,6 +1133,8 @@ to the server integration currently in flight on this branch.
 - `/home/ryanf/repos/lvkit/src/lvkit/cache_paths.py` (full, 562 lines)
 - `/home/ryanf/repos/lvkit/src/lvkit/project_store.py` (lines 1-150)
 - `src/testerkit/instruments/locks.py` (full, 179 lines)
+- `src/testerkit/data/_index_epoch.py` (full, 343 lines — §14.1)
+- `src/testerkit/data/schema_versions.py` (full, 86 lines — §14.2)
 - `src/testerkit/cli/data_cmd.py` (lines 140-239)
 - `src/testerkit/connect.py` (`_find_project_config`, `connect`,
   `_default_station_id`, lines 575-634)
