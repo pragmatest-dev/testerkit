@@ -32,9 +32,9 @@ The breaking unit is the **epoch = leftmost-significant SemVer component**:
   table the same way the post-1.0 additive tier below describes. A column
   addition earns a version bump only when it changes the *meaning* of
   existing data or a reader needs to know the column exists to interpret a
-  row correctly (i.e. it stops being safely ignorable) — e.g. ``runs``'
-  ``machine_id`` (nullable, purely additive, old rows simply predate it)
-  stayed on ``"0.1"``.
+  row correctly (i.e. it stops being safely ignorable) — e.g. ``runs``' /
+  ``channels``' / ``files``' ``machine_id`` (nullable, purely additive, old
+  rows simply predate it) all stayed on ``"0.1"``.
 - **Post-1.0** — the **MAJOR** is the epoch. ``1.0 -> 1.1`` becomes additive
   (``union_by_name`` null-fills old files, ``ALTER TABLE ADD COLUMN IF NOT
   EXISTS`` extends the projection); ``1.x -> 2.0`` is the breaking epoch,

@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS file_catalog (
     uri VARCHAR PRIMARY KEY,
     session_id VARCHAR,
     run_id VARCHAR,
+    machine_id VARCHAR,
     name VARCHAR,
     path VARCHAR,
     mime VARCHAR,
@@ -55,6 +56,7 @@ _CATALOG_COLUMNS = (
     "uri",
     "session_id",
     "run_id",
+    "machine_id",
     "name",
     "path",
     "mime",
@@ -79,6 +81,7 @@ CATALOG_ARROW_SCHEMA = pa.schema(
         ("uri", pa.utf8()),
         ("session_id", pa.utf8()),
         ("run_id", pa.utf8()),
+        ("machine_id", pa.utf8()),
         ("name", pa.utf8()),
         ("path", pa.utf8()),
         ("mime", pa.utf8()),
@@ -118,8 +121,9 @@ FRAME_ARROW_SCHEMA = pa.schema(
 def ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """Idempotently align the on-disk catalog schema (additive open)."""
     conn.execute(CATALOG_DDL)
-    # Additive upgrade for catalogs created before run_id existed.
+    # Additive upgrade for catalogs created before run_id/machine_id existed.
     conn.execute("ALTER TABLE file_catalog ADD COLUMN IF NOT EXISTS run_id VARCHAR")
+    conn.execute("ALTER TABLE file_catalog ADD COLUMN IF NOT EXISTS machine_id VARCHAR")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_file_catalog_created ON file_catalog(created_at)")
 
 
@@ -152,6 +156,7 @@ def catalog_row(
         "uri": uri,
         "session_id": session_id,
         "run_id": meta.run_id,
+        "machine_id": meta.machine_id,
         "name": name,
         "path": key,
         "mime": meta.mime,

@@ -97,6 +97,7 @@ def test_channel_wire_table_scalar_passthrough(tmp_path: Path) -> None:
         "value",
         "source_method",
         "session_id",
+        "machine_id",
         "sample_interval",
         "sample_offset",
     }

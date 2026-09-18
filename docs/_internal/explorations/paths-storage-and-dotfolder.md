@@ -1159,10 +1159,10 @@ re-derivation of the identity model itself.
   rather than each call site re-deriving it (§3.2's "genuinely the
   chokepoint" framing, and §3.3's "any dotfolder migration must introduce a
   single `home()`-style accessor" lesson extended to this second piece of
-  global state). Callers: run-stamping (the new `machine_id` run column,
-  below), `testerkit connect`, `testerkit forward` — every call site that
-  needs "which machine is this" reads through the one accessor, never
-  re-implements the read-or-generate logic.
+  global state). Callers: session-stamping (`SessionStarted`, the source of
+  truth — see below), `testerkit connect`, `testerkit forward` — every call
+  site that needs "which machine is this" reads through the one accessor,
+  never re-implements the read-or-generate logic.
 - **Generate-on-first-run, NEVER baked into images.** A golden/base image used
   to provision multiple benches must not ship a pre-populated
   `~/.testerkit/machine_id` — that would make every bench cloned from the
@@ -1174,17 +1174,39 @@ re-derivation of the identity model itself.
   makes this safe by construction: the first process on the newly-cloned
   bench that calls `get_or_create_machine_id()` regenerates a fresh, correct
   GUID.
-- **New run column: `machine_id`.** Stamped next to the `station_*` columns
-  (`station_id`, `station_name`, `station_type`, `station_location`,
-  `station_hostname` — `src/testerkit/data/backends/_row_helpers.py:320-324`,
-  `:485-489`, `:553-557`, `:582-586`) as a sibling field on the same run-row
-  models/dicts, populated from `get_or_create_machine_id()` rather than from
-  station config. Adding it is a durable-schema change to every store that
-  carries these row shapes — it **triggers a `schema_version` bump** (§14.2,
-  `src/testerkit/data/schema_versions.py`) and the same multi-version
-  coexistence care already spelled out in §14 (refuse-and-regenerate for
-  readers that don't understand the new stamp; never a silent misparse of a
-  row that now has one more column than an older version expects).
+- **Captured at the SESSION, not the run — corrected 2026-09-18.** An earlier
+  revision of this section proposed `machine_id` as a "new run column,"
+  stamped only via `RunStarted`/`RunScope`. That is wrong: a **session** can
+  exist with no run at all — streaming channels or uploading files via
+  `connect()` with no test executing — so run-level-only stamping left
+  every run-less session's channels/files with no `machine_id` anywhere. The
+  SOURCE OF TRUTH is `SessionStarted` (`src/testerkit/data/events.py`,
+  populated by `SessionStarted.from_station()` via `get_or_create_machine_id()`,
+  the same fallback idiom already used there for `station_hostname`), exposed
+  on the session handle as `SessionScope.machine_id`
+  (`src/testerkit/execution/session_scope.py`). Runs, channels, and files each
+  denormalize it from there:
+  - **Runs**: `RunScope` accepts an explicit `machine_id` (inherited from
+    `SessionScope.machine_id` by the pytest run fixture), falling back to the
+    accessor only for a bare `RunScope` built outside any open session. It
+    lands as a sibling field on `TestRun`/`RunStarted` next to the `station_*`
+    columns (`src/testerkit/data/backends/_row_helpers.py`), unchanged from
+    the shape landed in `1a1ebc85`.
+  - **Channels**: `ChannelStore` takes a `machine_id` constructor param
+    (defaulting to the accessor), stamped onto every sample row alongside
+    `session_id` (`src/testerkit/data/channels/models.py`,
+    `src/testerkit/data/channels/store.py`) and denormalized into the warm
+    DuckDB index (`src/testerkit/data/channels/index.py`).
+  - **Files**: `FileStore.write()`/`open_stream()` take a `machine_id` kwarg
+    (defaulting to the accessor), stamped onto the `FileArtifactMetadata`
+    sidecar (`src/testerkit/data/files/models.py`) and the `file_catalog` row
+    built from it (`src/testerkit/data/files/catalog.py`).
+
+  All three additions are **additive nullable columns within the existing
+  `"0.1"` epoch — no `schema_version` bump**, matching the reasoning already
+  proven for the runs column (`src/testerkit/data/schema_versions.py`'s
+  additive-within-an-epoch note): old rows/sidecars simply predate the field
+  and read back `None`.
 - **Naming, one line**: `machine_id` is an **application-level GUID that this
   repo's own accessor creates and owns** — it is explicitly **not** the
   systemd/OS `/etc/machine-id` (a different, OS-provisioned identity this

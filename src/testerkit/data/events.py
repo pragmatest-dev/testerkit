@@ -18,6 +18,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field, model_validator
 
 from testerkit.data._process import process_uuid
+from testerkit.data.data_dir import get_or_create_machine_id
 from testerkit.data.models import _utcnow
 from testerkit.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
 
@@ -177,6 +178,17 @@ class SessionStarted(EventBase):
     station_location: str | None = None
     station_hostname: str | None = None
 
+    # Machine — a random uuid4 identifying the physical controller (one per
+    # machine, shared across every project on it), sourced from
+    # ``get_or_create_machine_id()``. Distinct from ``station_id`` (the
+    # config-assigned test-station identity) and from the OS/systemd
+    # machine-id. This is the SOURCE OF TRUTH capture point — a session can
+    # exist with no run (streaming channels / uploading files with no test
+    # executing), so ``RunStarted.machine_id`` and the denormalized
+    # ``channels``/``files`` columns all trace back to this event rather than
+    # to run-level stamping.
+    machine_id: str | None = None
+
     # Process
     pid: int | None = None
     client: str = Field(default_factory=_detect_client)
@@ -216,6 +228,7 @@ class SessionStarted(EventBase):
         station_type: str | None = None,
         station_location: str | None = None,
         station_hostname: str | None = None,
+        machine_id: str | None = None,
         operator_id: str | None = None,
         operator_name: str | None = None,
         fixture_id: str | None = None,
@@ -233,7 +246,11 @@ class SessionStarted(EventBase):
         (defaults to 1). The will fields (``idle_lease_seconds`` /
         ``abandon_grace_seconds`` / ``abandon_reason``) are resolved
         producer-side from ``SessionOptions`` by the caller; ``process_uuid``
-        is stamped automatically, like ``pid``.
+        is stamped automatically, like ``pid``. ``machine_id`` defaults to
+        :func:`get_or_create_machine_id` (same fallback idiom as
+        ``station_hostname``) so every session — even a bare orchestrator
+        session with no station config — carries it without every call site
+        having to remember to pass it.
         """
         if site_count is None:
             site_count = int(os.environ.get("_TESTERKIT_SITE_COUNT", "1"))
@@ -245,6 +262,7 @@ class SessionStarted(EventBase):
             station_type=station_type,
             station_location=station_location,
             station_hostname=station_hostname or socket.gethostname(),
+            machine_id=machine_id or get_or_create_machine_id(),
             operator_id=operator_id,
             operator_name=operator_name,
             fixture_id=fixture_id,

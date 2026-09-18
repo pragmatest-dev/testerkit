@@ -187,7 +187,15 @@ def _forward_once(
 # ``ChannelIndex._INDEX_ENVELOPE`` — kept as its own copy here since that one
 # is a private implementation detail of the index, not a shared constant).
 _SEGMENT_ENVELOPE = frozenset(
-    {"received_at", "sampled_at", "source_method", "session_id", "sample_interval", "sample_offset"}
+    {
+        "received_at",
+        "sampled_at",
+        "source_method",
+        "session_id",
+        "machine_id",
+        "sample_interval",
+        "sample_offset",
+    }
 )
 
 
@@ -195,7 +203,7 @@ def _channel_wire_table(segment: ChannelSegment) -> pa.Table:
     """Build the wire table for ``/ingest/channels/{channel_id}`` — testerkit's
     REAL channel-segment shape (docs/25 re-alignment): the same columns
     ``ChannelIndex`` reads — ``received_at, sampled_at, value, source_method,
-    session_id, sample_interval, sample_offset`` — carrying the segment's
+    session_id, machine_id, sample_interval, sample_offset`` — carrying the segment's
     ``ChannelDescriptor`` in the Arrow schema metadata so the server catalog can
     read ``value_type``/``units`` without a registry lookup. The server stores
     this shape as-is and windows it on ``received_at``. ``channel_id`` is NOT a
@@ -232,6 +240,7 @@ def _channel_wire_table(segment: ChannelSegment) -> pa.Table:
             "value": value_col,
             "source_method": _col("source_method", pa.utf8()),
             "session_id": _col("session_id", pa.utf8()),
+            "machine_id": _col("machine_id", pa.utf8()),
             "sample_interval": _col("sample_interval", pa.float64()),
             "sample_offset": _col("sample_offset", pa.int64()),
         }

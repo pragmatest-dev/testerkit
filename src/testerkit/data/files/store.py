@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from testerkit.data.data_dir import resolve_data_dir
+from testerkit.data.data_dir import get_or_create_machine_id, resolve_data_dir
 from testerkit.data.files._backend import BlobBackend, resolve_files_backend
 from testerkit.data.files.catalog import catalog_row
 from testerkit.data.files.catalog_manager import (
@@ -101,6 +101,7 @@ class FileStore:
         instrument_role: str = "",
         resource: str = "",
         run_id: UUID | None = None,
+        machine_id: str | None = None,
     ) -> str:
         """Write ``value`` to FileStore; return its ``file://`` URI.
 
@@ -137,6 +138,11 @@ class FileStore:
             resource: Optional provenance — VISA / network resource
                 string for the instrument (paired with
                 ``instrument_role``). Same population path as above.
+            machine_id: Optional machine identity to stamp on the sidecar +
+                catalog row. Defaults to :func:`get_or_create_machine_id`
+                (the same chokepoint ``RunScope`` uses) — a run-less session
+                still gets the real value without the caller having to pass
+                one.
 
         Returns:
             URI of the form ``file://{date}/{session_id}/{filename}``.
@@ -185,6 +191,7 @@ class FileStore:
             instrument_role=instrument_role,
             resource=resource,
             run_id=str(run_id) if run_id else None,
+            machine_id=machine_id or get_or_create_machine_id(),
         )
         self._backend.write_bytes(f"{key}{_SIDECAR_SUFFIX}", metadata.model_dump_json().encode())
 
@@ -217,6 +224,7 @@ class FileStore:
         attributes: dict[str, Any] | None = None,
         event_log: EventLog | None = None,
         run_id: UUID | None = None,
+        machine_id: str | None = None,
         checkpoint_cadence: float | None = None,
     ) -> StreamingSink:
         """Open a streaming sink — one file, written incrementally.
@@ -256,6 +264,9 @@ class FileStore:
                 file path in isolation); production paths always plumb
                 this from the active session.
             run_id: Optional run UUID stamped on Stream* events.
+            machine_id: Optional machine identity to stamp on the sidecar +
+                catalog row at close. Defaults to
+                :func:`get_or_create_machine_id`, same as :meth:`write`.
 
         Returns:
             A :class:`StreamingSink` — context-manageable; call
@@ -286,6 +297,7 @@ class FileStore:
                 size_bytes=self._backend.size(key) or 0,
                 attributes=attrs_for_sidecar,
                 run_id=str(run_id) if run_id else None,
+                machine_id=machine_id or get_or_create_machine_id(),
             )
             self._backend.write_bytes(
                 f"{key}{_SIDECAR_SUFFIX}", metadata.model_dump_json().encode()

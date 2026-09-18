@@ -41,6 +41,7 @@ Emitted once at the start of a session (interactive or test orchestrator).
 | `station_type` | `str \| None` | `None` |
 | `station_location` | `str \| None` | `None` |
 | `station_hostname` | `str \| None` | `None` |
+| `machine_id` | `str \| None` | `None` |
 | `pid` | `int \| None` | `None` |
 | `client` | `str` | *via* `_detect_client()` |
 | `operator_id` | `str \| None` | `None` |

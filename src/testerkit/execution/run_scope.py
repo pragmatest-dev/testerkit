@@ -389,6 +389,7 @@ class RunScope:
         station_type: str | None = None,
         station_location: str | None = None,
         station_hostname: str | None = None,
+        machine_id: str | None = None,
         operator_id: str | None = None,
         operator_name: str | None = None,
         test_phase: str | None = None,
@@ -467,7 +468,11 @@ class RunScope:
             station_type=station_type,
             station_location=station_location,
             station_hostname=station_hostname or socket.gethostname(),
-            machine_id=get_or_create_machine_id(),
+            # Inherited from the session (the source-of-truth capture point —
+            # a session can exist with no run) when the caller passes it;
+            # falls back to the same chokepoint accessor for a bare RunScope
+            # constructed outside any open session (e.g. direct tests).
+            machine_id=machine_id or get_or_create_machine_id(),
             operator_id=operator_id,
             operator_name=operator_name,
             test_phase=test_phase,

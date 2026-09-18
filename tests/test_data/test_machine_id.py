@@ -1,15 +1,23 @@
 """Tests for ``machine_id`` — the per-machine identity GUID.
 
-Covers the accessor (``get_or_create_machine_id``), its stamping onto
-``RunScope``/``TestRun`` and the run-row build helpers, and the additive
-``machine_id`` column on the RUNS parquet schema (read-tolerant via
-``union_by_name``, no schema-version bump).
+Covers the accessor (``get_or_create_machine_id``); its capture at the
+SESSION (the source of truth — a session can exist with no run: streaming
+channels or uploading files with no test executing) via ``SessionStarted`` /
+``SessionScope``; its inheritance onto ``RunScope``/``TestRun`` and the
+run-row build helpers; and its denormalization onto CHANNELS and FILES rows
+so a run-less session's channel/file data still carries it. All three
+stores (runs, channels, files) stay additive within their ``"0.1"`` epoch —
+a nullable column, no version bump.
 
 Uses the canonical singleton runs daemon (``resolve_data_dir()`` / no
 ``_data_dir=tmp_path``) for the one test that exercises the real ingest
 pipeline, per this repo's daemon-spawning convention (``tests/test_conventions.py``).
 Everything else is pure-Python / pure-DuckDB and isolates via
 ``TESTERKIT_HOME=tmp_path`` (the machine-id file itself, not the runs data dir).
+ChannelStore here always uses ``index=True``/``serve=False`` (in-process
+DuckDB, no Flight daemon) and FileStore uses ``_data_dir=tmp_path`` directly —
+both are conventions this suite already allows (``tests/test_conventions.py``
+only forbids ``serve=True`` / daemon-spawning constructors on ``tmp_path``).
 """
 
 from __future__ import annotations
@@ -30,10 +38,13 @@ import pyarrow.parquet as pq
 import pytest
 
 from testerkit.data.backends._row_helpers import build_run_metadata, build_run_row
+from testerkit.data.channels.store import ChannelStore
 from testerkit.data.data_dir import get_or_create_machine_id, resolve_data_dir
+from testerkit.data.files.store import FileStore
 from testerkit.data.run_store import RunStore
 from testerkit.data.schemas import RUN_ROW_SCHEMA
 from testerkit.execution.run_scope import RunScope
+from testerkit.execution.session_scope import build_session_started, open_session
 
 
 def _isolate_machine_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -242,3 +253,117 @@ def test_machine_id_stamped_on_a_run_reads_back_through_runs_daemon() -> None:
 
     assert rows
     assert rows[0]["machine_id"] == machine_id
+
+
+# ---------------------------------------------------------------------------
+# Session-level capture (the correction: SOURCE OF TRUTH is the session, not
+# RunStarted). A session can exist with no run — streaming channels or
+# uploading files with no test executing — so machine_id must land on the
+# session even when no run ever opens.
+# ---------------------------------------------------------------------------
+
+
+def test_session_started_carries_machine_id_from_accessor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``build_session_started`` stamps machine_id from the shared accessor —
+    the session-level capture point, independent of any run ever opening."""
+    _isolate_machine_home(monkeypatch, tmp_path)
+    expected = get_or_create_machine_id()
+
+    started = build_session_started(None, session_id=uuid4())
+
+    assert started.machine_id == expected
+
+
+def test_session_scope_exposes_machine_id_for_run_less_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``SessionScope.machine_id`` is populated for a session that never opens
+    a run — the exact gap run-level-only stamping left."""
+    _isolate_machine_home(monkeypatch, tmp_path)
+    expected = get_or_create_machine_id()
+    session_id = uuid4()
+
+    started = build_session_started(None, session_id=session_id)
+    scope = open_session(
+        started,
+        session_id=session_id,
+        data_dir=tmp_path / "data",
+        reuse_existing=False,
+        emit_lifecycle=True,
+    )
+    try:
+        assert scope.machine_id == expected
+        assert scope.machine_id == started.machine_id
+    finally:
+        scope.emit_ended()
+        scope.close_stores()
+
+
+def test_run_inherits_machine_id_from_session_scope(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """RunScope, given an explicit ``machine_id``, carries it through rather
+    than silently re-deriving its own — the pytest run fixture threads
+    ``SessionScope.machine_id`` this way (see ``pytest_plugin/__init__.py``)."""
+    _isolate_machine_home(monkeypatch, tmp_path)
+    session_machine_id = "22222222-2222-4222-8222-222222222222"
+
+    run_scope = RunScope(
+        uut_serial="SN-MACHINE-ID-INHERIT",
+        station_id=None,
+        machine_id=session_machine_id,
+    )
+
+    assert run_scope.test_run.machine_id == session_machine_id
+    # And it must NOT equal a fresh independent accessor call by coincidence
+    # of being unset — it's a distinct sentinel, so this proves inheritance
+    # rather than re-derivation.
+    assert run_scope.test_run.machine_id != get_or_create_machine_id()
+
+
+# ---------------------------------------------------------------------------
+# Denormalization onto CHANNELS and FILES — the regression this correction
+# targets: a run-less session's channel/file data must still carry machine_id.
+# ---------------------------------------------------------------------------
+
+
+def test_channel_row_carries_machine_id_for_run_less_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A channel streamed under a session that never opens a run still gets
+    machine_id on its stored + queried rows."""
+    _isolate_machine_home(monkeypatch, tmp_path)
+    expected = get_or_create_machine_id()
+
+    # No RunScope anywhere in this test — a bare session-scoped ChannelStore,
+    # mirroring a run-less ``connect()`` bringup session.
+    store = ChannelStore(tmp_path / "data", uuid4(), index=True)
+    store.open()
+    try:
+        store.write("bench.temperature", 23.5, source="test")
+        result = store.query("bench.temperature")
+    finally:
+        store.close()
+
+    assert result.num_rows == 1
+    assert result.column("machine_id").to_pylist() == [expected]
+
+
+def test_file_record_carries_machine_id_for_run_less_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A file uploaded under a session that never opens a run still carries
+    machine_id on its sidecar (and thus the catalog row built from it)."""
+    _isolate_machine_home(monkeypatch, tmp_path)
+    expected = get_or_create_machine_id()
+
+    # No run_id passed — a bare run-less session upload (e.g. a bringup note).
+    store = FileStore(_data_dir=tmp_path / "data")
+    uri = store.write("bringup_note", b"hello", session_id=str(uuid4()))
+
+    meta = store.read_attributes(uri)
+    assert meta is not None
+    assert meta.machine_id == expected
+    assert meta.run_id is None

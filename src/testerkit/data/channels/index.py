@@ -77,6 +77,7 @@ class ChannelIndex:
             "sampled_at",
             "source_method",
             "session_id",
+            "machine_id",
             "sample_interval",
             "sample_offset",
         }
@@ -86,6 +87,7 @@ class ChannelIndex:
         [
             ("channel_id", pa.utf8()),
             ("session_id", pa.utf8()),
+            ("machine_id", pa.utf8()),
             ("received_at", pa.timestamp("us", tz="UTC")),
             ("sampled_at", pa.timestamp("us", tz="UTC")),
             ("source_method", pa.utf8()),
@@ -185,6 +187,7 @@ class ChannelIndex:
             CREATE TABLE IF NOT EXISTS channel_index (
                 channel_id VARCHAR,
                 session_id VARCHAR,
+                machine_id VARCHAR,
                 received_at TIMESTAMPTZ,
                 sampled_at TIMESTAMPTZ,
                 source_method VARCHAR,
@@ -401,6 +404,7 @@ class ChannelIndex:
                 {
                     "channel_id": channel_id,
                     "session_id": r.get("session_id"),
+                    "machine_id": r.get("machine_id"),
                     "received_at": r.get("received_at"),
                     "sampled_at": r.get("sampled_at"),
                     "source_method": r.get("source_method") or "",
@@ -492,6 +496,7 @@ class ChannelIndex:
         return {
             "channel_id": channel_id,
             "session_id": sample.session_id,
+            "machine_id": sample.machine_id,
             "received_at": sample.received_at,
             "sampled_at": sample.sampled_at,
             "source_method": sample.source_method or "",
@@ -545,7 +550,7 @@ class ChannelIndex:
         # overlap on the per-sample cursor (session, sample_offset).
         sql = [
             "SELECT received_at, sampled_at, value, source_method, "
-            "session_id, sample_interval, sample_offset FROM ("
+            "session_id, machine_id, sample_interval, sample_offset FROM ("
             "SELECT * FROM channel_index UNION ALL SELECT * FROM live.channel_live"
             ") WHERE channel_id = ?"
         ]

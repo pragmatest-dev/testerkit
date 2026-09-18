@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from testerkit.data.data_dir import get_or_create_machine_id
 from testerkit.execution._state import (
     get_event_store,
     push_channel_store,
@@ -57,6 +58,15 @@ class SessionScope:
     event_log: EventLog
     owns_event_store: bool
     emit_lifecycle: bool
+    # The session's machine identity — the SOURCE OF TRUTH capture point (a
+    # session can exist with no run, so this must not depend on a run ever
+    # opening). Sourced from the emitted ``SessionStarted.machine_id`` when one
+    # was built (the ``started`` argument to :func:`open_session`), else read
+    # directly through :func:`get_or_create_machine_id` (the attach-only /
+    # ``emit_lifecycle=False`` case, e.g. a multi-site worker). Callers that
+    # construct a run (RunScope) or a session-scoped ChannelStore inherit this
+    # value rather than re-deriving it independently.
+    machine_id: str = ""
     # ContextVar tokens (not the store objects) — token discipline so a nested
     # session's close restores the outer binding instead of clobbering it to None.
     _event_store_token: Any = None
@@ -186,11 +196,20 @@ def open_session(
     event_log = event_store.get_event_log(session_id)
     if emit_lifecycle and started is not None:
         event_log.emit(started)
+    # Inherit the session's machine identity from the emitted SessionStarted
+    # when there is one; otherwise (an attach-only scope with no ``started``,
+    # e.g. a multi-site worker attaching to the orchestrator's session) read
+    # the same chokepoint directly — same accessor, same on-disk value either
+    # way, so there is no divergence between the two paths.
+    machine_id = started.machine_id if started is not None else None
+    if not machine_id:
+        machine_id = get_or_create_machine_id()
     return SessionScope(
         session_id=session_id,
         event_store=event_store,
         event_log=event_log,
         owns_event_store=owns_event_store,
         emit_lifecycle=emit_lifecycle,
+        machine_id=machine_id,
         _event_store_token=event_store_token,
     )

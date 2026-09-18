@@ -112,7 +112,7 @@ To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `machine_id` | string | Random UUID4 identifying the physical controller (one per machine, shared across every project on it). Generated once and persisted outside any project's data dir; distinct from `station_id` (the config-assigned test-station identity) and from the OS `machine-id`. Nullable — additive column, absent on runs written before it existed. |
+| `machine_id` | string | Random UUID4 identifying the physical controller (one per machine, shared across every project on it). Generated once and persisted outside any project's data dir; distinct from `station_id` (the config-assigned test-station identity) and from the OS `machine-id`. Nullable — additive column, absent on runs written before it existed. Captured at the session level (a session can exist with no run) and inherited here; also denormalized onto [channel rows](channels-schema.md#common-columns-all-channel-shapes) and [file sidecars](files-schema.md#sidecar-fields). |
 
 ## Where — fixture
 
