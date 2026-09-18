@@ -1081,6 +1081,15 @@ class RunScope:
             # Context._emit_vector_ended, which already reads the live context.
             end_ctx = get_current_context()
             end_configured = coerce_dict(end_ctx.configured_params) if end_ctx is not None else {}
+            # Units mirror the values merge directly above: the vector's own
+            # units (seeded units, if any) plus whatever the live context
+            # picked up via ``configure(..., unit=)`` / ``observe(..., unit=)``
+            # inside the vector's scope — same "grab the last context state
+            # at VectorEnded" layering, just for units instead of values.
+            end_configured_units = (
+                coerce_dict(end_ctx.configured_units) if end_ctx is not None else {}
+            )
+            end_observed_units = coerce_dict(end_ctx.observed_units) if end_ctx is not None else {}
             self._event_log.emit(
                 VectorEnded(
                     session_id=self._session_id,
@@ -1095,8 +1104,8 @@ class RunScope:
                     outcome=vector.outcome.value if vector.outcome is not None else None,
                     inputs={**coerce_dict(vector.params), **end_configured},
                     outputs=coerce_dict(vector.observations),
-                    input_units=dict(vector.param_units),
-                    output_units=dict(vector.observation_units),
+                    input_units={**dict(vector.param_units), **end_configured_units},
+                    output_units={**dict(vector.observation_units), **end_observed_units},
                     output_pins=dict(vector.observation_pins),
                     node_id=getattr(step, "node_id", None) if step else None,
                 )
