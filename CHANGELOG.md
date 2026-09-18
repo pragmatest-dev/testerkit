@@ -12,6 +12,14 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.4.1] - 2026-09-18
+
+### Added
+
 - Replication groundwork for store-and-forward (GH-62 / GH-63): events carry a
   `replicated` flag that is exempt from the terminal fence (alongside `derived`),
   the fence is now enforced identically on both the live and file-ingest paths, and
@@ -24,6 +32,19 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
   `ingest_replicated()` ingests those events into another data dir exactly-once
   (id-keyed dedup), returning a `BatchDisposition`. The one sanctioned direct
   reader of the raw event IPC files; everything else reads via the Query API.
+- `testerkit connect` — an RFC 8628 device-authorization CLI to enroll a machine
+  with a TesterKit cloud server: prints a link (code embedded) to approve in a
+  browser, then stores the issued machine token + server URL in the global
+  credential store so a bare `testerkit forward` works afterward with no flags
+  or env vars.
+- `testerkit forward` — store-and-forward a bench's data (event WAL) to a
+  central server, advancing a durable cursor only on server-accepted rows.
+  Channel segments and file blobs forward opt-in via `--channels` / `--files`
+  (experimental — their server ingest endpoints are still landing).
+- `machine_id` — a stable per-machine identifier (uuid4 at
+  `<global-home>/machine_id`), captured at session start and recorded on runs,
+  channels, and files for machine/station disambiguation. Additive/nullable;
+  the at-rest schema stays `0.1`.
 
 ### Changed
 
@@ -34,6 +55,17 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
   receive time. A late real `run.ended` after a synthetic abort now re-hydrates the
   run from the event log and overwrites the aborted result instead of leaving it
   stuck as aborted.
+- Renamed the forward/connect env vars `TESTERKIT_FORWARD_URL` →
+  `TESTERKIT_URL` and `TESTERKIT_FORWARD_TOKEN` → `TESTERKIT_TOKEN` (the
+  general server URL + machine token, shared by `forward` and `connect`).
+- Swept-step outcome now escalates worst-wins when variants collapse to one
+  served step row: a swept test with a failed variant correctly reports the
+  step as failed (previously an arbitrary pick could show it passed).
+
+### Fixed
+
+- `configure()` / `observe()` units now reliably reach parquet — they were
+  dropped at the vector-end and class-swept-only step grains.
 
 ## [0.4.0] - 2026-07-18
 
@@ -563,7 +595,8 @@ Initial public release on PyPI as `testerkit`.
   transports (`s3`, `gcs`, `azure`, `sftp`), and integrations (`pymeasure`,
   `ni`, `lxi`, `grafana`, `pdf`, `sbom`)
 
-[Unreleased]: https://github.com/pragmatest-dev/testerkit/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/pragmatest-dev/testerkit/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/pragmatest-dev/testerkit/compare/v0.4.0...v0.4.1
 [0.2.0]: https://github.com/pragmatest-dev/testerkit/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/pragmatest-dev/testerkit/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/pragmatest-dev/testerkit/releases/tag/v0.1.2
