@@ -478,6 +478,14 @@ class TestRun(BaseModel):
     station_location: str | None = None
     station_hostname: str | None = None
 
+    # Machine identity — a random UUID4 assigned once per physical
+    # controller (docs/_internal/explorations/paths-storage-and-dotfolder.md
+    # §15), shared across every project checkout on the box. Distinct from
+    # ``station_id`` (the config-assigned test-station identity) and from
+    # the OS/systemd machine-id. Stamped by ``RunScope`` from
+    # ``get_or_create_machine_id()``.
+    machine_id: str | None = None
+
     # Fixture traceability
     fixture_id: str | None = None
 

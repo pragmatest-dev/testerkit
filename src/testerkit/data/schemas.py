@@ -187,6 +187,12 @@ RUN_ROW_SCHEMA = pa.schema(
         ("station_type", pa.string()),
         ("station_location", pa.string()),
         ("station_hostname", pa.string()),
+        # Machine — a random uuid4 identifying the physical controller (one
+        # per machine, shared across every project on it); distinct from
+        # ``station_id`` (config-assigned test-station identity). Additive,
+        # nullable — old parquet predates it and null-fills via
+        # ``union_by_name`` (schema_versions.py's additive-column note).
+        ("machine_id", pa.string()),
         # Fixture
         ("fixture_id", pa.string()),
         # Test context

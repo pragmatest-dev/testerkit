@@ -222,6 +222,7 @@ def _emit_run_start_events(run_scope: RunScope) -> None:
             station_type=run_scope.test_run.station_type,
             station_location=run_scope.test_run.station_location,
             station_hostname=run_scope.test_run.station_hostname,
+            machine_id=run_scope.test_run.machine_id,
             uut_serial_number=run_scope.test_run.uut.serial,
             uut_part_number=run_scope.test_run.uut.part_number,
             uut_revision=run_scope.test_run.uut.revision,

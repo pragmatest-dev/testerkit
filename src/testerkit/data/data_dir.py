@@ -24,9 +24,90 @@ Resolution chain:
 from __future__ import annotations
 
 import os
+import uuid
 from pathlib import Path
 
 import platformdirs
+from filelock import FileLock
+
+# Sibling of the ``data`` subdir the global branch resolves below — the
+# machine identity file lives at ``<global-home>/machine_id``, not inside
+# ``data/``. See docs/_internal/explorations/paths-storage-and-dotfolder.md
+# §15 for the design ("framework placement" of ``machine_id``).
+_MACHINE_ID_FILENAME = "machine_id"
+
+
+def _global_home() -> Path:
+    """Resolve the global TesterKit home — same resolution ``resolve_data_dir()``
+    uses for its own global-default branch (``TESTERKIT_HOME`` env var, else
+    ``platformdirs.user_data_dir("testerkit")``), without appending ``data/``.
+
+    Deliberately does NOT depend on the not-yet-built ``~/.testerkit``
+    dotfolder migration (§15 of the exploration doc) — this is the current
+    global home, the same one every other global-tier accessor uses today.
+    """
+    return Path(os.environ.get("TESTERKIT_HOME", platformdirs.user_data_dir("testerkit")))
+
+
+def get_or_create_machine_id() -> str:
+    """Return this machine's stable identity GUID, creating it on first use.
+
+    A random **uuid4**, generated once per physical controller and shared by
+    every project checkout and every installed TesterKit version on the box
+    — an application-level GUID this accessor owns, deliberately NOT the
+    systemd/OS ``/etc/machine-id``, and NOT derived from hostname or any
+    other hardware signal. Distinct from ``station_id`` (the config-assigned
+    test-station identity).
+
+    Persisted at ``<global-home>/machine_id`` (a sibling of ``credentials``
+    and of the ``data/`` dir under the same global home ``resolve_data_dir()``
+    resolves to for its global-default branch). This is the one chokepoint —
+    every call site that needs "which machine is this" (run-stamping,
+    ``testerkit connect``, ``testerkit forward``) reads through here rather
+    than re-implementing the read-or-generate logic.
+
+    Creation is lazy, on first need, and NEVER baked into images: a
+    golden/base image must blank (delete) ``machine_id`` before capture, the
+    same way cloud AMI/golden-image practice blanks ``/etc/machine-id`` — the
+    first process on a newly-cloned bench that calls this regenerates a
+    fresh, correct GUID.
+
+    Concurrent first-run safety: the read-check-create sequence is guarded by
+    an OS-level ``FileLock`` (the same locking primitive
+    ``data/_daemon_lifecycle.py`` uses), and the actual write is a temp-file +
+    ``os.replace`` so a reader never observes a partially-written file. See
+    ``docs/_internal/explorations/paths-storage-and-dotfolder.md`` §15.
+    """
+    home = _global_home()
+    path = home / _MACHINE_ID_FILENAME
+
+    existing = _read_machine_id(path)
+    if existing is not None:
+        return existing
+
+    home.mkdir(parents=True, exist_ok=True)
+    lock = FileLock(str(home / f"{_MACHINE_ID_FILENAME}.lock"), timeout=10)
+    with lock:
+        # Re-check inside the lock — another process may have created it
+        # while we were waiting.
+        existing = _read_machine_id(path)
+        if existing is not None:
+            return existing
+
+        new_id = str(uuid.uuid4())
+        tmp_path = path.with_name(f"{_MACHINE_ID_FILENAME}.tmp-{os.getpid()}")
+        tmp_path.write_text(new_id, encoding="utf-8")
+        os.replace(tmp_path, path)
+        return new_id
+
+
+def _read_machine_id(path: Path) -> str | None:
+    """Read the persisted machine id, or ``None`` if the file doesn't exist yet."""
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    return text or None
 
 
 def resolve_data_dir(path: Path | str | None = None) -> Path:

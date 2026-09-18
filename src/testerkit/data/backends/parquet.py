@@ -1129,6 +1129,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         station_type=first.get("station_type"),
         station_location=first.get("station_location"),
         station_hostname=first.get("station_hostname"),
+        machine_id=first.get("machine_id"),
         fixture_id=first.get("fixture_id"),
         test_phase=first.get("test_phase"),
         operator_id=first.get("operator_id"),

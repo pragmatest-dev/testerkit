@@ -255,6 +255,7 @@ class EventAccumulator:
             "station_id": s.station_id,
             "station_name": s.station_name,
             "station_hostname": s.station_hostname,
+            "machine_id": s.machine_id,
             "station_type": s.station_type,
             "station_location": s.station_location,
             "fixture_id": s.fixture_id,

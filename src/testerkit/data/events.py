@@ -301,6 +301,13 @@ class RunStarted(EventBase):
     site_index: int = 0
     site_name: str | None = None
 
+    # Machine — a random uuid4 identifying the physical controller (one per
+    # machine, shared across every project on it), sourced from
+    # ``get_or_create_machine_id()``. Distinct from ``station_id`` (the
+    # config-assigned test-station identity) and from the OS/systemd
+    # machine-id.
+    machine_id: str | None = None
+
     # Process
     pid: int | None = None
     client: str = Field(default_factory=_detect_client)

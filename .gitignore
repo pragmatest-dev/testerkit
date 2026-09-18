@@ -5,6 +5,11 @@ __pycache__/
 dist/
 /data/
 /examples/*/data/
+# Sibling of /data/ under the same global home (see data/data_dir.py's
+# get_or_create_machine_id) — the repo's own dev/test TESTERKIT_HOME pin
+# (tests/conftest.py) lands it here; never a committed artifact.
+/machine_id
+/machine_id.lock
 .ruff_cache/
 .pytest_cache/
 .coverage

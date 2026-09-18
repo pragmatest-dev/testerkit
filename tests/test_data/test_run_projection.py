@@ -25,6 +25,7 @@ def test_projection_columns_present() -> None:
         "num_steps",
         "uut_part_number",
         "station_hostname",
+        "machine_id",
         "test_phase",
     ):
         assert col in sql, f"projection missing {col!r}"
@@ -40,18 +41,18 @@ def test_projection_runs_over_measurement_grain_rows() -> None:
         CREATE TABLE src AS
         SELECT * FROM (VALUES
             ('run1','f.parquet','sess1',0,'s',
-             'SN1','PN1','A','LOT1','st1','St 1','host1','fix1',
+             'SN1','PN1','A','LOT1','st1','St 1','host1','mach1','fix1',
              'passed', TIMESTAMP '2026-01-01 00:00:00', TIMESTAMP '2026-01-01 00:01:00',
              'measurement', [], 'prod','part1','Part 1','A','ICT','L1','op1','Op 1','proj1',
              'c','b','r','3.12','0.4','fp'),
             ('run1','f.parquet','sess1',0,'s',
-             'SN1','PN1','A','LOT1','st1','St 1','host1','fix1',
+             'SN1','PN1','A','LOT1','st1','St 1','host1','mach1','fix1',
              'passed', TIMESTAMP '2026-01-01 00:00:00', TIMESTAMP '2026-01-01 00:01:00',
              'step', [], 'prod','part1','Part 1','A','ICT','L1','op1','Op 1','proj1',
              'c','b','r','3.12','0.4','fp')
         ) AS t(run_id, filename, session_id, site_index, site_name,
             uut_serial_number, uut_part_number, uut_revision, uut_lot_number,
-            station_id, station_name, station_hostname, fixture_id,
+            station_id, station_name, station_hostname, machine_id, fixture_id,
             run_outcome, run_started_at, run_ended_at,
             record_type, measurements, test_phase, part_id, part_name, part_revision,
             station_type, station_location, operator_id, operator_name, project_name,
@@ -67,6 +68,7 @@ def test_projection_runs_over_measurement_grain_rows() -> None:
     assert row["run_id"] == "run1"
     assert row["outcome"] == "passed"
     assert row["station_hostname"] == "host1"
+    assert row["machine_id"] == "mach1"
     assert row["num_steps"] == 1
     assert row["duration_s"] == 60.0
     con.close()

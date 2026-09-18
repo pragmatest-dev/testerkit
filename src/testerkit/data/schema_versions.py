@@ -17,10 +17,24 @@ deliberate, not a mismatch.
 The breaking unit is the **epoch = leftmost-significant SemVer component**:
 
 - **Pre-1.0** — the **MINOR** is the epoch. ``0.1 -> 0.2`` is a breaking
-  reshape (a new epoch); there is no additive tier yet. Each 0.x epoch is a
-  clean break that regenerates or read-time-adapts prior-epoch artifacts —
-  deliberately rehearsing the same epoch -> quarantine/adapter path we'll bet
-  on at the first real ``2.0``, so the apparatus is proven before 1.0.
+  reshape (a new epoch); there is no additive *tier* yet (no ``0.1.1``-style
+  patch line with its own semantics). Each 0.x epoch is a clean break that
+  regenerates or read-time-adapts prior-epoch artifacts — deliberately
+  rehearsing the same epoch -> quarantine/adapter path we'll bet on at the
+  first real ``2.0``, so the apparatus is proven before 1.0.
+
+  This does NOT mean a store frozen at, say, ``"0.1"`` can never gain a
+  column. An **additive nullable column within an epoch** (new optional
+  field, old parquet/rows simply lack it) is permitted without bumping the
+  stamp — it's exactly what the read-side mechanism here already assumes:
+  ``union_by_name`` null-fills a column missing from older parquet, and
+  ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS`` extends a materialized DuckDB
+  table the same way the post-1.0 additive tier below describes. A column
+  addition earns a version bump only when it changes the *meaning* of
+  existing data or a reader needs to know the column exists to interpret a
+  row correctly (i.e. it stops being safely ignorable) — e.g. ``runs``'
+  ``machine_id`` (nullable, purely additive, old rows simply predate it)
+  stayed on ``"0.1"``.
 - **Post-1.0** — the **MAJOR** is the epoch. ``1.0 -> 1.1`` becomes additive
   (``union_by_name`` null-fills old files, ``ALTER TABLE ADD COLUMN IF NOT
   EXISTS`` extends the projection); ``1.x -> 2.0`` is the breaking epoch,

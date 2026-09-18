@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 from testerkit.data._json_safe import coerce_dict
 from testerkit.data.backends._row_helpers import build_input_columns, build_output_columns
+from testerkit.data.data_dir import get_or_create_machine_id
 from testerkit.data.events import (
     MeasurementRecorded,
     RunEnded,
@@ -466,6 +467,7 @@ class RunScope:
             station_type=station_type,
             station_location=station_location,
             station_hostname=station_hostname or socket.gethostname(),
+            machine_id=get_or_create_machine_id(),
             operator_id=operator_id,
             operator_name=operator_name,
             test_phase=test_phase,

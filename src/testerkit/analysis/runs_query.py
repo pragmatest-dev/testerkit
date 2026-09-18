@@ -102,6 +102,7 @@ class RunRow(BaseModel):
     station_id: str | None = None
     station_name: str | None = None
     station_hostname: str | None = None
+    machine_id: str | None = None
     fixture_id: str | None = None
     outcome: str | None = None
     started_at: datetime | None = None

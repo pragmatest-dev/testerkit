@@ -1119,6 +1119,7 @@ A complete test run with steps and measurements.
 | `station_type` | `str \| None` | `None` |
 | `station_location` | `str \| None` | `None` |
 | `station_hostname` | `str \| None` | `None` |
+| `machine_id` | `str \| None` | `None` |
 | `fixture_id` | `str \| None` | `None` |
 | `test_phase` | `str \| None` | `None` |
 | `profile` | `str \| None` | `None` |
@@ -1478,6 +1479,7 @@ One row from the ``runs`` table — denormalized run-level summary.
 | `station_id` | `str \| None` | `None` |
 | `station_name` | `str \| None` | `None` |
 | `station_hostname` | `str \| None` | `None` |
+| `machine_id` | `str \| None` | `None` |
 | `fixture_id` | `str \| None` | `None` |
 | `outcome` | `str \| None` | `None` |
 | `started_at` | `datetime \| None` | `None` |

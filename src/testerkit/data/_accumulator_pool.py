@@ -362,6 +362,7 @@ INFLIGHT_RUNS_SCHEMA = pa.schema(
         ("station_id", pa.string()),
         ("station_name", pa.string()),
         ("station_hostname", pa.string()),
+        ("machine_id", pa.string()),
         ("station_type", pa.string()),
         ("station_location", pa.string()),
         ("fixture_id", pa.string()),

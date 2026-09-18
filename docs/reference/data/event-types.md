@@ -76,6 +76,7 @@ Emitted once per test run. Contains full run context.
 | `station_hostname` | `str \| None` | `None` |
 | `site_index` | `int` | `0` |
 | `site_name` | `str \| None` | `None` |
+| `machine_id` | `str \| None` | `None` |
 | `pid` | `int \| None` | `None` |
 | `client` | `str` | *via* `_detect_client()` |
 | `uut_serial_number` | `str` | `''` |

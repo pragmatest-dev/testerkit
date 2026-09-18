@@ -108,6 +108,12 @@ To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type
 | `station_location` | string | Physical location |
 | `station_hostname` | string | Operator-facing identifier for the physical bench |
 
+## Where — machine
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `machine_id` | string | Random UUID4 identifying the physical controller (one per machine, shared across every project on it). Generated once and persisted outside any project's data dir; distinct from `station_id` (the config-assigned test-station identity) and from the OS `machine-id`. Nullable — additive column, absent on runs written before it existed. |
+
 ## Where — fixture
 
 | Column | Type | Description |
