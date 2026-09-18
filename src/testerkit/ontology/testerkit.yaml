@@ -117,6 +117,7 @@ concepts:
       - { kind: references, target: station_config }    # default_station
       - { kind: references, target: fixture_config }    # default_fixture
       - { kind: references, target: profile_config }    # default_profile
+      - { kind: declares,   target: server_config }
 
   - id: profile_config
     category: definition
@@ -137,6 +138,27 @@ concepts:
     category: primitive
     summary: Multi-site orchestration knobs (per-child grace seconds, etc.).
     model: testerkit.models.project.MultiSiteConfig
+
+  - id: server_config
+    category: primitive
+    summary: >
+      TesterKit cloud server connection settings (server.url) — read by
+      `testerkit connect` / `testerkit forward` for URL resolution. The
+      machine's auth token never lives here; see global_config.
+    model: testerkit.models.project.ServerConfig
+    authored_at: testerkit.yaml (under server:)
+
+  - id: global_config
+    category: definition
+    summary: >
+      Per-machine config shared by every project checkout on the box —
+      currently just the server URL `testerkit connect` persists on
+      success, consulted by `testerkit forward` as a last-resort source.
+      Sibling of machine_id and the credential store under the same
+      global home; unlike those two, it is a validated YAML file so it
+      gets a Pydantic model.
+    model: testerkit.models.global_config.GlobalConfig
+    authored_at: <global-home>/config.yaml
 
   - id: channel_options
     category: primitive

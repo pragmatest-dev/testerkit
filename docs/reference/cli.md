@@ -43,6 +43,15 @@ Generate a formatted datasheet from a catalog YAML file.
 | `-f`/`--format` | `{html, pdf}` | Output format (default: html)  *(default: `html`)* |
 | `-o`/`--output` | `path` | Output file path |
 
+### `testerkit connect` {#cli-connect}
+
+Enroll this machine with a TesterKit cloud server.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `--url` | `text` | Server base URL (or $TESTERKIT_URL, or testerkit.yaml `server.url`) |
+| `--timeout` | `float` | Per-request HTTP timeout (seconds)  *(default: `30.0`)* |
+
 ### `testerkit daemon` (group) {#cli-daemon}
 
 Manage TesterKit background daemons (events / runs / channels).
@@ -207,7 +216,8 @@ Forward this bench's event WAL to a central server (store-and-forward).
 
 | Argument / option | Type | Description |
 |---|---|---|
-| `--url` | `text` | Server ingest base URL (or $TESTERKIT_URL) |
+| `--url` | `text` | Server ingest base URL (or $TESTERKIT_URL, testerkit.yaml `server.url`, or a prior `testerkit connect`) |
+| `--token` | `text` | Machine auth token (or $TESTERKIT_TOKEN, or a prior `testerkit connect`) |
 | `--data-dir` | `path` | Data dir to forward (default: resolved project data dir) |
 | `--interval` | `float` | Seconds between polls  *(default: `5.0`)* |
 | `--timeout` | `float` | Per-request HTTP timeout (seconds)  *(default: `30.0`)* |

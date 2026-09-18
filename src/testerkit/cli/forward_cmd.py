@@ -438,7 +438,17 @@ def _forward_all_once(  # noqa: PLR0913
 
 
 @main.command()
-@click.option("--url", default=None, help=f"Server ingest base URL (or ${_URL_ENV})")
+@click.option(
+    "--url",
+    default=None,
+    help=f"Server ingest base URL (or ${_URL_ENV}, testerkit.yaml `server.url`, "
+    "or a prior `testerkit connect`)",
+)
+@click.option(
+    "--token",
+    default=None,
+    help=f"Machine auth token (or ${_TOKEN_ENV}, or a prior `testerkit connect`)",
+)
 @click.option(
     "--data-dir",
     default=None,
@@ -462,6 +472,7 @@ def _forward_all_once(  # noqa: PLR0913
 )
 def forward(  # noqa: PLR0913
     url: str | None,
+    token: str | None,
     data_dir: str | None,
     interval: float,
     timeout: float,
@@ -474,16 +485,26 @@ def forward(  # noqa: PLR0913
     With ``--channels`` / ``--files``, also forwards closed channel segments
     and new file blobs (docs/22 Part B) — off by default, so a plain
     ``testerkit forward`` behaves exactly as it did before either existed.
+
+    URL/token resolution falls through ``--url``/``--token`` →
+    ``$TESTERKIT_URL``/``$TESTERKIT_TOKEN`` → the project ``server.url`` /
+    the global credential store a prior ``testerkit connect`` wrote — so
+    after ``testerkit connect``, a bare ``testerkit forward`` needs neither.
     """
-    from testerkit.data.data_dir import resolve_data_dir
+    from testerkit.data.data_dir import resolve_data_dir, resolve_server_token, resolve_server_url
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    server = url or os.environ.get(_URL_ENV)
-    token = os.environ.get(_TOKEN_ENV)
+    server = resolve_server_url(url)
+    token = resolve_server_token(token)
     if not server:
-        raise click.ClickException(f"a server URL is required (--url or ${_URL_ENV})")
+        raise click.ClickException(
+            f"a server URL is required (--url, ${_URL_ENV}, testerkit.yaml `server.url`, "
+            "or `testerkit connect`)"
+        )
     if not token:
-        raise click.ClickException(f"a machine token is required in ${_TOKEN_ENV}")
+        raise click.ClickException(
+            f"a machine token is required (--token, ${_TOKEN_ENV}, or `testerkit connect`)"
+        )
 
     resolved = resolve_data_dir(Path(data_dir) if data_dir else None)
     events_dir = resolved / "events"

@@ -55,6 +55,7 @@ from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
 from testerkit.models.catalog import InstrumentCatalogEntry
 from testerkit.models.enums import InstrumentType
+from testerkit.models.global_config import GlobalConfig
 from testerkit.models.instrument_asset import InstrumentAssetFile
 from testerkit.models.part import Part
 from testerkit.models.part_manifest import PartManifest
@@ -396,6 +397,30 @@ def load_project_config(project_root: Path | None = None) -> ProjectConfig:
     if not path.exists():
         return ProjectConfig(name="testerkit")
     return load_project(path)
+
+
+# =============================================================================
+# Global config: load / save (singleton file at <global-home>/config.yaml)
+# =============================================================================
+
+
+def load_global_config(path: Path) -> GlobalConfig:
+    """Load the global ``config.yaml``, or a default ``GlobalConfig()`` if absent.
+
+    Callers resolve ``path`` themselves (``<global-home>/config.yaml`` —
+    see ``testerkit.data.data_dir``) rather than this module knowing about
+    the global home, mirroring the low-level ``load_*(path)`` carve-out
+    documented above.
+    """
+    if not path.exists():
+        return GlobalConfig()
+    return GlobalConfig.model_validate(_read_yaml(path))
+
+
+def save_global_config(config: GlobalConfig, path: Path) -> None:
+    """Write the global config YAML, creating parent dirs as needed."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(dump_yaml(config.model_dump(mode="json", exclude_none=True)))
 
 
 # =============================================================================

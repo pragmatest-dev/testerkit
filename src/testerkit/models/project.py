@@ -78,6 +78,21 @@ class MultiSiteConfig(BaseModel):
     child_grace_seconds: float = 5.0
 
 
+class ServerConfig(BaseModel):
+    """TesterKit cloud server connection settings — ``server:`` in ``testerkit.yaml``.
+
+    Consulted by ``testerkit connect`` / ``testerkit forward`` for URL
+    resolution (``--url`` → ``$TESTERKIT_URL`` → this field → the global
+    config written by a prior ``testerkit connect``). The machine's auth
+    token never lives here — it is issued by the device-authorization flow
+    and stored only in the global credential store, never in a project file.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    url: str | None = None
+
+
 class ProjectConfig(BaseModel):
     """Schema for testerkit.yaml project config files — all fields at root."""
 
@@ -85,6 +100,7 @@ class ProjectConfig(BaseModel):
 
     name: str
     data_dir: str | None = None
+    server: ServerConfig = Field(default_factory=ServerConfig)
     # Producer-local data options (buffering / push tuning + the files blob
     # backend; session liveness / will defaults).
     channels: ChannelOptions = Field(default_factory=ChannelOptions)

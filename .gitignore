@@ -10,6 +10,11 @@ dist/
 # (tests/conftest.py) lands it here; never a committed artifact.
 /machine_id
 /machine_id.lock
+# Same reasoning — the credential store (secret machine token from
+# `testerkit connect`) and the global config (persisted server URL) also
+# land here under the repo's test TESTERKIT_HOME pin; never committed.
+/credentials
+/config.yaml
 .ruff_cache/
 .pytest_cache/
 .coverage

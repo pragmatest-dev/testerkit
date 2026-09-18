@@ -272,6 +272,14 @@ Multi-site orchestration knobs.
 |---|---|---|
 | `child_grace_seconds` | `float` | `5.0` |
 
+#### `ServerConfig` {#model-serverconfig}
+
+TesterKit cloud server connection settings — ``server:`` in ``testerkit.yaml``.
+
+| Field | Type | Default |
+|---|---|---|
+| `url` | `str \| None` | `None` |
+
 #### `ProjectConfig` {#model-projectconfig}
 
 Schema for testerkit.yaml project config files — all fields at root.
@@ -280,6 +288,7 @@ Schema for testerkit.yaml project config files — all fields at root.
 |---|---|---|
 | `name` | `str` | *required* |
 | `data_dir` | `str \| None` | `None` |
+| `server` | `ServerConfig` | *via* `ServerConfig()` |
 | `channels` | `ChannelOptions` | *via* `ChannelOptions()` |
 | `files` | `FileOptions` | *via* `FileOptions()` |
 | `session` | `SessionOptions` | *via* `SessionOptions()` |
