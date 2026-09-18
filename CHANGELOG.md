@@ -55,9 +55,6 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
   receive time. A late real `run.ended` after a synthetic abort now re-hydrates the
   run from the event log and overwrites the aborted result instead of leaving it
   stuck as aborted.
-- Renamed the forward/connect env vars `TESTERKIT_FORWARD_URL` →
-  `TESTERKIT_URL` and `TESTERKIT_FORWARD_TOKEN` → `TESTERKIT_TOKEN` (the
-  general server URL + machine token, shared by `forward` and `connect`).
 - Swept-step outcome now escalates worst-wins when variants collapse to one
   served step row: a swept test with a failed variant correctly reports the
   step as failed (previously an arbitrary pick could show it passed).
