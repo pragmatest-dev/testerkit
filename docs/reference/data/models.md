@@ -272,6 +272,14 @@ Multi-site orchestration knobs.
 |---|---|---|
 | `child_grace_seconds` | `float` | `5.0` |
 
+#### `ServerConfig` {#model-serverconfig}
+
+TesterKit cloud server connection settings — ``server:`` in ``testerkit.yaml``.
+
+| Field | Type | Default |
+|---|---|---|
+| `url` | `str \| None` | `None` |
+
 #### `ProjectConfig` {#model-projectconfig}
 
 Schema for testerkit.yaml project config files — all fields at root.
@@ -280,6 +288,7 @@ Schema for testerkit.yaml project config files — all fields at root.
 |---|---|---|
 | `name` | `str` | *required* |
 | `data_dir` | `str \| None` | `None` |
+| `server` | `ServerConfig` | *via* `ServerConfig()` |
 | `channels` | `ChannelOptions` | *via* `ChannelOptions()` |
 | `files` | `FileOptions` | *via* `FileOptions()` |
 | `session` | `SessionOptions` | *via* `SessionOptions()` |
@@ -1119,6 +1128,7 @@ A complete test run with steps and measurements.
 | `station_type` | `str \| None` | `None` |
 | `station_location` | `str \| None` | `None` |
 | `station_hostname` | `str \| None` | `None` |
+| `machine_id` | `str \| None` | `None` |
 | `fixture_id` | `str \| None` | `None` |
 | `test_phase` | `str \| None` | `None` |
 | `profile` | `str \| None` | `None` |
@@ -1206,6 +1216,7 @@ A single channel data point delivered to subscribers.
 | `sample_interval` | `float \| None` | `None` |
 | `source_method` | `str` | `''` |
 | `session_id` | `str \| None` | `None` |
+| `machine_id` | `str \| None` | `None` |
 | `sample_offset` | `int` | `-1` |
 
 #### `SubscribePolicy` {#enum-subscribepolicy}
@@ -1478,6 +1489,7 @@ One row from the ``runs`` table — denormalized run-level summary.
 | `station_id` | `str \| None` | `None` |
 | `station_name` | `str \| None` | `None` |
 | `station_hostname` | `str \| None` | `None` |
+| `machine_id` | `str \| None` | `None` |
 | `fixture_id` | `str \| None` | `None` |
 | `outcome` | `str \| None` | `None` |
 | `started_at` | `datetime \| None` | `None` |

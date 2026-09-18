@@ -105,7 +105,14 @@ def test_runs_golden_is_0_1_and_reads_to_current_shape() -> None:
     stamp = stamp_from_arrow_metadata(pf.schema_arrow.metadata)
     assert stamp == "0.1"  # frozen at the 0.1 epoch
     dispatch(SchemaStore.RUNS, stamp)  # current build accepts it (no raise)
-    assert {f.name for f in RUN_ROW_SCHEMA} <= set(pf.schema_arrow.names)
+    # Golden's columns must still all exist on the live schema — a dropped or
+    # renamed column would be the real "breaking change" this drift-pin
+    # guards. The reverse is NOT required: the live schema may have GAINED
+    # additive nullable columns since golden was frozen (schema_versions.py's
+    # "additive nullable column within an epoch" note) — those simply
+    # null-fill for this old file via ``union_by_name`` at the real read
+    # boundary, so golden is not regenerated for them.
+    assert set(pf.schema_arrow.names) <= {f.name for f in RUN_ROW_SCHEMA}
 
 
 def test_events_golden_carries_both_0_1_stamps() -> None:

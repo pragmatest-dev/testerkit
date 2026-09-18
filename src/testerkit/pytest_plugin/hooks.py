@@ -389,6 +389,7 @@ def _open_session_for_pytest(session) -> None:
         session_id,
         serve=True,
         event_log=scope.event_log,
+        machine_id=scope.machine_id,
         checkpoint_cadence=project.stream.resolve_cadence(project.session.idle_lease_seconds),
     )
     scope.attach_channel_store(channel_store)

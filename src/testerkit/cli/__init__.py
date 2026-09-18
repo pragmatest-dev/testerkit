@@ -6,10 +6,12 @@ from __future__ import annotations
 from testerkit.cli import (  # noqa: F401,E402
     benchmark_cmd,
     catalog_cmd,
+    connect_cmd,
     daemon,
     data_cmd,
     discover_cmd,
     docs_cmd,
+    forward_cmd,
     instrument,
     mcp_cmd,
     metrics,

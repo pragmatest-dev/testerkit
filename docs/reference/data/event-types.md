@@ -21,6 +21,7 @@ The pre-commit hook runs the same generator in `--check` mode, so source / docs 
 | `session_id` | `UUID` | *via* `uuid4()` |
 | `run_id` | `UUID \| None` | `None` |
 | `derived` | `bool` | `False` |
+| `replicated` | `bool` | `False` |
 <!-- GENERATED:event-types-base-fields:end -->
 
 `event_type` is the discriminator — every subclass declares it as a `Literal` with a fixed string value (shown as the section heading below).
@@ -40,6 +41,7 @@ Emitted once at the start of a session (interactive or test orchestrator).
 | `station_type` | `str \| None` | `None` |
 | `station_location` | `str \| None` | `None` |
 | `station_hostname` | `str \| None` | `None` |
+| `machine_id` | `str \| None` | `None` |
 | `pid` | `int \| None` | `None` |
 | `client` | `str` | *via* `_detect_client()` |
 | `operator_id` | `str \| None` | `None` |
@@ -75,6 +77,7 @@ Emitted once per test run. Contains full run context.
 | `station_hostname` | `str \| None` | `None` |
 | `site_index` | `int` | `0` |
 | `site_name` | `str \| None` | `None` |
+| `machine_id` | `str \| None` | `None` |
 | `pid` | `int \| None` | `None` |
 | `client` | `str` | *via* `_detect_client()` |
 | `uut_serial_number` | `str` | `''` |

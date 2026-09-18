@@ -338,3 +338,45 @@ def test_run_ended_outcomes(outcome: str):
     assert row is not None, f"outcome={outcome!r} never landed"
     assert row.outcome == outcome
     assert row.ended_at is not None
+
+
+def test_real_completion_supersedes_synthetic_abort():
+    """GH-64 RE-HYDRATE: the orphan sweep force-closed a run as a synthetic abort
+    (derived=True), then the producer came back and finished for real. The real
+    run.ended must re-hydrate the run from the durable log and overwrite the
+    aborted row with the true outcome — not leave it stuck at ``aborted``."""
+    store = EventStore()
+    with RunsQuery():
+        pass
+
+    session_id, run_id = uuid4(), uuid4()
+    _emit_session(store, session_id)
+    _emit_run_started(store, session_id=session_id, run_id=run_id, started_at=datetime.now(UTC))
+    # Synthetic abort — exactly what the sweep emits (derived rides the fence).
+    store.emit(
+        RunEnded(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=datetime.now(UTC),
+            outcome="aborted",
+            derived=True,
+        )
+    )
+    store.flush()
+    aborted = _wait_for_run(str(run_id), predicate=lambda r: r.outcome == "aborted")
+    assert aborted is not None, "run should first materialize as a synthetic abort"
+
+    # The producer returns and completes the run for real.
+    _emit_run_ended(
+        store,
+        session_id=session_id,
+        run_id=run_id,
+        ended_at=datetime.now(UTC),
+        outcome="passed",
+    )
+    store.flush()
+    store.close()
+
+    superseded = _wait_for_run(str(run_id), predicate=lambda r: r.outcome == "passed")
+    assert superseded is not None, "real completion must supersede the synthetic abort"
+    assert superseded.outcome == "passed"

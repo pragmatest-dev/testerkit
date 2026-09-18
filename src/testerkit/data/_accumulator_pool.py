@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 import pyarrow as pa
 
@@ -56,6 +56,18 @@ from testerkit.data.events import (
 logger = logging.getLogger(__name__)
 
 
+class OpenRun(NamedTuple):
+    """One open run as seen by the orphan sweep: its accumulator plus the
+    producer identity (pid + host + uuid) and the source-time inactivity clock."""
+
+    run_id: str
+    acc: EventAccumulator
+    pid: int | None
+    station_hostname: str | None
+    process_uuid: str | None
+    last_event_at: datetime | None
+
+
 # Map ``event_type`` strings to Pydantic event classes for dict→typed
 # conversion. The runs daemon receives events as dicts from the
 # events daemon over Flight; the accumulator works with typed events.
@@ -77,6 +89,22 @@ _EVENT_CLASSES: dict[str, type] = {
 }
 
 
+def typed_from_dict(evt_dict: dict[str, Any]) -> Any | None:
+    """Convert one raw event dict (from the events subscription or an
+    ``EventStore.events`` query) into its typed Pydantic event, or ``None`` if the
+    type is unknown or the payload doesn't validate. Shared by the live dispatch
+    path and the orphan sweep's re-hydrate replay so both parse identically."""
+    et = evt_dict.get("event_type")
+    cls = _EVENT_CLASSES.get(str(et) if et else "")
+    if cls is None:
+        return None
+    try:
+        return cls.model_validate(evt_dict)
+    except Exception as exc:  # noqa: BLE001 — a bad event must not kill the caller
+        logger.debug("Skipping unparseable event %s: %s", et, exc)
+        return None
+
+
 class AccumulatorPool:
     """Thread-safe pool of per-run :class:`EventAccumulator` instances.
 
@@ -92,8 +120,17 @@ class AccumulatorPool:
         # on SessionEnded. The RUN orphan sweep resolves a run back to its
         # producer pid through this (pid-death force-closes a run).
         self._session_pid: dict[str, int] = {}
-        # Most recent event timestamp per run_id — wall-clock fallback
-        # for the orphan sweep when pid liveness check is unavailable.
+        # Producer host + process uuid per session_id, captured from
+        # SessionStarted alongside the pid. The orphan sweep applies pid
+        # liveness ONLY when the producer host == this daemon's host (a
+        # replicated session from another bench has a foreign, meaningless
+        # pid here); the uuid pairs with the pid to disambiguate a recycled pid.
+        self._session_host: dict[str, str] = {}
+        self._session_uuid: dict[str, str] = {}
+        # Most recent event's source timestamp (occurred_at) per run_id — the
+        # inactivity clock for the orphan sweep. Uses occurred_at, not receive
+        # time, so replay-on-attach doesn't re-stamp old runs to "now" and so a
+        # forwarded run's inactivity is measured at its source.
         self._last_event_at: dict[str, datetime] = {}
         # session_id per run_id, so the orphan sweep can resolve a
         # run_id back to its producer pid.
@@ -122,14 +159,8 @@ class AccumulatorPool:
         Run-bearing events route into the accumulator keyed by
         ``run_id``, creating it on first sight.
         """
-        et = evt_dict.get("event_type")
-        cls = _EVENT_CLASSES.get(str(et) if et else "")
-        if cls is None:
-            return
-        try:
-            typed = cls.model_validate(evt_dict)
-        except Exception as exc:  # noqa: BLE001 — bad event must not kill watcher
-            logger.debug("Pool skipping unparseable event %s: %s", et, exc)
+        typed = typed_from_dict(evt_dict)
+        if typed is None:
             return
 
         if isinstance(typed, SessionStarted):
@@ -137,6 +168,10 @@ class AccumulatorPool:
             if session_id and typed.pid:
                 with self._lock:
                     self._session_pid[session_id] = typed.pid
+                    if typed.station_hostname:
+                        self._session_host[session_id] = typed.station_hostname
+                    if typed.process_uuid:
+                        self._session_uuid[session_id] = typed.process_uuid
             return
 
         if isinstance(typed, SessionEnded):
@@ -162,7 +197,10 @@ class AccumulatorPool:
         with self._lock:
             acc = self._accs.setdefault(run_id, EventAccumulator())
             acc.on_event(typed)
-            self._last_event_at[run_id] = datetime.now(UTC)
+            # Source timestamp, not receive time: a replayed backlog on attach
+            # must not re-stamp old runs as freshly active, and a forwarded run's
+            # inactivity belongs to its source clock, not this daemon's.
+            self._last_event_at[run_id] = typed.occurred_at or datetime.now(UTC)
             if session_id:
                 self._run_session[run_id] = session_id
             # Mark this run dirty + bump generation under the same lock as
@@ -194,29 +232,31 @@ class AccumulatorPool:
     # Orphan sweep + lifecycle
     # ------------------------------------------------------------------
 
-    def open_runs(self) -> list[tuple[str, EventAccumulator, int | None, datetime | None]]:
-        """Return ``(run_id, accumulator, pid_or_None, last_event_or_None)`` for open runs.
-
-        Open = ``RunStarted`` seen, ``RunEnded`` not seen.
-        The orphan sweep iterates this and decides per-entry whether
-        to finalize.
-        """
-        out: list[tuple[str, EventAccumulator, int | None, datetime | None]] = []
+    def open_runs(self) -> list[OpenRun]:
+        """Return an :class:`OpenRun` per open run (``RunStarted`` seen,
+        ``RunEnded`` not). The orphan sweep iterates this and decides per-entry
+        whether to finalize. Carries the producer host + uuid so the sweep can
+        gate pid liveness on locality."""
+        out: list[OpenRun] = []
         with self._lock:
             for run_id, acc in self._accs.items():
                 if not acc._run_started or acc._run_ended is not None:
                     continue
                 session_id = self._run_session.get(run_id)
                 pid = self._session_pid.get(session_id) if session_id else None
+                host = self._session_host.get(session_id) if session_id else None
+                uuid = self._session_uuid.get(session_id) if session_id else None
                 last = self._last_event_at.get(run_id)
-                out.append((run_id, acc, pid, last))
+                out.append(OpenRun(run_id, acc, pid, host, uuid, last))
         return out
 
     def mark_session_ended(self, session_id: str) -> None:
-        """Forget a session's producer pid (on SessionEnded). Keeps the run
-        sweep's pid map from carrying a closed session's producer."""
+        """Forget a session's producer identity (on SessionEnded). Keeps the run
+        sweep's pid/host/uuid maps from carrying a closed session's producer."""
         with self._lock:
             self._session_pid.pop(session_id, None)
+            self._session_host.pop(session_id, None)
+            self._session_uuid.pop(session_id, None)
 
     def evict(self, run_id: str) -> EventAccumulator | None:
         """Drop the accumulator for ``run_id`` and return it (or ``None``)."""
@@ -322,6 +362,7 @@ INFLIGHT_RUNS_SCHEMA = pa.schema(
         ("station_id", pa.string()),
         ("station_name", pa.string()),
         ("station_hostname", pa.string()),
+        ("machine_id", pa.string()),
         ("station_type", pa.string()),
         ("station_location", pa.string()),
         ("fixture_id", pa.string()),

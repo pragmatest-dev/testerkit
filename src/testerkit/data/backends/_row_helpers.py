@@ -323,6 +323,12 @@ class RunParquetRow(BaseModel):
     station_location: str | None = None
     station_hostname: str | None = None
 
+    # Machine — a random uuid4 identifying the physical controller (one per
+    # machine, shared across every project on it), sourced from
+    # ``get_or_create_machine_id()`` rather than station config. Distinct
+    # from ``station_id``.
+    machine_id: str | None = None
+
     # Fixture
     fixture_id: str | None = None
 
@@ -487,6 +493,8 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
         "station_type": test_run.station_type,
         "station_location": test_run.station_location,
         "station_hostname": test_run.station_hostname,
+        # Machine
+        "machine_id": test_run.machine_id,
         # Fixture
         "fixture_id": test_run.fixture_id,
         # Test context
@@ -555,6 +563,7 @@ def run_context_from_run_started(
             "station_type": None,
             "station_location": None,
             "station_hostname": None,
+            "machine_id": None,
             "fixture_id": None,
             "test_phase": None,
             "project_name": None,
@@ -584,6 +593,7 @@ def run_context_from_run_started(
             "station_type": run_started.station_type,
             "station_location": run_started.station_location,
             "station_hostname": run_started.station_hostname,
+            "machine_id": run_started.machine_id,
             "fixture_id": run_started.fixture_id,
             "test_phase": run_started.test_phase,
             "project_name": run_started.project_name,

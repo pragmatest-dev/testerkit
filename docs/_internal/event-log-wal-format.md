@@ -2,9 +2,13 @@
 
 **Audience:** TesterKit maintainers. Not a public consumer contract.
 
-Consumers read events via the daemon index and the Query API, never the raw
-Arrow IPC files directly. This document describes the on-disk format for
-maintainers who need to understand or evolve the event WAL.
+Consumers read events via the daemon index and the Query API — with one
+sanctioned exception: **replication** reads the raw Arrow IPC segments directly,
+through the public `testerkit.replication.read_segments` (the forwarder tails a
+bench's WAL past a cursor). That is the only supported direct reader; everything
+else goes through the index + Query API. This document describes the on-disk
+format for maintainers who need to understand or evolve the event WAL, and for the
+replication reader that consumes it.
 
 ---
 

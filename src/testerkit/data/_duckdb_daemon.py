@@ -32,7 +32,9 @@ import pyarrow as pa
 from testerkit.data import _index_epoch
 from testerkit.data._daemon_lifecycle import _installed_version
 from testerkit.data._duckdb_flight_server import (
+    BatchDisposition,
     DuckDBFlightServer,
+    PutResult,
     shutdown_flight_server_in_daemon,
     start_flight_server_in_daemon,
 )
@@ -73,23 +75,39 @@ def _json_is_derived(payload: str | None) -> bool:
         return False
 
 
-def _fence_post_seal(table: pa.Table, sealed: set[str]) -> tuple[pa.Table, int]:
+def _json_is_exempt(payload: str | None) -> bool:
+    """True if an event's ``json`` payload is exempt from the terminal fence —
+    ``derived`` (the daemon's own spine writes) OR ``replicated`` (already fenced
+    at its source daemon, re-ingested via replication). Both are trusted,
+    non-producer origin, not post-seal revival. One parse per row."""
+    if not payload:
+        return False
+    try:
+        obj = json.loads(payload)
+        return bool(obj.get("derived")) or bool(obj.get("replicated"))
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return False
+
+
+def _fence_post_seal(table: pa.Table, sealed: set[str]) -> tuple[pa.Table, list[str]]:
     """Drop post-seal PRODUCER writes — rows whose session is already sealed
-    (has a ``SessionEnded``) and which are NOT ``derived``. Revival is rejected;
-    daemon completions (a run's async ``RunMaterialized``, a reaper ``RunEnded``)
-    ride through. Cheap fast-path: returns the table untouched unless some row
-    actually targets a sealed session (only then is the ``json`` parsed)."""
+    (has a ``SessionEnded``) and which are NOT exempt (``derived`` completions or
+    ``replicated`` re-ingests ride through). Returns the kept table and the ``id``s
+    of the rejected rows (for the do_put disposition ack). Cheap fast-path: returns
+    the table untouched with no rejections unless some row actually targets a sealed
+    session (only then is the ``json`` parsed and the ``id`` column read)."""
     if not sealed:
-        return table, 0
+        return table, []
     sids = table.column("session_id").to_pylist()
     if not any(s in sealed for s in sids):
-        return table, 0
+        return table, []
     jsons = table.column("json").to_pylist()
-    keep = [not (s in sealed and not _json_is_derived(j)) for s, j in zip(sids, jsons, strict=True)]
-    rejected = keep.count(False)
-    if rejected == 0:
-        return table, 0
-    return table.filter(keep), rejected
+    keep = [not (s in sealed and not _json_is_exempt(j)) for s, j in zip(sids, jsons, strict=True)]
+    if all(keep):
+        return table, []
+    ids = table.column("id").to_pylist()
+    rejected_ids = [str(i) for i, k in zip(ids, keep, strict=True) if not k]
+    return table.filter(keep), rejected_ids
 
 
 # Columns to narrow an IPC-loaded Arrow table to before inserting. The
@@ -161,8 +179,11 @@ def _insert_sql(view: str) -> str:
     )
 
 
-def _insert_events(cur: duckdb.DuckDBPyConnection, table: pa.Table, *, attempts: int = 25) -> None:
+def _insert_events(cur: duckdb.DuckDBPyConnection, table: pa.Table, *, attempts: int = 25) -> int:
     """Register ``table`` and insert it vectorized, retrying on conflicts.
+    Returns the number of rows actually inserted (``ON CONFLICT (id) DO NOTHING``
+    excludes already-present rows from the count), so the caller can report
+    ``deduped = submitted - inserted``.
 
     Lock-free writes (the put-hook on a per-Flight-thread cursor and the
     ingest thread on its own cursor) append to ``events`` concurrently
@@ -180,14 +201,15 @@ def _insert_events(cur: duckdb.DuckDBPyConnection, table: pa.Table, *, attempts:
         try:
             cur.register(view, table)
             try:
-                cur.execute(sql)
+                row = cur.execute(sql).fetchone()
             finally:
                 cur.unregister(view)
-            return
+            return int(row[0]) if row else 0
         except duckdb.TransactionException:
             if i == attempts - 1:
                 raise
             time.sleep(0.002 * (i + 1))
+    raise AssertionError("unreachable: _insert_events retry loop exhausted")
 
 
 # ── Schema management ────────────────────────────────────────────────
@@ -422,6 +444,8 @@ def _ingest_ipc_files(
     conn: duckdb.DuckDBPyConnection,
     events_dir: Path,
     lock: threading.Lock,
+    sealed: set[str],
+    sealed_lock: threading.Lock,
 ) -> None:
     """Background thread: ingest new/changed IPC files into the events index.
 
@@ -430,6 +454,11 @@ def _ingest_ipc_files(
     single lock eliminates the catalog-lock deadlock that two-connection
     ingest exposes under GIL contention. Per-file ingest releases the
     lock between files so Flight queries can interleave.
+
+    ``sealed`` / ``sealed_lock`` are the daemon's shared terminal-fence state:
+    file-ingest applies the SAME fence as the live put-hook (#63 parity) so a
+    post-seal producer revival that reached an IPC file is not resurrected on a
+    later re-derive, and feeds the set from each ``session.ended`` it ingests.
     """
     disk_entries: list[tuple[str, float, int, os.stat_result]] = []
     for fpath in sorted(events_dir.glob("*/*.arrow")):
@@ -455,7 +484,7 @@ def _ingest_ipc_files(
             continue
         try:
             with lock:
-                _ingest_one_file(conn, Path(path_str), stat)
+                _ingest_one_file(conn, Path(path_str), stat, sealed, sealed_lock)
         except Exception as exc:  # noqa: BLE001
             warnings.warn(f"Ingest skipped {path_str}: {exc}", stacklevel=2)
 
@@ -464,8 +493,13 @@ def _ingest_one_file(
     conn: duckdb.DuckDBPyConnection,
     fpath: Path,
     stat: os.stat_result,
+    sealed: set[str] | None = None,
+    sealed_lock: threading.Lock | None = None,
 ) -> None:
-    """Ingest a single IPC file. Records status in _ingested."""
+    """Ingest a single IPC file. Records status in _ingested. When the daemon's
+    shared terminal-fence state (``sealed`` + ``sealed_lock``) is supplied, applies
+    the SAME fence as the live put-hook and feeds the set from any ``session.ended``
+    (#63 parity); omit them (e.g. an isolated schema-dispatch test) to skip both."""
     path_str = str(fpath)
 
     def _mark(status: str, error: str | None = None, row_count: int = 0) -> None:
@@ -511,8 +545,35 @@ def _ingest_one_file(
         _mark("quarantined", str(exc))
         return
 
+    # Terminal fence — identical to the live put-hook (#63 parity): drop post-seal
+    # producer revival that reached this file, so a re-derive can't resurrect it.
+    if sealed is not None and sealed_lock is not None:
+        with sealed_lock:
+            sealed_snapshot = set(sealed) if sealed else None
+        if sealed_snapshot is not None:
+            table, rejected_ids = _fence_post_seal(table, sealed_snapshot)
+            if rejected_ids:
+                logger.info(
+                    "Terminal fence rejected %d post-seal event(s) on ingest of %s",
+                    len(rejected_ids),
+                    fpath.name,
+                )
+            if table.num_rows == 0:
+                _mark("ok", row_count=0)
+                return
+
     try:
         _insert_events(conn, table)
+        # Feed the sealed set from any session.ended in this file so later writes
+        # (this run or a subsequent ingest) to that session are fenced.
+        if sealed is not None and sealed_lock is not None:
+            ets = table.column("event_type").to_pylist()
+            if "session.ended" in ets:
+                sids = table.column("session_id").to_pylist()
+                with sealed_lock:
+                    sealed.update(
+                        str(s) for e, s in zip(ets, sids, strict=True) if e == "session.ended" and s
+                    )
         _mark("ok", row_count=table.num_rows)
     except (duckdb.Error, UnicodeDecodeError, pa.ArrowException, ValueError) as exc:
         # ``UnicodeDecodeError`` happens when an IPC file has a torn /
@@ -578,23 +639,31 @@ def daemon_run(events_dir: Path) -> None:
             _put_tls.cur = cur
         return cur
 
-    def _events_put_hook(table: pa.Table) -> pa.Table | None:
+    def _events_put_hook(table: pa.Table) -> PutResult:
         # Vectorized register + INSERT ... SELECT (columnar, ~800x faster
         # than the old row-by-row executemany; no large-string segfault in
-        # DuckDB >= 1.5).
+        # DuckDB >= 1.5). Returns the fan-out rows (or None) plus a per-batch
+        # disposition for the do_put ack (a replication client advances its
+        # cursor on inserted/deduped only, never on the fence-rejected ids).
         cur = _events_cursor()
         # Terminal fence: reject post-seal producer writes (revival) before they
         # land. Fast-path returns the table untouched unless a row targets a
         # sealed session. Snapshot the set under the lock only when there's a hit.
+        rejected_ids: list[str] = []
         with _sealed_lock:
             sealed = set(_sealed_sessions) if _sealed_sessions else None
         if sealed is not None:
-            table, rejected = _fence_post_seal(table, sealed)
-            if rejected:
-                logger.info("Terminal fence rejected %d post-seal event(s)", rejected)
+            table, rejected_ids = _fence_post_seal(table, sealed)
+            if rejected_ids:
+                logger.info("Terminal fence rejected %d post-seal event(s)", len(rejected_ids))
             if table.num_rows == 0:
-                return None
-        _insert_events(cur, table)
+                return PutResult(None, BatchDisposition(rejected_ids=rejected_ids))
+        inserted = _insert_events(cur, table)
+        disposition = BatchDisposition(
+            inserted=inserted,
+            deduped=table.num_rows - inserted,
+            rejected_ids=rejected_ids,
+        )
         # Absorb any SessionEnded in this batch into the sealed set so later
         # writes to that session are fenced.
         ets = table.column("event_type").to_pylist()
@@ -606,7 +675,7 @@ def daemon_run(events_dir: Path) -> None:
                 )
         srv = srv_cell.get("s")
         if srv is None or not srv.has_subscribers("events"):
-            return None
+            return PutResult(None, disposition)
         # A live subscriber is attached: fan out exactly THIS batch's rows
         # (selected by id, robust against concurrent writers on sibling
         # cursors) stamped with their server-side event_number, so push is
@@ -618,7 +687,7 @@ def daemon_run(events_dir: Path) -> None:
             "ORDER BY e.event_number"
         ).to_arrow_table()
         cur.unregister(view)
-        return canonical
+        return PutResult(canonical, disposition)
 
     def _register_events_sub(server: DuckDBFlightServer) -> None:
         # Enable lossless push: a __SUBSCRIBE__ stream replays every events
@@ -653,7 +722,7 @@ def daemon_run(events_dir: Path) -> None:
     # private, uncontended guard for ingest's own sequential ops.
     threading.Thread(
         target=_ingest_ipc_files,
-        args=(conn.cursor(), events_dir, threading.Lock()),
+        args=(conn.cursor(), events_dir, threading.Lock(), _sealed_sessions, _sealed_lock),
         daemon=True,
         name="duckdb-ingest",
     ).start()

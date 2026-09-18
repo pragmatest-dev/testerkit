@@ -43,6 +43,7 @@ from testerkit.data.channels.models import (
     sample_schema,
     samples_to_batch,
 )
+from testerkit.data.data_dir import get_or_create_machine_id
 from testerkit.data.events import ChannelCheckpoint, ChannelEnded, ChannelStarted
 from testerkit.data.ref import classify_value, make_channel_uri
 from testerkit.models.data_options import ChannelOptions
@@ -202,6 +203,7 @@ class ChannelStore:
         event_log: EventLog | None = None,
         index: bool = False,
         station_hostname: str | None = None,
+        machine_id: str | None = None,
         checkpoint_cadence: float | None = None,
     ) -> None:
         # Parent-only convention — caller passes the results parent
@@ -214,6 +216,13 @@ class ChannelStore:
         # host — resolve it here rather than depending on a station config (which
         # not every producer path has). Tests may pass an explicit value.
         self._station_hostname = station_hostname or socket.gethostname()
+        # Denormalized onto every sample row (mirrors ``session_id``), so a
+        # channel streamed under a run-less session still carries it. Callers
+        # that already opened a session (connect(), the pytest plugin) pass
+        # the session's ``SessionScope.machine_id`` through; a caller with no
+        # open session (benchmarks, direct tests) falls back to the same
+        # chokepoint accessor.
+        self._machine_id = machine_id or get_or_create_machine_id()
         # Producer-local data options (testerkit.yaml ``channels:``). An explicit
         # ``flush_threshold`` overrides ``options.writer_flush_threshold`` — the
         # one knob with a direct shortcut, since it's the dominant test lever.
@@ -748,6 +757,7 @@ class ChannelStore:
                         "value": pa.array(values, type=writer.schema.field("value").type),
                         "source_method": pa.array([source] * n, type=pa.utf8()),
                         "session_id": pa.array([sid] * n, type=pa.utf8()),
+                        "machine_id": pa.array([self._machine_id] * n, type=pa.utf8()),
                         "sample_offset": pa.array(offsets, type=pa.int64()),
                     },
                     schema=writer.schema,
@@ -767,6 +777,7 @@ class ChannelStore:
                         "unit": pa.array([unit or ""] * n, type=pa.utf8()),
                         "sample_interval": pa.array([sample_interval] * n, type=pa.float64()),
                         "session_id": pa.array([sid] * n, type=pa.utf8()),
+                        "machine_id": pa.array([self._machine_id] * n, type=pa.utf8()),
                         "sample_offset": pa.array(offsets, type=pa.int64()),
                     },
                     schema=sample_schema(),
@@ -782,6 +793,7 @@ class ChannelStore:
                         sample_interval=sample_interval,
                         source_method=source,
                         session_id=sid,
+                        machine_id=self._machine_id,
                         sample_offset=offsets[i],
                     )
                     for i in range(n)
@@ -933,6 +945,7 @@ class ChannelStore:
             "sampled_at": sampled_at,
             "source_method": source,
             "session_id": sid,
+            "machine_id": self._machine_id,
         }
 
         if isinstance(normalized, dict):
@@ -974,6 +987,7 @@ class ChannelStore:
             sample_interval=sample_interval,
             source_method=source,
             session_id=sid,
+            machine_id=self._machine_id,
         )
         return value_type, row, sample
 

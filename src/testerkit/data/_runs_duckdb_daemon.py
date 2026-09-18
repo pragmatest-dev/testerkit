@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import queue
+import socket
 import sys
 import threading
 import warnings
@@ -35,6 +36,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import duckdb
 import pyarrow as pa
@@ -49,6 +51,8 @@ from testerkit.data._accumulator_pool import (
     INFLIGHT_RUNS_SCHEMA,
     INFLIGHT_STEPS_SCHEMA,
     AccumulatorPool,
+    OpenRun,
+    typed_from_dict,
 )
 from testerkit.data._daemon_lifecycle import _installed_version, _pid_alive
 from testerkit.data._duckdb_flight_server import (
@@ -56,8 +60,10 @@ from testerkit.data._duckdb_flight_server import (
     start_flight_server_in_daemon,
 )
 from testerkit.data._sql_helpers import sql_escape as _sql_escape
+from testerkit.data.backends._event_accumulator import EventAccumulator
 from testerkit.data.backends.parquet import materialize_run_to_parquet
 from testerkit.data.models import Outcome
+from testerkit.data.run_projection import runs_projection_select
 from testerkit.data.runs_duckdb_manager import RunsDuckDBManager
 from testerkit.data.schema_dispatch import (
     _ADAPTERS,
@@ -71,7 +77,7 @@ from testerkit.data.schema_versions import (
     KNOWN_SCHEMA_VERSIONS,
     SchemaStore,
 )
-from testerkit.models.data_options import RUN_ORPHAN_TIMEOUT_SECONDS
+from testerkit.models.data_options import resolve_orphan_timeout
 from testerkit.models.enums import Comparator
 
 # Columns whose semantic type is a closed enum (Pydantic StrEnum), not
@@ -675,6 +681,7 @@ _RUNS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("station_id", "VARCHAR"),
     ("station_name", "VARCHAR"),
     ("station_hostname", "VARCHAR"),
+    ("machine_id", "VARCHAR"),
     ("fixture_id", "VARCHAR"),
     ("outcome", "outcome_kind"),
     ("started_at", "TIMESTAMPTZ"),
@@ -1303,42 +1310,12 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
     (``num_measurements``, ``num_steps``).
     """
     flist = _file_list_sql(parquet_paths)
+    source = f"read_parquet({flist}, filename=true, union_by_name=true)"
+    # Projection SELECT is shared with the cloud query service (run_projection.py),
+    # so the bench and the cloud can never derive a different runs shape.
     conn.execute(f"""
         INSERT INTO runs_materialized BY NAME
-        SELECT
-            run_id,
-            filename AS file_path,
-            session_id,
-            site_index,
-            site_name,
-            uut_serial_number, uut_part_number, uut_revision, uut_lot_number,
-            station_id, station_name, station_hostname,
-            fixture_id,
-            run_outcome AS outcome,
-            run_started_at AS started_at,
-            run_ended_at AS ended_at,
-            CAST(COALESCE(
-                SUM(len(measurements)) FILTER (WHERE record_type <> 'measurement'), 0
-            ) AS INTEGER)
-                AS num_measurements,
-            CAST(COUNT(*) FILTER (WHERE record_type = 'step') AS INTEGER)
-                AS num_steps,
-            test_phase, part_id, part_name, part_revision,
-            station_type, station_location, operator_id, operator_name, project_name,
-            git_commit, git_branch, git_remote,
-            python_version, testerkit_version, env_fingerprint
-FROM read_parquet({flist}, filename=true, union_by_name=true)
-        WHERE run_id IS NOT NULL
-        GROUP BY
-            filename, run_id, session_id, site_index, site_name,
-            uut_serial_number, uut_part_number, uut_revision, uut_lot_number,
-            station_id, station_name, station_hostname,
-            fixture_id,
-            run_outcome, run_started_at, run_ended_at,
-            test_phase, part_id, part_name, part_revision,
-            station_type, station_location, operator_id, operator_name, project_name,
-            git_commit, git_branch, git_remote,
-            python_version, testerkit_version, env_fingerprint
+        {runs_projection_select(source)}
 ON CONFLICT (run_id) DO UPDATE SET
             file_path = excluded.file_path,
             session_id = excluded.session_id,
@@ -1351,6 +1328,7 @@ ON CONFLICT (run_id) DO UPDATE SET
             station_id = excluded.station_id,
             station_name = excluded.station_name,
             station_hostname = excluded.station_hostname,
+            machine_id = excluded.machine_id,
             fixture_id = excluded.fixture_id,
             outcome = excluded.outcome,
             started_at = excluded.started_at,
@@ -1388,6 +1366,36 @@ _DURATION_S_EXPR = """ROUND(
             END, 6
         ) AS duration_s"""
 
+# Worst-wins collapse of `step_outcome` across a swept step's grouped variant
+# rows (a swept step can emit multiple `record_type='step'` rows sharing the
+# same grain key, one per sweep variant). `ANY_VALUE` picked an arbitrary
+# variant's outcome, so a PASSED variant could hide a FAILED one. This ranks
+# each outcome by severity and keeps the worst — the SQL twin of
+# `models.escalate_outcome` / `models._OUTCOME_SEVERITY`
+# (ABORTED=7 > TERMINATED=6 > ERRORED=5 > FAILED=4 > PASSED=3 > DONE=2 >
+# SKIPPED=1; unjudged/NULL ranks below everything). Kept in lockstep with
+# `measurement_projection.WORST_STEP_OUTCOME_EXPR` (drift-guarded) — keep
+# both in sync with `models._OUTCOME_SEVERITY` if that ladder ever changes.
+_WORST_STEP_OUTCOME_EXPR = """CASE MAX(CASE step_outcome
+                WHEN 'aborted' THEN 7
+                WHEN 'terminated' THEN 6
+                WHEN 'errored' THEN 5
+                WHEN 'failed' THEN 4
+                WHEN 'passed' THEN 3
+                WHEN 'done' THEN 2
+                WHEN 'skipped' THEN 1
+                ELSE 0
+            END)
+                WHEN 7 THEN 'aborted'
+                WHEN 6 THEN 'terminated'
+                WHEN 5 THEN 'errored'
+                WHEN 4 THEN 'failed'
+                WHEN 3 THEN 'passed'
+                WHEN 2 THEN 'done'
+                WHEN 1 THEN 'skipped'
+                ELSE NULL
+            END AS outcome"""
+
 
 def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]) -> None:
     """Populate ``steps_materialized`` + ``vectors_materialized`` from the parquets.
@@ -1421,7 +1429,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 step_index,
                 filename AS file_path,
                 step_name,
-                ANY_VALUE(step_outcome) AS outcome,
+                {_WORST_STEP_OUTCOME_EXPR},
                 ANY_VALUE(step_started_at) AS started_at,
                 ANY_VALUE(step_ended_at) AS ended_at,
                 CAST(COALESCE(SUM(len(measurements)), 0) AS INTEGER) AS measurement_count,
@@ -1978,7 +1986,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
         SELECT
             run_id, file_path, session_id, site_index, site_name,
             uut_serial_number, uut_part_number, uut_revision, uut_lot_number,
-            station_id, station_name, station_hostname, station_type, station_location,
+            station_id, station_name, station_hostname, machine_id, station_type, station_location,
             fixture_id,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
@@ -2208,7 +2216,9 @@ def daemon_run(runs_dir: Path) -> None:
     # watcher loop and letting the events backlog grow under bursty
     # load. Live-runs UI would lag by seconds when many runs finish
     # in close succession.
-    materialize_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
+    # (run_id, outcome, supersede). supersede=True → re-hydrate a synthetic-abort
+    # run from the durable log and overwrite it with its real completion (#64).
+    materialize_queue: queue.Queue[tuple[str, str | None, bool]] = queue.Queue()
 
     # Real shared inflight overlay tables (NOT per-connection temp views),
     # so the UNION views in ``_create_views`` resolve on every cursor and
@@ -2274,7 +2284,13 @@ def daemon_run(runs_dir: Path) -> None:
                 logger.warning("overlay sync failed: %s", exc)
 
     # ── Materialize one run from the pool ───────────────────────────
-    def _materialize_and_emit(run_id: str, outcome: str | None) -> None:
+    def _materialize_and_emit(
+        run_id: str,
+        outcome: str | None,
+        *,
+        acc: EventAccumulator | None = None,
+        supersede: bool = False,
+    ) -> None:
         """Write the run's parquet, ingest it, emit ``RunMaterialized``.
 
         Called from the materialize worker thread (NOT the event-
@@ -2293,7 +2309,8 @@ def daemon_run(runs_dir: Path) -> None:
         ``run_id`` (already materialized and evicted), this is a
         no-op.
         """
-        acc = pool.get(run_id)
+        if acc is None:
+            acc = pool.get(run_id)
         if acc is None:
             return
         # Diagnostic instrumentation for task #211 (intermittent partial
@@ -2347,8 +2364,20 @@ def daemon_run(runs_dir: Path) -> None:
                 logger.debug("Materialized-guard query failed (non-fatal): %s", exc)
                 already = None
             if already is not None:
-                pool.evict(run_id)
-                return
+                # A row already exists. Normally that means a redundant
+                # re-dispatch → skip. The exception is SUPERSEDE (#64): a real
+                # (non-derived) run.ended completing a run that was materialized
+                # as a synthetic abort. A real terminal is authoritative and
+                # overwrites the aborted row (ON CONFLICT DO UPDATE); a synthetic
+                # or duplicate one does not. ``supersede`` covers the re-hydrate
+                # path (fresh acc from the log); ``terminal_is_real`` covers the
+                # race where the real run.ended lands before the abort's eviction.
+                terminal_is_real = acc._run_ended is not None and not getattr(
+                    acc._run_ended, "derived", False
+                )
+                if not (supersede or terminal_is_real):
+                    pool.evict(run_id)
+                    return
             # One atomic transaction per run: the six ingest statements
             # (runs / steps / measurements / io+refs / measurement-rows) commit
             # together, so a concurrent reader never sees a half-materialized
@@ -2412,6 +2441,54 @@ def daemon_run(runs_dir: Path) -> None:
             # but defensive). Evict directly.
             pool.evict(run_id)
 
+    def _rehydrate_and_supersede(run_id: str) -> None:
+        """A real ``run.ended`` arrived for a run already materialized as a
+        synthetic abort (the sweep force-closed it, then the producer came back
+        and finished). Re-derive the run from the durable event log and overwrite
+        the aborted row with the true completion (#64, RE-HYDRATE).
+
+        Event-sourced by construction: the projection is rebuilt from the log
+        rather than patched in place, and no state is retained between the abort
+        and the completion. Idempotent — the ``events`` replay carries both the
+        synthetic and the real terminal; the accumulator keeps the last (the real
+        one, later ``received_at``), so the outcome is authoritative.
+        """
+        es = event_store_box[0]
+        if es is None:
+            return
+        # Only supersede something that is actually materialized; otherwise a
+        # stray/out-of-order run.ended is not ours to act on.
+        with write_lock:
+            try:
+                exists = conn.execute(
+                    "SELECT 1 FROM runs_materialized WHERE run_id = ? LIMIT 1", [run_id]
+                ).fetchone()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Supersede materialized-check failed: %s", exc)
+                return
+        if exists is None:
+            return
+        try:
+            rows = es.events(run_id=UUID(run_id))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Supersede replay query failed for %s: %s", run_id, exc)
+            return
+        acc = EventAccumulator()
+        for row in rows:
+            typed = typed_from_dict(row)
+            if typed is not None:
+                acc.on_event(typed)
+        # Rebuilt run must be complete and its terminal must be the REAL one; if
+        # the log still shows only the synthetic terminal there is nothing to
+        # supersede with.
+        if acc._run_started is None or acc._run_ended is None:
+            return
+        if getattr(acc._run_ended, "derived", False):
+            return
+        logger.info("Superseding synthetic abort for run %s with real completion", run_id)
+        _materialize_and_emit(run_id, acc._run_ended.outcome, acc=acc, supersede=True)
+        pool.evict(run_id)  # drop the stray terminal-only accumulator
+
     # ── Event dispatch ──────────────────────────────────────────────
     def _on_event(evt: dict[str, Any]) -> None:
         """Dispatch one event from the EventStore subscription.
@@ -2453,7 +2530,14 @@ def daemon_run(runs_dir: Path) -> None:
             run_id_str = str(rid)
             acc = pool.get(run_id_str)
             if acc is not None and acc._run_started is not None and acc._run_ended is not None:
-                materialize_queue.put((run_id_str, acc._run_ended.outcome))
+                materialize_queue.put((run_id_str, acc._run_ended.outcome, False))
+            elif et == "run.ended" and not evt.get("derived"):
+                # A REAL run.ended with no complete accumulator means the
+                # RunStarted was already evicted — the run is materialized. A real
+                # terminal for a materialized run is only ever the supersede of a
+                # synthetic abort (replay excludes materialized runs, so it is
+                # never a re-delivery). Re-hydrate and overwrite (#64).
+                materialize_queue.put((run_id_str, None, True))
 
     # ── Materialize worker thread ────────────────────────────────────
     def _materialize_worker() -> None:
@@ -2471,8 +2555,11 @@ def daemon_run(runs_dir: Path) -> None:
             except queue.Empty:
                 continue
             try:
-                run_id, outcome = item
-                _materialize_and_emit(run_id, outcome)
+                run_id, outcome, supersede = item
+                if supersede:
+                    _rehydrate_and_supersede(run_id)
+                else:
+                    _materialize_and_emit(run_id, outcome)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("materialize worker error: %s", exc)
             finally:
@@ -2522,7 +2609,7 @@ def daemon_run(runs_dir: Path) -> None:
         ingests, emits ``RunMaterialized``. Same code path as a clean
         producer-side close.
         """
-        orphan_timeout = RUN_ORPHAN_TIMEOUT_SECONDS
+        orphan_timeout = resolve_orphan_timeout()
         while not stop_event.is_set():
             stop_event.wait(timeout=30.0)
             if stop_event.is_set():
@@ -2537,25 +2624,18 @@ def daemon_run(runs_dir: Path) -> None:
         if es is None:
             return  # not yet attached; nothing to emit through
         now = datetime.now(UTC)
-        for run_id, _acc, pid, last_event_at in pool.open_runs():
-            is_orphan = False
-            reason = ""
-            if pid is not None:
-                alive = _check_pid_liveness(pid)
-                if alive is False:
-                    is_orphan = True
-                    reason = f"producer pid {pid} no longer exists"
-            if not is_orphan and last_event_at is not None:
-                if (now - last_event_at).total_seconds() > orphan_timeout:
-                    is_orphan = True
-                    reason = f"no events for {orphan_timeout:.0f}s"
+        local_hostname = socket.gethostname()
+        for run in pool.open_runs():
+            is_orphan, reason = _classify_orphan(
+                run, now=now, orphan_timeout=orphan_timeout, local_hostname=local_hostname
+            )
             if not is_orphan:
                 continue
             try:
-                _emit_synthetic_run_ended(es, run_id, now)
-                logger.info("Finalizing orphan run %s as aborted (%s)", run_id, reason)
+                _emit_synthetic_run_ended(es, run.run_id, now)
+                logger.info("Finalizing orphan run %s as aborted (%s)", run.run_id, reason)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Failed to emit synthetic RunEnded for %s: %s", run_id, exc)
+                logger.warning("Failed to emit synthetic RunEnded for %s: %s", run.run_id, exc)
 
     def _emit_synthetic_run_ended(es: Any, run_id: str, occurred_at: datetime) -> None:
         """Emit ``RunEnded(outcome="aborted")`` for an orphan.
@@ -2698,6 +2778,38 @@ def _check_pid_liveness(pid: int) -> bool | None:
         return True
     except OSError:
         return None
+
+
+def _classify_orphan(
+    run: OpenRun,
+    *,
+    now: datetime,
+    orphan_timeout: float,
+    local_hostname: str,
+    pid_liveness: Callable[[int], bool | None] = _check_pid_liveness,
+) -> tuple[bool, str]:
+    """Pure decision: is this open run an orphan, and why? Extracted from the
+    sweep closure so it is importable and unit-testable (no daemon/pool needed).
+
+    Producer pid liveness is authoritative ONLY when the producer ran on THIS
+    host — a replicated/foreign session's pid is meaningless in this process, so
+    it is never pid-checked here (that is the locality gate). A verified-live
+    local producer is NOT an orphan even if it has been quiet past the timeout
+    (the ``alive is True`` short-circuit — a busy-but-silent local run must not be
+    aborted). Otherwise — non-local, no pid, or indeterminate liveness — fall back
+    to the source-time inactivity clock.
+    """
+    pid = run.pid
+    if pid is not None and run.station_hostname == local_hostname:
+        alive = pid_liveness(pid)
+        if alive is False:
+            return True, f"producer pid {pid} no longer exists"
+        if alive is True:
+            return False, ""  # verified live — never abort on inactivity
+        # alive is None → indeterminate; fall through to the inactivity clock
+    if run.last_event_at is not None and (now - run.last_event_at).total_seconds() > orphan_timeout:
+        return True, f"no events for {orphan_timeout:.0f}s"
+    return False, ""
 
 
 if __name__ == "__main__":

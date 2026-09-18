@@ -664,6 +664,17 @@ class Context:
             if ctx is not None
             else (dict(vector.params) if vector is not None else {})
         )
+        # Units mirror the values merge above: the vector's own units (almost
+        # always empty in production — nothing seeds ``vector.param_units`` /
+        # ``observation_units`` except the live-context sync below and
+        # ``observe()``'s own real-time mirror into the vector) plus whatever
+        # the live context picked up via ``configure(..., unit=)`` /
+        # ``observe(..., unit=)`` during this iteration.
+        input_units = {**(dict(vector.param_units) if vector is not None else {})}
+        output_units = {**(dict(vector.observation_units) if vector is not None else {})}
+        if ctx is not None:
+            input_units.update(ctx.configured_units)
+            output_units.update(ctx.observed_units)
         event_log.emit(
             VectorEnded(
                 session_id=self._session_id,
@@ -678,8 +689,8 @@ class Context:
                 outcome=outcome.value if outcome is not None else None,
                 inputs=ve_inputs,
                 outputs=dict(vector.observations) if vector is not None else {},
-                input_units=dict(vector.param_units) if vector is not None else {},
-                output_units=dict(vector.observation_units) if vector is not None else {},
+                input_units=input_units,
+                output_units=output_units,
                 output_pins=dict(vector.observation_pins) if vector is not None else {},
                 node_id=getattr(step, "node_id", None) if step else None,
             )
@@ -931,12 +942,46 @@ class Context:
         return result
 
     @property
+    def configured_units(self) -> dict[str, str]:
+        """Engineering units for ``configure()``-set keys that have one, parent-merged.
+
+        Mirrors :attr:`configured_params`'s parent-merge, but only keys that
+        were given a ``unit=`` are present — an unset unit for a configured
+        key is simply absent, never ``None``. This is both the public
+        programmatic read of input units AND the sync source materialization
+        seams (``run_scope.end_outer_vector`` / :meth:`_emit_vector_ended`)
+        read to land ``configure(..., unit=...)`` onto the vector's
+        ``input_units`` at vector-end (see :attr:`_param_units`).
+        """
+        result: dict[str, str] = {}
+        if self._parent is not None:
+            result.update(self._parent.configured_units)
+        result.update({k: self._param_units[k] for k in self._configured if k in self._param_units})
+        return result
+
+    @property
     def observations(self) -> dict[str, Any]:
         """All observation values, merged with parent chain."""
         result: dict[str, Any] = {}
         if self._parent is not None:
             result.update(self._parent.observations)
         result.update(self._observations)
+        return result
+
+    @property
+    def observed_units(self) -> dict[str, str]:
+        """Engineering units for observed keys, parent-merged.
+
+        Output analog of :attr:`configured_units`. Unlike inputs, there is
+        no separate "configured vs. seeded" split for outputs — every
+        ``_observation_units`` entry came from ``observe()`` / ``stream()``
+        (explicit ``unit=`` or a channel's default unit), so this simply
+        mirrors :attr:`observations`'s parent-merge over ``_observation_units``.
+        """
+        result: dict[str, str] = {}
+        if self._parent is not None:
+            result.update(self._parent.observed_units)
+        result.update(self._observation_units)
         return result
 
     @property
@@ -1779,8 +1824,18 @@ class TestHarness:
             test_vector.error_message = str(e)
             raise
         finally:
-            # Snapshot context into TestVector before clearing
+            # Snapshot context into TestVector before clearing. Units mirror
+            # this same snapshot for inputs: unlike outputs (``observe()``
+            # already mirrors into ``vec.observation_units`` live — this
+            # ``test_vector`` IS the pushed active vector), nothing mirrors
+            # ``configure(..., unit=)`` onto the vector in real time, so the
+            # offline batch-write path (``save_test_run`` /
+            # ``ParquetBackend._append_step_rows``, which reads
+            # ``vector.param_units`` directly off the object — no event log
+            # involved) would otherwise see the same null-unit bug as the
+            # event path did before this fix.
             test_vector.params = self._vector_context.params
+            test_vector.param_units = self._vector_context.configured_units
             test_vector.observations = self._vector_context.observations
             test_vector.ended_at = _utcnow()
             self._vector_context._emit_vector_ended()

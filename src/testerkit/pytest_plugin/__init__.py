@@ -222,6 +222,7 @@ def _emit_run_start_events(run_scope: RunScope) -> None:
             station_type=run_scope.test_run.station_type,
             station_location=run_scope.test_run.station_location,
             station_hostname=run_scope.test_run.station_hostname,
+            machine_id=run_scope.test_run.machine_id,
             uut_serial_number=run_scope.test_run.uut.serial,
             uut_part_number=run_scope.test_run.uut.part_number,
             uut_revision=run_scope.test_run.uut.revision,
@@ -313,13 +314,20 @@ def _run_scope(request) -> Generator[RunScope, None, None]:
     if env_uut_serial:
         meta["uut_serial"] = env_uut_serial
 
+    # The run inherits machine_id from the already-open session (the source of
+    # truth — see SessionScope.machine_id) rather than re-deriving it; RunScope
+    # only falls back to its own accessor call when no session was opened
+    # (collect-only / headless paths never reach here anyway).
+    scope = request.session.stash.get(_SESSION_SCOPE_KEY, None)
+    if scope is not None:
+        meta["machine_id"] = scope.machine_id
+
     run_scope = RunScope(**meta)
     # Store this session's run so pytest_sessionfinish finalizes THIS run on a
     # KeyboardInterrupt — not get_current_run_scope() (a nested pytester run
     # restores that to the outer run, which we must not seal mid-suite).
     request.session.stash[_RUN_SCOPE_KEY] = run_scope
 
-    scope = request.session.stash.get(_SESSION_SCOPE_KEY, None)
     if scope is not None:
         run_scope.event_log = scope.event_log
         _emit_run_start_events(run_scope)

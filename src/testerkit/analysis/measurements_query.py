@@ -38,7 +38,12 @@ from testerkit.analysis.measurement_facets import (
 )
 from testerkit.data import runs_duckdb_manager
 from testerkit.data._flight_query import FlightQueryClient
-from testerkit.data._sql_helpers import sql_escape
+from testerkit.data._sql_helpers import (
+    glob_to_like_pattern,
+    has_wildcard,
+    partition_exact_and_glob,
+    sql_escape,
+)
 from testerkit.data.data_dir import resolve_data_dir
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -223,8 +228,17 @@ class _EAVJoins:
         return alias
 
     def add_meas_name_predicate(self, name: str) -> None:
-        """Record a measurement_name scoping predicate for a MEASUREMENT FieldRef."""
-        pred = f"m.measurement_name = '{sql_escape(name)}'"
+        """Record a measurement_name scoping predicate for a MEASUREMENT FieldRef.
+
+        A `name` containing `*`/`?` is treated as a glob pattern, translated
+        to an interpolated `LIKE … ESCAPE '\\'` clause; a plain name keeps
+        the exact `=` match.
+        """
+        if has_wildcard(name):
+            pattern = glob_to_like_pattern(name)
+            pred = f"m.measurement_name LIKE '{sql_escape(pattern)}' ESCAPE '\\'"
+        else:
+            pred = f"m.measurement_name = '{sql_escape(name)}'"
         if pred not in self._meas_name_predicates:
             self._meas_name_predicates.append(pred)
 
@@ -332,10 +346,10 @@ def _build_filter_clauses(
         clauses.append(f"{phase_expr} != 'development'")
     part_values = _coerce_filter_values(part)
     if part_values:
-        clauses.append(_in_or_eq(part_expr, part_values))
+        clauses.append(_in_or_eq(part_expr, part_values, wildcards=True))
     station_values = _coerce_filter_values(station)
     if station_values:
-        clauses.append(_in_or_eq(station_expr, station_values))
+        clauses.append(_in_or_eq(station_expr, station_values, wildcards=True))
     if since:
         clauses.append(f"{date_expr} >= '{sql_escape(since)}'")
     if until:
@@ -357,16 +371,33 @@ def _coerce_filter_values(value: str | list[str] | None) -> list[str]:
     return [v for v in value if v]
 
 
-def _in_or_eq(column_expr: str, values: list[str]) -> str:
+def _in_or_eq(column_expr: str, values: list[str], *, wildcards: bool = False) -> str:
     """Render ``column = 'x'`` for one value or ``column IN (...)`` for many.
 
     DuckDB handles both the same way at the planner level; the
     ``=`` form is just shorter and reads better in logs.
+
+    ``wildcards=True`` (part/station only — phase stays exact/IN-only) treats
+    a value containing ``*``/``?`` as a glob pattern, translated to an
+    interpolated ``LIKE … ESCAPE '\\'`` clause; exact and glob values within
+    the same field are OR'd together.
     """
-    if len(values) == 1:
-        return f"{column_expr} = '{sql_escape(values[0])}'"
-    quoted = ", ".join(f"'{sql_escape(v)}'" for v in values)
-    return f"{column_expr} IN ({quoted})"
+    if not wildcards:
+        if len(values) == 1:
+            return f"{column_expr} = '{sql_escape(values[0])}'"
+        quoted = ", ".join(f"'{sql_escape(v)}'" for v in values)
+        return f"{column_expr} IN ({quoted})"
+
+    exact_values, glob_values = partition_exact_and_glob(values)
+    ors: list[str] = []
+    if exact_values:
+        ors.append(_in_or_eq(column_expr, exact_values))
+    for glob_value in glob_values:
+        pattern = glob_to_like_pattern(glob_value)
+        ors.append(f"{column_expr} LIKE '{sql_escape(pattern)}' ESCAPE '\\'")
+    if len(ors) == 1:
+        return ors[0]
+    return "(" + " OR ".join(ors) + ")"
 
 
 def _build_where(
