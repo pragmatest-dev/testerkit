@@ -520,6 +520,12 @@ class RunScope:
         # the vector — that makes a swept-body configure() land on the vector,
         # not the fused rollup step.
         self._step_ambient_config: list[dict[str, Any] | None] = []
+        # Units twin of ``_step_ambient_config`` — same ambient (pre-vector)
+        # snapshot, just for ``configured_units`` instead of ``configured_params``.
+        # Kept as a parallel stack (rather than folding units into the same
+        # dict) so a step that opened no vector still resolves ``None`` for
+        # both and falls back to the live context uniformly.
+        self._step_ambient_config_units: list[dict[str, str] | None] = []
         # Clear contextvars — each logger owns its execution context
         push_current_step(None)
         push_current_vector(None)
@@ -697,6 +703,7 @@ class RunScope:
         # None until (and unless) this step opens its own vector; begin_outer_vector
         # fills it with the ambient (pre-vector) configured-param snapshot.
         self._step_ambient_config.append(None)
+        self._step_ambient_config_units.append(None)
 
         self._emit_step_event(step, is_start=True, enclosing=enclosing)
 
@@ -759,6 +766,7 @@ class RunScope:
         owning_context: Any = None,
         enclosing: TestVector | None = None,
         own_configured: dict[str, Any] | None = None,
+        own_configured_units: dict[str, str] | None = None,
     ) -> None:
         """Emit a StepStarted or StepEnded event for ``step``.
 
@@ -771,6 +779,15 @@ class RunScope:
         variant — and its params are the inherited condition pre-merged onto
         the step's own inputs (so a step-scope measurement carries the
         enclosing sweep without a chain-walk).
+
+        ``own_configured_units`` is the units twin of ``own_configured`` —
+        same ambient-snapshot-or-live-context resolution, just for
+        ``configured_units``. This is the class-swept-only-method grain (a
+        step with no own vector: it never runs through ``end_outer_vector`` /
+        ``_emit_vector_ended``, so without this merge a ``configure(...,
+        unit=)`` call made directly in the step body never reached
+        ``StepEnded.input_units`` — only the enclosing outer vector's
+        (usually empty) units did.
         """
         if self._event_log is None:
             return
@@ -810,6 +827,11 @@ class RunScope:
                 if own_configured is not None
                 else (coerce_dict(ctx.configured_params) if ctx is not None else {})
             )
+            own_units = (
+                own_configured_units
+                if own_configured_units is not None
+                else (coerce_dict(ctx.configured_units) if ctx is not None else {})
+            )
             event = StepEnded(
                 session_id=self._session_id,
                 run_id=self.test_run.id,
@@ -822,8 +844,8 @@ class RunScope:
                 retry=step.retry,
                 inputs={**enc_inputs, **own_inputs},
                 outputs=coerce_dict(ctx.observations) if ctx is not None else {},
-                input_units=enc_units,
-                output_units={},
+                input_units={**enc_units, **own_units},
+                output_units=coerce_dict(ctx.observed_units) if ctx is not None else {},
                 output_pins={},
                 node_id=step.node_id,
                 file=step.file,
@@ -976,6 +998,9 @@ class RunScope:
         # ``None`` snapshot means no own vector was opened → the step's full
         # configured params are step-scope (plain/ambient step).
         ambient = self._step_ambient_config[-1] if self._step_ambient_config else None
+        ambient_units = (
+            self._step_ambient_config_units[-1] if self._step_ambient_config_units else None
+        )
         if step is not None:
             ctx = owning if owning is not None else get_current_context()
             if ctx is not None:
@@ -989,6 +1014,7 @@ class RunScope:
                 owning_context=owning,
                 enclosing=enc,
                 own_configured=ambient,
+                own_configured_units=ambient_units,
             )
 
         # Pop step from hierarchy stack
@@ -1009,6 +1035,8 @@ class RunScope:
             self._step_enclosing.pop()
         if self._step_ambient_config:
             self._step_ambient_config.pop()
+        if self._step_ambient_config_units:
+            self._step_ambient_config_units.pop()
 
     def begin_outer_vector(self, vector: TestVector) -> None:
         """Push a sweep-source vector (Mode-1 parametrize or class-outer) and emit VectorStarted.
@@ -1024,11 +1052,16 @@ class RunScope:
         # everything configured inside the vector's scope rides the vector. In
         # Mode-1 (@parametrize) the vector wraps the whole body, so this is {}
         # and the fused step row carries no per-variant configure().
-        if self._step_ambient_config:
+        if self._step_ambient_config or self._step_ambient_config_units:
             open_ctx = get_current_context()
-            self._step_ambient_config[-1] = (
-                coerce_dict(open_ctx.configured_params) if open_ctx is not None else {}
-            )
+            if self._step_ambient_config:
+                self._step_ambient_config[-1] = (
+                    coerce_dict(open_ctx.configured_params) if open_ctx is not None else {}
+                )
+            if self._step_ambient_config_units:
+                self._step_ambient_config_units[-1] = (
+                    coerce_dict(open_ctx.configured_units) if open_ctx is not None else {}
+                )
         self._outer_vector_tokens.append(push_current_vector(vector))
         if self._event_log is None:
             return

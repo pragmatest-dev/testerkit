@@ -14,6 +14,25 @@ column stayed null.
 These tests cover both materialization seams plus the new
 ``Context.configured_units`` / ``Context.observed_units`` public read API that
 both fixes the sync source and gives programmatic unit reads.
+
+Follow-up (same bug class, two more grains found not to be covered by the
+first pass):
+
+- **Class-swept-only method** (class-level ``@testerkit_sweeps``, no inner
+  sweep): this method's data rides a plain STEP with no vector of its own
+  (``vector_index`` NULL, ``vector_outer_index`` set) — it never runs through
+  ``end_outer_vector`` / ``Context._emit_vector_ended`` at all.
+  ``run_scope._emit_step_event``'s ``StepEnded`` branch merged
+  ``own_configured`` (values) into ``inputs`` but only read the enclosing
+  vector's (empty) units for ``input_units``, and hardcoded
+  ``output_units={}``. Fixed by threading an ``own_configured_units``
+  twin of ``own_configured`` (ambient snapshot in ``_step_ambient_config_units``,
+  set by ``begin_outer_vector`` the same way as ``_step_ambient_config``) and
+  reading ``ctx.observed_units`` for outputs.
+- **Test-controlled self-loop** (the ``vectors`` fixture / ``_VectorIterator``,
+  no marker at all): goes through ``Context._emit_vector_ended`` — the same
+  seam already fixed for ``TestHarness.run_vector`` — so it's covered by the
+  same fix; verified end-to-end here rather than assumed.
 """
 
 from __future__ import annotations
@@ -21,9 +40,10 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from testerkit.data.events import VectorEnded
+from testerkit.data.events import StepEnded, VectorEnded
 from testerkit.data.models import TestVector
 from testerkit.execution._state import (
+    get_current_context,
     get_current_run_scope,
     push_current_context,
     reset_current_context,
@@ -32,6 +52,7 @@ from testerkit.execution._state import (
 from testerkit.execution.harness import Context, TestHarness
 from testerkit.execution.run_scope import RunScope
 from testerkit.execution.vectors import Vector
+from testerkit.pytest_plugin import _VectorIterator
 
 
 class _FakeLog:
@@ -182,3 +203,96 @@ def test_run_vector_syncs_live_context_units_onto_vectorended_mode2() -> None:
     # the same synced units, not just the emitted event.
     assert tv.param_units == {"vin_5v0": "V"}
     assert tv.observation_units == {"iout": "A"}
+
+
+# ---------------------------------------------------------------------------
+# Class-swept-ONLY grain (class @testerkit_sweeps, no inner sweep): the
+# method's data rides a plain STEP (vector_index None, vector_outer_index
+# set) — it never opens its own vector, so it never runs through
+# end_outer_vector / Context._emit_vector_ended at all. Real-parquet repro:
+# a class-swept-only method calling configure(unit=) landed input value but
+# unit=None.
+# ---------------------------------------------------------------------------
+
+
+def test_class_swept_only_method_syncs_configure_and_observe_units() -> None:
+    """Row H (class-outer sweep, non-swept method) — the grain that slipped
+    the first pass. configure()/observe() with units in the method body must
+    reach StepEnded.input_units / output_units."""
+    rs, log = _scope()
+    ctx = Context()
+
+    rs.start_step("C", class_name="C")
+    c_vec = TestVector(index=0, params={"vin_5v0": 5.0})
+    rs.begin_outer_vector(c_vec)
+
+    tok = push_current_context(ctx)
+    try:
+        rs.start_step("m", class_name="C")  # non-swept method, no own vector
+        ctx.configure("vin_5v0", 5.01, unit="V")
+        ctx.observe("v_out_5v0", 5.0, unit="V")
+        rs.end_step()
+    finally:
+        reset_current_context(tok)
+    rs.end_outer_vector(c_vec)
+    rs.end_step()
+
+    m_ended = next(e for e in log.of_type(StepEnded) if e.step_name == "m")
+    assert m_ended.inputs["vin_5v0"] == 5.01
+    assert m_ended.input_units == {"vin_5v0": "V"}
+    assert m_ended.outputs["v_out_5v0"] == 5.0
+    assert m_ended.output_units == {"v_out_5v0": "V"}
+
+
+def test_class_swept_only_method_no_configure_leaves_units_empty() -> None:
+    """No live context / no configure() calls — StepEnded.input_units is
+    empty, not populated with stray values (guards against an over-eager
+    merge picking up unrelated context state)."""
+    rs, log = _scope()
+
+    rs.start_step("C", class_name="C")
+    c_vec = TestVector(index=0, params={"vin_5v0": 5.0})
+    rs.begin_outer_vector(c_vec)
+    rs.start_step("m", class_name="C")
+    rs.end_step()
+    rs.end_outer_vector(c_vec)
+    rs.end_step()
+
+    m_ended = next(e for e in log.of_type(StepEnded) if e.step_name == "m")
+    assert m_ended.input_units == {}
+    assert m_ended.output_units == {}
+
+
+# ---------------------------------------------------------------------------
+# Test-controlled self-loop (no marker at all): the ``vectors`` fixture's
+# ``_VectorIterator`` drives per-row Context children through
+# Context._emit_vector_started / _emit_vector_ended — the SAME Mode-2 seam
+# already fixed for TestHarness.run_vector. Verified end-to-end rather than
+# assumed, per the outer-vector-grain slip above.
+# ---------------------------------------------------------------------------
+
+
+def test_self_loop_vector_iterator_syncs_configure_and_observe_units() -> None:
+    run_scope, log = _scope()
+    base_ctx = Context(session_id=uuid4())
+
+    prior = get_current_run_scope()
+    set_current_run_scope(run_scope)
+    try:
+        run_scope.start_step("t_selfloop")
+        matrix = [Vector(vin_5v0=5.0, _index=0)]
+        it = _VectorIterator(matrix, base_ctx)
+        for _row in it:
+            live = get_current_context()
+            assert live is not None
+            live.configure("vin_5v0", 5.01, unit="V")
+            live.observe("iout", 0.5, unit="A")
+        run_scope.end_step()
+    finally:
+        set_current_run_scope(prior)
+
+    ended = log.of_type(VectorEnded)[0]
+    assert ended.inputs["vin_5v0"] == 5.01
+    assert ended.input_units == {"vin_5v0": "V"}
+    assert ended.outputs["iout"] == 0.5
+    assert ended.output_units == {"iout": "A"}
