@@ -1366,6 +1366,36 @@ _DURATION_S_EXPR = """ROUND(
             END, 6
         ) AS duration_s"""
 
+# Worst-wins collapse of `step_outcome` across a swept step's grouped variant
+# rows (a swept step can emit multiple `record_type='step'` rows sharing the
+# same grain key, one per sweep variant). `ANY_VALUE` picked an arbitrary
+# variant's outcome, so a PASSED variant could hide a FAILED one. This ranks
+# each outcome by severity and keeps the worst — the SQL twin of
+# `models.escalate_outcome` / `models._OUTCOME_SEVERITY`
+# (ABORTED=7 > TERMINATED=6 > ERRORED=5 > FAILED=4 > PASSED=3 > DONE=2 >
+# SKIPPED=1; unjudged/NULL ranks below everything). Kept in lockstep with
+# `measurement_projection.WORST_STEP_OUTCOME_EXPR` (drift-guarded) — keep
+# both in sync with `models._OUTCOME_SEVERITY` if that ladder ever changes.
+_WORST_STEP_OUTCOME_EXPR = """CASE MAX(CASE step_outcome
+                WHEN 'aborted' THEN 7
+                WHEN 'terminated' THEN 6
+                WHEN 'errored' THEN 5
+                WHEN 'failed' THEN 4
+                WHEN 'passed' THEN 3
+                WHEN 'done' THEN 2
+                WHEN 'skipped' THEN 1
+                ELSE 0
+            END)
+                WHEN 7 THEN 'aborted'
+                WHEN 6 THEN 'terminated'
+                WHEN 5 THEN 'errored'
+                WHEN 4 THEN 'failed'
+                WHEN 3 THEN 'passed'
+                WHEN 2 THEN 'done'
+                WHEN 1 THEN 'skipped'
+                ELSE NULL
+            END AS outcome"""
+
 
 def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]) -> None:
     """Populate ``steps_materialized`` + ``vectors_materialized`` from the parquets.
@@ -1399,7 +1429,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 step_index,
                 filename AS file_path,
                 step_name,
-                ANY_VALUE(step_outcome) AS outcome,
+                {_WORST_STEP_OUTCOME_EXPR},
                 ANY_VALUE(step_started_at) AS started_at,
                 ANY_VALUE(step_ended_at) AS ended_at,
                 CAST(COALESCE(SUM(len(measurements)), 0) AS INTEGER) AS measurement_count,

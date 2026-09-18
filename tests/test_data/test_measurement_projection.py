@@ -198,6 +198,123 @@ def test_steps_projection_matches_real_derive_output() -> None:
     assert step["station_hostname"] == "bench-a"
 
 
+def _step_row(
+    *,
+    run_id: str,
+    step_path: str,
+    step_index: int,
+    step_name: str,
+    outcome: str | None,
+) -> dict:
+    """One ``record_type='step'`` row at the steps grain key (``run_id,
+    step_path, step_retry, vector_outer_index, step_index, step_name``).
+    Multiple rows built with the SAME grain key simulate a swept step's
+    variant executions — the case `steps_projection_select`'s GROUP BY
+    collapses into one served row (docs/31 band-aid; see the worst-wins
+    test below). Unpopulated ``RUN_ROW_SCHEMA`` fields default to None,
+    same convention as ``_lane_vector_row``."""
+    populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
+    populated.update(
+        {
+            "record_type": "step",
+            "run_id": run_id,
+            "step_path": step_path,
+            "step_index": step_index,
+            "step_name": step_name,
+            "step_retry": 0,
+            "vector_outer_index": None,
+            "step_outcome": outcome,
+            "measurements": [],
+        }
+    )
+    return populated
+
+
+def test_steps_projection_worst_wins_across_swept_variants() -> None:
+    """A swept step can emit multiple `record_type='step'` rows sharing the
+    same grain key (one per sweep variant). The OLD collapse used
+    `ANY_VALUE(step_outcome)`, which could pick an arbitrary variant's
+    outcome — a PASSED variant could hide a FAILED (or ERRORED) one. This
+    asserts the collapse is worst-wins (severity-escalating, matching
+    `models.escalate_outcome`) instead: FAILED/ERRORED variants are never
+    hidden, a fully-PASSED sweep stays PASSED, and a non-swept (single-row)
+    step is unaffected."""
+    run_id = str(uuid.uuid4())
+    rows = [
+        # Mixed PASSED/FAILED variants of the same swept step -> FAILED wins.
+        _step_row(
+            run_id=run_id,
+            step_path="sweep/mixed",
+            step_index=0,
+            step_name="mixed",
+            outcome="passed",
+        ),
+        _step_row(
+            run_id=run_id,
+            step_path="sweep/mixed",
+            step_index=0,
+            step_name="mixed",
+            outcome="failed",
+        ),
+        _step_row(
+            run_id=run_id,
+            step_path="sweep/mixed",
+            step_index=0,
+            step_name="mixed",
+            outcome="passed",
+        ),
+        # An ERRORED variant among PASSED ones -> ERRORED wins (outranks FAILED too).
+        _step_row(
+            run_id=run_id,
+            step_path="sweep/errored",
+            step_index=1,
+            step_name="errored",
+            outcome="passed",
+        ),
+        _step_row(
+            run_id=run_id,
+            step_path="sweep/errored",
+            step_index=1,
+            step_name="errored",
+            outcome="errored",
+        ),
+        # A fully-passed swept step stays PASSED.
+        _step_row(
+            run_id=run_id,
+            step_path="sweep/allpass",
+            step_index=2,
+            step_name="allpass",
+            outcome="passed",
+        ),
+        _step_row(
+            run_id=run_id,
+            step_path="sweep/allpass",
+            step_index=2,
+            step_name="allpass",
+            outcome="passed",
+        ),
+        # A non-swept step (single variant, one row) is unaffected.
+        _step_row(
+            run_id=run_id, step_path="plain", step_index=3, step_name="plain", outcome="passed"
+        ),
+    ]
+    table = _table_from_rows(rows)
+    con, source = _source(table)
+    try:
+        result = con.execute(steps_projection_select(source)).fetchall()
+        cols = [d[0] for d in con.description]
+    finally:
+        con.close()
+    outcome_by_path = {
+        dict(zip(cols, r, strict=True))["step_path"]: dict(zip(cols, r, strict=True))["outcome"]
+        for r in result
+    }
+    assert outcome_by_path["sweep/mixed"] == "failed"
+    assert outcome_by_path["sweep/errored"] == "errored"
+    assert outcome_by_path["sweep/allpass"] == "passed"
+    assert outcome_by_path["plain"] == "passed"
+
+
 def test_measurement_facts_projection_matches_real_derive_output() -> None:
     table, run_id = _build_run_table()
     con, source = _source(table)

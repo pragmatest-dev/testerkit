@@ -153,6 +153,35 @@ STEP_DURATION_S_EXPR = """ROUND(
             END, 6
         ) AS duration_s"""
 
+# Worst-wins collapse of `step_outcome` across a swept step's grouped variant
+# rows (a swept step can emit multiple `record_type='step'` rows sharing the
+# same grain key, one per sweep variant). `ANY_VALUE` picked an arbitrary
+# variant's outcome, so a PASSED variant could hide a FAILED one. This ranks
+# each outcome by severity and keeps the worst — the SQL twin of
+# `models.escalate_outcome` / `models._OUTCOME_SEVERITY`
+# (ABORTED=7 > TERMINATED=6 > ERRORED=5 > FAILED=4 > PASSED=3 > DONE=2 >
+# SKIPPED=1; unjudged/NULL ranks below everything). Keep these ranks in sync
+# with `models._OUTCOME_SEVERITY` if that ladder ever changes.
+WORST_STEP_OUTCOME_EXPR = """CASE MAX(CASE step_outcome
+                WHEN 'aborted' THEN 7
+                WHEN 'terminated' THEN 6
+                WHEN 'errored' THEN 5
+                WHEN 'failed' THEN 4
+                WHEN 'passed' THEN 3
+                WHEN 'done' THEN 2
+                WHEN 'skipped' THEN 1
+                ELSE 0
+            END)
+                WHEN 7 THEN 'aborted'
+                WHEN 6 THEN 'terminated'
+                WHEN 5 THEN 'errored'
+                WHEN 4 THEN 'failed'
+                WHEN 3 THEN 'passed'
+                WHEN 2 THEN 'done'
+                WHEN 1 THEN 'skipped'
+                ELSE NULL
+            END AS outcome"""
+
 # Run-context columns denormalized onto every measurement-grain row (see
 # `schemas.RUN_ROW_SCHEMA`) — pulled with ANY_VALUE since they are constant within
 # one (filename, run_id) group, same discipline as `run_projection._GROUP_COLUMNS`.
@@ -203,7 +232,7 @@ def steps_projection_select(source_sql: str) -> str:
                 vector_outer_index,
                 step_index,
                 step_name,
-                ANY_VALUE(step_outcome) AS outcome,
+                {WORST_STEP_OUTCOME_EXPR},
                 ANY_VALUE(step_started_at) AS step_started_at,
                 ANY_VALUE(step_ended_at) AS step_ended_at,
                 CAST(COALESCE(SUM(len(measurements)), 0) AS INTEGER) AS measurement_count,
