@@ -171,10 +171,9 @@ def connect(url: str | None, timeout: float):
 
     try:
         auth = _authorize(server, timeout=timeout)
-        click.echo(
-            f"To connect this machine, visit {auth['verification_uri']} "
-            f"and enter code: {auth['user_code']}"
-        )
+        click.echo("To connect this machine, open this link (code included):")
+        click.echo(f"    {auth['verification_uri_complete']}")
+        click.echo(f"  or visit {auth['verification_uri']} and enter code: {auth['user_code']}")
         with suppress(Exception):
             open_browser(auth["verification_uri_complete"])
 
