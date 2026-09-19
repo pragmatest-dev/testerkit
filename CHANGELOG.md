@@ -16,6 +16,21 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ### Fixed
 
+## [0.5.1] - 2026-09-18
+
+### Fixed
+
+- Upgrading over a 0.4.x data dir no longer crashes the channels index daemon
+  (`BinderException: 8 columns but 9 values`). Channels/files derived indexes
+  are now content-addressed and additive, like runs/events — existing data
+  loads with no manual clearing.
+
+### Changed
+
+- `machine_id` is now session-only: removed from channels/files rows (join on
+  `session_id`); still on events and run parquet.
+- Env var `TESTERKIT_URL` → `TESTERKIT_SERVER_URL`.
+
 ## [0.5.0] - 2026-09-18
 
 ### Added
@@ -592,7 +607,8 @@ Initial public release on PyPI as `testerkit`.
   transports (`s3`, `gcs`, `azure`, `sftp`), and integrations (`pymeasure`,
   `ni`, `lxi`, `grafana`, `pdf`, `sbom`)
 
-[Unreleased]: https://github.com/pragmatest-dev/testerkit/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/pragmatest-dev/testerkit/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/pragmatest-dev/testerkit/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/pragmatest-dev/testerkit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/pragmatest-dev/testerkit/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/pragmatest-dev/testerkit/compare/v0.3.0...v0.3.1
