@@ -391,7 +391,6 @@ def _history_to_wire_batch(channel_id: str, table: pa.Table) -> pa.RecordBatch |
             "unit": [""] * n,
             "sample_interval": _col("sample_interval", None),
             "session_id": _col("session_id", None),
-            "machine_id": _col("machine_id", None),
             "sample_offset": _col("sample_offset", -1),
         },
         schema=sample_schema(),

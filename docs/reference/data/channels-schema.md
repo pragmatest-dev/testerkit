@@ -46,7 +46,6 @@ Every channel file carries these columns regardless of value type:
 | `sampled_at` | `timestamp[us, UTC]` (nullable) | When the instrument captured the value at the source. Null if the driver does not provide a hardware timestamp |
 | `source_method` | `utf8` | How the sample was captured — typically the driver method name (e.g. `"measure"`, `"get_waveform"`) |
 | `session_id` | `utf8` | Session UUID — groups all channels captured in one session (a session can exist with no run) |
-| `machine_id` | `utf8` (nullable) | Random UUID4 identifying the physical controller that wrote the sample (one per machine, shared across every project on it). Captured at the session level, so it is present even for a run-less channel. Null for segments written before this column existed. |
 | `sample_offset` | `int64` | Monotonically increasing per-`(channel, session)` position. Use `(session_id, sample_offset)` to deduplicate when stitching live and at-rest data |
 
 ## Scalar channels
@@ -69,7 +68,6 @@ Full column set for a scalar channel:
 | `value` | Inferred from first write | The measured or set value |
 | `source_method` | `utf8` | Capture method |
 | `session_id` | `utf8` | Session UUID |
-| `machine_id` | `utf8` (nullable) | Physical controller identity (see [Common columns](#common-columns-all-channel-shapes)) |
 | `sample_offset` | `int64` | Monotonic write position |
 
 ## Array channels
@@ -84,7 +82,6 @@ An array channel stores one waveform (a sequence of values) per row. Scope acqui
 | `sample_interval` | `float64` | Time between consecutive samples within one `value` (seconds). Use this with `sampled_at` to reconstruct the sample timeline |
 | `source_method` | `utf8` | Capture method |
 | `session_id` | `utf8` | Session UUID |
-| `machine_id` | `utf8` (nullable) | Physical controller identity (see [Common columns](#common-columns-all-channel-shapes)) |
 | `sample_offset` | `int64` | Monotonic write position |
 
 ## Struct channels

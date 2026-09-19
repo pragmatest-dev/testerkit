@@ -20,7 +20,7 @@ exactly what that means for exactly-once here.
 
 Meant to run standing (systemd/container) — it is NOT a DaemonManager daemon. Auth is a
 per-bench machine token in ``TESTERKIT_TOKEN``; the server URL is ``--url`` or
-``TESTERKIT_URL``.
+``TESTERKIT_SERVER_URL``.
 
 REVIEW NEEDED — the ``/ingest/channels/{channel_id}`` and ``/ingest/files`` endpoints
 this module POSTs to do not exist on the server yet (testerkit-server's
@@ -56,7 +56,7 @@ if TYPE_CHECKING:
     from testerkit.replication import ChannelSegment, FileRecord
 
 _TOKEN_ENV = "TESTERKIT_TOKEN"
-_URL_ENV = "TESTERKIT_URL"
+_URL_ENV = "TESTERKIT_SERVER_URL"
 _ARROW_CONTENT_TYPE = "application/vnd.apache.arrow.stream"
 # The bench's own derivation signal — dropped so the SERVER re-derives runs itself
 # (forwarding it would evict the server's accumulator before it materializes).
@@ -192,7 +192,6 @@ _SEGMENT_ENVELOPE = frozenset(
         "sampled_at",
         "source_method",
         "session_id",
-        "machine_id",
         "sample_interval",
         "sample_offset",
     }
@@ -203,7 +202,7 @@ def _channel_wire_table(segment: ChannelSegment) -> pa.Table:
     """Build the wire table for ``/ingest/channels/{channel_id}`` — testerkit's
     REAL channel-segment shape (docs/25 re-alignment): the same columns
     ``ChannelIndex`` reads — ``received_at, sampled_at, value, source_method,
-    session_id, machine_id, sample_interval, sample_offset`` — carrying the segment's
+    session_id, sample_interval, sample_offset`` — carrying the segment's
     ``ChannelDescriptor`` in the Arrow schema metadata so the server catalog can
     read ``value_type``/``units`` without a registry lookup. The server stores
     this shape as-is and windows it on ``received_at``. ``channel_id`` is NOT a
@@ -240,7 +239,6 @@ def _channel_wire_table(segment: ChannelSegment) -> pa.Table:
             "value": value_col,
             "source_method": _col("source_method", pa.utf8()),
             "session_id": _col("session_id", pa.utf8()),
-            "machine_id": _col("machine_id", pa.utf8()),
             "sample_interval": _col("sample_interval", pa.float64()),
             "sample_offset": _col("sample_offset", pa.int64()),
         }
@@ -487,7 +485,7 @@ def forward(  # noqa: PLR0913
     ``testerkit forward`` behaves exactly as it did before either existed.
 
     URL/token resolution falls through ``--url``/``--token`` →
-    ``$TESTERKIT_URL``/``$TESTERKIT_TOKEN`` → the project ``server.url`` /
+    ``$TESTERKIT_SERVER_URL``/``$TESTERKIT_TOKEN`` → the project ``server.url`` /
     the global credential store a prior ``testerkit connect`` wrote — so
     after ``testerkit connect``, a bare ``testerkit forward`` needs neither.
     """

@@ -52,7 +52,7 @@ _MACHINE_ID_FILENAME = "machine_id"
 # afterward with no flags or env vars.
 _CREDENTIALS_FILENAME = "credentials"
 _GLOBAL_CONFIG_FILENAME = "config.yaml"
-_URL_ENV = "TESTERKIT_URL"
+_URL_ENV = "TESTERKIT_SERVER_URL"
 _TOKEN_ENV = "TESTERKIT_TOKEN"
 
 
@@ -190,7 +190,7 @@ def resolve_server_token(explicit: str | None = None) -> str | None:
 def resolve_server_url(explicit: str | None = None) -> str | None:
     """Resolve the TesterKit cloud server URL.
 
-    Precedence: explicit (``--url``) → ``$TESTERKIT_URL`` → the current
+    Precedence: explicit (``--url``) → ``$TESTERKIT_SERVER_URL`` → the current
     project's ``testerkit.yaml`` ``server.url`` → the global config
     ``testerkit connect`` persists on success. Returns ``None`` if none of
     those resolve anything.

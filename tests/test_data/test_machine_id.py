@@ -3,11 +3,15 @@
 Covers the accessor (``get_or_create_machine_id``); its capture at the
 SESSION (the source of truth — a session can exist with no run: streaming
 channels or uploading files with no test executing) via ``SessionStarted`` /
-``SessionScope``; its inheritance onto ``RunScope``/``TestRun`` and the
-run-row build helpers; and its denormalization onto CHANNELS and FILES rows
-so a run-less session's channel/file data still carries it. All three
-stores (runs, channels, files) stay additive within their ``"0.1"`` epoch —
-a nullable column, no version bump.
+``SessionScope``; and its inheritance onto ``RunScope``/``TestRun`` and the
+run-row build helpers. ``machine_id`` is a SESSION attribute and lives only
+on events (``SessionStarted``) and the run parquet (``TestRun``/``RunStarted``
+and the ``runs`` at-rest schema) — it stays additive within the runs store's
+``"0.1"`` epoch (a nullable column, no version bump). CHANNELS and FILES are
+sparse, session-scoped stores that carry ``session_id`` and derive
+``machine_id`` by joining back to the session; they never denormalize the
+column onto every row (see ``test_machine_id_never_denormalized_onto_channels_or_files``
+below for the regression guard).
 
 Uses the canonical singleton runs daemon (``resolve_data_dir()`` / no
 ``_data_dir=tmp_path``) for the one test that exercises the real ingest
@@ -38,8 +42,17 @@ import pyarrow.parquet as pq
 import pytest
 
 from testerkit.data.backends._row_helpers import build_run_metadata, build_run_row
+from testerkit.data.channels.index import ChannelIndex
+from testerkit.data.channels.models import ChannelSample, sample_schema
 from testerkit.data.channels.store import ChannelStore
 from testerkit.data.data_dir import get_or_create_machine_id, resolve_data_dir
+from testerkit.data.events import SessionStarted
+from testerkit.data.files.catalog import (
+    _CATALOG_COLUMNS,
+    CATALOG_ARROW_SCHEMA,
+    CATALOG_DDL,
+    ensure_schema,
+)
 from testerkit.data.files.store import FileStore
 from testerkit.data.run_store import RunStore
 from testerkit.data.schemas import RUN_ROW_SCHEMA
@@ -324,22 +337,26 @@ def test_run_inherits_machine_id_from_session_scope(
 
 
 # ---------------------------------------------------------------------------
-# Denormalization onto CHANNELS and FILES — the regression this correction
-# targets: a run-less session's channel/file data must still carry machine_id.
+# CHANNELS and FILES stay session-scoped, never denormalized: a run-less
+# session's channel/file rows carry ``session_id`` (the join key back to
+# ``SessionStarted.machine_id``) but never their own ``machine_id`` column.
 # ---------------------------------------------------------------------------
 
 
-def test_channel_row_carries_machine_id_for_run_less_session(
+def test_channel_row_has_no_machine_id_but_joins_via_session_id(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A channel streamed under a session that never opens a run still gets
-    machine_id on its stored + queried rows."""
+    """A channel streamed under a session that never opens a run carries
+    ``session_id`` (the join key) but no ``machine_id`` column of its own —
+    machine identity is obtained by joining back to the session, not by
+    denormalizing the column onto every channel row."""
     _isolate_machine_home(monkeypatch, tmp_path)
-    expected = get_or_create_machine_id()
+    get_or_create_machine_id()  # establishes the machine identity file
 
     # No RunScope anywhere in this test — a bare session-scoped ChannelStore,
     # mirroring a run-less ``connect()`` bringup session.
-    store = ChannelStore(tmp_path / "data", uuid4(), index=True)
+    session_id = uuid4()
+    store = ChannelStore(tmp_path / "data", session_id, index=True)
     store.open()
     try:
         store.write("bench.temperature", 23.5, source="test")
@@ -348,22 +365,68 @@ def test_channel_row_carries_machine_id_for_run_less_session(
         store.close()
 
     assert result.num_rows == 1
-    assert result.column("machine_id").to_pylist() == [expected]
+    assert "machine_id" not in result.column_names
+    assert result.column("session_id").to_pylist() == [str(session_id)]
 
 
-def test_file_record_carries_machine_id_for_run_less_session(
+def test_file_record_has_no_machine_id_but_joins_via_session_id(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A file uploaded under a session that never opens a run still carries
-    machine_id on its sidecar (and thus the catalog row built from it)."""
+    """A file uploaded under a session that never opens a run carries
+    ``session_id`` (the join key) but no ``machine_id`` field on its sidecar —
+    machine identity is obtained by joining back to the session, not by
+    denormalizing the field onto every file record."""
     _isolate_machine_home(monkeypatch, tmp_path)
-    expected = get_or_create_machine_id()
+    get_or_create_machine_id()  # establishes the machine identity file
 
     # No run_id passed — a bare run-less session upload (e.g. a bringup note).
+    session_id = str(uuid4())
     store = FileStore(_data_dir=tmp_path / "data")
-    uri = store.write("bringup_note", b"hello", session_id=str(uuid4()))
+    uri = store.write("bringup_note", b"hello", session_id=session_id)
 
     meta = store.read_attributes(uri)
     assert meta is not None
-    assert meta.machine_id == expected
+    assert not hasattr(meta, "machine_id")
     assert meta.run_id is None
+
+
+def test_machine_id_never_denormalized_onto_channels_or_files() -> None:
+    """Anti-denormalization invariant: ``machine_id`` is a SESSION attribute
+    that lives only on events (``SessionStarted``) and the run parquet schema
+    (``schemas.py``). CHANNELS and FILES are sparse, session-scoped stores
+    that carry ``session_id`` and derive session-level attributes by joining
+    back to the session — never by denormalizing the column onto every row.
+    Fails loudly if anyone re-adds ``machine_id`` to either store."""
+    # --- CHANNELS: absent everywhere in the schema surface ---
+    assert "machine_id" not in ChannelSample.model_fields
+    assert "machine_id" not in sample_schema().names
+    assert "machine_id" not in ChannelIndex._INDEX_ARROW_SCHEMA.names
+
+    channel_conn = duckdb.connect()
+    try:
+        ChannelIndex._ensure_schema(channel_conn)
+        cols = {
+            row[1] for row in channel_conn.execute("PRAGMA table_info('channel_index')").fetchall()
+        }
+        assert "machine_id" not in cols
+    finally:
+        channel_conn.close()
+
+    # --- FILES: absent everywhere in the catalog schema surface ---
+    assert "machine_id" not in CATALOG_ARROW_SCHEMA.names
+    assert "machine_id" not in _CATALOG_COLUMNS
+    assert "machine_id" not in CATALOG_DDL
+
+    files_conn = duckdb.connect()
+    try:
+        ensure_schema(files_conn)
+        cols = {
+            row[1] for row in files_conn.execute("PRAGMA table_info('file_catalog')").fetchall()
+        }
+        assert "machine_id" not in cols
+    finally:
+        files_conn.close()
+
+    # --- machine_id STAYS a session attribute: events + run parquet ---
+    assert "machine_id" in SessionStarted.model_fields
+    assert "machine_id" in {f.name for f in RUN_ROW_SCHEMA}

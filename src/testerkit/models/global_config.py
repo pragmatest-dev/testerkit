@@ -6,7 +6,7 @@ defaults shared by every project checkout on the box, the same way
 per-machine rather than per-project. Currently holds only the cloud server
 URL that ``testerkit connect`` persists on success, consulted by
 ``testerkit forward`` (and ``connect`` itself) when no ``--url`` /
-``$TESTERKIT_URL`` / project ``testerkit.yaml`` ``server.url`` is set.
+``$TESTERKIT_SERVER_URL`` / project ``testerkit.yaml`` ``server.url`` is set.
 """
 
 from __future__ import annotations

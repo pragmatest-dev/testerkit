@@ -49,7 +49,7 @@ Enroll this machine with a TesterKit cloud server.
 
 | Argument / option | Type | Description |
 |---|---|---|
-| `--url` | `text` | Server base URL (or $TESTERKIT_URL, or testerkit.yaml `server.url`) |
+| `--url` | `text` | Server base URL (or $TESTERKIT_SERVER_URL, or testerkit.yaml `server.url`) |
 | `--timeout` | `float` | Per-request HTTP timeout (seconds)  *(default: `30.0`)* |
 
 ### `testerkit daemon` (group) {#cli-daemon}
@@ -216,7 +216,7 @@ Forward this bench's event WAL to a central server (store-and-forward).
 
 | Argument / option | Type | Description |
 |---|---|---|
-| `--url` | `text` | Server ingest base URL (or $TESTERKIT_URL, testerkit.yaml `server.url`, or a prior `testerkit connect`) |
+| `--url` | `text` | Server ingest base URL (or $TESTERKIT_SERVER_URL, testerkit.yaml `server.url`, or a prior `testerkit connect`) |
 | `--token` | `text` | Machine auth token (or $TESTERKIT_TOKEN, or a prior `testerkit connect`) |
 | `--data-dir` | `path` | Data dir to forward (default: resolved project data dir) |
 | `--interval` | `float` | Seconds between polls  *(default: `5.0`)* |
@@ -658,7 +658,7 @@ See [Profiles](../how-to/execution/profiles.md) for the profile YAML shape.
 | `TESTERKIT_TEST_PROFILE` | Default profile name; equivalent to `--test-profile`. |
 | `TESTERKIT_MOCK_INSTRUMENTS` | Set to `1` to enable mock mode without passing `--mock-instruments`. |
 | `TESTERKIT_AUTO_CONFIRM` | Truthy → auto-resolve operator prompts and dialogs in non-tty contexts (CI, subprocess runs). Set to `"confirm"` to auto-confirm, `"cancel"` to auto-cancel; any other truthy value defaults to confirm. |
-| `TESTERKIT_SERVER_URL` | Server URL the dialog bridge uses to POST operator prompts from subprocess test runs back to the UI host (default: `http://localhost:8000`). |
+| `TESTERKIT_API_URL` | Server URL the dialog bridge uses to POST operator prompts from subprocess test runs back to the UI host (default: `http://localhost:8000`). |
 | `TESTERKIT_UUT_SERIAL` | UUT serial. In a multi-UUT run the orchestrator sets this per site-subprocess to that site's resolved serial (see [Multi-UUT testing](../how-to/execution/multi-uut-testing.md#debugging-failures)); assign per-site serials from the CLI with `--uut-serials`. |
 | `TESTERKIT_UUT_PART_NUMBER` | Default UUT part number (`uut_part_number` on every run). |
 | `TESTERKIT_UUT_REVISION` | Default UUT hardware revision. |

@@ -1158,7 +1158,7 @@ def create_app():
 
     # Bridge ``testerkit.prompts.ask`` → dialog UI so any test code running
     # in-process routes through the operator UI instead of TTY /
-    # auto-confirm. Test subprocesses with ``TESTERKIT_SERVER_URL`` set
+    # auto-confirm. Test subprocesses with ``TESTERKIT_API_URL`` set
     # install their own bridge in HTTP mode (see pytest plugin).
     register_as_prompt_handler(server_url=None)
 

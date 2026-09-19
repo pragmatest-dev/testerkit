@@ -58,7 +58,6 @@ Each artifact's sidecar is a JSON file named `{filename}.meta.json`, written ato
 | `instrument_role` | string | Station-config instrument role that produced the artifact (e.g. `"scope"`, `"psu"`). Empty string when not applicable. Populated on the FileStore fallback path when a waveform or channel-shaped value is routed here because no ChannelStore is wired. |
 | `resource` | string | VISA or network resource string for the instrument paired with `instrument_role`. Empty string when not applicable. |
 | `run_id` | string or null | UUID of the run that produced this artifact. `null` for writes outside a run. Persisted so the catalog can filter by run and a daemon restart can rebuild its index from sidecars alone. |
-| `machine_id` | string or null | Random UUID4 identifying the physical controller that wrote this artifact (one per machine, shared across every project on it). Captured at the session level (a session can exist with no run), so it is present even for a run-less upload. `null` for sidecars written before this field existed. Distinct from `station_id`. |
 
 Example sidecar:
 
@@ -74,8 +73,7 @@ Example sidecar:
   },
   "instrument_role": "scope",
   "resource": "USB0::0x0957::0x1799::MY12345678::INSTR",
-  "run_id": "3f6b1a2c-0d4e-4f8a-b2c7-1e3d5a7f9b0e",
-  "machine_id": "8a1e5c2b-9f3d-4a6e-b1c8-2d4f6e8a0c1b"
+  "run_id": "3f6b1a2c-0d4e-4f8a-b2c7-1e3d5a7f9b0e"
 }
 ```
 

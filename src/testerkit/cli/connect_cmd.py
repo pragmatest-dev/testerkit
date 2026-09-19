@@ -49,7 +49,7 @@ from testerkit.data.data_dir import (
     save_server_url,
 )
 
-_URL_ENV = "TESTERKIT_URL"
+_URL_ENV = "TESTERKIT_SERVER_URL"
 _GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 
 

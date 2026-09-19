@@ -53,11 +53,6 @@ class FileArtifactMetadata(BaseModel):
     # catalog can be filtered by run and the UI can link back. Persisted in the
     # sidecar so a daemon-restart rescan recovers it. ``None`` for run-less writes.
     run_id: str | None = None
-    # Machine identity — a random UUID4 assigned once per physical controller
-    # (``get_or_create_machine_id()``), denormalized here exactly like
-    # ``TestRun.machine_id`` so a file uploaded under a run-less session still
-    # carries it. Distinct from ``station_id``/hostname.
-    machine_id: str | None = None
     # Schema version stamp — included in every sidecar so readers can detect
     # format changes without scanning field presence. Defaults to the current
     # version so old sidecars (missing this field) still validate: Pydantic

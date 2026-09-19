@@ -83,9 +83,7 @@ class TestRunner:
         # Set up environment for subprocess
         env = os.environ.copy()
         # Pass server URL so dialogs can communicate back
-        env["TESTERKIT_SERVER_URL"] = os.environ.get(
-            "TESTERKIT_SERVER_URL", "http://localhost:8000"
-        )
+        env["TESTERKIT_API_URL"] = os.environ.get("TESTERKIT_API_URL", "http://localhost:8000")
         # Pass run ID so dialogs are linked to this run
         env["_TESTERKIT_RUN_ID"] = run_info.run_id
         # Pass session ID for multi-site coordination

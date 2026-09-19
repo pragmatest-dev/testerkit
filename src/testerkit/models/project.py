@@ -82,7 +82,7 @@ class ServerConfig(BaseModel):
     """TesterKit cloud server connection settings — ``server:`` in ``testerkit.yaml``.
 
     Consulted by ``testerkit connect`` / ``testerkit forward`` for URL
-    resolution (``--url`` → ``$TESTERKIT_URL`` → this field → the global
+    resolution (``--url`` → ``$TESTERKIT_SERVER_URL`` → this field → the global
     config written by a prior ``testerkit connect``). The machine's auth
     token never lives here — it is issued by the device-authorization flow
     and stored only in the global credential store, never in a project file.

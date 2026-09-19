@@ -389,7 +389,6 @@ def _open_session_for_pytest(session) -> None:
         session_id,
         serve=True,
         event_log=scope.event_log,
-        machine_id=scope.machine_id,
         checkpoint_cadence=project.stream.resolve_cadence(project.session.idle_lease_seconds),
     )
     scope.attach_channel_store(channel_store)
@@ -421,7 +420,7 @@ def pytest_sessionstart(session):
     # If we're a test subprocess launched by ``testerkit serve``, bridge
     # ``testerkit.prompts.ask`` to the dialog UI over HTTP. Otherwise the
     # TTY / auto-confirm chain still applies.
-    server_url = os.environ.get("TESTERKIT_SERVER_URL")
+    server_url = os.environ.get("TESTERKIT_API_URL")
     if server_url:
         from testerkit.api.dialogs import register_as_prompt_handler
 

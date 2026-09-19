@@ -130,7 +130,6 @@ class StationConnection:
             options=_proj[1].channels if _proj else None,
             serve=True,
             event_log=self._event_log,
-            machine_id=self._scope.machine_id,
             checkpoint_cadence=_stream_tuning.resolve_cadence(_session_opts.idle_lease_seconds),
         )
 

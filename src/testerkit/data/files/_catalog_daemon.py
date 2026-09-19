@@ -17,9 +17,8 @@ import sys
 import threading
 from pathlib import Path
 
-import duckdb
-
-from testerkit.data._daemon_lifecycle import daemon_duckdb_config
+from testerkit.data import _index_epoch
+from testerkit.data._daemon_lifecycle import _installed_version
 from testerkit.data._duckdb_flight_server import (
     shutdown_flight_server_in_daemon,
     start_flight_server_in_daemon,
@@ -27,7 +26,8 @@ from testerkit.data._duckdb_flight_server import (
 from testerkit.data.files.catalog import (
     FRAME_ARROW_SCHEMA,
     FRAMES_DB,
-    ensure_schema,
+    _open_index,
+    _projection_fingerprint,
     scan_sidecars,
     upsert_rows,
 )
@@ -38,11 +38,17 @@ def daemon_run(files_dir: Path) -> None:
     """Entry point for the catalog daemon process. Blocks until idle timeout."""
     mgr = FilesCatalogManager(files_dir)
 
-    # Persistent catalog (``_index.duckdb``): survives a restart and is
-    # brought current by an incremental sidecar scan, vs. the old in-memory
-    # rebuild-from-every-sidecar. Blobs + sidecars stay the durable truth.
-    conn = duckdb.connect(str(files_dir / "_index.duckdb"), config=daemon_duckdb_config())
-    ensure_schema(conn)
+    # Persistent, content-addressed catalog (``_index.<fp>.duckdb`` — see
+    # "Derived-index versioning" in catalog.py, #53/#64): survives a restart
+    # and is brought current by an incremental sidecar scan, vs. the old
+    # in-memory rebuild-from-every-sidecar. Blobs + sidecars stay the durable
+    # truth. A schema/read-path change forks a NEW fingerprinted file instead
+    # of mutating this one in place; scan_sidecars below repopulates it from
+    # the sidecars.
+    fingerprint = _projection_fingerprint()
+    index_path = files_dir / _index_epoch.index_file_name(fingerprint)
+    conn, _ = _open_index(index_path)
+    _index_epoch.stamp_epochs_ledger(files_dir, fingerprint, _installed_version())
     scan_sidecars(conn, files_dir)
     write_lock = threading.Lock()
 

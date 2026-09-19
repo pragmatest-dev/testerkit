@@ -29,7 +29,6 @@ from testerkit.data.channels.models import (
     encode_value,
     sample_schema,
 )
-from testerkit.data.data_dir import get_or_create_machine_id
 
 
 def _subscribe_ticket(channel_id: str, policy: SubscribePolicy) -> flight.Ticket:
@@ -74,18 +73,13 @@ class ChannelClient:
         sample_interval: float | None = None,
         sampled_at: datetime | None = None,
         session_id: str | None = None,
-        machine_id: str | None = None,
     ) -> None:
         """Write a value to a remote channel via do_put.
 
         ``sampled_at`` (build item 11) is the optional hardware-side
         acquisition timestamp; ``None`` when the remote producer
         doesn't know. ``session_id`` attributes the sample to a session
-        in the daemon's index; ``None`` for sessionless writes. ``machine_id``
-        identifies the physical box THIS client is running on — it defaults
-        to :func:`get_or_create_machine_id` (this process's own chokepoint
-        read), since a remote producer's machine is generally not the
-        daemon's.
+        in the daemon's index; ``None`` for sessionless writes.
         """
         value_str = encode_value(value)
         seq = next(self._channel_seq.setdefault(channel_id, itertools.count()))
@@ -100,7 +94,6 @@ class ChannelClient:
                 "unit": [unit or ""],
                 "sample_interval": [sample_interval],
                 "session_id": [session_id],
-                "machine_id": [machine_id or get_or_create_machine_id()],
                 "sample_offset": [seq],
             },
             schema=schema,

@@ -25,7 +25,7 @@ from testerkit.data.data_dir import (
 
 def _isolate_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("TESTERKIT_HOME", str(tmp_path))
-    monkeypatch.delenv("TESTERKIT_URL", raising=False)
+    monkeypatch.delenv("TESTERKIT_SERVER_URL", raising=False)
     monkeypatch.delenv("TESTERKIT_TOKEN", raising=False)
 
 
@@ -127,7 +127,7 @@ def test_resolve_server_token_none_when_nothing_resolves(
 
 def test_resolve_server_url_explicit_wins(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _isolate_home(monkeypatch, tmp_path)
-    monkeypatch.setenv("TESTERKIT_URL", "https://env.example")
+    monkeypatch.setenv("TESTERKIT_SERVER_URL", "https://env.example")
     save_server_url("https://store.example")
 
     assert resolve_server_url("https://explicit.example") == "https://explicit.example"
@@ -137,7 +137,7 @@ def test_resolve_server_url_env_beats_global_config(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _isolate_home(monkeypatch, tmp_path)
-    monkeypatch.setenv("TESTERKIT_URL", "https://env.example")
+    monkeypatch.setenv("TESTERKIT_SERVER_URL", "https://env.example")
     save_server_url("https://store.example")
 
     assert resolve_server_url(None) == "https://env.example"

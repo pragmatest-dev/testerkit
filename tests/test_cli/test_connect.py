@@ -22,7 +22,7 @@ from testerkit.data.data_dir import load_credentials, resolve_server_token, reso
 
 def _isolate_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("TESTERKIT_HOME", str(tmp_path))
-    monkeypatch.delenv("TESTERKIT_URL", raising=False)
+    monkeypatch.delenv("TESTERKIT_SERVER_URL", raising=False)
     monkeypatch.delenv("TESTERKIT_TOKEN", raising=False)
 
 

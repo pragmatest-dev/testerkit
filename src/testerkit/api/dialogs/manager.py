@@ -40,7 +40,7 @@ class DialogManager:
             # proceed with test
 
     Usage from test subprocess (HTTP mode):
-        manager = get_dialog_manager()  # auto-detects TESTERKIT_SERVER_URL
+        manager = get_dialog_manager()  # auto-detects TESTERKIT_API_URL
         response = await manager.confirm("Is UUT connected?")
         # This POSTs to server and polls for response
 
@@ -500,7 +500,7 @@ def get_dialog_manager(
 
     Args:
         server_url: Optional server URL for HTTP mode. If not provided,
-            checks TESTERKIT_SERVER_URL environment variable. If neither
+            checks TESTERKIT_API_URL environment variable. If neither
             is set, uses in-process mode.
         auto_respond: Auto-respond mode (``"confirm"`` / ``"cancel"``).
             Falls back to ``TESTERKIT_AUTO_CONFIRM`` env var per
@@ -508,13 +508,13 @@ def get_dialog_manager(
             first call — subsequent calls return the cached manager.
 
     Environment variables:
-        TESTERKIT_SERVER_URL: Server URL for HTTP mode
+        TESTERKIT_API_URL: Server URL for HTTP mode
         TESTERKIT_AUTO_CONFIRM: Truthy → auto-confirm dialogs ("confirm" by
             default; "cancel" / "skip" supported for explicit control)
     """
     global _manager
     if _manager is None:
-        url = server_url or os.environ.get("TESTERKIT_SERVER_URL")
+        url = server_url or os.environ.get("TESTERKIT_API_URL")
         _manager = DialogManager(server_url=url, auto_respond=auto_respond)
     return _manager
 
@@ -550,7 +550,7 @@ def register_as_prompt_handler(server_url: str | None = None) -> None:
       directly.
     * **HTTP mode** — caller is a test subprocess and the UI server is a
       separate process. Pass ``server_url`` (or set
-      ``TESTERKIT_SERVER_URL``) so the bridge can POST dialogs to the
+      ``TESTERKIT_API_URL``) so the bridge can POST dialogs to the
       server and poll for the response. Without ``server_url``, the
       test subprocess will silently never resolve its prompts because
       its in-process manager has no UI listener attached.

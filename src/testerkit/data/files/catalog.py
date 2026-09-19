@@ -14,6 +14,7 @@ writes push; restart rebuilds from disk). Per the plan, the low-level
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,9 +23,20 @@ from typing import Any
 import duckdb
 import pyarrow as pa
 
+from testerkit.data import _index_epoch
+from testerkit.data._daemon_lifecycle import _installed_version
 from testerkit.data.files.models import FileArtifactMetadata
-from testerkit.data.schema_dispatch import SchemaVersionRefused, dispatch, report_schema_refusal
-from testerkit.data.schema_versions import SchemaStore
+from testerkit.data.schema_dispatch import (
+    _ADAPTERS,
+    SchemaVersionRefused,
+    dispatch,
+    report_schema_refusal,
+)
+from testerkit.data.schema_versions import (
+    CURRENT_SCHEMA_VERSION,
+    KNOWN_SCHEMA_VERSIONS,
+    SchemaStore,
+)
 
 _SIDECAR_SUFFIX = ".meta.json"
 
@@ -33,7 +45,6 @@ CREATE TABLE IF NOT EXISTS file_catalog (
     uri VARCHAR PRIMARY KEY,
     session_id VARCHAR,
     run_id VARCHAR,
-    machine_id VARCHAR,
     name VARCHAR,
     path VARCHAR,
     mime VARCHAR,
@@ -56,7 +67,6 @@ _CATALOG_COLUMNS = (
     "uri",
     "session_id",
     "run_id",
-    "machine_id",
     "name",
     "path",
     "mime",
@@ -81,7 +91,6 @@ CATALOG_ARROW_SCHEMA = pa.schema(
         ("uri", pa.utf8()),
         ("session_id", pa.utf8()),
         ("run_id", pa.utf8()),
-        ("machine_id", pa.utf8()),
         ("name", pa.utf8()),
         ("path", pa.utf8()),
         ("mime", pa.utf8()),
@@ -121,10 +130,115 @@ FRAME_ARROW_SCHEMA = pa.schema(
 def ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """Idempotently align the on-disk catalog schema (additive open)."""
     conn.execute(CATALOG_DDL)
-    # Additive upgrade for catalogs created before run_id/machine_id existed.
+    # Additive upgrade for catalogs created before run_id existed.
     conn.execute("ALTER TABLE file_catalog ADD COLUMN IF NOT EXISTS run_id VARCHAR")
-    conn.execute("ALTER TABLE file_catalog ADD COLUMN IF NOT EXISTS machine_id VARCHAR")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_file_catalog_created ON file_catalog(created_at)")
+
+
+# ── Derived-index versioning (#53/#64 — parity with runs/events/channels) ──
+#
+# See docs/_internal/explorations/derived-index-versioning.md §3/§6. The
+# files catalog is content-addressed by FILENAME the same way runs/events/
+# channels already are: ``fp`` is a single fingerprint = sha256(the on-disk
+# ``file_catalog`` DDL + the registered FILES adapter-registry keys + the
+# FILES schema whitelist). The daemon opens ONLY the file named after its
+# own fingerprint; every other ``_index.*.duckdb`` in the files dir is left
+# untouched. The in-file ``_index_meta`` (stamped by :func:`_stamp_index_meta`)
+# is provenance + a build-complete marker, not a shape gate.
+
+
+def _shape_ddl_prefixes() -> tuple[str, ...]:
+    return ("CREATE TABLE", "ALTER TABLE", "CREATE INDEX")
+
+
+def _projection_fingerprint() -> str:
+    """Deterministic content-address of the files catalog's full read-path.
+
+    Single-sourced from the same statements :func:`ensure_schema` runs — a
+    recording proxy captures every ``execute()`` SQL as that function builds
+    the schema on a throwaway ``:memory:`` DB, so the DDL half of the hash
+    cannot drift from the real schema. Only shape-defining DDL (table / alter
+    / index) is hashed, whitespace-normalized so indentation is irrelevant.
+
+    Widened (mirroring runs/events/channels, #53 P1) beyond DDL to fold in
+    the registered ``SchemaStore.FILES`` adapter-registry keys and schema
+    whitelist (both sorted, so the hash is order-independent) — this forks
+    the fingerprint on any read-semantics change, not just a DDL edit.
+    """
+    recorded: list[str] = []
+
+    class _Recorder:
+        def __init__(self, real: duckdb.DuckDBPyConnection) -> None:
+            self._real = real
+
+        def execute(self, sql: str, *args: Any, **kwargs: Any) -> Any:
+            recorded.append(sql)
+            return self._real.execute(sql, *args, **kwargs)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._real, name)
+
+    scratch = duckdb.connect(":memory:")
+    try:
+        ensure_schema(_Recorder(scratch))  # type: ignore[arg-type]
+    finally:
+        scratch.close()
+
+    prefixes = _shape_ddl_prefixes()
+    ddl = [norm for sql in recorded if (norm := " ".join(sql.split())).upper().startswith(prefixes)]
+    adapter_keys = sorted(_ADAPTERS[SchemaStore.FILES])
+    whitelist = sorted(KNOWN_SCHEMA_VERSIONS[SchemaStore.FILES])
+    payload = "\n".join(
+        ["--ddl--", *ddl, "--adapters--", *adapter_keys, "--whitelist--", *whitelist]
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _current_provenance() -> tuple[str, str, str]:
+    """The ``(testerkit_version, schema_version, projection_fingerprint)`` a
+    fresh build of this code would stamp."""
+    return (
+        _installed_version(),
+        CURRENT_SCHEMA_VERSION[SchemaStore.FILES],
+        _projection_fingerprint(),
+    )
+
+
+def _stamp_index_meta(conn: duckdb.DuckDBPyConnection) -> None:
+    """Write this build's provenance into ``_index_meta`` and mark it complete.
+
+    Thin files-specific wrapper (#64) around the store-agnostic
+    :func:`testerkit.data._index_epoch.stamp_index_meta` — supplies this
+    store's own ``(testerkit_version, schema_version, fingerprint)`` triple
+    via :func:`_current_provenance`.
+    """
+    testerkit_version, schema_version, fingerprint = _current_provenance()
+    _index_epoch.stamp_index_meta(
+        conn,
+        testerkit_version=testerkit_version,
+        schema_version=schema_version,
+        fingerprint=fingerprint,
+    )
+
+
+def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
+    """Open the content-addressed derived catalog at *index_path* (named
+    ``_index.<fp>.duckdb`` by the caller, see :func:`_index_epoch.index_file_name`)
+    and ensure its schema is current.
+
+    Thin files-specific wrapper (#64) around the store-agnostic
+    :func:`testerkit.data._index_epoch.open_index`, injecting this catalog's
+    own :func:`ensure_schema`, :func:`_stamp_index_meta`, and the shared
+    :func:`_index_epoch.index_file_is_the_cause`. See the shared function's
+    docstring for the full two-path self-heal rationale (unreadable file vs.
+    build-incomplete).
+    """
+    return _index_epoch.open_index(
+        index_path,
+        ensure_schema=ensure_schema,
+        stamp_meta=_stamp_index_meta,
+        index_file_is_the_cause=_index_epoch.index_file_is_the_cause,
+    )
 
 
 def upsert_rows(conn: duckdb.DuckDBPyConnection, table: pa.Table) -> None:
@@ -156,7 +270,6 @@ def catalog_row(
         "uri": uri,
         "session_id": session_id,
         "run_id": meta.run_id,
-        "machine_id": meta.machine_id,
         "name": name,
         "path": key,
         "mime": meta.mime,

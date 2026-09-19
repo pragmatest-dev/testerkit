@@ -2,10 +2,11 @@
 
 A channel producer *stamps* its ``session_id`` onto every sample it writes; this
 index *reads* session_ids off the rows and has none of its own. It is the
-cross-session corpus: a persistent derived cache (``_index.duckdb`` in the
-channels dir) over the producer IPC segments, plus an ephemeral ``:memory:``
-overlay for live ``do_put`` rows. Producer IPC files remain the durable truth;
-the index survives a daemon restart and is brought current by an incremental
+cross-session corpus: a persistent, content-addressed derived cache
+(``_index.<fp>.duckdb`` in the channels dir, see "Derived-index versioning"
+below) over the producer IPC segments, plus an ephemeral ``:memory:`` overlay
+for live ``do_put`` rows. Producer IPC files remain the durable truth; the
+index survives a daemon restart and is brought current by an incremental
 ledger-gated scan.
 
 ``ChannelStore`` composes one of these when indexing is enabled — on the daemon
@@ -16,6 +17,7 @@ read filters by a ``session_id`` query parameter, never an instance field.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import threading
 import time
@@ -27,7 +29,8 @@ import duckdb
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
-from testerkit.data._daemon_lifecycle import daemon_duckdb_config
+from testerkit.data import _index_epoch
+from testerkit.data._daemon_lifecycle import _installed_version
 from testerkit.data.channels.models import (
     ChannelDescriptor,
     ChannelSample,
@@ -36,12 +39,17 @@ from testerkit.data.channels.models import (
 from testerkit.data.channels.window import decimate_table as _decimate_table
 from testerkit.data.channels.window import decode_value_column
 from testerkit.data.schema_dispatch import (
+    _ADAPTERS,
     SchemaVersionRefused,
     dispatch,
     report_schema_refusal,
     stamp_from_arrow_metadata,
 )
-from testerkit.data.schema_versions import SchemaStore
+from testerkit.data.schema_versions import (
+    CURRENT_SCHEMA_VERSION,
+    KNOWN_SCHEMA_VERSIONS,
+    SchemaStore,
+)
 
 
 def _to_utc(dt: datetime | None) -> datetime | None:
@@ -63,6 +71,94 @@ def _to_utc(dt: datetime | None) -> datetime | None:
 # importers (e.g. `channels/store.py`) are unchanged.
 
 
+# ── Derived-index versioning (#53/#64 — parity with runs/events) ────────
+#
+# See docs/_internal/explorations/derived-index-versioning.md §3/§6. The
+# channels index is content-addressed by FILENAME the same way runs/events
+# already are: ``fp`` is a single fingerprint = sha256(the on-disk
+# ``channel_index``/``channel_registry``/``_ingested`` DDL + the registered
+# CHANNELS adapter-registry keys + the CHANNELS schema whitelist). A store
+# opens ONLY the file named after its own fingerprint; every other
+# ``_index.*.duckdb`` in the channels dir is left untouched. The in-file
+# ``_index_meta`` (stamped by :func:`_stamp_index_meta`) is provenance + a
+# build-complete marker, not a shape gate.
+
+
+def _shape_ddl_prefixes() -> tuple[str, ...]:
+    return ("CREATE TABLE", "ALTER TABLE", "CREATE INDEX")
+
+
+def _projection_fingerprint() -> str:
+    """Deterministic content-address of the channel index's full read-path.
+
+    Single-sourced from the same statements :meth:`ChannelIndex._ensure_schema`
+    runs — a recording proxy captures every ``execute()`` SQL as that method
+    builds the schema on a throwaway ``:memory:`` DB, so the DDL half of the
+    hash cannot drift from the real schema. Only shape-defining DDL (table /
+    alter / index) is hashed, whitespace-normalized so indentation is
+    irrelevant.
+
+    Widened (mirroring runs/events, #53 P1) beyond DDL to fold in the
+    registered ``SchemaStore.CHANNELS`` adapter-registry keys and schema
+    whitelist (both sorted, so the hash is order-independent) — this forks
+    the fingerprint on any read-semantics change, not just a DDL edit.
+    """
+    recorded: list[str] = []
+
+    class _Recorder:
+        def __init__(self, real: duckdb.DuckDBPyConnection) -> None:
+            self._real = real
+
+        def execute(self, sql: str, *args: Any, **kwargs: Any) -> Any:
+            recorded.append(sql)
+            return self._real.execute(sql, *args, **kwargs)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._real, name)
+
+    scratch = duckdb.connect(":memory:")
+    try:
+        ChannelIndex._ensure_schema(_Recorder(scratch))  # type: ignore[arg-type]
+    finally:
+        scratch.close()
+
+    prefixes = _shape_ddl_prefixes()
+    ddl = [norm for sql in recorded if (norm := " ".join(sql.split())).upper().startswith(prefixes)]
+    adapter_keys = sorted(_ADAPTERS[SchemaStore.CHANNELS])
+    whitelist = sorted(KNOWN_SCHEMA_VERSIONS[SchemaStore.CHANNELS])
+    payload = "\n".join(
+        ["--ddl--", *ddl, "--adapters--", *adapter_keys, "--whitelist--", *whitelist]
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _current_provenance() -> tuple[str, str, str]:
+    """The ``(testerkit_version, schema_version, projection_fingerprint)`` a
+    fresh build of this code would stamp."""
+    return (
+        _installed_version(),
+        CURRENT_SCHEMA_VERSION[SchemaStore.CHANNELS],
+        _projection_fingerprint(),
+    )
+
+
+def _stamp_index_meta(conn: duckdb.DuckDBPyConnection) -> None:
+    """Write this build's provenance into ``_index_meta`` and mark it complete.
+
+    Thin channels-specific wrapper (#64) around the store-agnostic
+    :func:`testerkit.data._index_epoch.stamp_index_meta` — supplies this
+    store's own ``(testerkit_version, schema_version, fingerprint)`` triple
+    via :func:`_current_provenance`.
+    """
+    testerkit_version, schema_version, fingerprint = _current_provenance()
+    _index_epoch.stamp_index_meta(
+        conn,
+        testerkit_version=testerkit_version,
+        schema_version=schema_version,
+        fingerprint=fingerprint,
+    )
+
+
 class ChannelIndex:
     """Warm DuckDB index over closed channel segments + a live overlay.
 
@@ -77,7 +173,6 @@ class ChannelIndex:
             "sampled_at",
             "source_method",
             "session_id",
-            "machine_id",
             "sample_interval",
             "sample_offset",
         }
@@ -87,7 +182,6 @@ class ChannelIndex:
         [
             ("channel_id", pa.utf8()),
             ("session_id", pa.utf8()),
-            ("machine_id", pa.utf8()),
             ("received_at", pa.timestamp("us", tz="UTC")),
             ("sampled_at", pa.timestamp("us", tz="UTC")),
             ("source_method", pa.utf8()),
@@ -96,6 +190,26 @@ class ChannelIndex:
             ("sample_offset", pa.int64()),
         ]
     )
+
+    # Single source of truth for the on-disk ``channel_index`` DDL and its
+    # ALTER-based reconciliation in ``_ensure_schema`` — same names/order as
+    # ``_INDEX_ARROW_SCHEMA`` above, paired with their DuckDB SQL types.
+    _CHANNEL_INDEX_COLUMNS: tuple[tuple[str, str], ...] = (
+        ("channel_id", "VARCHAR"),
+        ("session_id", "VARCHAR"),
+        ("received_at", "TIMESTAMPTZ"),
+        ("sampled_at", "TIMESTAMPTZ"),
+        ("source_method", "VARCHAR"),
+        ("sample_interval", "DOUBLE"),
+        ("value", "VARCHAR"),
+        ("sample_offset", "BIGINT"),
+    )
+    # Comma-joined column names, in schema order — used to make every
+    # channel_index / live.channel_live insert column-explicit (never
+    # ``SELECT *``) so a table carrying an orphaned column from an older
+    # on-disk schema still aligns by name instead of raising
+    # ``duckdb.BinderException`` on a positional column-count mismatch.
+    _INDEX_COLUMN_NAMES = ", ".join(name for name, _ in _CHANNEL_INDEX_COLUMNS)
 
     # Bound how often a query re-globs the channels dir for newly-closed
     # segments — frequent dashboard polls shouldn't each pay a directory walk.
@@ -139,11 +253,16 @@ class ChannelIndex:
     def open(self) -> None:
         """Open the on-disk index and fold in segments closed since last run.
 
-        The index is a persistent derived cache (``_index.duckdb`` in the
-        channels dir): it survives a daemon restart and is brought current
-        by an **incremental** scan — only segments not already in the
+        The index is a persistent, content-addressed derived cache
+        (``_index.<fp>.duckdb`` in the channels dir, see "Derived-index
+        versioning" above): it survives a daemon restart and is brought
+        current by an **incremental** scan — only segments not already in the
         ``_ingested`` ledger are read (vs. the old wipe-and-rebuild-from-all
-        on every start). Producer IPC files remain the durable truth.
+        on every start). Producer IPC files remain the durable truth. A
+        schema/read-path change forks a NEW fingerprinted file instead of
+        mutating this one in place; the cold-start scan below repopulates it
+        from the durable ``.arrow`` segments, so ``is_fresh`` needs no special
+        handling beyond that scan.
 
         Live ``do_put`` rows ride a separate attached ``:memory:`` overlay
         (``live.channel_live``): they are ephemeral (lost on restart, then
@@ -151,9 +270,15 @@ class ChannelIndex:
         so they never collide with a segment-scanned row. Mirrors the runs
         daemon's persistent-index + in-memory-overlay split.
         """
-        index_path = self._channels_dir / "_index.duckdb"
-        self._index_db = duckdb.connect(str(index_path), config=daemon_duckdb_config())
-        self._ensure_schema(self._index_db)
+        fp = _projection_fingerprint()
+        index_path = self._channels_dir / _index_epoch.index_file_name(fp)
+        self._index_db, _ = _index_epoch.open_index(
+            index_path,
+            ensure_schema=self._ensure_schema,
+            stamp_meta=_stamp_index_meta,
+            index_file_is_the_cause=_index_epoch.index_file_is_the_cause,
+        )
+        _index_epoch.stamp_epochs_ledger(self._channels_dir, fp, _installed_version())
         # Ephemeral live overlay: attached :memory: so it's visible to every
         # child read cursor (a register()'d temp view would not be), yet not
         # persisted — it's a projection of in-flight samples, re-derived from
@@ -175,28 +300,39 @@ class ChannelIndex:
 
     @staticmethod
     def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
-        """Create the on-disk index schema if absent.
+        """Create the on-disk index schema if absent; reconcile drift in place.
 
         The index is a disposable projection — every row is re-derivable from
-        the durable ``.arrow`` segments. ``CREATE TABLE IF NOT EXISTS`` keeps an
-        existing table as-is, so a column change is not an in-place migration:
-        clear ``data/channels`` and let the next open rebuild the projection.
+        the durable ``.arrow`` segments — but the schema itself is healed
+        additively, not by rebuilding: mirrors
+        ``testerkit.data.files.catalog.ensure_schema``'s
+        ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS`` idiom. ``CREATE TABLE IF
+        NOT EXISTS`` makes the table on a fresh index; the ``ALTER`` loop right
+        after it then adds any column present in ``_CHANNEL_INDEX_COLUMNS``
+        but missing from an existing on-disk table. A column the on-disk table
+        carries that current code no longer declares is left in place,
+        orphaned but harmless, because every insert
+        (``_insert_index_rows``, ``insert_live_columnar``) is column-explicit
+        by name rather than ``SELECT *`` — so it never sees the extra column
+        and never raises ``duckdb.BinderException`` on a column-count
+        mismatch. This never touches the durable ``.arrow`` segment files
+        (user data) — only the derived cache's own columns.
+
+        This additive reconcile covers drift *within* one fingerprinted file
+        (e.g. re-opening an already-current index after an in-place code
+        edit, before its fingerprint was recomputed) — it does NOT retrofit
+        an already-built file after a real schema change: a new/removed
+        column changes :func:`_projection_fingerprint`, so the next open
+        resolves a new, distinct ``_index.<fp>.duckdb`` (see "Derived-index
+        versioning" above) and rebuilds from the durable segments rather than
+        ``ALTER``-ing the old file in place.
         """
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS channel_index (
-                channel_id VARCHAR,
-                session_id VARCHAR,
-                machine_id VARCHAR,
-                received_at TIMESTAMPTZ,
-                sampled_at TIMESTAMPTZ,
-                source_method VARCHAR,
-                sample_interval DOUBLE,
-                value VARCHAR,
-                sample_offset BIGINT
-            )
-            """
+        columns_ddl = ", ".join(
+            f"{name} {sql_type}" for name, sql_type in ChannelIndex._CHANNEL_INDEX_COLUMNS
         )
+        conn.execute(f"CREATE TABLE IF NOT EXISTS channel_index ({columns_ddl})")
+        for name, sql_type in ChannelIndex._CHANNEL_INDEX_COLUMNS:
+            conn.execute(f"ALTER TABLE channel_index ADD COLUMN IF NOT EXISTS {name} {sql_type}")
         # Ledger of ingested segments — keyed on path alone. A channel
         # segment is written exactly once (one batch, then closed
         # immutable), so a path that's already recorded never needs
@@ -404,7 +540,6 @@ class ChannelIndex:
                 {
                     "channel_id": channel_id,
                     "session_id": r.get("session_id"),
-                    "machine_id": r.get("machine_id"),
                     "received_at": r.get("received_at"),
                     "sampled_at": r.get("sampled_at"),
                     "source_method": r.get("source_method") or "",
@@ -431,6 +566,10 @@ class ChannelIndex:
         ``live.channel_live`` (ephemeral overlay). ``ledger_path``, when
         given, records the source segment in ``_ingested`` in the SAME
         transaction as the insert, so a crash can't half-record a segment.
+        Column-explicit (not ``SELECT *``), like ``files/catalog.py``'s
+        ``_UPSERT_SQL``, so a table carrying an orphaned column from an older
+        code version still aligns by name instead of a positional
+        column-count ``BinderException``.
         """
         if self._index_db is None:
             return
@@ -447,7 +586,10 @@ class ChannelIndex:
         tbl = pa.Table.from_pylist(rows, schema=self._INDEX_ARROW_SCHEMA)
         with self._index_lock:
             self._index_db.register("_incoming", tbl)
-            self._index_db.execute(f"INSERT INTO {table} SELECT * FROM _incoming")
+            self._index_db.execute(
+                f"INSERT INTO {table} ({self._INDEX_COLUMN_NAMES}) "
+                f"SELECT {self._INDEX_COLUMN_NAMES} FROM _incoming"
+            )
             self._index_db.unregister("_incoming")
             if ledger_path is not None:
                 self._index_db.execute(
@@ -468,7 +610,10 @@ class ChannelIndex:
         tbl = pa.Table.from_batches([idx])
         with self._index_lock:
             self._index_db.register("_incoming", tbl)
-            self._index_db.execute("INSERT INTO live.channel_live SELECT * FROM _incoming")
+            self._index_db.execute(
+                f"INSERT INTO live.channel_live ({self._INDEX_COLUMN_NAMES}) "
+                f"SELECT {self._INDEX_COLUMN_NAMES} FROM _incoming"
+            )
             self._index_db.unregister("_incoming")
 
     @staticmethod
@@ -496,7 +641,6 @@ class ChannelIndex:
         return {
             "channel_id": channel_id,
             "session_id": sample.session_id,
-            "machine_id": sample.machine_id,
             "received_at": sample.received_at,
             "sampled_at": sample.sampled_at,
             "source_method": sample.source_method or "",
@@ -550,7 +694,7 @@ class ChannelIndex:
         # overlap on the per-sample cursor (session, sample_offset).
         sql = [
             "SELECT received_at, sampled_at, value, source_method, "
-            "session_id, machine_id, sample_interval, sample_offset FROM ("
+            "session_id, sample_interval, sample_offset FROM ("
             "SELECT * FROM channel_index UNION ALL SELECT * FROM live.channel_live"
             ") WHERE channel_id = ?"
         ]
