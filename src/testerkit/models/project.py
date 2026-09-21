@@ -116,6 +116,12 @@ class ProjectConfig(BaseModel):
     default_fixture: str | None = None
     default_profile: str | None = None
     mock_instruments: bool = False
+    # Opt-in gate for GH #79 (assert -> measurement promotion). Off by
+    # default: a bare comparison ``assert`` records only pass/fail unless
+    # this is ``true`` (project-wide) or the test/class/module carries
+    # ``@pytest.mark.testerkit_assert_measurements``. See
+    # ``testerkit.pytest_plugin.assert_measurements``.
+    assert_measurements: bool = False
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
     runner: dict[str, Any] = Field(default_factory=dict)
     required_inputs: dict[str, PromptConfig] = Field(default_factory=dict)

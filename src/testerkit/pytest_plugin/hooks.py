@@ -69,6 +69,7 @@ from testerkit.execution.profiles import (
 from testerkit.execution.sidecar import load_sidecar as _load_sidecar
 from testerkit.execution.vectors import Vector
 from testerkit.models.test_config import MockEntry, RetryConfig, SweepEntry, TestEntry
+from testerkit.pytest_plugin.assert_measurements import install_assert_measurement_hook
 from testerkit.pytest_plugin.helpers import (
     find_fixture_file,
     find_station_file,
@@ -238,6 +239,10 @@ def pytest_configure(config):
         "of mock dicts; each dict's kwargs (excluding `target`) follow "
         "unittest.mock.patch.object(target, ...). Stacking multiple "
         "markers concatenates their lists.",
+        "testerkit_assert_measurements: Force-enable assert-to-measurement "
+        "promotion (GH #79) for this test/class/module regardless of the "
+        "project-wide `assert_measurements:` default in testerkit.yaml. "
+        "See testerkit.pytest_plugin.assert_measurements.",
     ):
         config.addinivalue_line("markers", marker)
     with _profile_errors_as_usage():
@@ -1027,6 +1032,12 @@ def pytest_load_initial_conftests(early_config, parser, args):
     _ = parser
     early_config._inicache["enable_assertion_pass_hook"] = True
     _enable_hook_in_rewriter_cache_key()
+    # Resolved here (not in pytest_configure) because it must be known
+    # before any test module is read/rewritten. install_assert_measurement_hook
+    # mixes this boolean into the rewriter's pyc cache tag itself, so
+    # toggling ``assert_measurements:`` between runs lands on a distinct
+    # cache slot instead of risking a stale transform-or-not decision.
+    install_assert_measurement_hook(load_project_defaults().assert_measurements)
     with _profile_errors_as_usage():
         apply_profile_addopts_env(args)
 

@@ -297,6 +297,7 @@ Schema for testerkit.yaml project config files — all fields at root.
 | `default_fixture` | `str \| None` | `None` |
 | `default_profile` | `str \| None` | `None` |
 | `mock_instruments` | `bool` | `False` |
+| `assert_measurements` | `bool` | `False` |
 | `profiles` | `dict[str, ProfileConfig]` | `{}` |
 | `runner` | `dict[str, Any]` | `{}` |
 | `required_inputs` | `dict[str, PromptConfig]` | `{}` |
