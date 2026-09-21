@@ -271,10 +271,22 @@ def join_marker_names(markers: Any, sort: bool = False) -> str | None:
     ``sort=True`` produces deterministic output for the collection
     manifest; leaving it unsorted preserves source order for code
     identity (which is what the audit cares about).
+
+    De-duplicates by name (first occurrence wins the position), single-
+    sourced here rather than left to every caller/renderer: a marker
+    applied at more than one level pytest walks — e.g. once directly on
+    the test function and again via a fixture/plugin that re-applies it —
+    makes ``item.iter_markers()`` yield the SAME name more than once (it
+    walks the marker chain, it doesn't de-dupe). Two marker OBJECTS with
+    the same name are one semantic tag, not two, so collapsing them here
+    (the single place this string gets built, not the display layer) is
+    correct for every consumer — the web run-detail Markers column, CLI
+    reports, and any future renderer alike — instead of re-implementing
+    the same de-dup ad hoc wherever the string is displayed (docs/36 P4).
     """
     if not markers:
         return None
-    names = [m.name for m in markers]
+    names = list(dict.fromkeys(m.name for m in markers))
     if sort:
         names.sort()
     return ",".join(names) or None
