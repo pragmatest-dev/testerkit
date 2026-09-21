@@ -59,6 +59,11 @@ from testerkit.data._duckdb_flight_server import (
     shutdown_flight_server_in_daemon,
     start_flight_server_in_daemon,
 )
+from testerkit.data._schema_keys import (
+    STEPS_KEY,
+    VECTORS_KEY,
+    primary_key_ddl_columns,
+)
 from testerkit.data._sql_helpers import sql_escape as _sql_escape
 from testerkit.data.backends._event_accumulator import EventAccumulator
 from testerkit.data.backends.parquet import materialize_run_to_parquet
@@ -361,6 +366,9 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
                 raise
 
     # ── runs_materialized ──────────────────────────────────────────────
+    # Single-column inline PK — matches `_schema_keys.RUNS_KEY` (`("run_id",)`)
+    # exactly; not worth the indirection of deriving a one-column clause, but
+    # `test_schema_keys.py` asserts the two never drift apart.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS runs_materialized (
             run_id VARCHAR PRIMARY KEY,
@@ -405,8 +413,12 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     # distinct execution (its own inputs/outcome) — the contract's stated
     # 3-col steps PK omits it; see progress log.
     # vector_outer_index_key = COALESCE(vector_outer_index, -1): PK cannot be
-    # NULL, -1 is the top-level (no enclosing outer sweep) sentinel.
-    conn.execute("""
+    # NULL, -1 is the top-level (no enclosing outer sweep) sentinel. The PK
+    # clause itself is DERIVED from `_schema_keys.STEPS_KEY` (not hand-typed)
+    # so this DDL and the canonical grain the cloud's MERGE backends import
+    # cannot drift apart.
+    steps_pk = ", ".join(primary_key_ddl_columns(STEPS_KEY))
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS steps_materialized (
             run_id VARCHAR NOT NULL,
             step_path VARCHAR NOT NULL,
@@ -422,7 +434,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             duration_s DOUBLE,
             measurement_count INTEGER,
             markers VARCHAR,
-            PRIMARY KEY (run_id, step_path, step_retry, vector_outer_index_key)
+            PRIMARY KEY ({steps_pk})
         )
     """)
     for col, sql_type in _STEPS_PERSISTED_COLUMNS:
@@ -436,7 +448,12 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     # step-grain data (step_name / step_index) — the ``step_vectors`` VIEW
     # joins ``steps_materialized`` for those; NO run identity — joined from
     # ``runs`` in the view.
-    conn.execute("""
+    # PK clause DERIVED from `_schema_keys.VECTORS_KEY` (see steps_materialized's
+    # identical note above) — `vector_index`/`vector_retry` pass through
+    # unchanged (both `NOT NULL` here, so no `_key` sentinel needed); only
+    # `vector_outer_index` is genuinely NULL-able and gets one.
+    vectors_pk = ", ".join(primary_key_ddl_columns(VECTORS_KEY))
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS vectors_materialized (
             run_id VARCHAR NOT NULL,
             step_path VARCHAR NOT NULL,
@@ -451,8 +468,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             ended_at TIMESTAMPTZ,
             duration_s DOUBLE,
             measurement_count INTEGER,
-            PRIMARY KEY (run_id, step_path, step_retry, vector_outer_index_key,
-                         vector_index, vector_retry)
+            PRIMARY KEY ({vectors_pk})
         )
     """)
     for col, sql_type in _VECTORS_PERSISTED_COLUMNS:
@@ -1405,8 +1421,15 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
 
       * ``steps_materialized`` — one row per LOGICAL step, drawn ONLY from
         ``record_type='step'`` rows (vector_index always NULL at rest). Its
-        ``measurement_count`` is the step row's own nested measurements (0 for
-        a swept step, whose measurements ride its vector rows).
+        ``measurement_count`` is the step row's own nested measurements PLUS
+        the summed ``measurement_count`` of every vector nested under it (a
+        swept step's measurements ride its ``record_type='vector'`` rows, not
+        its own row — landed 0 for any swept step before this fix, docs/36
+        P1a). ``started_at``/``ended_at`` are ``MIN``/``MAX`` over a swept
+        step's grouped variant rows, not ``ANY_VALUE`` (same fix, same
+        reasoning as `measurement_projection.steps_projection_select` — kept
+        in lockstep with that shared-projection SQL so the two stay parity-
+        tested rather than silently diverging).
       * ``vectors_materialized`` — one row per condition point, drawn ONLY from
         ``record_type='vector'`` rows, each carrying its own timing / outcome.
 
@@ -1419,7 +1442,18 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
     flist = _file_list_sql(parquet_paths)
     conn.execute(f"""
         INSERT INTO steps_materialized BY NAME
-        WITH grain AS (
+        WITH vector_counts AS (
+            SELECT
+                run_id,
+                step_path,
+                COALESCE(step_retry, 0) AS step_retry,
+                COALESCE(vector_outer_index, -1) AS vector_outer_index_key,
+                CAST(COALESCE(SUM(len(measurements)), 0) AS INTEGER) AS vector_measurement_count
+            FROM read_parquet({flist}, filename=true, union_by_name=true)
+            WHERE run_id IS NOT NULL AND record_type = 'vector'
+            GROUP BY run_id, step_path, COALESCE(step_retry, 0), COALESCE(vector_outer_index, -1)
+        ),
+        grain AS (
             SELECT
                 run_id,
                 step_path,
@@ -1430,9 +1464,9 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 filename AS file_path,
                 step_name,
                 {_WORST_STEP_OUTCOME_EXPR},
-                ANY_VALUE(step_started_at) AS started_at,
-                ANY_VALUE(step_ended_at) AS ended_at,
-                CAST(COALESCE(SUM(len(measurements)), 0) AS INTEGER) AS measurement_count,
+                MIN(step_started_at) AS started_at,
+                MAX(step_ended_at) AS ended_at,
+                CAST(COALESCE(SUM(len(measurements)), 0) AS INTEGER) AS own_measurement_count,
                 ANY_VALUE(step_markers) AS markers
             FROM read_parquet({flist}, filename=true, union_by_name=true)
             WHERE run_id IS NOT NULL AND record_type = 'step'
@@ -1440,8 +1474,19 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 filename, run_id, step_path, COALESCE(step_retry, 0),
                 vector_outer_index, step_index, step_name
         )
-        SELECT *, {_DURATION_S_EXPR}
-        FROM grain
+        SELECT
+            g.run_id, g.step_path, g.step_retry, g.vector_outer_index,
+            g.vector_outer_index_key, g.step_index, g.file_path, g.step_name,
+            g.outcome, g.started_at, g.ended_at,
+            {_DURATION_S_EXPR},
+            g.own_measurement_count + COALESCE(vc.vector_measurement_count, 0)
+                AS measurement_count,
+            g.markers
+        FROM grain g
+        LEFT JOIN vector_counts vc
+            ON vc.run_id = g.run_id AND vc.step_path = g.step_path
+            AND vc.step_retry = g.step_retry
+            AND vc.vector_outer_index_key = g.vector_outer_index_key
         ON CONFLICT (run_id, step_path, step_retry, vector_outer_index_key)
         DO UPDATE SET
             step_index = excluded.step_index,

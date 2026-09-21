@@ -1,10 +1,11 @@
-"""Steps / measurement_facts projection SQL (docs/15 §5.1, §6.2; P1).
+"""Steps / measurement_facts / vectors projection SQL (docs/15 §5.1, §6.2, P1;
+docs/36 P1a).
 
-Two things proven here, no cloud creds, no object storage:
+Three things proven here, no cloud creds, no object storage:
 
-1. Drift guard (docs/15 §4.1 C6): `STEPS_COLUMNS`/`MEASUREMENT_FACTS_COLUMNS`
-   (the hand-maintained BigQuery schema tuples) must never drift from what the
-   projection SQL actually emits — same discipline as
+1. Drift guard (docs/15 §4.1 C6): `STEPS_COLUMNS`/`MEASUREMENT_FACTS_COLUMNS`/
+   `VECTORS_COLUMNS` (the hand-maintained BigQuery schema tuples) must never
+   drift from what the projection SQL actually emits — same discipline as
    `test_runs_backend.py::test_projection_columns_match_live_projection`.
 2. Projection **parity vs. a DuckDB oracle**: build a REAL per-run
    measurement-grain table via testerkit's own accumulator/derive engine (never
@@ -13,20 +14,33 @@ Two things proven here, no cloud creds, no object storage:
    expectation. This is the "projection parity vs a DuckDB oracle" the P1 brief
    asks for — the oracle IS testerkit's real event → accumulator → unified-rows
    pipeline, and this module's SQL is checked against its actual output.
+3. Projection **parity vs. the daemon's own materialize path** (docs/36 P1a's
+   "Parity test (byte/number-level)"): feed ONE real parquet (built the same
+   way `object_derive.py`/the bench writer does, via `materialize_run_to_parquet`)
+   through BOTH the daemon's `_bulk_insert_steps` (populating
+   `steps_materialized`/`vectors_materialized`) and `steps_projection_select`/
+   `vectors_projection_select`, then diff the own-grain columns row-for-row —
+   proving the MIN/MAX timing rollup and the vectors-summed `measurement_count`
+   fix land identically in both places (they are two SQL implementations of the
+   same rule, kept in lockstep, not a shared import — see each function's
+   docstring).
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 import duckdb
 import pyarrow as pa
 import pytest
 
 from testerkit.data._accumulator_pool import AccumulatorPool
+from testerkit.data._runs_duckdb_daemon import _bulk_insert_steps, _ensure_schema
+from testerkit.data.backends._event_accumulator import EventAccumulator
 from testerkit.data.backends._row_helpers import encode_lane_structs
-from testerkit.data.backends.parquet import _build_unified_rows_from_acc
+from testerkit.data.backends.parquet import _build_unified_rows_from_acc, materialize_run_to_parquet
 from testerkit.data.event_store import _parse_event_row
 from testerkit.data.events import (
     MeasurementRecorded,
@@ -34,14 +48,18 @@ from testerkit.data.events import (
     RunStarted,
     StepEnded,
     StepStarted,
+    VectorEnded,
+    VectorStarted,
 )
 from testerkit.data.measurement_projection import (
     LANE_ROW_COLUMNS,
     MEASUREMENT_FACTS_COLUMNS,
     STEPS_COLUMNS,
+    VECTORS_COLUMNS,
     lanes_projection_select,
     measurement_facts_projection_select,
     steps_projection_select,
+    vectors_projection_select,
 )
 from testerkit.data.schemas import RUN_ROW_SCHEMA, _build_write_schema, table_from_rows
 
@@ -83,6 +101,20 @@ def test_measurement_facts_columns_match_projection() -> None:
     assert live_columns == tuple(name for name, _ in MEASUREMENT_FACTS_COLUMNS), (
         "measurement_projection.MEASUREMENT_FACTS_COLUMNS has drifted from "
         "measurement_facts_projection_select's actual output columns."
+    )
+
+
+def test_vectors_columns_match_projection() -> None:
+    empty = pa.Table.from_pylist([], schema=RUN_ROW_SCHEMA)
+    con, source = _source(empty)
+    try:
+        rel = con.execute(vectors_projection_select(source))
+        live_columns = tuple(d[0] for d in rel.description)
+    finally:
+        con.close()
+    assert live_columns == tuple(name for name, _ in VECTORS_COLUMNS), (
+        "measurement_projection.VECTORS_COLUMNS has drifted from "
+        "vectors_projection_select's actual output columns."
     )
 
 
@@ -505,3 +537,456 @@ def test_lanes_projection_one_row_per_lane_entry() -> None:
     assert vout["value"] == pytest.approx(3.3)
     assert vout["unit"] == "V"
     assert vout["run_id"] == run_id
+
+
+# --------------------------------------------------------------------------- #
+# vectors_projection_select — behavioral, real accumulator pipeline (P1a)     #
+# --------------------------------------------------------------------------- #
+
+
+def _build_swept_run_table() -> tuple[pa.Table, str]:
+    """One real run with a swept (in-body ``vectors``-loop) step — 2 vectors,
+    each with its own measurement — through testerkit's ACTUAL accumulator/
+    unified-row pipeline. Also carries git/UUT context so
+    `measurement_facts_projection_select`'s denormalized step_outcome /
+    step_started_at / step_ended_at / vector_outcome / git_* / env columns
+    (docs/36 P1a) have something real to assert on."""
+    session_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    t0 = datetime(2026, 9, 13, 10, 0, 0, tzinfo=UTC)
+    t1 = datetime(2026, 9, 13, 10, 0, 10, tzinfo=UTC)
+
+    events = [
+        RunStarted(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=t0,
+            station_hostname="bench-a",
+            uut_serial_number="SN-9",
+            uut_part_number="P-9",
+            test_phase="production",
+            git_commit="deadbeef",
+            git_branch="main",
+            git_remote="origin",
+        ),
+        StepStarted(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=t0,
+            step_path="power/sweep",
+            step_name="sweep",
+            step_index=0,
+        ),
+        VectorStarted(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=t0,
+            step_name="sweep",
+            step_index=0,
+            step_path="power/sweep",
+            vector_index=0,
+            retry=0,
+            inputs={"vin": 2.0},
+        ),
+        MeasurementRecorded(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=t0,
+            step_name="sweep",
+            step_index=0,
+            step_path="power/sweep",
+            vector_index=0,
+            retry=0,
+            measurement_name="vout",
+            value=2.01,
+            unit="V",
+            outcome="passed",
+            limit_low=1.9,
+            limit_high=2.1,
+        ),
+        VectorEnded(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=datetime(2026, 9, 13, 10, 0, 3, tzinfo=UTC),
+            step_name="sweep",
+            step_index=0,
+            step_path="power/sweep",
+            vector_index=0,
+            retry=0,
+            outcome="passed",
+            inputs={"vin": 2.0},
+        ),
+        VectorStarted(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=datetime(2026, 9, 13, 10, 0, 4, tzinfo=UTC),
+            step_name="sweep",
+            step_index=0,
+            step_path="power/sweep",
+            vector_index=1,
+            retry=0,
+            inputs={"vin": 3.0},
+        ),
+        MeasurementRecorded(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=datetime(2026, 9, 13, 10, 0, 4, tzinfo=UTC),
+            step_name="sweep",
+            step_index=0,
+            step_path="power/sweep",
+            vector_index=1,
+            retry=0,
+            measurement_name="vout",
+            value=3.02,
+            unit="V",
+            outcome="failed",
+            limit_low=2.9,
+            limit_high=3.1,
+        ),
+        VectorEnded(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=datetime(2026, 9, 13, 10, 0, 7, tzinfo=UTC),
+            step_name="sweep",
+            step_index=0,
+            step_path="power/sweep",
+            vector_index=1,
+            retry=0,
+            outcome="failed",
+            inputs={"vin": 3.0},
+        ),
+        StepEnded(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=datetime(2026, 9, 13, 10, 0, 8, tzinfo=UTC),
+            step_name="sweep",
+            step_index=0,
+            step_path="power/sweep",
+            outcome="failed",
+        ),
+        RunEnded(session_id=session_id, run_id=run_id, occurred_at=t1, outcome="failed"),
+    ]
+
+    pool = AccumulatorPool()
+    for event in events:
+        row = {
+            "id": str(event.id),
+            "event_type": event.event_type,
+            "occurred_at": event.occurred_at,
+            "session_id": str(session_id),
+            "run_id": str(run_id),
+            "json": event.model_dump_json(),
+        }
+        pool.dispatch(_parse_event_row(row))
+
+    acc = pool._accs[str(run_id)]
+    rows = _build_unified_rows_from_acc(acc, t1, "failed")
+    return table_from_rows(rows, _build_write_schema(rows)), str(run_id)
+
+
+def test_vectors_projection_matches_real_derive_output() -> None:
+    table, run_id = _build_swept_run_table()
+    con, source = _source(table)
+    try:
+        rows = con.execute(vectors_projection_select(source)).fetchall()
+        cols = [d[0] for d in con.description]
+    finally:
+        con.close()
+    by_index = {
+        dict(zip(cols, r, strict=True))["vector_index"]: dict(zip(cols, r, strict=True))
+        for r in rows
+    }
+    assert set(by_index) == {0, 1}
+
+    v0 = by_index[0]
+    assert v0["run_id"] == run_id
+    assert v0["step_path"] == "power/sweep"
+    assert v0["step_name"] == "sweep"  # denormalized off the vector's own carrier row
+    assert v0["step_index"] == 0
+    assert v0["outcome"] == "passed"
+    assert v0["measurement_count"] == 1
+    assert v0["uut_serial_number"] == "SN-9"
+
+    v1 = by_index[1]
+    assert v1["outcome"] == "failed"
+    assert v1["measurement_count"] == 1
+
+    # Two distinct condition-point rows — the load_regulation-shape assertion
+    # (docs/36 P1b done-when): a swept step's variants come through as
+    # DISTINCT rows, not collapsed into one.
+    assert v0["started_at"] != v1["started_at"]
+
+
+def test_steps_projection_measurement_count_sums_vectors() -> None:
+    """A swept step's own `record_type='step'` row carries zero nested
+    measurements (they ride the vector rows) — `steps_projection_select`'s
+    `measurement_count` must be the step's own count PLUS its vectors'
+    summed count (docs/36 P1a: this landed 0 before the fix)."""
+    table, run_id = _build_swept_run_table()
+    con, source = _source(table)
+    try:
+        rows = con.execute(steps_projection_select(source)).fetchall()
+        cols = [d[0] for d in con.description]
+    finally:
+        con.close()
+    by_path = {
+        dict(zip(cols, r, strict=True))["step_path"]: dict(zip(cols, r, strict=True)) for r in rows
+    }
+    step = by_path["power/sweep"]
+    assert step["run_id"] == run_id
+    assert step["measurement_count"] == 2  # 0 own + 1 (vector 0) + 1 (vector 1)
+    # MIN/MAX rollup (not ANY_VALUE): the step's execution window spans both
+    # vectors' timing, anchored on the StepStarted/StepEnded occurred_at.
+    assert step["started_at"] == datetime(2026, 9, 13, 10, 0, 0, tzinfo=UTC)
+    assert step["ended_at"] == datetime(2026, 9, 13, 10, 0, 8, tzinfo=UTC)
+    # Worst-wins step outcome still holds (a FAILED vector escalates the step).
+    assert step["outcome"] == "failed"
+
+
+def test_measurement_facts_projection_denormalizes_step_and_vector_outcome() -> None:
+    """docs/36 P1a: `measurement_facts_projection_select` gained
+    `step_outcome`/`step_started_at`/`step_ended_at`/`vector_outcome` (present
+    on local's `measurements` view via its steps/vectors joins, absent here
+    before this fix) and the git_*/env columns (present on every row —
+    `run_context_from_run_started(..., include_env=True)` — so ANY_VALUE per
+    carrier row is exact)."""
+    table, run_id = _build_swept_run_table()
+    con, source = _source(table)
+    try:
+        rows = con.execute(measurement_facts_projection_select(source)).fetchall()
+        cols = [d[0] for d in con.description]
+    finally:
+        con.close()
+    dicts = [dict(zip(cols, r, strict=True)) for r in rows]
+    assert len(dicts) == 2
+    by_vector = {d["vector_index"]: d for d in dicts}
+
+    v0 = by_vector[0]
+    assert v0["run_id"] == run_id
+    # step_outcome is the WORST-WINS collapse across the step's variant rows
+    # (here just one 'step' row, so it's simply that row's own outcome) — NOT
+    # v.step_outcome directly (which is NULL on a vector-sourced fact at rest).
+    assert v0["step_outcome"] == "failed"
+    assert v0["step_started_at"] == datetime(2026, 9, 13, 10, 0, 0, tzinfo=UTC)
+    assert v0["step_ended_at"] == datetime(2026, 9, 13, 10, 0, 8, tzinfo=UTC)
+    assert v0["vector_outcome"] == "passed"  # this vector's own outcome, not the step's
+    assert v0["git_commit"] == "deadbeef"
+    assert v0["git_branch"] == "main"
+    assert v0["git_remote"] == "origin"
+    # No environment_json was set on RunStarted in this fixture -> None, not
+    # a crash or a silently-dropped column.
+    assert v0["python_version"] is None
+    assert v0["testerkit_version"] is None
+    assert v0["env_fingerprint"] is None
+
+    v1 = by_vector[1]
+    assert v1["step_outcome"] == "failed"
+    assert v1["vector_outcome"] == "failed"
+
+
+# --------------------------------------------------------------------------- #
+# Daemon-materialize parity (docs/36 P1a's "byte/number-level" parity test)   #
+# --------------------------------------------------------------------------- #
+
+
+def test_steps_and_vectors_projection_matches_daemon_materialized(tmp_path: Path) -> None:
+    """Feed ONE real parquet (built via `materialize_run_to_parquet`, the same
+    writer the bench/daemon uses) through BOTH the daemon's own materialize
+    path (`_bulk_insert_steps` -> `steps_materialized`/`vectors_materialized`)
+    and the shared projection SQL (`steps_projection_select`/
+    `vectors_projection_select`), then diff the own-grain columns.
+
+    Scope: `steps_materialized`/`vectors_materialized` are star-schema tables
+    (star schema, 0.3.1 phase 6) — they hold ONLY the step's/vector's own
+    identity+timing+rollup columns, not the denormalized run/UUT/station
+    context (that lives in `runs_materialized`, joined at VIEW time). So this
+    compares exactly that own-grain column set — the columns the P1a rollup
+    fixes (MIN/MAX timing, vectors-summed measurement_count) actually touch —
+    which is also every column `steps_materialized`/`vectors_materialized`
+    carries. The denormalized context columns are covered separately by the
+    drift-guard + real-derive-output tests above.
+    """
+    acc = EventAccumulator()
+    t0 = datetime(2026, 9, 14, 8, 0, 0, tzinfo=UTC)
+    session_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+
+    acc.on_event(
+        RunStarted(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=t0,
+            uut_serial_number="SN-PARITY",
+            station_hostname="bench-parity",
+        )
+    )
+    acc.on_event(
+        StepStarted(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=t0,
+            step_name="sweep",
+            step_index=0,
+            step_path="power/sweep",
+            node_id="tests/test_hw.py::test_sweep",
+        )
+    )
+    for vec, vin in ((0, 2.0), (1, 3.0)):
+        v_t0 = datetime(2026, 9, 14, 8, 0, 1 + vec * 3, tzinfo=UTC)
+        v_t1 = datetime(2026, 9, 14, 8, 0, 2 + vec * 3, tzinfo=UTC)
+        acc.on_event(
+            VectorStarted(
+                session_id=session_id,
+                run_id=run_id,
+                occurred_at=v_t0,
+                step_name="sweep",
+                step_index=0,
+                step_path="power/sweep",
+                vector_index=vec,
+                retry=0,
+                inputs={"vin": vin},
+            )
+        )
+        acc.on_event(
+            MeasurementRecorded(
+                session_id=session_id,
+                run_id=run_id,
+                occurred_at=v_t0,
+                step_name="sweep",
+                step_index=0,
+                step_path="power/sweep",
+                vector_index=vec,
+                retry=0,
+                measurement_name="vout",
+                value=2.0 + vec,
+                unit="V",
+                outcome="passed",
+            )
+        )
+        acc.on_event(
+            VectorEnded(
+                session_id=session_id,
+                run_id=run_id,
+                occurred_at=v_t1,
+                step_name="sweep",
+                step_index=0,
+                step_path="power/sweep",
+                vector_index=vec,
+                retry=0,
+                outcome="passed",
+                inputs={"vin": vin},
+            )
+        )
+    t_end = datetime(2026, 9, 14, 8, 0, 8, tzinfo=UTC)
+    acc.on_event(
+        StepEnded(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=t_end,
+            step_name="sweep",
+            step_index=0,
+            step_path="power/sweep",
+            outcome="passed",
+        )
+    )
+    acc.on_event(
+        RunEnded(session_id=session_id, run_id=run_id, occurred_at=t_end, outcome="passed")
+    )
+
+    out_dir = tmp_path / "results"
+    parquet_path = materialize_run_to_parquet(acc, out_dir, outcome="passed", run_ended_at=t_end)
+    assert parquet_path is not None
+
+    # ── daemon side: real materialize path ──────────────────────────────
+    conn = duckdb.connect()
+    try:
+        _ensure_schema(conn)
+        _bulk_insert_steps(conn, [str(parquet_path)])
+        mat_steps = conn.execute(
+            "SELECT run_id, step_path, step_retry, vector_outer_index, step_index, "
+            "step_name, outcome, started_at, ended_at, duration_s, measurement_count, markers "
+            "FROM steps_materialized"
+        ).fetchall()
+        mat_steps_cols = [d[0] for d in conn.description]
+        mat_vectors = conn.execute(
+            "SELECT run_id, step_path, step_retry, vector_outer_index, vector_index, "
+            "vector_retry, outcome, started_at, ended_at, duration_s, measurement_count "
+            "FROM vectors_materialized"
+        ).fetchall()
+        mat_vectors_cols = [d[0] for d in conn.description]
+    finally:
+        conn.close()
+
+    # ── projection side: same parquet, the shared SQL ───────────────────
+    con2 = duckdb.connect()
+    try:
+        source = f"read_parquet(['{parquet_path}'], filename=true, union_by_name=true)"
+        proj_steps = con2.execute(steps_projection_select(source)).fetchall()
+        proj_steps_cols = [d[0] for d in con2.description]
+        proj_vectors = con2.execute(vectors_projection_select(source)).fetchall()
+        proj_vectors_cols = [d[0] for d in con2.description]
+    finally:
+        con2.close()
+
+    grain_cols = [
+        "run_id",
+        "step_path",
+        "step_retry",
+        "vector_outer_index",
+        "step_index",
+        "step_name",
+        "outcome",
+        "started_at",
+        "ended_at",
+        "duration_s",
+        "measurement_count",
+    ]
+    mat_step_row = dict(zip(mat_steps_cols, mat_steps[0], strict=True))
+    proj_step_by_path = {
+        dict(zip(proj_steps_cols, r, strict=True))["step_path"]: dict(
+            zip(proj_steps_cols, r, strict=True)
+        )
+        for r in proj_steps
+    }
+    proj_step_row = proj_step_by_path["power/sweep"]
+    for col in grain_cols:
+        assert mat_step_row[col] == proj_step_row[col], (
+            f"steps parity mismatch on {col!r}: "
+            f"materialized={mat_step_row[col]!r} projection={proj_step_row[col]!r}"
+        )
+    assert mat_step_row["measurement_count"] == 2
+    assert mat_step_row["markers"] == proj_step_row["markers"]
+
+    vec_grain_cols = [
+        "run_id",
+        "step_path",
+        "step_retry",
+        "vector_outer_index",
+        "vector_index",
+        "vector_retry",
+        "outcome",
+        "started_at",
+        "ended_at",
+        "duration_s",
+        "measurement_count",
+    ]
+    mat_vec_by_index = {
+        dict(zip(mat_vectors_cols, r, strict=True))["vector_index"]: dict(
+            zip(mat_vectors_cols, r, strict=True)
+        )
+        for r in mat_vectors
+    }
+    proj_vec_by_index = {
+        dict(zip(proj_vectors_cols, r, strict=True))["vector_index"]: dict(
+            zip(proj_vectors_cols, r, strict=True)
+        )
+        for r in proj_vectors
+    }
+    assert set(mat_vec_by_index) == set(proj_vec_by_index) == {0, 1}
+    for vi in (0, 1):
+        mrow, prow = mat_vec_by_index[vi], proj_vec_by_index[vi]
+        for col in vec_grain_cols:
+            assert mrow[col] == prow[col], (
+                f"vectors[{vi}] parity mismatch on {col!r}: "
+                f"materialized={mrow[col]!r} projection={prow[col]!r}"
+            )

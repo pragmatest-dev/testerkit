@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 _DURATION_RE = re.compile(r"^(\d+)d$")
+
+# The forwarder's durable cursor file (docs/36 P2, testerkit-server docs/06
+# F10: "the forwarder must own a 'forwarded' ledger retention consults") —
+# same path/shape `testerkit.cli.forward_cmd._load_cursor`/`_save_cursor`
+# read/write (``{writer_key: last_forwarded_offset}``). Read directly here
+# (not imported from `forward_cmd`, a CLI-layer module) to avoid a
+# data-layer → cli-layer dependency; the coupling is the on-disk file
+# format/path convention, the same loose coupling `read_segments` already
+# has with the WAL files themselves.
+_FORWARD_CURSOR_NAME = "_forward_cursor.json"
 
 
 def parse_duration(s: str) -> timedelta:
@@ -62,11 +73,71 @@ def _is_project_owned(path: Path) -> bool:
     return False
 
 
-def prune_date_dirs(base_dir: Path, cutoff: date, *, dry_run: bool = False) -> list[Path]:
+def _load_forward_cursor(events_dir: Path) -> dict[str, int]:
+    """The forwarder's ``{writer_key: last_forwarded_offset}`` cursor for
+    ``events_dir``, or ``{}`` when missing/unreadable — which, combined with
+    :func:`_date_dir_is_forwarded`'s conservative default, means "nothing
+    forwarded yet" (never a false "safe to prune"). Mirrors
+    ``forward_cmd._load_cursor``'s tolerant parsing (a malformed file is
+    treated as empty, not raised) without importing that CLI-layer module."""
+    path = events_dir / _FORWARD_CURSOR_NAME
+    try:
+        raw = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    try:
+        return {str(k): int(v) for k, v in raw.items()}
+    except (TypeError, ValueError, AttributeError):
+        return {}
+
+
+def _date_dir_is_forwarded(date_dir: Path, cursor: dict[str, int]) -> bool:
+    """True if every WAL segment under ``date_dir`` (an events date dir, one
+    level under ``events_dir`` — the same ``events_dir/<date>/*.arrow``
+    layout :func:`testerkit.replication.read_segments` reads) has been fully
+    forwarded per ``cursor``.
+
+    A segment that fails to parse (still being written — the same brief,
+    tolerated race every WAL reader here accepts) is conservatively treated
+    as NOT forwarded, never green-lighting a prune of data that might still
+    be in flight. A date dir with no readable/complete/non-empty segments at
+    all returns True (nothing there to lose).
+    """
+    from testerkit.data._ipc_writer import read_ipc_batches
+
+    for seg in sorted(date_dir.glob("*.arrow")):
+        table = read_ipc_batches(seg)
+        if table is None or table.num_rows == 0:
+            continue
+        writer_keys = table.column("writer_key").to_pylist()
+        offsets = table.column("event_offset").to_pylist()
+        for wk, off in zip(writer_keys, offsets, strict=True):
+            if off is None:
+                continue
+            if off > cursor.get(str(wk), -1):
+                return False
+    return True
+
+
+def prune_date_dirs(
+    base_dir: Path, cutoff: date, *, dry_run: bool = False, skip_unforwarded: bool = False
+) -> list[Path]:
     """Delete date-named subdirectories older than *cutoff*.
 
     Only directories whose name is a valid ISO date (YYYY-MM-DD) and
     predates *cutoff* are removed. Non-date directories are left untouched.
+
+    ``skip_unforwarded`` (docs/36 P2; testerkit-server docs/06 F10 —
+    "retention prunes whole date dirs; a pruned, not-yet-forwarded segment is
+    silent loss"): when True, *base_dir* is treated as an events dir and a
+    date dir containing any WAL segment not yet past the forwarder's durable
+    cursor (:func:`_load_forward_cursor`) is PINNED — left in place — even
+    though it predates *cutoff*. A bench that has never run ``testerkit
+    forward`` (no cursor file at all) pins every date dir, the safe default
+    (nothing is ever known-forwarded, so nothing is ever silently lost) —
+    retention then does nothing until forwarding starts, exactly like the
+    channels/files reference-aware pruning already pins unreferenced-but-
+    unproven data rather than guessing.
 
     Raises:
         PermissionError: If *base_dir* is not owned by the current project.
@@ -83,6 +154,7 @@ def prune_date_dirs(base_dir: Path, cutoff: date, *, dry_run: bool = False) -> l
     removed: list[Path] = []
     if not base_dir.is_dir():
         return removed
+    cursor = _load_forward_cursor(base_dir) if skip_unforwarded else {}
     for child in sorted(base_dir.iterdir()):
         if not child.is_dir():
             continue
@@ -90,10 +162,13 @@ def prune_date_dirs(base_dir: Path, cutoff: date, *, dry_run: bool = False) -> l
             dir_date = date.fromisoformat(child.name)
         except ValueError:
             continue
-        if dir_date < cutoff:
-            removed.append(child)
-            if not dry_run:
-                shutil.rmtree(child)
+        if dir_date >= cutoff:
+            continue
+        if skip_unforwarded and not _date_dir_is_forwarded(child, cursor):
+            continue  # pinned — not yet forwarded, F10's guard
+        removed.append(child)
+        if not dry_run:
+            shutil.rmtree(child)
     return removed
 
 
@@ -262,8 +337,11 @@ def prune_all(
 
     Channels and files use reference-aware retention: a slice/file a run references
     is pinned (kept; its ``channel://``/``file://`` ref stays valid — no copy),
-    unreferenced data ages out. Events prune whole date dirs older than the cutoff.
-    Runs are never pruned here — they are the durable record.
+    unreferenced data ages out. Events prune whole date dirs older than the cutoff,
+    EXCEPT a date dir holding any WAL segment the forwarder hasn't sent yet
+    (``skip_unforwarded`` — docs/36 P2, testerkit-server docs/06 F10) — pinned
+    until forwarded, never silently lost. Runs are never pruned here — they
+    are the durable record.
 
     Args:
         data_dir: Root results directory.
@@ -292,6 +370,10 @@ def prune_all(
             result["channels"] = _prune_channels_ref_aware(data_dir, cutoff, dry_run=dry_run)
         elif subdir == "files":
             result["files"] = _prune_files_ref_aware(data_dir, cutoff, dry_run=dry_run, exts=exts)
+        elif subdir == "events":
+            result["events"] = prune_date_dirs(
+                data_dir / subdir, cutoff, dry_run=dry_run, skip_unforwarded=True
+            )
         else:
             result[subdir] = prune_date_dirs(data_dir / subdir, cutoff, dry_run=dry_run)
     return result

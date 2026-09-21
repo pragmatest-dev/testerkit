@@ -432,6 +432,7 @@ def test_forward_all_once_default_flags_never_touch_channels_or_files(
 
     monkeypatch.setattr(forward_cmd, "_forward_channels_once", _boom)
     monkeypatch.setattr(forward_cmd, "_forward_files_once", _boom)
+    monkeypatch.setattr(forward_cmd, "_forward_runs_once", _boom)
     monkeypatch.setattr(forward_cmd, "_post_ingest", _boom)  # nothing to forward -> never called
 
     result = forward_cmd._forward_all_once(
@@ -441,11 +442,14 @@ def test_forward_all_once_default_flags_never_touch_channels_or_files(
         tmp_path / "c.json",
         tmp_path / "files",
         tmp_path / "f.json",
+        tmp_path / "runs",
+        tmp_path / "r.json",
         "http://x",
         "tk",
         timeout=5.0,
         channels=False,
         files=False,
+        runs=False,
     )
     assert result == {}
 
@@ -470,11 +474,14 @@ def test_forward_all_once_runs_enabled_stores(tmp_path: Path, monkeypatch) -> No
         tmp_path / "c.json",
         files_dir,
         tmp_path / "f.json",
+        tmp_path / "runs",
+        tmp_path / "r.json",
         "http://x",
         "tk",
         timeout=5.0,
         channels=True,
         files=True,
+        runs=False,
     )
     assert result == {
         "channels": {"segments": 1, "rows": 1},

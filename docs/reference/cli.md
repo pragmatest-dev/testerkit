@@ -224,6 +224,7 @@ Forward this bench's event WAL to a central server (store-and-forward).
 | `--once` | `flag` | Forward what's available, then exit |
 | `--channels`/`--no-channels` | `flag` | Also forward closed channel segments (off by default — events-only otherwise; REVIEW NEEDED, see module docstring) |
 | `--files`/`--no-files` | `flag` | Also forward new file blobs + sidecars (off by default — events-only otherwise; REVIEW NEEDED, see module docstring) |
+| `--runs`/`--no-runs` | `flag` | Also forward finished run Parquet + compacted per-run events artifacts (off by default — events-only otherwise; docs/36 P2, REVIEW NEEDED, see module docstring) |
 
 ### `testerkit grafana` (group) {#cli-grafana}
 

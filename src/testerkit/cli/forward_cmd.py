@@ -22,13 +22,24 @@ Meant to run standing (systemd/container) — it is NOT a DaemonManager daemon. 
 per-bench machine token in ``TESTERKIT_TOKEN``; the server URL is ``--url`` or
 ``TESTERKIT_SERVER_URL``.
 
-REVIEW NEEDED — the ``/ingest/channels/{channel_id}`` and ``/ingest/files`` endpoints
-this module POSTs to do not exist on the server yet (testerkit-server's
-``ingest_channel_segment`` / ``ingest_file_blob`` are an unwired seam — see
-``testerkit_server/object_ingest.py``'s own module comment). The wire shapes below are
-this side's proposal, not a confirmed contract; channel/file forwarding cannot be
-end-to-end verified until the server side lands. Do not enable ``--channels``/``--files``
-against a real server without confirming its endpoints match.
+Run Parquet + the compacted per-run events artifact forward ADDITIONALLY, opt-in via
+``--runs`` (docs/36 P2) — same off-by-default, store-and-forward shape as channels/files:
+a durable local ledger (this time keyed ``(run_id, content_hash)`` — see
+``testerkit.replication.RunArtifact``'s docstring for why content hash, not path, is the
+identity), advance only on a server-accepted POST. A finished run Parquet forwards as-is
+(no transcode — it's already Parquet at rest); its events get compacted from the WAL and
+transcoded from Arrow to Parquet (``testerkit.replication.events_table_to_parquet_bytes``)
+before forwarding, since BigQuery cannot read Arrow files.
+
+REVIEW NEEDED — the ``/ingest/channels/{channel_id}``, ``/ingest/files``, and
+``/ingest/runs``/``/ingest/runs/{run_id}/events`` endpoints this module POSTs to do not
+exist on the server yet (testerkit-server's ``ingest_channel_segment`` / ``ingest_file_blob``
+are an unwired seam — see ``testerkit_server/object_ingest.py``'s own module comment; the
+cloud-side acceptance of the run-Parquet/events-artifact shape is docs/36 P3, not P2). The
+wire shapes below are this side's proposal, not a confirmed contract; run/channel/file
+forwarding cannot be end-to-end verified against a real server until the server side lands.
+Do not enable ``--runs``/``--channels``/``--files`` against a real server without confirming
+its endpoints match.
 """
 
 from __future__ import annotations
@@ -53,11 +64,12 @@ from testerkit.cli.root import main
 if TYPE_CHECKING:
     import pyarrow as pa
 
-    from testerkit.replication import ChannelSegment, FileRecord
+    from testerkit.replication import ChannelSegment, FileRecord, RunArtifact
 
 _TOKEN_ENV = "TESTERKIT_TOKEN"
 _URL_ENV = "TESTERKIT_SERVER_URL"
 _ARROW_CONTENT_TYPE = "application/vnd.apache.arrow.stream"
+_PARQUET_CONTENT_TYPE = "application/vnd.apache.parquet"
 # The bench's own derivation signal — dropped so the SERVER re-derives runs itself
 # (forwarding it would evict the server's accumulator before it materializes).
 _BENCH_LOCAL_EVENT_TYPES = frozenset({"run.materialized"})
@@ -114,6 +126,30 @@ def _load_files_cursor(path: Path) -> tuple[set[str], set[str]]:
 
 def _save_files_cursor(path: Path, sent_uris: set[str], sent_hashes: set[str]) -> None:
     _save_json(path, {"sent_uris": sorted(sent_uris), "sent_hashes": sorted(sent_hashes)})
+
+
+def _load_runs_cursor(path: Path) -> tuple[set[tuple[str, str]], set[str]]:
+    """``(sent_runs, sent_events)`` — the durable ledger docs/36 P2 needs:
+    ``sent_runs`` is the set of ``(run_id, content_hash)`` pairs whose run
+    Parquet has already been forwarded (see ``RunArtifact``'s docstring for
+    why content hash, not path — a re-materialized run overwrites the SAME
+    path); ``sent_events`` is the set of compacted-events-artifact segment
+    keys (``run_events_segment_key``) already forwarded. One cursor file for
+    both, since they are always forwarded together per run."""
+    raw = _load_json(path)
+    sent_runs = {(str(r), str(h)) for r, h in raw.get("sent_runs", [])}
+    sent_events = set(raw.get("sent_events", []))
+    return sent_runs, sent_events
+
+
+def _save_runs_cursor(path: Path, sent_runs: set[tuple[str, str]], sent_events: set[str]) -> None:
+    _save_json(
+        path,
+        {
+            "sent_runs": sorted(sent_runs),
+            "sent_events": sorted(sent_events),
+        },
+    )
 
 
 def _to_ipc_bytes(table) -> bytes:
@@ -392,6 +428,103 @@ def _forward_files_once(
     return {"files": forwarded, "skipped_dupe": skipped}
 
 
+# --------------------------------------------------------------------------- #
+# Run Parquet + compacted per-run events artifact (opt-in via --runs)         #
+# (docs/36 P2)                                                                #
+# --------------------------------------------------------------------------- #
+
+
+def _post_run_parquet(url: str, token: str, artifact: RunArtifact, *, timeout: float) -> dict:
+    """POST one finished run's Parquet to the proposed ``/ingest/runs``
+    endpoint (Parquet body — already Parquet at rest, no transcode). REVIEW
+    NEEDED: this endpoint does not exist on the server yet (see module
+    docstring; docs/36 P3 is the cloud-side acceptance work) — response shape
+    assumed to be ``{"run_id", "accepted"}``-ish; only a 2xx is relied on
+    here, nothing in the body is parsed by the caller.
+    """
+    body = artifact.path.read_bytes()
+    req = urllib.request.Request(
+        url.rstrip("/") + "/ingest/runs",
+        data=body,
+        method="POST",
+        headers={"Content-Type": _PARQUET_CONTENT_TYPE, "Authorization": f"Bearer {token}"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — our own server URL
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _post_run_events(url: str, token: str, run_id: str, table: pa.Table, *, timeout: float) -> dict:
+    """POST one run's compacted events artifact to the proposed
+    ``/ingest/runs/{run_id}/events`` endpoint — Parquet body (transcoded from
+    the Arrow WAL via ``events_table_to_parquet_bytes``; docs/36 P2: BigQuery
+    cannot read Arrow). REVIEW NEEDED: same not-yet-real-server status as
+    ``_post_run_parquet``.
+    """
+    from testerkit.replication import events_table_to_parquet_bytes
+
+    body = events_table_to_parquet_bytes(table)
+    req = urllib.request.Request(
+        url.rstrip("/") + f"/ingest/runs/{urllib.parse.quote(run_id, safe='')}/events",
+        data=body,
+        method="POST",
+        headers={"Content-Type": _PARQUET_CONTENT_TYPE, "Authorization": f"Bearer {token}"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — our own server URL
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _forward_runs_once(
+    runs_dir: Path, events_dir: Path, cursor_path: Path, url: str, token: str, *, timeout: float
+) -> dict | None:
+    """Forward every finished run Parquet not yet in the durable ledger, plus
+    that run's compacted events artifact (docs/36 P2 "done when": run Parquet
+    + events artifact ship together).
+
+    Persists the ledger after EACH run (not batched at the end) — same
+    crash-window reasoning as channels/files: a raised exception mid-pass
+    (network/HTTP error) stops the pass without recording that run, so it
+    re-sends next poll. The run Parquet POST and its events-artifact POST are
+    two separate requests but one ledger write: if the run Parquet POST
+    succeeds and the events POST then fails, the whole run is NOT marked
+    sent (both sides are needed for docs/36 §6 DoD #1 "no cloud re-derive"),
+    so the next poll re-sends the run Parquet too — server-side idempotency
+    (the ``(run_id, hash)`` supersede policy, docs/36 §7.6 G3) makes that
+    safe, never a duplicate.
+    """
+    from testerkit.replication import (
+        read_new_run_artifacts,
+        read_run_events,
+        run_events_segment_key,
+    )
+
+    sent_runs, sent_events = _load_runs_cursor(cursor_path)
+    artifacts = read_new_run_artifacts(runs_dir, sent_runs)
+    if not artifacts:
+        return None
+    forwarded = 0
+    events_forwarded = 0
+    events_skipped = 0
+    for art in artifacts:
+        _post_run_parquet(url, token, art, timeout=timeout)
+        events_table = read_run_events(events_dir, art.run_id)
+        if events_table is not None and events_table.num_rows:
+            seg_key = run_events_segment_key(art.run_id, events_table)
+            if seg_key not in sent_events:
+                _post_run_events(url, token, art.run_id, events_table, timeout=timeout)
+                sent_events.add(seg_key)
+                events_forwarded += 1
+            else:
+                events_skipped += 1
+        sent_runs.add((art.run_id, art.content_hash))
+        _save_runs_cursor(cursor_path, sent_runs, sent_events)
+        forwarded += 1
+    return {
+        "runs": forwarded,
+        "events_artifacts": events_forwarded,
+        "events_skipped_dupe": events_skipped,
+    }
+
+
 def _forward_all_once(  # noqa: PLR0913
     events_dir: Path,
     events_cursor_path: Path,
@@ -399,24 +532,27 @@ def _forward_all_once(  # noqa: PLR0913
     channels_cursor_path: Path,
     files_dir: Path,
     files_cursor_path: Path,
+    runs_dir: Path,
+    runs_cursor_path: Path,
     url: str,
     token: str,
     *,
     timeout: float,
     channels: bool,
     files: bool,
+    runs: bool,
 ) -> dict:
     """Run one poll pass over every enabled store.
 
     Events always run — this is exactly the original (pre-Part-B) behavior,
-    unconditional. Channels/files run only when their flag is enabled, so a
-    plain ``testerkit forward`` (``channels=False, files=False``) does exactly
-    what it did before either existed: one ``_forward_once`` call, nothing
-    else. Any store's failure raises out of this function immediately (the
+    unconditional. Channels/files/runs run only when their flag is enabled,
+    so a plain ``testerkit forward`` (every flag off) does exactly what it
+    did before any of them existed: one ``_forward_once`` call, nothing else.
+    Any store's failure raises out of this function immediately (the
     caller's existing retry/backoff handles it exactly as it did for events
-    alone — a channel/file forward failure never silently swallows; it also
-    never blocks a store that already sent this pass, since each has already
-    advanced its own cursor by the time a later store raises).
+    alone — a channel/file/run forward failure never silently swallows; it
+    also never blocks a store that already sent this pass, since each has
+    already advanced its own cursor by the time a later store raises).
     """
     result: dict[str, dict] = {}
     disp = _forward_once(events_dir, events_cursor_path, url, token, timeout=timeout)
@@ -432,6 +568,12 @@ def _forward_all_once(  # noqa: PLR0913
         fdisp = _forward_files_once(files_dir, files_cursor_path, url, token, timeout=timeout)
         if fdisp is not None:
             result["files"] = fdisp
+    if runs:
+        rdisp = _forward_runs_once(
+            runs_dir, events_dir, runs_cursor_path, url, token, timeout=timeout
+        )
+        if rdisp is not None:
+            result["runs"] = rdisp
     return result
 
 
@@ -468,6 +610,13 @@ def _forward_all_once(  # noqa: PLR0913
     help="Also forward new file blobs + sidecars (off by default — events-only otherwise; "
     "REVIEW NEEDED, see module docstring)",
 )
+@click.option(
+    "--runs/--no-runs",
+    default=False,
+    help="Also forward finished run Parquet + compacted per-run events artifacts "
+    "(off by default — events-only otherwise; docs/36 P2, REVIEW NEEDED, see module "
+    "docstring)",
+)
 def forward(  # noqa: PLR0913
     url: str | None,
     token: str | None,
@@ -477,12 +626,15 @@ def forward(  # noqa: PLR0913
     once: bool,
     channels: bool,
     files: bool,
+    runs: bool,
 ):
     """Forward this bench's event WAL to a central server (store-and-forward).
 
-    With ``--channels`` / ``--files``, also forwards closed channel segments
-    and new file blobs (docs/22 Part B) — off by default, so a plain
-    ``testerkit forward`` behaves exactly as it did before either existed.
+    With ``--channels`` / ``--files`` / ``--runs``, also forwards closed
+    channel segments, new file blobs (docs/22 Part B), and finished run
+    Parquet + compacted per-run events artifacts (docs/36 P2) — all off by
+    default, so a plain ``testerkit forward`` behaves exactly as it did
+    before any of them existed.
 
     URL/token resolution falls through ``--url``/``--token`` →
     ``$TESTERKIT_SERVER_URL``/``$TESTERKIT_TOKEN`` → the project ``server.url`` /
@@ -511,11 +663,19 @@ def forward(  # noqa: PLR0913
     channels_cursor_path = channels_dir / "_forward_cursor.json"
     files_dir = resolved / "files"
     files_cursor_path = files_dir / "_forward_cursor.json"
+    # ParquetBackend nests its own "runs" under the passed data_dir (see
+    # `RunArtifact`/`retention._referenced_file_keys`'s identical convention)
+    # — the runs daemon's own data dir is `resolved/"runs"`, so finished run
+    # Parquet actually lands at `resolved/"runs"/"runs"/<date>/*.parquet`.
+    runs_dir = resolved / "runs" / "runs"
+    runs_cursor_path = resolved / "runs" / "_forward_cursor.json"
     log.info("forwarding %s → %s", events_dir, server)
     if channels:
         log.info("forwarding channel segments: %s → %s", channels_dir, server)
     if files:
         log.info("forwarding file blobs: %s → %s", files_dir, server)
+    if runs:
+        log.info("forwarding run Parquet + events artifacts: %s → %s", runs_dir, server)
 
     backoff = interval
     while True:
@@ -527,11 +687,14 @@ def forward(  # noqa: PLR0913
                 channels_cursor_path,
                 files_dir,
                 files_cursor_path,
+                runs_dir,
+                runs_cursor_path,
                 server,
                 token,
                 timeout=timeout,
                 channels=channels,
                 files=files,
+                runs=runs,
             )
             backoff = interval  # reset after a clean pass
             disp = result.get("events")
@@ -546,6 +709,8 @@ def forward(  # noqa: PLR0913
                 log.info("forwarded channel segments: %s", result["channels"])
             if "files" in result:
                 log.info("forwarded file blobs: %s", result["files"])
+            if "runs" in result:
+                log.info("forwarded run Parquet + events artifacts: %s", result["runs"])
         except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError) as exc:
             # Transient — the cursor did NOT advance, so the batch re-sends next pass.
             log.warning("forward failed (will retry): %s", exc)

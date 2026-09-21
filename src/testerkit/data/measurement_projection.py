@@ -41,6 +41,13 @@ denormalizes run/UUT/station context directly off the raw row (ANY_VALUE — con
 per run) instead of a separate ``runs_materialized`` join, since a projection runs
 once per derive and needs no persistent runs table. Column tuples are drift-guarded
 against these SELECTs by ``tests/test_data/test_measurement_projection.py``.
+
+**Canonical grain keys** (the served tables' uniqueness contract — docs/36 P3 root-
+cause fix) live in the PRIVATE ``testerkit.data._schema_keys`` module, not here:
+this module is public library surface (a bench client's own code may import
+``STEPS_COLUMNS``/etc.), and a served table's storage-dedup grain is an internal
+implementation detail, not something to promote into that surface. See
+``_schema_keys.py``'s docstring.
 """
 
 from __future__ import annotations
@@ -120,9 +127,13 @@ MEASUREMENT_FACTS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("step_path", "STRING"),
     ("step_retry", "INTEGER"),
     ("step_name", "STRING"),
+    ("step_outcome", "STRING"),
+    ("step_started_at", "TIMESTAMP"),
+    ("step_ended_at", "TIMESTAMP"),
     ("vector_index", "INTEGER"),
     ("vector_outer_index", "INTEGER"),
     ("vector_retry", "INTEGER"),
+    ("vector_outcome", "STRING"),
     ("ordinal", "INTEGER"),
     ("occurrence_index", "INTEGER"),
     ("measurement_name", "STRING"),
@@ -141,17 +152,27 @@ MEASUREMENT_FACTS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("instrument_name", "STRING"),
     ("instrument_resource", "STRING"),
     ("instrument_channel", "STRING"),
+    ("git_commit", "STRING"),
+    ("git_branch", "STRING"),
+    ("git_remote", "STRING"),
+    ("python_version", "STRING"),
+    ("testerkit_version", "STRING"),
+    ("env_fingerprint", "STRING"),
 )
 
-# Computed step/vector duration in seconds — same formula as
-# `run_projection.DURATION_S_EXPR`, applied to the step's own timing columns.
-STEP_DURATION_S_EXPR = """ROUND(
+
+def _duration_s_expr(*, started_at: str, ended_at: str) -> str:
+    """Computed duration in seconds — same formula as
+    `run_projection.DURATION_S_EXPR`, parameterized over whichever pair of
+    timing columns (step or vector) the caller is rolling up."""
+    return f"""ROUND(
             CASE
-                WHEN step_ended_at IS NOT NULL AND step_started_at IS NOT NULL
-                THEN EPOCH(step_ended_at) - EPOCH(step_started_at)
+                WHEN {ended_at} IS NOT NULL AND {started_at} IS NOT NULL
+                THEN EPOCH({ended_at}) - EPOCH({started_at})
                 ELSE NULL
             END, 6
         ) AS duration_s"""
+
 
 # Worst-wins collapse of `step_outcome` across a swept step's grouped variant
 # rows (a swept step can emit multiple `record_type='step'` rows sharing the
@@ -218,6 +239,139 @@ def steps_projection_select(source_sql: str) -> str:
     the raw row (ANY_VALUE — constant per run) instead of a separate
     `runs_materialized` join, since there is no persistent runs table on the
     projection path (this SQL IS the projection, run once per derive).
+
+    Rollups (kept in lockstep with the daemon's own `_bulk_insert_steps`,
+    docs/36 P1a):
+      * ``started_at``/``ended_at`` are ``MIN``/``MAX`` over a swept step's
+        grouped variant rows, not ``ANY_VALUE`` — a swept step's variants
+        execute at different wall-clock times, so ``ANY_VALUE`` understated
+        the step's true execution window (picked one arbitrary variant's
+        timing instead of the full span).
+      * ``measurement_count`` is the step's OWN nested ``measurements`` PLUS
+        the summed ``measurement_count`` of every vector nested under it (a
+        swept step's measurements ride its ``record_type='vector'`` rows, not
+        its own ``record_type='step'`` row, which was landing 0 for any swept
+        step before this fix).
+    """
+    ctx_any = ",\n            ".join(f"ANY_VALUE({c}) AS {c}" for c in _RUN_CONTEXT_COLUMNS)
+    return f"""
+        WITH vector_measurement_counts AS (
+            SELECT
+                run_id,
+                step_path,
+                COALESCE(step_retry, 0) AS step_retry,
+                COALESCE(vector_outer_index, -1) AS vector_outer_index_key,
+                CAST(COALESCE(SUM(len(measurements)), 0) AS INTEGER) AS vector_measurement_count
+            FROM {source_sql}
+            WHERE run_id IS NOT NULL AND record_type = 'vector'
+            GROUP BY
+                run_id, step_path, COALESCE(step_retry, 0), COALESCE(vector_outer_index, -1)
+        ),
+        grain AS (
+            SELECT
+                run_id,
+                filename AS file_path,
+                {ctx_any},
+                ANY_VALUE(CAST(run_outcome AS VARCHAR)) AS run_outcome,
+                step_path,
+                COALESCE(step_retry, 0) AS step_retry_norm,
+                vector_outer_index,
+                step_index,
+                step_name,
+                {WORST_STEP_OUTCOME_EXPR},
+                MIN(step_started_at) AS step_started_at,
+                MAX(step_ended_at) AS step_ended_at,
+                CAST(COALESCE(SUM(len(measurements)), 0) AS INTEGER) AS own_measurement_count,
+                ANY_VALUE(step_markers) AS markers
+            FROM {source_sql}
+            WHERE run_id IS NOT NULL AND record_type = 'step'
+            GROUP BY
+                filename, run_id, step_path, COALESCE(step_retry, 0),
+                vector_outer_index, step_index, step_name
+        )
+        SELECT
+            g.run_id, g.file_path,
+            {", ".join(f"g.{c}" for c in _RUN_CONTEXT_COLUMNS)},
+            g.run_outcome,
+            g.step_path, g.step_retry_norm AS step_retry, g.vector_outer_index,
+            g.step_index, g.step_name,
+            g.outcome,
+            g.step_started_at AS started_at, g.step_ended_at AS ended_at,
+            {_duration_s_expr(started_at="g.step_started_at", ended_at="g.step_ended_at")},
+            g.own_measurement_count + COALESCE(vc.vector_measurement_count, 0)
+                AS measurement_count,
+            g.markers
+        FROM grain g
+        LEFT JOIN vector_measurement_counts vc
+            ON vc.run_id = g.run_id AND vc.step_path = g.step_path
+            AND vc.step_retry = g.step_retry_norm
+            AND vc.vector_outer_index_key = COALESCE(g.vector_outer_index, -1)"""
+
+
+# ``vectors`` flat-row columns, in order — MUST match `vectors_projection_select`'s
+# SELECT list order exactly (drift-guarded). One row per condition-point execution
+# (a sweep variant / in-body ``vectors`` loop iteration) — the grain the daemon's
+# ``vectors_materialized`` table holds (`_bulk_insert_steps`'s second INSERT). The
+# gap this closes (docs/36 P1a): the shared projection had no vectors grain at
+# all before this — a swept step's per-variant rows (load_regulation-shape runs:
+# 6 vectors, two container passes as distinct rows) were unrepresented.
+VECTORS_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("run_id", "STRING"),
+    ("file_path", "STRING"),
+    ("session_id", "STRING"),
+    ("site_index", "INTEGER"),
+    ("site_name", "STRING"),
+    ("uut_serial_number", "STRING"),
+    ("uut_part_number", "STRING"),
+    ("uut_revision", "STRING"),
+    ("uut_lot_number", "STRING"),
+    ("station_id", "STRING"),
+    ("station_name", "STRING"),
+    ("station_hostname", "STRING"),
+    ("fixture_id", "STRING"),
+    ("test_phase", "STRING"),
+    ("part_id", "STRING"),
+    ("part_name", "STRING"),
+    ("part_revision", "STRING"),
+    ("station_type", "STRING"),
+    ("station_location", "STRING"),
+    ("operator_id", "STRING"),
+    ("operator_name", "STRING"),
+    ("project_name", "STRING"),
+    ("run_outcome", "STRING"),
+    ("step_path", "STRING"),
+    ("step_retry", "INTEGER"),
+    ("vector_outer_index", "INTEGER"),
+    ("vector_index", "INTEGER"),
+    ("vector_retry", "INTEGER"),
+    ("step_index", "INTEGER"),
+    ("step_name", "STRING"),
+    ("outcome", "STRING"),
+    ("started_at", "TIMESTAMP"),
+    ("ended_at", "TIMESTAMP"),
+    ("duration_s", "FLOAT64"),
+    ("measurement_count", "INTEGER"),
+)
+
+
+def vectors_projection_select(source_sql: str) -> str:
+    """Flat, one-row-per-CONDITION-POINT projection over a measurement-grain
+    ``source_sql`` — the vectors grain `steps_projection_select` doesn't cover
+    (docs/36 P1a: the shape linchpin the cloud had no projection for at all).
+
+    Mirrors the daemon's ``vectors_materialized`` ``grain`` CTE
+    (`_bulk_insert_steps`'s second INSERT) exactly — same grain key
+    (``run_id, step_path, step_retry, vector_outer_index, vector_index,
+    vector_retry``), same ``ANY_VALUE`` rollup for outcome/timing (unlike
+    steps, a vector's grain key is not expected to collapse multiple variant
+    rows — each condition point is its own execution — so there is no
+    worst-wins collapse here, matching the daemon). ``step_name``/
+    ``step_index`` are denormalized straight off the vector's own carrier row
+    (the enclosing step's identity travels with every vector at write time —
+    see ``build_vector_row``), not joined from a separate steps relation.
+
+    Denormalizes run/UUT/station context directly off the raw row (ANY_VALUE
+    — constant per run), same discipline as `steps_projection_select`.
     """
     ctx_any = ",\n            ".join(f"ANY_VALUE({c}) AS {c}" for c in _RUN_CONTEXT_COLUMNS)
     return f"""
@@ -230,28 +384,31 @@ def steps_projection_select(source_sql: str) -> str:
                 step_path,
                 COALESCE(step_retry, 0) AS step_retry_norm,
                 vector_outer_index,
-                step_index,
-                step_name,
-                {WORST_STEP_OUTCOME_EXPR},
-                ANY_VALUE(step_started_at) AS step_started_at,
-                ANY_VALUE(step_ended_at) AS step_ended_at,
-                CAST(COALESCE(SUM(len(measurements)), 0) AS INTEGER) AS measurement_count,
-                ANY_VALUE(step_markers) AS markers
+                vector_index,
+                COALESCE(vector_retry, 0) AS vector_retry_norm,
+                ANY_VALUE(step_index) AS step_index,
+                ANY_VALUE(step_name) AS step_name,
+                ANY_VALUE(vector_outcome) AS outcome,
+                ANY_VALUE(vector_started_at) AS vector_started_at,
+                ANY_VALUE(vector_ended_at) AS vector_ended_at,
+                CAST(COALESCE(SUM(len(measurements)), 0) AS INTEGER) AS measurement_count
             FROM {source_sql}
-            WHERE run_id IS NOT NULL AND record_type = 'step'
+            WHERE run_id IS NOT NULL AND record_type = 'vector'
             GROUP BY
                 filename, run_id, step_path, COALESCE(step_retry, 0),
-                vector_outer_index, step_index, step_name
+                vector_outer_index, vector_index, COALESCE(vector_retry, 0)
         )
         SELECT
             run_id, file_path,
             {", ".join(_RUN_CONTEXT_COLUMNS)},
             run_outcome,
-            step_path, step_retry_norm AS step_retry, vector_outer_index, step_index, step_name,
+            step_path, step_retry_norm AS step_retry, vector_outer_index,
+            vector_index, vector_retry_norm AS vector_retry,
+            step_index, step_name,
             outcome,
-            step_started_at AS started_at, step_ended_at AS ended_at,
-            {STEP_DURATION_S_EXPR},
-            measurement_count, markers
+            vector_started_at AS started_at, vector_ended_at AS ended_at,
+            {_duration_s_expr(started_at="vector_started_at", ended_at="vector_ended_at")},
+            measurement_count
         FROM grain"""
 
 
@@ -413,14 +570,46 @@ def measurement_facts_projection_select(source_sql: str) -> str:
     """Flat measurement-fact rows (one per measurement occurrence), UNNESTed from
     the nested ``measurements`` list on step AND vector rows.
 
-    Mirrors `_measurement_unnest_insert` fused with the local `measurement_facts`
-    view's column set, plus the denormalized ``step_name`` (see module docstring —
-    the cloud's fleet-scale materialization of local's `measurements` view).
+    Mirrors `_measurement_unnest_insert` fused with the local FULL `measurements`
+    view's column set (not the lean `measurement_facts` view — see module
+    docstring), plus the denormalized ``step_name`` (the cloud's fleet-scale
+    materialization of local's `measurements` view).
+
+    docs/36 P1a closed a real gap here: this projection was missing
+    ``step_outcome``/``step_started_at``/``step_ended_at``/``vector_outcome``
+    (present on local's `measurements` view via its `steps`/`vectors` joins)
+    and the ``git_*``/``python_version``/``testerkit_version``/
+    ``env_fingerprint`` environment-traceability columns (present on every row
+    — see ``run_context_from_run_started(..., include_env=True)``, called
+    uniformly for run/step/vector rows — so ``ANY_VALUE`` per carrier row is
+    exact, not an approximation). ``step_started_at``/``step_ended_at`` are
+    denormalized straight off the carrier row (present on both step AND
+    vector rows — see ``build_vector_row``); ``vector_outcome`` likewise
+    (``NULL`` on a step-sourced fact, by construction). ``step_outcome`` is
+    the one field that needs a join: a vector row's own ``step_outcome`` is
+    ``NULL`` at rest (``build_vector_row`` never stamps it — only the step
+    row carries the collapsed step-level verdict), so this recomputes the
+    SAME worst-wins collapse `steps_projection_select` uses (kept in
+    lockstep — see ``WORST_STEP_OUTCOME_EXPR``) and joins it in, exactly
+    mirroring local's ``measurements`` view joining ``steps_materialized``
+    (whose ``.outcome`` is that same persisted collapse).
     """
     proj_vi = "CASE WHEN v.record_type = 'vector' THEN v.vector_index END"
     index_expr = _occurrence_index_expr(vector_index_expr=proj_vi)
     ctx_v = ",\n            ".join(f"v.{c}" for c in _RUN_CONTEXT_COLUMNS)
     return f"""
+        WITH step_outcomes AS (
+            SELECT
+                run_id,
+                step_path,
+                COALESCE(step_retry, 0) AS step_retry,
+                COALESCE(vector_outer_index, -1) AS vector_outer_index_key,
+                {WORST_STEP_OUTCOME_EXPR}
+            FROM {source_sql}
+            WHERE run_id IS NOT NULL AND record_type = 'step'
+            GROUP BY
+                run_id, step_path, COALESCE(step_retry, 0), COALESCE(vector_outer_index, -1)
+        )
         SELECT
             v.run_id, v.filename AS file_path,
             {ctx_v},
@@ -428,10 +617,13 @@ def measurement_facts_projection_select(source_sql: str) -> str:
             CAST(v.run_outcome AS VARCHAR) AS run_outcome,
             v.step_index, v.step_path, COALESCE(v.step_retry, 0) AS step_retry,
             v.step_name,
+            so.outcome AS step_outcome,
+            v.step_started_at, v.step_ended_at,
             {proj_vi} AS vector_index,
             v.vector_outer_index,
             CASE WHEN v.record_type = 'vector' THEN COALESCE(v.vector_retry, 0) END
                 AS vector_retry,
+            v.vector_outcome,
             CAST(ord AS BIGINT) - 1 AS ordinal,
             {index_expr} AS occurrence_index,
             m.name AS measurement_name,
@@ -441,6 +633,13 @@ def measurement_facts_projection_select(source_sql: str) -> str:
             m.timestamp AS measurement_timestamp,
             m.limit_low, m.limit_high, m.limit_nominal, m.limit_comparator,
             m.characteristic_id, m.spec_ref, m.uut_pin, m.fixture_connection,
-            m.instrument_name, m.instrument_resource, m.instrument_channel
-        FROM {source_sql} AS v, UNNEST(v.measurements) WITH ORDINALITY AS t(m, ord)
+            m.instrument_name, m.instrument_resource, m.instrument_channel,
+            v.git_commit, v.git_branch, v.git_remote,
+            v.python_version, v.testerkit_version, v.env_fingerprint
+        FROM {source_sql} AS v
+        CROSS JOIN UNNEST(v.measurements) WITH ORDINALITY AS t(m, ord)
+        LEFT JOIN step_outcomes so
+            ON so.run_id = v.run_id AND so.step_path = v.step_path
+            AND so.step_retry = COALESCE(v.step_retry, 0)
+            AND so.vector_outer_index_key = COALESCE(v.vector_outer_index, -1)
         WHERE v.run_id IS NOT NULL AND v.record_type IN ('step', 'vector')"""

@@ -210,3 +210,125 @@ class TestFilesRefAware:
         assert not tdms.exists()  # matched the type filter → pruned
         assert png.exists()  # other type → kept (tiered retention)
         assert tdms in result["files"]
+
+
+class TestEventsForwardAwareRetention:
+    """docs/36 P2; testerkit-server docs/06 F10 — "a pruned, not-yet-forwarded
+    segment is silent loss". Real WAL segments (not the empty-dir shortcut
+    the other tests use) + a real forwarder cursor file, in the exact
+    on-disk shape ``forward_cmd._save_cursor`` writes."""
+
+    @pytest.fixture()
+    def project_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        (tmp_path / "testerkit.yaml").write_text(f"name: test\ndata_dir: {tmp_path / 'data'}\n")
+        monkeypatch.chdir(tmp_path)
+        return tmp_path / "data"
+
+    def _wal_segment(
+        self, events_dir: Path, date_str: str, *, writer_key: str, offsets: list[int]
+    ) -> None:
+        from typing import Any
+
+        import pyarrow as pa
+        import pyarrow.ipc as ipc
+
+        from testerkit.replication import EVENT_WAL_SCHEMA
+
+        n = len(offsets)
+        data: dict[str, list[Any]] = {name: [None] * n for name in EVENT_WAL_SCHEMA.names}
+        data["id"] = [f"e{i}" for i in offsets]
+        data["event_type"] = ["test.measurement"] * n
+        data["session_id"] = ["s1"] * n
+        data["writer_key"] = [writer_key] * n
+        data["event_offset"] = offsets
+        data["json"] = ["{}"] * n
+        table = pa.table(data, schema=EVENT_WAL_SCHEMA)
+        seg_dir = events_dir / date_str
+        seg_dir.mkdir(parents=True, exist_ok=True)
+        seg = seg_dir / f"seg-{writer_key}.arrow"
+        with pa.OSFile(str(seg), "wb") as sink, ipc.new_stream(sink, EVENT_WAL_SCHEMA) as w:
+            w.write_table(table)
+
+    def _save_cursor(self, path: Path, cursor: dict[str, int]) -> None:
+        import json
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(cursor))
+
+    def test_unforwarded_date_dir_is_pinned_not_pruned(self, project_dir: Path) -> None:
+        old = (date.today() - timedelta(days=60)).isoformat()
+        events_dir = project_dir / "events"
+        self._wal_segment(events_dir, old, writer_key="w0", offsets=[0, 1, 2])
+        # No cursor file at all — the safe default: nothing known-forwarded.
+
+        result = prune_all(project_dir, "30d", data_types=("events",))
+        assert result["events"] == []
+        assert (events_dir / old).exists()  # pinned
+
+    def test_forwarded_date_dir_is_pruned(self, project_dir: Path) -> None:
+        old = (date.today() - timedelta(days=60)).isoformat()
+        events_dir = project_dir / "events"
+        self._wal_segment(events_dir, old, writer_key="w0", offsets=[0, 1, 2])
+        self._save_cursor(events_dir / "_forward_cursor.json", {"w0": 2})  # every offset covered
+
+        result = prune_all(project_dir, "30d", data_types=("events",))
+        assert (events_dir / old) in result["events"]
+        assert not (events_dir / old).exists()
+
+    def test_partially_forwarded_date_dir_is_pinned(self, project_dir: Path) -> None:
+        """The cursor covers offset 0 but the segment goes up to 2 — still
+        pinned (F10: never prune ahead of the true high-water mark)."""
+        old = (date.today() - timedelta(days=60)).isoformat()
+        events_dir = project_dir / "events"
+        self._wal_segment(events_dir, old, writer_key="w0", offsets=[0, 1, 2])
+        self._save_cursor(events_dir / "_forward_cursor.json", {"w0": 0})
+
+        result = prune_all(project_dir, "30d", data_types=("events",))
+        assert result["events"] == []
+        assert (events_dir / old).exists()
+
+    def test_multiple_writers_all_must_be_forwarded(self, project_dir: Path) -> None:
+        old = (date.today() - timedelta(days=60)).isoformat()
+        events_dir = project_dir / "events"
+        self._wal_segment(events_dir, old, writer_key="w0", offsets=[0, 1])
+        self._wal_segment(events_dir, old, writer_key="w1", offsets=[0])
+        # w0 fully forwarded, w1 not mentioned at all in the cursor.
+        self._save_cursor(events_dir / "_forward_cursor.json", {"w0": 1})
+
+        result = prune_all(project_dir, "30d", data_types=("events",))
+        assert result["events"] == []
+        assert (events_dir / old).exists()
+
+        # Now w1 catches up too -> both writers covered -> prunable.
+        self._save_cursor(events_dir / "_forward_cursor.json", {"w0": 1, "w1": 0})
+        result2 = prune_all(project_dir, "30d", data_types=("events",))
+        assert (events_dir / old) in result2["events"]
+
+    def test_recent_unforwarded_date_dir_untouched_regardless(self, project_dir: Path) -> None:
+        """A date dir inside the retention window is never pruned anyway —
+        the forward-aware guard doesn't change that baseline."""
+        recent = date.today().isoformat()
+        events_dir = project_dir / "events"
+        self._wal_segment(events_dir, recent, writer_key="w0", offsets=[0])
+
+        result = prune_all(project_dir, "30d", data_types=("events",))
+        assert result["events"] == []
+        assert (events_dir / recent).exists()
+
+    def test_prune_date_dirs_without_skip_unforwarded_ignores_cursor(
+        self, project_dir: Path
+    ) -> None:
+        """Direct `prune_date_dirs` calls (the default `skip_unforwarded=False`)
+        behave exactly as before this feature existed — used by non-events
+        callers (`channels`/`files`' non-ref-aware fallback, generic
+        `data_types` entries) that must never be silently gated by an events
+        cursor that has nothing to do with them."""
+        from testerkit.data.retention import prune_date_dirs
+
+        old = date.today() - timedelta(days=60)
+        events_dir = project_dir / "events"
+        self._wal_segment(events_dir, old.isoformat(), writer_key="w0", offsets=[0, 1, 2])
+        # No cursor -- would be pinned under skip_unforwarded=True, but the
+        # default call here doesn't ask for that.
+        removed = prune_date_dirs(events_dir, date.today())
+        assert removed == [events_dir / old.isoformat()]

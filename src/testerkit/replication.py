@@ -39,10 +39,27 @@ channel segment or a file blob is a whole, immutable, singly-written unit the
 moment it exists — so the durable cursor a caller persists (see
 ``testerkit.cli.forward_cmd``) is simply the set of identifiers already sent,
 not a position to resume from.
+
+Two more READ-ONLY verbs (docs/36 P2) support forwarding a bench's compacted
+lake artifacts — one finished run's Parquet, and that run's own compacted
+events slice — to the central server's ``/ingest/runs`` (a proposed,
+not-yet-real endpoint; see ``testerkit.cli.forward_cmd``'s module docstring,
+same REVIEW-NEEDED status as ``/ingest/channels``/``/ingest/files``):
+
+* :func:`read_new_run_artifacts` — the sanctioned direct reader of finished
+  run Parquet files (already Parquet at rest — no transcode needed for these).
+* :func:`read_run_events` — a one-shot, non-incremental read of every WAL
+  event belonging to one ``run_id`` (not cursor-based like :func:`read_segments`
+  — a finished run's event history is read once, in full, at forward time).
+* :func:`run_events_segment_key` — the compacted-events-artifact's dedup
+  identity: a deterministic hash of the ``(writer_key, offset-range)`` slices
+  the artifact actually covers, NOT a per-event ``id`` set (docs/36 P2:
+  "events dedup by segment key... retire per-event dedup reliance").
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -50,7 +67,9 @@ from pathlib import Path
 from uuid import uuid4
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.ipc as ipc
+import pyarrow.parquet as pq
 
 from testerkit.data import duckdb_manager
 from testerkit.data._duckdb_flight_server import BatchDisposition, FlightPutStream
@@ -316,6 +335,157 @@ def read_new_file_records(files_dir: Path, sent: set[str] | frozenset[str]) -> l
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Run Parquet artifacts — read-only forwarding surface (docs/36 P2)           #
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class RunArtifact:
+    """One finished run's Parquet artifact, ready to forward.
+
+    ``(run_id, content_hash)`` together are the durable identity a caller's
+    ledger tracks — NOT ``path`` alone. A local re-materialization (``#64``
+    RE-HYDRATE: a late real ``run.ended`` supersedes an earlier synthetic-abort
+    materialization — see ``_runs_duckdb_daemon._rehydrate_and_supersede``)
+    overwrites the SAME file path with DIFFERENT bytes (``started_at`` is
+    unchanged, so ``_run_parquet_filename`` picks the same name), so a
+    path-only ledger would wrongly treat the re-materialized run as
+    already-sent. Keying on content hash instead means the re-materialized
+    run is recognized as genuinely new-to-forward — the local analogue of the
+    server's own ``run_id``+hash supersede policy (docs/36 §7.6 G3).
+    """
+
+    run_id: str
+    content_hash: str
+    path: Path
+    table: pa.Table
+
+
+def read_new_run_artifacts(
+    runs_dir: Path, sent: set[tuple[str, str]] | frozenset[tuple[str, str]]
+) -> list[RunArtifact]:
+    """Read every finished run Parquet under ``runs_dir`` (the runs daemon's
+    own ``<data_dir>/runs/runs/<date>/*.parquet`` layout — see
+    ``ParquetBackend``'s ``data_dir/"runs"`` nesting) whose ``(run_id,
+    content_hash)`` pair is not already in ``sent`` (the caller's durable set
+    of forwarded pairs).
+
+    The sanctioned direct reader of run Parquet for forwarding — the runs
+    analogue of :func:`read_closed_channel_segments`. Each write is atomic
+    (temp file + ``os.replace`` — see ``ParquetMeasurementWriter.write_batch``
+    / ``atomic_write_table``), so unlike a channel segment there is no
+    "still being written" race to tolerate: a file that exists is complete.
+    A file that fails to parse (read racing an in-flight ``os.replace``, or
+    genuine corruption) is skipped and retried on a later poll rather than
+    raised, the same tolerance every other reader here applies.
+    """
+    out: list[RunArtifact] = []
+    for pq_path in sorted(runs_dir.glob("*/*.parquet")):
+        try:
+            data = pq_path.read_bytes()
+        except OSError:
+            continue
+        try:
+            table = _read_parquet_bytes(data)
+        except (pa.ArrowException, OSError):
+            continue
+        run_id = _extract_run_id(table)
+        if run_id is None:
+            continue
+        content_hash = hashlib.sha256(data).hexdigest()
+        if (run_id, content_hash) in sent:
+            continue
+        out.append(RunArtifact(run_id=run_id, content_hash=content_hash, path=pq_path, table=table))
+    return out
+
+
+def _read_parquet_bytes(data: bytes) -> pa.Table:
+    return pq.read_table(pa.BufferReader(data))
+
+
+def _extract_run_id(table: pa.Table) -> str | None:
+    """The run's own ``run_id`` (a single-run file — every row shares one),
+    read from content rather than the filename (``_run_parquet_filename``
+    only carries an 8-char run_id PREFIX — collision-prone as a real
+    identifier)."""
+    if "run_id" not in table.column_names:
+        return None
+    for v in table.column("run_id").to_pylist():
+        if v:
+            return str(v)
+    return None
+
+
+def read_run_events(events_dir: Path, run_id: str) -> pa.Table | None:
+    """Every WAL event belonging to ``run_id``, across every writer/segment —
+    a one-shot FULL read (not cursor-based like :func:`read_segments`): a
+    finished run's event history is read once, in full, at forward time (when
+    its run Parquet is discovered ready to forward), not incrementally.
+    Returns ``None`` when the run has no events on this bench (already
+    pruned, or a run_id that never existed here).
+    """
+    tables: list[pa.Table] = []
+    for seg in sorted(events_dir.glob("*/*.arrow")):
+        table = read_ipc_batches(seg)
+        if table is not None and table.num_rows:
+            tables.append(table)
+    if not tables:
+        return None
+    combined = pa.concat_tables(tables)
+    if "run_id" not in combined.column_names:
+        return None
+    mask = pc.equal(combined.column("run_id"), run_id)  # type: ignore[attr-defined]  # pyarrow.compute stubs omit `equal`
+    filtered = combined.filter(mask)
+    if filtered.num_rows == 0:
+        return None
+    return filtered.sort_by([("writer_key", "ascending"), ("event_offset", "ascending")])
+
+
+def run_events_segment_key(run_id: str, table: pa.Table) -> str:
+    """Deterministic dedup identity for a compacted per-run events artifact
+    (docs/36 P2: "events dedup by segment key... retire per-event dedup
+    reliance") — a hash of ``run_id`` + the sorted ``(writer_key,
+    min_offset-max_offset)`` ranges the artifact actually covers, NOT a
+    per-event ``id`` set.
+
+    Two builds over the SAME slice of WAL data always produce the SAME key
+    (dedup-safe without hashing row bytes). A re-materialized run's events
+    artifact legitimately covers a WIDER offset range — the real terminal's
+    events land at HIGHER offsets than the synthetic abort's, since they are
+    appended later — so a genuine re-materialization gets a genuinely
+    different key, the segment-key analogue of :class:`RunArtifact`'s
+    ``(run_id, content_hash)`` pair, keyed on WAL coverage instead of file
+    bytes (there is no single file to hash — the artifact is built fresh
+    from possibly-multiple WAL segments each forward).
+    """
+    writer_keys = table.column("writer_key").to_pylist()
+    offsets = table.column("event_offset").to_pylist()
+    ranges: dict[str, tuple[int, int]] = {}
+    for wk, off in zip(writer_keys, offsets, strict=True):
+        if off is None:
+            continue
+        key = str(wk)
+        lo, hi = ranges.get(key, (off, off))
+        ranges[key] = (min(lo, off), max(hi, off))
+    canonical = ",".join(f"{wk}:{lo}-{hi}" for wk, (lo, hi) in sorted(ranges.items()))
+    payload = f"{run_id}|{canonical}"
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def events_table_to_parquet_bytes(table: pa.Table) -> bytes:
+    """Transcode an events Arrow table to Parquet bytes (docs/36 P2: "Parquet,
+    not Arrow — BigQuery can't read Arrow files"). The WAL is Arrow IPC at
+    rest (the format every other reader in this module consumes); the
+    compacted per-run events artifact this forwards must be Parquet, the only
+    format the cloud's BigQuery-load ingest path can read."""
+    import io
+
+    buf = io.BytesIO()
+    pq.write_table(table, buf)
+    return buf.getvalue()
+
+
 __all__ = [
     "EVENT_CATALOG_VERSION",
     "EVENT_LOG_SCHEMA_VERSION",
@@ -323,8 +493,13 @@ __all__ = [
     "BatchDisposition",
     "ChannelSegment",
     "FileRecord",
+    "RunArtifact",
+    "events_table_to_parquet_bytes",
     "ingest_replicated",
     "read_closed_channel_segments",
     "read_new_file_records",
+    "read_new_run_artifacts",
+    "read_run_events",
     "read_segments",
+    "run_events_segment_key",
 ]
