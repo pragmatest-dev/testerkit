@@ -11,9 +11,11 @@ skip; docs/22 Part B). Both use the same store-and-forward shape as events (dura
 cursor, advance only on a server-accepted POST), but since neither a channel segment nor a
 file blob has a WAL-style row ``id`` to dedup by, the "cursor" is a set of already-forwarded
 identifiers (segment path / file URI) rather than an offset — see
-``testerkit.replication.read_closed_channel_segments`` / ``read_new_file_records``. Channel
-segments carry no server-side dedup at all (each POST always creates a new object) and file
-blobs dedup server-side by content hash — see ``docs/22-channels-files-spec.md`` Part B.
+``testerkit.replication.read_closed_channel_segments`` / ``read_new_file_records``. Both
+also dedup SERVER-side on their local identity — a channel segment by its ``rel_path``
+(the server derives a deterministic segment key from it) and a file blob by content hash —
+so a resend is an idempotent no-op, never a duplicate. See ``docs/22-channels-files-spec.md``
+Part B.
 
 Meant to run standing (systemd/container) — it is NOT a DaemonManager daemon. Auth is a
 per-bench machine token in ``TESTERKIT_TOKEN``; the server URL is ``--url`` or
@@ -351,17 +353,24 @@ def _channel_wire_table(segment: ChannelSegment) -> pa.Table:
 
 
 def _post_channel_segment(
-    url: str, token: str, channel_id: str, table: pa.Table, *, timeout: float
+    url: str, token: str, channel_id: str, table: pa.Table, *, rel_path: str, timeout: float
 ) -> dict:
-    """POST one closed segment to the proposed ``/ingest/channels/{channel_id}``
-    endpoint (Arrow IPC body, same transport as events' ``/ingest/events``). REVIEW
-    NEEDED: this endpoint does not exist on the server yet (see module
-    docstring) — response shape assumed to mirror
-    ``ingest_channel_segment``'s return, ``{"segment_key", "row_count"}``.
+    """POST one closed segment to ``/ingest/channels/{channel_id}`` (Arrow IPC body,
+    same transport as events' ``/ingest/events``). ``rel_path`` — the segment's
+    stable local identity — rides as a query param so the server derives a
+    DETERMINISTIC segment key from it and dedups on ``(org_id, segment_key)``: a
+    re-forward is an idempotent no-op, never a duplicate object. Response mirrors
+    ``ingest_channel_segment``'s return ``{"segment_key", "row_count", "inserted"}``.
     """
     body = _to_ipc_bytes(table)
+    endpoint = (
+        url.rstrip("/")
+        + f"/ingest/channels/{urllib.parse.quote(channel_id, safe='')}"
+        + "?rel_path="
+        + urllib.parse.quote(rel_path, safe="")
+    )
     req = urllib.request.Request(
-        url.rstrip("/") + f"/ingest/channels/{urllib.parse.quote(channel_id, safe='')}",
+        endpoint,
         data=body,
         method="POST",
         headers={"Content-Type": _ARROW_CONTENT_TYPE, "Authorization": f"Bearer {token}"},
@@ -382,13 +391,14 @@ def _forward_channels_once(
     """Forward every closed channel segment not yet in the durable cursor.
 
     Persists the cursor after EACH accepted segment (not batched at the end):
-    since a channel segment has no server-side dedup key (every accepted POST
-    always creates a new object — see ``ingest_channel_segment``'s docstring),
-    the only exactly-once guard is this bench never resending a path it has
-    already gotten a 2xx for. Persisting per-segment bounds a crash's replay
-    window to at most the one segment in flight, rather than the whole batch.
-    A raised exception (network/HTTP error) stops the pass without recording
-    that segment — it re-sends next poll, same as the events path.
+    the cursor (the already-forwarded ``rel_path`` set) is a send-side
+    optimization to avoid re-uploading, but the server ALSO dedups by the
+    ``rel_path``-derived segment key (see ``ingest_channel_segment``), so a
+    resend is an idempotent no-op, never a duplicate object — the same
+    at-least-once + idempotent-sink shape as events/runs/files. Persisting
+    per-segment bounds a crash's replay window to at most the one segment in
+    flight. A raised exception (network/HTTP error) stops the pass without
+    recording that segment — it re-sends next poll, same as the events path.
     """
     from testerkit.replication import read_closed_channel_segments
 
@@ -400,7 +410,9 @@ def _forward_channels_once(
     rows = 0
     for seg in segments:
         wire = _channel_wire_table(seg)
-        disp = _post_channel_segment(url, token, seg.channel_id, wire, timeout=timeout)
+        disp = _post_channel_segment(
+            url, token, seg.channel_id, wire, rel_path=seg.rel_path, timeout=timeout
+        )
         sent.add(seg.rel_path)
         if use_cursor:
             _save_channels_cursor(cursor_path, sent)

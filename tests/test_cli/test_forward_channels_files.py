@@ -162,11 +162,13 @@ def test_forward_channels_once_posts_and_advances_cursor(tmp_path: Path, monkeyp
 
     posted: list[str] = []
 
-    def _fake_post(url, token, channel_id, table, *, timeout):
+    def _fake_post(url, token, channel_id, table, *, rel_path, timeout):
         posted.append(channel_id)
+        assert rel_path.endswith(".arrow")  # the segment's local identity is sent
         return {
             "segment_key": "orgs/x/channels/psu.voltage/abc.parquet",
             "row_count": table.num_rows,
+            "inserted": True,
         }
 
     monkeypatch.setattr(forward_cmd, "_post_channel_segment", _fake_post)
@@ -225,7 +227,7 @@ def test_forward_channels_once_persists_cursor_per_segment(tmp_path: Path, monke
 
     calls = []
 
-    def _flaky_post(url, token, channel_id, table, *, timeout):
+    def _flaky_post(url, token, channel_id, table, *, rel_path, timeout):
         calls.append(channel_id)
         if len(calls) == 2:
             raise OSError("network down")
@@ -404,11 +406,20 @@ def test_post_channel_segment_url_quotes_channel_id(monkeypatch) -> None:
     monkeypatch.setattr(forward_cmd.urllib.request, "urlopen", _fake_urlopen)
     table = pa.table({"value": [1.0]})
     disp = forward_cmd._post_channel_segment(
-        "http://x", "tk", "psu/voltage weird", table, timeout=5.0
+        "http://x",
+        "tk",
+        "psu/voltage weird",
+        table,
+        rel_path="psu/voltage weird/seg1.arrow",
+        timeout=5.0,
     )
 
     assert disp == {"segment_key": "k", "row_count": 1}
-    assert captured["url"] == "http://x/ingest/channels/psu%2Fvoltage%20weird"
+    # rel_path (the segment's local identity) rides as a query param so the server
+    # derives a deterministic, dedup-able segment key from it.
+    assert captured["url"] == (
+        "http://x/ingest/channels/psu%2Fvoltage%20weird?rel_path=psu%2Fvoltage%20weird%2Fseg1.arrow"
+    )
     assert captured["headers"]["Authorization"] == "Bearer tk"
 
 
