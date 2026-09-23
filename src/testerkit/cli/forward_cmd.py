@@ -781,8 +781,9 @@ def forward(  # noqa: PLR0913
     token = resolve_server_token(token)
     if not server:
         raise click.ClickException(
-            f"a server URL is required (--url, ${_URL_ENV}, testerkit.yaml `server.url`, "
-            "or `testerkit connect`)"
+            "not connected — run `testerkit connect <web-app-url>` to enroll this "
+            f"machine (it stores the direct backend URL to forward to). Or pass "
+            f"--url / ${_URL_ENV} / set testerkit.yaml `server.url`."
         )
     if not token:
         raise click.ClickException(

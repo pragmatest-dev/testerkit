@@ -194,5 +194,13 @@ def connect(url: str | None, timeout: float):
         org_id=token_resp.get("org_id"),
         org_name=token_resp.get("org_name"),
     )
-    save_server_url(server)
+    # Discover-then-direct (docs/36 P3): the web app returns the DIRECT backend URL
+    # to forward ingest to. We authenticate THROUGH the web app, but ingest must go
+    # straight to the backend (the app tier can't proxy large ingest bodies), so
+    # store that — NOT the web-app URL we connected to. Fall back to `server` only
+    # if an older server didn't supply one.
+    ingest_url = token_resp.get("ingest_url") or server
+    save_server_url(ingest_url)
     click.echo(f"Connected — this machine can now forward to {token_resp.get('org_name')}.")
+    if ingest_url != server:
+        click.echo(f"  ingest endpoint: {ingest_url}")
