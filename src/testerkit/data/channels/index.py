@@ -37,7 +37,7 @@ from testerkit.data.channels.models import (
     encode_value,
 )
 from testerkit.data.channels.window import decimate_table as _decimate_table
-from testerkit.data.channels.window import decode_value_column
+from testerkit.data.channels.window import decode_value_column, dedup_on_sample_offset
 from testerkit.data.schema_dispatch import (
     _ADAPTERS,
     SchemaVersionRefused,
@@ -690,8 +690,7 @@ class ChannelIndex:
         cur = self._cursor()
         # Union the durable index with the live overlay (same columns). A sample
         # lands in the overlay (push) and/or channel_index (segment scan), and the
-        # runtime fold can put it in both — _dedup_on_sample_offset below collapses the
-        # overlap on the per-sample cursor (session, sample_offset).
+        # runtime fold can put it in both (deduped at the call site below).
         sql = [
             "SELECT received_at, sampled_at, value, source_method, "
             "session_id, sample_interval, sample_offset FROM ("
@@ -714,7 +713,11 @@ class ChannelIndex:
             sql.append("AND sample_offset = ?")
             params.append(sample_offset)
         sql.append("ORDER BY received_at")
-        table = self._dedup_on_sample_offset(cur.execute(" ".join(sql), params).arrow().read_all())
+        # The union above can place the same sample in both the overlay and the
+        # segment scan; dedup_on_sample_offset collapses the overlap on the shared
+        # CHANNEL_SAMPLE_KEY composite (docs/42 §3.2) — single-sourced with the
+        # cloud's `windowed_series`.
+        table = dedup_on_sample_offset(cur.execute(" ".join(sql), params).arrow().read_all())
 
         if last_n is not None and table.num_rows > last_n:
             table = table.slice(table.num_rows - last_n)
@@ -722,27 +725,3 @@ class ChannelIndex:
         if max_points is not None and table.num_rows > max_points:
             table = _decimate_table(table, max_points)
         return table
-
-    @staticmethod
-    def _dedup_on_sample_offset(table: pa.Table) -> pa.Table:
-        """Collapse overlay∪index overlap on the per-sample cursor (session, sample_offset).
-
-        The runtime segment fold can place a sample in both the durable index and
-        the live overlay; both copies are identical, so keep the first (the table
-        is already ordered by ``received_at``). A no-op when they don't overlap.
-        Rows with an unstamped ``sample_offset`` (< 0, legacy) are never collapsed.
-        """
-        if table.num_rows == 0 or "sample_offset" not in table.column_names:
-            return table
-        sessions = table.column("session_id").to_pylist()
-        sample_offsets = table.column("sample_offset").to_pylist()
-        seen: set[tuple[Any, int]] = set()
-        keep: list[int] = []
-        for i, (s, o) in enumerate(zip(sessions, sample_offsets, strict=True)):
-            if o is not None and o >= 0:
-                key = (s, o)
-                if key in seen:
-                    continue
-                seen.add(key)
-            keep.append(i)
-        return table if len(keep) == table.num_rows else table.take(keep)
