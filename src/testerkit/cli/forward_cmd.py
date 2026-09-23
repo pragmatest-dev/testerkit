@@ -3,7 +3,7 @@
 A thin loop over the public replication surface. Events forward unconditionally
 (unchanged default behavior, on since the original B1 build): read complete event
 batches from the local WAL past a durable cursor, POST them to a central server's authed
-``/ingest``, and advance the cursor only on rows the server accepted. Exactly-once falls
+``/ingest/events``, and advance the cursor only on rows the server accepted. Exactly-once falls
 out of the server's ``id`` dedup, so a crash-and-resume simply re-sends and de-dupes.
 
 Channel segments and file blobs forward by DEFAULT (``--no-channels`` / ``--no-files`` to
@@ -28,7 +28,7 @@ identity), advance only on a server-accepted POST. A finished run Parquet forwar
 transcoded from Arrow to Parquet (``testerkit.replication.events_table_to_parquet_bytes``)
 before forwarding, since BigQuery cannot read Arrow files.
 
-The ``/ingest``, ``/ingest/channels/{channel_id}``, ``/ingest/files``, and
+The ``/ingest/events``, ``/ingest/channels/{channel_id}``, ``/ingest/files``, and
 ``/ingest/runs``/``/ingest/runs/{run_id}/events`` endpoints this module POSTs to are LIVE
 on the server (docs/36 P3): the run-Parquet path is the steady-state ingest that replaces
 cloud-side re-derivation, so the at-rest results pages are populated entirely from it; the
@@ -180,7 +180,7 @@ def _to_ipc_bytes(table) -> bytes:
 
 def _post_ingest(url: str, token: str, body: bytes, *, timeout: float) -> dict:
     req = urllib.request.Request(
-        url.rstrip("/") + "/ingest",
+        url.rstrip("/") + "/ingest/events",
         data=body,
         method="POST",
         headers={"Content-Type": _ARROW_CONTENT_TYPE, "Authorization": f"Bearer {token}"},
@@ -354,7 +354,7 @@ def _post_channel_segment(
     url: str, token: str, channel_id: str, table: pa.Table, *, timeout: float
 ) -> dict:
     """POST one closed segment to the proposed ``/ingest/channels/{channel_id}``
-    endpoint (Arrow IPC body, same transport as events' ``/ingest``). REVIEW
+    endpoint (Arrow IPC body, same transport as events' ``/ingest/events``). REVIEW
     NEEDED: this endpoint does not exist on the server yet (see module
     docstring) — response shape assumed to mirror
     ``ingest_channel_segment``'s return, ``{"segment_key", "row_count"}``.
