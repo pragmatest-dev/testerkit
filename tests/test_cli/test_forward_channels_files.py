@@ -413,17 +413,53 @@ def test_post_channel_segment_url_quotes_channel_id(monkeypatch) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# _forward_all_once — default-behavior-unchanged guarantee                    #
+# _forward_all_once — default forwards everything; --no-* flags LIMIT a pass   #
 # --------------------------------------------------------------------------- #
 
 
-def test_forward_all_once_default_flags_never_touch_channels_or_files(
+def test_forward_all_once_default_forwards_every_store(tmp_path: Path, monkeypatch) -> None:
+    """The DEFAULT (no channels/files/runs kwargs = the CLI default) forwards
+    EVERY store — events, channels, files, runs. A plain ``testerkit forward``
+    uploads everything available; no flag is needed to get a full upload."""
+    events_dir = tmp_path / "events"
+    events_dir.mkdir()
+
+    monkeypatch.setattr(forward_cmd, "_forward_once", lambda *a, **k: {"inserted": 1})
+    monkeypatch.setattr(
+        forward_cmd, "_forward_channels_once", lambda *a, **k: {"segments": 1, "rows": 1}
+    )
+    monkeypatch.setattr(
+        forward_cmd, "_forward_files_once", lambda *a, **k: {"files": 1, "skipped_dupe": 0}
+    )
+    monkeypatch.setattr(
+        forward_cmd,
+        "_forward_runs_once",
+        lambda *a, **k: {"runs": 1, "events_artifacts": 1, "events_skipped_dupe": 0},
+    )
+
+    result = forward_cmd._forward_all_once(
+        events_dir,
+        tmp_path / "e.json",
+        tmp_path / "channels",
+        tmp_path / "c.json",
+        tmp_path / "files",
+        tmp_path / "f.json",
+        tmp_path / "runs",
+        tmp_path / "r.json",
+        "http://x",
+        "tk",
+        timeout=5.0,
+    )
+    assert set(result) == {"events", "channels", "files", "runs"}
+
+
+def test_forward_all_once_disabled_flags_skip_channels_files_runs(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """With channels=False, files=False (the CLI default), _forward_all_once
-    must do exactly what the original events-only _forward_once did -- never
-    even look at the channels/files dirs. This is the behavior-unchanged
-    guarantee for a plain ``testerkit forward``."""
+    """channels=False/files=False/runs=False (the ``--no-channels``/``--no-files``/
+    ``--no-runs`` LIMIT flags) skip those stores entirely — _forward_all_once never
+    even looks at their dirs, doing only the events pass. These flags are ON by
+    default; this exercises the opt-OUT path."""
     events_dir = tmp_path / "events"
     events_dir.mkdir()
 

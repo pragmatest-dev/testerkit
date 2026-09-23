@@ -6,40 +6,33 @@ batches from the local WAL past a durable cursor, POST them to a central server'
 ``/ingest``, and advance the cursor only on rows the server accepted. Exactly-once falls
 out of the server's ``id`` dedup, so a crash-and-resume simply re-sends and de-dupes.
 
-Channel segments and file blobs forward ADDITIONALLY, opt-in via ``--channels`` /
-``--files`` (docs/22 Part B) — a plain ``testerkit forward`` with neither flag behaves
-exactly as before either flag existed. Both use the same store-and-forward shape as
-events (durable local cursor, advance only on a server-accepted POST), but since neither
-a channel segment nor a file blob has a WAL-style row ``id`` to dedup by, the "cursor" is
-a set of already-forwarded identifiers (segment path / file URI) rather than an offset —
-see ``testerkit.replication.read_closed_channel_segments`` /
-``read_new_file_records``. Channel segments carry no server-side dedup at all (each POST
-always creates a new object) and file blobs dedup server-side by content hash — see
-``docs/22-channels-files-spec.md`` Part B and the module-level REVIEW notes below for
-exactly what that means for exactly-once here.
+Channel segments and file blobs forward by DEFAULT (``--no-channels`` / ``--no-files`` to
+skip; docs/22 Part B). Both use the same store-and-forward shape as events (durable local
+cursor, advance only on a server-accepted POST), but since neither a channel segment nor a
+file blob has a WAL-style row ``id`` to dedup by, the "cursor" is a set of already-forwarded
+identifiers (segment path / file URI) rather than an offset — see
+``testerkit.replication.read_closed_channel_segments`` / ``read_new_file_records``. Channel
+segments carry no server-side dedup at all (each POST always creates a new object) and file
+blobs dedup server-side by content hash — see ``docs/22-channels-files-spec.md`` Part B.
 
 Meant to run standing (systemd/container) — it is NOT a DaemonManager daemon. Auth is a
 per-bench machine token in ``TESTERKIT_TOKEN``; the server URL is ``--url`` or
 ``TESTERKIT_SERVER_URL``.
 
-Run Parquet + the compacted per-run events artifact forward ADDITIONALLY, opt-in via
-``--runs`` (docs/36 P2) — same off-by-default, store-and-forward shape as channels/files:
-a durable local ledger (this time keyed ``(run_id, content_hash)`` — see
+Run Parquet + the compacted per-run events artifact forward by DEFAULT (``--no-runs`` to
+skip; docs/36 P2/P3) — same store-and-forward shape as channels/files: a durable local
+ledger (this time keyed ``(run_id, content_hash)`` — see
 ``testerkit.replication.RunArtifact``'s docstring for why content hash, not path, is the
 identity), advance only on a server-accepted POST. A finished run Parquet forwards as-is
 (no transcode — it's already Parquet at rest); its events get compacted from the WAL and
 transcoded from Arrow to Parquet (``testerkit.replication.events_table_to_parquet_bytes``)
 before forwarding, since BigQuery cannot read Arrow files.
 
-REVIEW NEEDED — the ``/ingest/channels/{channel_id}``, ``/ingest/files``, and
-``/ingest/runs``/``/ingest/runs/{run_id}/events`` endpoints this module POSTs to do not
-exist on the server yet (testerkit-server's ``ingest_channel_segment`` / ``ingest_file_blob``
-are an unwired seam — see ``testerkit_server/object_ingest.py``'s own module comment; the
-cloud-side acceptance of the run-Parquet/events-artifact shape is docs/36 P3, not P2). The
-wire shapes below are this side's proposal, not a confirmed contract; run/channel/file
-forwarding cannot be end-to-end verified against a real server until the server side lands.
-Do not enable ``--runs``/``--channels``/``--files`` against a real server without confirming
-its endpoints match.
+The ``/ingest``, ``/ingest/channels/{channel_id}``, ``/ingest/files``, and
+``/ingest/runs``/``/ingest/runs/{run_id}/events`` endpoints this module POSTs to are LIVE
+on the server (docs/36 P3): the run-Parquet path is the steady-state ingest that replaces
+cloud-side re-derivation, so the at-rest results pages are populated entirely from it; the
+event WAL additionally feeds the (P5) live overlay.
 """
 
 from __future__ import annotations
@@ -68,8 +61,14 @@ if TYPE_CHECKING:
 
 _TOKEN_ENV = "TESTERKIT_TOKEN"
 _URL_ENV = "TESTERKIT_SERVER_URL"
+_MAX_BYTES_ENV = "TESTERKIT_FORWARD_MAX_BYTES"
 _ARROW_CONTENT_TYPE = "application/vnd.apache.arrow.stream"
 _PARQUET_CONTENT_TYPE = "application/vnd.apache.parquet"
+# Per-request byte budget for the events pass: a large WAL backlog is forwarded
+# in chunks each ≤ this cap so a single POST can never exceed the server's
+# request limit (Cloud Run ~32 MiB) and 413 forever. 16 MiB leaves headroom for
+# Arrow IPC framing. Overridable via ``$TESTERKIT_FORWARD_MAX_BYTES`` / ``--max-bytes``.
+_DEFAULT_MAX_BYTES = 16 * 1024 * 1024
 # The bench's own derivation signal — dropped so the SERVER re-derives runs itself
 # (forwarding it would evict the server's accumulator before it materializes).
 _BENCH_LOCAL_EVENT_TYPES = frozenset({"run.materialized"})
@@ -152,6 +151,23 @@ def _save_runs_cursor(path: Path, sent_runs: set[tuple[str, str]], sent_events: 
     )
 
 
+def _resolve_max_bytes(cli_value: int | None) -> int:
+    """Resolve the events-pass request byte budget:
+    ``--max-bytes`` → ``$TESTERKIT_FORWARD_MAX_BYTES`` → :data:`_DEFAULT_MAX_BYTES`.
+    A non-positive or unparseable value at any level falls through to the next."""
+    if cli_value is not None and cli_value > 0:
+        return cli_value
+    env = os.environ.get(_MAX_BYTES_ENV)
+    if env:
+        try:
+            parsed = int(env)
+        except ValueError:
+            parsed = 0
+        if parsed > 0:
+            return parsed
+    return _DEFAULT_MAX_BYTES
+
+
 def _to_ipc_bytes(table) -> bytes:
     import pyarrow as pa
     import pyarrow.ipc as ipc
@@ -190,12 +206,33 @@ def _advance_cursor(cursor: dict[str, int], table, rejected_ids: set[str]) -> di
 
 
 def _forward_once(
-    events_dir: Path, cursor_path: Path, url: str, token: str, *, timeout: float
+    events_dir: Path,
+    cursor_path: Path,
+    url: str,
+    token: str,
+    *,
+    timeout: float,
+    max_bytes: int = _DEFAULT_MAX_BYTES,
+    use_cursor: bool = True,
 ) -> dict | None:
-    from testerkit.replication import read_segments
+    """Forward one events pass, in ascending order, in byte-bounded chunks.
 
-    cursor = _load_cursor(cursor_path)
-    table = read_segments(events_dir, cursor=cursor)
+    Instead of one POST of everything-past-cursor (which 413s a large backlog
+    forever), the new rows are sliced into chunks each ≤ ``max_bytes`` and the
+    cursor is saved after EACH accepted chunk — so a crash or a mid-drain HTTP
+    failure persists all prior chunks' progress and only the un-acked tail
+    re-sends next pass. A small delta that fits the budget is a single chunk =
+    a single POST, so steady-state liveness is unchanged.
+
+    ``use_cursor=False`` (the ``--no-cursor`` stateless mode) reads the FULL set
+    (``cursor=None``) and never reads or writes the cursor file — correctness
+    then rests entirely on the server's ``id`` dedup. The chunking still applies,
+    so a full re-forward of a big WAL can't 413 either.
+    """
+    from testerkit.replication import chunk_table_by_bytes, read_segments
+
+    cursor = _load_cursor(cursor_path) if use_cursor else {}
+    table = read_segments(events_dir, cursor=cursor if use_cursor else None)
     if table is None or table.num_rows == 0:
         return None
     # Drop the bench's own derivation signals so the server re-derives fresh.
@@ -204,15 +241,41 @@ def _forward_once(
     if not all(keep):
         table = table.filter(keep)
     if table.num_rows == 0:
-        # Nothing but bench-local events past the cursor — still advance past them.
-        _save_cursor(
-            cursor_path, _advance_cursor(cursor, read_segments(events_dir, cursor=cursor), set())
-        )
+        # Nothing but bench-local events past the cursor — still advance past them
+        # (but only when we own a cursor; --no-cursor never writes one).
+        if use_cursor:
+            _save_cursor(
+                cursor_path,
+                _advance_cursor(cursor, read_segments(events_dir, cursor=cursor), set()),
+            )
         return None
-    disp = _post_ingest(url, token, _to_ipc_bytes(table), timeout=timeout)
-    rejected = {str(x) for x in disp.get("rejected_ids", [])}
-    _save_cursor(cursor_path, _advance_cursor(cursor, table, rejected))
-    return disp
+    # Chunk the ORDERED, already-filtered table so each POST body ≤ max_bytes and
+    # each chunk advances the cursor monotonically per writer_key (see
+    # ``chunk_table_by_bytes``). Advance from the FILTERED chunk (never a raw one)
+    # so a rejected row is never leap-frogged by a later bench-local offset.
+    agg: dict = {"inserted": 0, "deduped": 0, "rejected_ids": []}
+    for chunk in chunk_table_by_bytes(table, max_bytes=max_bytes):
+        body = _to_ipc_bytes(chunk)
+        if len(body) > max_bytes:
+            # One row-batch alone exceeds the budget: send it as its own request
+            # (never drop it, never spin) and let the server decide. Rare — a WAL
+            # segment is a couple MiB against a multi-MiB budget.
+            log.warning(
+                "events chunk of %d row(s) serializes to %d bytes, over the "
+                "%d-byte budget; forwarding as a single oversized request",
+                chunk.num_rows,
+                len(body),
+                max_bytes,
+            )
+        disp = _post_ingest(url, token, body, timeout=timeout)
+        rejected = {str(x) for x in disp.get("rejected_ids", [])}
+        cursor = _advance_cursor(cursor, chunk, rejected)
+        if use_cursor:
+            _save_cursor(cursor_path, cursor)
+        agg["inserted"] += disp.get("inserted") or 0
+        agg["deduped"] += disp.get("deduped") or 0
+        agg["rejected_ids"].extend(disp.get("rejected_ids", []))
+    return agg
 
 
 # --------------------------------------------------------------------------- #
@@ -308,7 +371,13 @@ def _post_channel_segment(
 
 
 def _forward_channels_once(
-    channels_dir: Path, cursor_path: Path, url: str, token: str, *, timeout: float
+    channels_dir: Path,
+    cursor_path: Path,
+    url: str,
+    token: str,
+    *,
+    timeout: float,
+    use_cursor: bool = True,
 ) -> dict | None:
     """Forward every closed channel segment not yet in the durable cursor.
 
@@ -323,7 +392,7 @@ def _forward_channels_once(
     """
     from testerkit.replication import read_closed_channel_segments
 
-    sent = _load_channels_cursor(cursor_path)
+    sent = _load_channels_cursor(cursor_path) if use_cursor else set()
     segments = read_closed_channel_segments(channels_dir, sent)
     if not segments:
         return None
@@ -333,7 +402,8 @@ def _forward_channels_once(
         wire = _channel_wire_table(seg)
         disp = _post_channel_segment(url, token, seg.channel_id, wire, timeout=timeout)
         sent.add(seg.rel_path)
-        _save_channels_cursor(cursor_path, sent)
+        if use_cursor:
+            _save_channels_cursor(cursor_path, sent)
         forwarded += 1
         rows += disp.get("row_count") or 0
     return {"segments": forwarded, "rows": rows}
@@ -392,7 +462,13 @@ def _post_file_blob(url: str, token: str, record: FileRecord, *, timeout: float)
 
 
 def _forward_files_once(
-    files_dir: Path, cursor_path: Path, url: str, token: str, *, timeout: float
+    files_dir: Path,
+    cursor_path: Path,
+    url: str,
+    token: str,
+    *,
+    timeout: float,
+    use_cursor: bool = True,
 ) -> dict | None:
     """Forward every new FileStore artifact not yet in the durable cursor.
 
@@ -407,7 +483,7 @@ def _forward_files_once(
     """
     from testerkit.replication import read_new_file_records
 
-    sent_uris, sent_hashes = _load_files_cursor(cursor_path)
+    sent_uris, sent_hashes = _load_files_cursor(cursor_path) if use_cursor else (set(), set())
     records = read_new_file_records(files_dir, sent_uris)
     if not records:
         return None
@@ -417,13 +493,15 @@ def _forward_files_once(
         content_hash = hashlib.sha256(rec.data).hexdigest()
         if content_hash in sent_hashes:
             sent_uris.add(rec.uri)
-            _save_files_cursor(cursor_path, sent_uris, sent_hashes)
+            if use_cursor:
+                _save_files_cursor(cursor_path, sent_uris, sent_hashes)
             skipped += 1
             continue
         _post_file_blob(url, token, rec, timeout=timeout)
         sent_uris.add(rec.uri)
         sent_hashes.add(content_hash)
-        _save_files_cursor(cursor_path, sent_uris, sent_hashes)
+        if use_cursor:
+            _save_files_cursor(cursor_path, sent_uris, sent_hashes)
         forwarded += 1
     return {"files": forwarded, "skipped_dupe": skipped}
 
@@ -474,7 +552,14 @@ def _post_run_events(url: str, token: str, run_id: str, table: pa.Table, *, time
 
 
 def _forward_runs_once(
-    runs_dir: Path, events_dir: Path, cursor_path: Path, url: str, token: str, *, timeout: float
+    runs_dir: Path,
+    events_dir: Path,
+    cursor_path: Path,
+    url: str,
+    token: str,
+    *,
+    timeout: float,
+    use_cursor: bool = True,
 ) -> dict | None:
     """Forward every finished run Parquet not yet in the durable ledger, plus
     that run's compacted events artifact (docs/36 P2 "done when": run Parquet
@@ -497,7 +582,7 @@ def _forward_runs_once(
         run_events_segment_key,
     )
 
-    sent_runs, sent_events = _load_runs_cursor(cursor_path)
+    sent_runs, sent_events = _load_runs_cursor(cursor_path) if use_cursor else (set(), set())
     artifacts = read_new_run_artifacts(runs_dir, sent_runs)
     if not artifacts:
         return None
@@ -516,7 +601,8 @@ def _forward_runs_once(
             else:
                 events_skipped += 1
         sent_runs.add((art.run_id, art.content_hash))
-        _save_runs_cursor(cursor_path, sent_runs, sent_events)
+        if use_cursor:
+            _save_runs_cursor(cursor_path, sent_runs, sent_events)
         forwarded += 1
     return {
         "runs": forwarded,
@@ -538,39 +624,56 @@ def _forward_all_once(  # noqa: PLR0913
     token: str,
     *,
     timeout: float,
-    channels: bool,
-    files: bool,
-    runs: bool,
+    channels: bool = True,
+    files: bool = True,
+    runs: bool = True,
+    max_bytes: int = _DEFAULT_MAX_BYTES,
+    use_cursor: bool = True,
 ) -> dict:
-    """Run one poll pass over every enabled store.
+    """Run one poll pass over the enabled data-artifact stores.
 
-    Events always run — this is exactly the original (pre-Part-B) behavior,
-    unconditional. Channels/files/runs run only when their flag is enabled,
-    so a plain ``testerkit forward`` (every flag off) does exactly what it
-    did before any of them existed: one ``_forward_once`` call, nothing else.
-    Any store's failure raises out of this function immediately (the
-    caller's existing retry/backoff handles it exactly as it did for events
-    alone — a channel/file/run forward failure never silently swallows; it
-    also never blocks a store that already sent this pass, since each has
-    already advanced its own cursor by the time a later store raises).
+    ALL stores forward by DEFAULT — events, channels, files, and runs — so a
+    plain ``testerkit forward`` uploads everything available. The ``channels``/
+    ``files``/``runs`` flags exist only to LIMIT a pass (``--no-channels`` etc.);
+    events always forward. A store with nothing new no-ops (its
+    ``_forward_*_once`` returns ``None``). Any store's failure raises out
+    immediately (the caller's retry/backoff handles it); a store that already
+    sent this pass has advanced its own cursor before a later store raises, so
+    its progress is never lost.
     """
     result: dict[str, dict] = {}
-    disp = _forward_once(events_dir, events_cursor_path, url, token, timeout=timeout)
+    disp = _forward_once(
+        events_dir,
+        events_cursor_path,
+        url,
+        token,
+        timeout=timeout,
+        max_bytes=max_bytes,
+        use_cursor=use_cursor,
+    )
     if disp is not None:
         result["events"] = disp
     if channels:
         cdisp = _forward_channels_once(
-            channels_dir, channels_cursor_path, url, token, timeout=timeout
+            channels_dir, channels_cursor_path, url, token, timeout=timeout, use_cursor=use_cursor
         )
         if cdisp is not None:
             result["channels"] = cdisp
     if files:
-        fdisp = _forward_files_once(files_dir, files_cursor_path, url, token, timeout=timeout)
+        fdisp = _forward_files_once(
+            files_dir, files_cursor_path, url, token, timeout=timeout, use_cursor=use_cursor
+        )
         if fdisp is not None:
             result["files"] = fdisp
     if runs:
         rdisp = _forward_runs_once(
-            runs_dir, events_dir, runs_cursor_path, url, token, timeout=timeout
+            runs_dir,
+            events_dir,
+            runs_cursor_path,
+            url,
+            token,
+            timeout=timeout,
+            use_cursor=use_cursor,
         )
         if rdisp is not None:
             result["runs"] = rdisp
@@ -600,22 +703,36 @@ def _forward_all_once(  # noqa: PLR0913
 @click.option("--once", is_flag=True, help="Forward what's available, then exit")
 @click.option(
     "--channels/--no-channels",
-    default=False,
-    help="Also forward closed channel segments (off by default — events-only otherwise; "
-    "REVIEW NEEDED, see module docstring)",
+    default=True,
+    help="Forward closed channel segments (ON by default; --no-channels to skip).",
 )
 @click.option(
     "--files/--no-files",
-    default=False,
-    help="Also forward new file blobs + sidecars (off by default — events-only otherwise; "
-    "REVIEW NEEDED, see module docstring)",
+    default=True,
+    help="Forward new file blobs + sidecars (ON by default; --no-files to skip).",
 )
 @click.option(
     "--runs/--no-runs",
+    default=True,
+    help="Forward finished run Parquet + per-run events artifacts (ON by default; "
+    "--no-runs to skip).",
+)
+@click.option(
+    "--no-cursor",
+    is_flag=True,
     default=False,
-    help="Also forward finished run Parquet + compacted per-run events artifacts "
-    "(off by default — events-only otherwise; docs/36 P2, REVIEW NEEDED, see module "
-    "docstring)",
+    help="Stateless catch-up/re-seed: read every enabled store's FULL set and never "
+    "read or write any _forward_cursor.json (correctness rests on server-side dedup). "
+    "Use to re-forward everything to a fresh/alternate server the local per-data-dir "
+    "cursor would otherwise skip.",
+)
+@click.option(
+    "--max-bytes",
+    default=None,
+    type=int,
+    help=f"Max bytes per events request (default {_DEFAULT_MAX_BYTES}, or "
+    f"${_MAX_BYTES_ENV}); a large backlog is split into ascending chunks under this "
+    "cap so a single POST can't exceed the server's request limit.",
 )
 def forward(  # noqa: PLR0913
     url: str | None,
@@ -627,14 +744,16 @@ def forward(  # noqa: PLR0913
     channels: bool,
     files: bool,
     runs: bool,
+    no_cursor: bool,
+    max_bytes: int | None,
 ):
-    """Forward this bench's event WAL to a central server (store-and-forward).
+    """Forward this bench's data artifacts to a central server (store-and-forward).
 
-    With ``--channels`` / ``--files`` / ``--runs``, also forwards closed
-    channel segments, new file blobs (docs/22 Part B), and finished run
-    Parquet + compacted per-run events artifacts (docs/36 P2) — all off by
-    default, so a plain ``testerkit forward`` behaves exactly as it did
-    before any of them existed.
+    Forwards EVERY available artifact by default — the event WAL, closed channel
+    segments, new file blobs (docs/22 Part B), and finished run Parquet +
+    compacted per-run events artifacts (docs/36 P2). Nobody adds a flag to get a
+    full upload; the ``--no-channels`` / ``--no-files`` / ``--no-runs`` flags
+    exist only to LIMIT a pass. A store with nothing new no-ops.
 
     URL/token resolution falls through ``--url``/``--token`` →
     ``$TESTERKIT_SERVER_URL``/``$TESTERKIT_TOKEN`` → the project ``server.url`` /
@@ -644,6 +763,8 @@ def forward(  # noqa: PLR0913
     from testerkit.data.data_dir import resolve_data_dir, resolve_server_token, resolve_server_url
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    resolved_max_bytes = _resolve_max_bytes(max_bytes)
+    use_cursor = not no_cursor
     server = resolve_server_url(url)
     token = resolve_server_token(token)
     if not server:
@@ -676,6 +797,8 @@ def forward(  # noqa: PLR0913
         log.info("forwarding file blobs: %s → %s", files_dir, server)
     if runs:
         log.info("forwarding run Parquet + events artifacts: %s → %s", runs_dir, server)
+    if not use_cursor:
+        log.info("stateless mode (--no-cursor): full re-forward, cursor files untouched")
 
     backoff = interval
     while True:
@@ -695,6 +818,8 @@ def forward(  # noqa: PLR0913
                 channels=channels,
                 files=files,
                 runs=runs,
+                max_bytes=resolved_max_bytes,
+                use_cursor=use_cursor,
             )
             backoff = interval  # reset after a clean pass
             disp = result.get("events")

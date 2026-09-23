@@ -212,7 +212,7 @@ Export a test run or session to a different format via event replay.
 
 ### `testerkit forward` {#cli-forward}
 
-Forward this bench's event WAL to a central server (store-and-forward).
+Forward this bench's data artifacts to a central server (store-and-forward).
 
 | Argument / option | Type | Description |
 |---|---|---|
@@ -222,9 +222,11 @@ Forward this bench's event WAL to a central server (store-and-forward).
 | `--interval` | `float` | Seconds between polls  *(default: `5.0`)* |
 | `--timeout` | `float` | Per-request HTTP timeout (seconds)  *(default: `30.0`)* |
 | `--once` | `flag` | Forward what's available, then exit |
-| `--channels`/`--no-channels` | `flag` | Also forward closed channel segments (off by default — events-only otherwise; REVIEW NEEDED, see module docstring) |
-| `--files`/`--no-files` | `flag` | Also forward new file blobs + sidecars (off by default — events-only otherwise; REVIEW NEEDED, see module docstring) |
-| `--runs`/`--no-runs` | `flag` | Also forward finished run Parquet + compacted per-run events artifacts (off by default — events-only otherwise; docs/36 P2, REVIEW NEEDED, see module docstring) |
+| `--channels`/`--no-channels` | `flag` | Forward closed channel segments (ON by default; --no-channels to skip). |
+| `--files`/`--no-files` | `flag` | Forward new file blobs + sidecars (ON by default; --no-files to skip). |
+| `--runs`/`--no-runs` | `flag` | Forward finished run Parquet + per-run events artifacts (ON by default; --no-runs to skip). |
+| `--no-cursor` | `flag` | Stateless catch-up/re-seed: read every enabled store's FULL set and never read or write any _forward_cursor.json (correctness rests on server-side dedup). Use to re-forward everything to a fresh/alternate server the local per-data-dir cursor would otherwise skip. |
+| `--max-bytes` | `integer` | Max bytes per events request (default 16777216, or $TESTERKIT_FORWARD_MAX_BYTES); a large backlog is split into ascending chunks under this cap so a single POST can't exceed the server's request limit. |
 
 ### `testerkit grafana` (group) {#cli-grafana}
 

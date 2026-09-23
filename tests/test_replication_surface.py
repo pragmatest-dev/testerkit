@@ -57,6 +57,7 @@ def test_replication_dunder_all_matches_actual_exports() -> None:
         "EVENT_WAL_SCHEMA",
         "FileRecord",
         "RunArtifact",
+        "chunk_table_by_bytes",
         "events_table_to_parquet_bytes",
         "ingest_replicated",
         "read_closed_channel_segments",

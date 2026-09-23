@@ -125,6 +125,63 @@ def read_segments(events_dir: Path, *, cursor: dict[str, int] | None = None) -> 
     return new_rows.sort_by([("writer_key", "ascending"), ("event_offset", "ascending")])
 
 
+def _ipc_stream_nbytes(table: pa.Table) -> int:
+    """The exact size, in bytes, of ``table`` serialized as an Arrow IPC stream —
+    the wire size a caller POSTs. Used to size chunks against a request budget."""
+    sink = pa.BufferOutputStream()
+    with ipc.new_stream(sink, table.schema) as writer:
+        writer.write_table(table)
+    return sink.getvalue().size
+
+
+def chunk_table_by_bytes(table: pa.Table, *, max_bytes: int):
+    """Yield contiguous, in-order slices of ``table``, each serializing to an
+    Arrow IPC stream of at most ``max_bytes`` bytes — the store-and-forward
+    chunker that keeps a single events POST safely under a server's request cap
+    (Cloud Run ~32 MiB), so a large backlog drains in bounded chunks instead of
+    one oversized 413-ing request.
+
+    Per-writer monotonicity (the correctness invariant a per-chunk cursor
+    advance depends on) is preserved *because the slices are contiguous and the
+    caller passes an already-ordered table*: :func:`read_segments` returns rows
+    sorted by ``(writer_key, event_offset)`` and ``pa.Table.filter`` preserves
+    that order, so each writer's rows form one ascending run. A contiguous slice
+    therefore never carries a writer's higher offset before a lower one, and
+    chunk *N*'s rows for any writer all precede chunk *N+1*'s — so
+    ``_advance_cursor`` on chunk *N* never moves a writer's high-water backward
+    relative to a later chunk. Pass an unordered table and this guarantee is
+    void.
+
+    A single row that alone exceeds ``max_bytes`` is yielded as its own
+    one-row slice rather than dropped or split into an infinite loop — the
+    caller sends it as one (over-budget) request and lets the server decide.
+    A small delta that fits the budget is yielded whole, as one chunk (one
+    POST), so steady-state liveness is unchanged.
+    """
+    n = table.num_rows
+    if n == 0:
+        return
+    if max_bytes <= 0:
+        yield table
+        return
+    # In-memory bytes per row is a close, cheap proxy for the IPC per-row size;
+    # the estimate only seeds the slice length, which is then verified exactly.
+    avg_row = max(1, table.nbytes // n)
+    # Aim at ~90% of the budget by estimate, leaving slack for the fixed
+    # per-stream schema/framing overhead; verification below corrects any miss.
+    budget_rows = max(1, (max_bytes * 9 // 10) // avg_row)
+    start = 0
+    while start < n:
+        remaining = n - start
+        length = min(remaining, budget_rows)
+        # Shrink until the slice actually fits the budget (or it's a lone row
+        # that can't be split further — sent over-budget by the caller).
+        while length > 1 and _ipc_stream_nbytes(table.slice(start, length)) > max_bytes:
+            length //= 2
+        yield table.slice(start, length)
+        start += length
+
+
 def _stamp_replicated(table: pa.Table) -> pa.Table:
     """Return ``table`` with ``replicated: true`` set in every row's ``json``
     payload, so the receiving terminal fence exempts these re-ingested events from
@@ -494,6 +551,7 @@ __all__ = [
     "ChannelSegment",
     "FileRecord",
     "RunArtifact",
+    "chunk_table_by_bytes",
     "events_table_to_parquet_bytes",
     "ingest_replicated",
     "read_closed_channel_segments",

@@ -315,7 +315,9 @@ def test_forward_runs_once_persists_ledger_per_run(tmp_path: Path, monkeypatch) 
 # --------------------------------------------------------------------------- #
 
 
-def test_forward_all_once_default_flag_never_touches_runs(tmp_path: Path, monkeypatch) -> None:
+def test_forward_all_once_no_runs_flag_skips_runs(tmp_path: Path, monkeypatch) -> None:
+    """runs=False (the ``--no-runs`` LIMIT flag) skips the runs pass entirely.
+    Runs forward ON by default; this exercises the opt-OUT path."""
     events_dir = tmp_path / "events"
     events_dir.mkdir()
 
