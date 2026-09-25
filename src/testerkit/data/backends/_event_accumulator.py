@@ -183,6 +183,12 @@ class EventAccumulator:
         # per step; step_retry de-fuses reruns (no overwrite).
         self._step_starts: dict[tuple[str, int, int | None], Any] = {}
         self._step_ends: dict[tuple[str, int, int | None], Any] = {}
+        # A swept leaf step (``@parametrize`` / marker sweep) is called once per
+        # sweep point under the SAME key, so the caches above keep only the last
+        # call's events. The step's span must cover every call: earliest start,
+        # latest end, per key (testerkit#83).
+        self._step_span_start: dict[tuple[str, int, int | None], Any] = {}
+        self._step_span_end: dict[tuple[str, int, int | None], Any] = {}
         # In-body loop vectors (Mode 2) keyed by (step_path, vector_outer_index,
         # vector_index, retry). Present ONLY when VectorStarted/VectorEnded were
         # emitted; their presence is the Mode-2 signal that produces ``vector`` rows.
@@ -213,7 +219,11 @@ class EventAccumulator:
                     markers[nid] = m if isinstance(m, str) or m is None else str(m)
             self._markers_by_node = markers
         elif isinstance(event, StepStarted):
-            self._step_starts[_step_key(event)] = event
+            key = _step_key(event)
+            self._step_starts[key] = event
+            prev = self._step_span_start.get(key)
+            if prev is None or event.occurred_at < prev:
+                self._step_span_start[key] = event.occurred_at
         elif isinstance(event, VectorStarted):
             self._vector_starts[_vector_key(event)] = event
         elif isinstance(event, VectorEnded):
@@ -223,7 +233,11 @@ class EventAccumulator:
         elif isinstance(event, Observation):
             self._observation_events.append(event)
         elif isinstance(event, StepEnded):
-            self._step_ends[_step_key(event)] = event
+            key = _step_key(event)
+            self._step_ends[key] = event
+            prev = self._step_span_end.get(key)
+            if prev is None or event.occurred_at > prev:
+                self._step_span_end[key] = event.occurred_at
         elif isinstance(event, RunEnded):
             self._run_ended = event
 
@@ -553,6 +567,18 @@ class EventAccumulator:
             or EventAccumulator._min_retry_match(cache, step_path, None)
         )
 
+    def _span_started_at(self, start: Any) -> Any:
+        """The step's start across every call fused under ``start``'s key."""
+        if start is None:
+            return None
+        return self._step_span_start.get(_step_key(start), start.occurred_at)
+
+    def _span_ended_at(self, end: Any) -> Any:
+        """The step's end across every call fused under ``end``'s key."""
+        if end is None:
+            return None
+        return self._step_span_end.get(_step_key(end), end.occurred_at)
+
     def _step_start_for(self, step_path: str, vector_outer_index: int | None) -> Any:
         return self._min_retry_match(self._step_starts, step_path, vector_outer_index)
 
@@ -649,8 +675,8 @@ class EventAccumulator:
                     module=step_start.module if step_start else None,
                     step_path=ref.step_path if ref else path,
                     markers=self._markers_by_node.get(node_id) if node_id else None,
-                    step_started_at=step_start.occurred_at if step_start else None,
-                    step_ended_at=step_end.occurred_at if step_end else None,
+                    step_started_at=self._span_started_at(step_start),
+                    step_ended_at=self._span_ended_at(step_end),
                     vector_index=vec,
                     vector_outer_index=vec_outer,
                     retry=retry,
@@ -688,8 +714,8 @@ class EventAccumulator:
             step_name=event.step_name,
             step_index=idx,
             step_path=event.step_path or event.step_name,
-            step_started_at=start.occurred_at if start else None,
-            step_ended_at=end.occurred_at if end else None,
+            step_started_at=self._span_started_at(start),
+            step_ended_at=self._span_ended_at(end),
             step_node_id=node_id,
             step_module=self._step_start_field(path, vec, "module"),
             step_file=self._step_start_field(path, vec, "file"),
@@ -942,8 +968,8 @@ class EventAccumulator:
             description=start.description if start else None,
             markers=self._markers_by_node.get(node_id) if node_id else None,
             outcome=end.outcome if end else None,
-            started_at=start.occurred_at if start else None,
-            ended_at=end.occurred_at if end else None,
+            started_at=self._span_started_at(start),
+            ended_at=self._span_ended_at(end),
             vector_index=None,
             vector_outer_index=vec,
             inputs=inputs,

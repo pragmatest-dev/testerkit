@@ -90,6 +90,10 @@ _COLUMNS = [
     "inputs",
     "outputs",
     "measurements",
+    "step_started_at",
+    "step_ended_at",
+    "vector_started_at",
+    "vector_ended_at",
 ]
 
 
@@ -210,6 +214,17 @@ def test_p3_mode1_leaf_parametrize(tmp_path: Path) -> None:
         assert decode_io_structs(v["inputs"])["vin"] == expected_vin
         assert [m["name"] for m in v["measurements"]] == ["vout"]
         assert v["measurements"][0]["value"] == expected_vin
+
+    # testerkit#83: the fused step's span covers every call — earliest vector
+    # start → latest vector end — on the step row AND on the step columns
+    # copied to each vector row (not just the last call's span).
+    first_start = min(v["vector_started_at"] for v in vecs)
+    last_end = max(v["vector_ended_at"] for v in vecs)
+    for row in (step, *vecs):
+        assert row["step_started_at"] <= first_start, row
+        assert row["step_ended_at"] >= last_end, row
+    assert all(v["step_started_at"] == step["step_started_at"] for v in vecs)
+    assert all(v["step_ended_at"] == step["step_ended_at"] for v in vecs)
 
 
 # ---------------------------------------------------------------------------
