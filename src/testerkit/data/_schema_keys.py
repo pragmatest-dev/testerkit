@@ -38,7 +38,7 @@ actual nullability, not a shared assumption:
 **Where each grain came from (not re-guessed).** ``STEPS_KEY``/``VECTORS_KEY``
 are read directly off ``steps_materialized``/``vectors_materialized``'s real
 DuckDB ``PRIMARY KEY`` constraints. ``RUNS_KEY`` is ``runs_materialized.run_id
-PRIMARY KEY``. ``MEASUREMENT_FACTS_KEY``/``LANES_KEY`` have no real PK
+PRIMARY KEY``. ``MEASUREMENT_FACTS_KEY``/``IO_KEY`` have no real PK
 anywhere today — ``measurements_materialized`` is a plain ``CREATE TABLE``
 (the daemon re-derives it by delete-then-reinsert per file, never a keyed
 upsert, so it was never forced to declare one); their grain was only ever
@@ -47,12 +47,12 @@ DESCRIBED in a comment ("the coordinate columns... ARE the grain key...
 ``measurements_materialized`` block) and never enforced or exported. That
 absence was itself a gap (a hand-copied cloud MERGE key silently missing
 `vector_outer_index`/`vector_retry` was the incident that prompted this
-module): ``MEASUREMENT_FACTS_KEY``/``LANES_KEY`` are the union of their
-carrier's own grain (a measurement/lane entry rides EITHER a step row's grain
+module): ``MEASUREMENT_FACTS_KEY``/``IO_KEY`` are the union of their
+carrier's own grain (a measurement/IO entry rides EITHER a step row's grain
 — ``run_id, step_path, step_retry, vector_outer_index`` — OR a vector row's,
 which also carries ``vector_index, vector_retry``) plus the carrier-scoped
 discriminator (``ordinal`` for a measurement — a name can repeat on one
-carrier; ``role, name`` for a lane entry).
+carrier; ``role, name`` for an IO entry).
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ MEASUREMENT_FACTS_KEY: tuple[str, ...] = (
     "ordinal",
 )
 
-LANES_KEY: tuple[str, ...] = (
+IO_KEY: tuple[str, ...] = (
     "run_id",
     "step_path",
     "step_retry",

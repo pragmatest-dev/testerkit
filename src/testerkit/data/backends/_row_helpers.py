@@ -53,11 +53,11 @@ REF_PATH_PREFIX = "_ref/"
 # Vector ID prefix length for filename namespacing in _ref/ directories.
 VECTOR_ID_LENGTH = 8
 
-# EAV lane struct — the at-rest nested representation of one input / output
+# EAV IO struct — the at-rest nested representation of one input / output
 # entry. ``value_type`` is the value-type discriminator that selects which
-# ``value_*`` lane holds the value. The Arrow struct type in
-# ``schemas._LANE_STRUCT`` must match these names (guarded there).
-LANE_FIELDS: tuple[str, ...] = (
+# ``value_*`` field holds the value. The Arrow struct type in
+# ``schemas._IO_STRUCT`` must match these names (guarded there).
+IO_FIELDS: tuple[str, ...] = (
     "name",
     "value_type",
     "value_int",
@@ -169,17 +169,17 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
-def _lane_entry(
+def _io_entry(
     name: str, value: Any, unit: str | None = None, uut_pin: str | None = None
 ) -> dict[str, Any]:
-    """Encode one ``(name, value)`` into an EAV lane struct dict.
+    """Encode one ``(name, value)`` into an EAV IO struct dict.
 
-    ``observation_kind`` routes the value to exactly one ``value_*`` lane;
+    ``observation_kind`` routes the value to exactly one ``value_*`` field;
     the others stay ``None``. ``unit`` carries the optional engineering unit;
     ``uut_pin`` carries the pin this observation belongs to (or None = all pins).
     """
     value_type = observation_kind(value)
-    entry: dict[str, Any] = dict.fromkeys(LANE_FIELDS)
+    entry: dict[str, Any] = dict.fromkeys(IO_FIELDS)
     entry["name"] = name
     entry["value_type"] = value_type
     entry["unit"] = unit
@@ -201,25 +201,25 @@ def _lane_entry(
     return entry
 
 
-def encode_lane_structs(
+def encode_io_structs(
     values: dict[str, Any],
     units: dict[str, str] | None = None,
     pins: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Encode an inputs or outputs dict into a list of lane structs.
+    """Encode an inputs or outputs dict into a list of IO structs.
 
     ``units`` maps a slot name to its engineering unit; ``pins`` maps a slot
-    name to its ``uut_pin``. Both ride into the lane's named fields.
+    name to its ``uut_pin``. Both ride into the IO entry's named fields.
     """
     units = units or {}
     pins = pins or {}
     return [
-        _lane_entry(name, value, units.get(name), pins.get(name)) for name, value in values.items()
+        _io_entry(name, value, units.get(name), pins.get(name)) for name, value in values.items()
     ]
 
 
-def _lane_value(entry: dict[str, Any]) -> Any:
-    """Inverse of :func:`_lane_entry` — read the value from its lane by ``value_type``."""
+def _io_value(entry: dict[str, Any]) -> Any:
+    """Inverse of :func:`_io_entry` — read the value from its IO entry by ``value_type``."""
     value_type = entry.get("value_type")
     if value_type == "scalar:bool":
         return entry.get("value_bool")
@@ -235,9 +235,9 @@ def _lane_value(entry: dict[str, Any]) -> Any:
     return entry.get("value_text")  # scalar:str, uri, other:*
 
 
-def decode_lane_structs(entries: list[dict[str, Any]] | None) -> dict[str, Any]:
-    """Decode a list of lane structs back into a ``{name: value}`` dict."""
-    return {entry["name"]: _lane_value(entry) for entry in (entries or [])}
+def decode_io_structs(entries: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Decode a list of IO structs back into a ``{name: value}`` dict."""
+    return {entry["name"]: _io_value(entry) for entry in (entries or [])}
 
 
 def _to_datetime(value: Any) -> datetime | None:
@@ -272,7 +272,7 @@ class RunParquetRow(BaseModel):
       vector_outer_index)`` execution; carries code identity + timing +
       rolled-up outcome. ``vector_index`` is always NULL on this row kind.
     * ``record_type = 'vector'`` — one execution carrier; holds the
-      ``inputs``/``outputs`` lanes and the nested ``measurements``
+      ``inputs``/``outputs`` IO lists and the nested ``measurements``
       list for that execution.
 
     Run rows are keyed by ``run_id``; steps and vectors share grain
@@ -400,7 +400,7 @@ class RunParquetRow(BaseModel):
     outputs: dict[str, Any] = Field(default_factory=dict)
     instruments: list[dict[str, Any]] = Field(default_factory=list)
     # Optional per-site engineering unit for inputs / outputs (name → unit),
-    # flowed into the lane's ``unit`` field at encode time.
+    # flowed into the IO entry's ``unit`` field at encode time.
     input_units: dict[str, str] = Field(default_factory=dict)
     output_units: dict[str, str] = Field(default_factory=dict)
     output_pins: dict[str, str] = Field(default_factory=dict)
@@ -433,10 +433,10 @@ class RunParquetRow(BaseModel):
     def to_flat_dict(self, *, at_rest: bool = False) -> dict[str, Any]:
         """Flatten to denormalized dict for the Parquet write boundary.
 
-        ``inputs`` / ``outputs`` are encoded as nested EAV lane structs
-        (``LIST<STRUCT>``; see :func:`encode_lane_structs`) under the
+        ``inputs`` / ``outputs`` are encoded as nested EAV IO structs
+        (``LIST<STRUCT>``; see :func:`encode_io_structs`) under the
         ``inputs`` / ``outputs`` keys. ``input_units`` / ``output_units``
-        ride into each lane's ``unit`` field. ``instruments`` passes
+        ride into each IO entry's ``unit`` field. ``instruments`` passes
         through as a ``list[dict]`` (nested LIST<STRUCT> at rest).
 
         ``at_rest=True`` drops the flat measurement scalar columns: at rest a
@@ -456,8 +456,8 @@ class RunParquetRow(BaseModel):
         if at_rest:
             exclude |= _MEASUREMENT_SCALAR_FIELDS
         row = self.model_dump(exclude=exclude)
-        row["inputs"] = encode_lane_structs(self.inputs, self.input_units)
-        row["outputs"] = encode_lane_structs(self.outputs, self.output_units, self.output_pins)
+        row["inputs"] = encode_io_structs(self.inputs, self.input_units)
+        row["outputs"] = encode_io_structs(self.outputs, self.output_units, self.output_pins)
         return row
 
 
@@ -664,7 +664,7 @@ def build_input_columns(vector: TestVector) -> dict[str, Any]:
     """Build inputs dict from vector params and stimulus records.
 
     Keys are unprefixed (e.g. ``"vin"``); the result is encoded as the
-    ``inputs`` lane struct list by ``to_flat_dict()``.
+    ``inputs`` IO struct list by ``to_flat_dict()``.
     """
     cols: dict[str, Any] = {}
 
@@ -696,12 +696,12 @@ def observation_kind(value: Any) -> str:
 
     Returns a short tag (``scalar:int`` / ``scalar:float`` / ``scalar:bool`` /
     ``scalar:str`` / ``scalar:datetime`` / ``uri`` / ``list`` / ``dict`` /
-    ``other:*``) that :func:`_lane_entry` uses to route the value to its
-    ``value_*`` lane and that is stored as the ``value_type`` field.
+    ``other:*``) that :func:`_io_entry` uses to route the value to its
+    ``value_*`` field and that is stored as the ``value_type`` field.
 
     URIs (``channel://`` and ``file://``) are tagged ``"uri"`` even
     though they're ``str`` — keeps a claim-check ref distinct from a free
-    string (both share the ``value_text`` lane, disambiguated by ``value_type``).
+    string (both share the ``value_text`` field, disambiguated by ``value_type``).
     """
     if is_ref(value):
         return "uri"
@@ -729,7 +729,7 @@ def build_output_columns(
     """Build outputs dict from vector observations.
 
     Keys are unprefixed (e.g. ``"temperature"``); the result is encoded as
-    the ``outputs`` lane struct list by ``to_flat_dict()``.
+    the ``outputs`` IO struct list by ``to_flat_dict()``.
 
     By the time this runs, observations already contain URIs (from
     Context.observe() writing to ChannelStore) or inline scalars.

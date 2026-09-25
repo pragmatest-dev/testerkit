@@ -302,7 +302,7 @@ class TestVector(BaseModel):
     index: int = 0  # 0-based index in the parameter expansion
     params: dict[str, Any] = Field(default_factory=dict)  # Input parameter values (→ in_*)
     observations: dict[str, Any] = Field(default_factory=dict)  # Observed context (→ out_*)
-    # Optional engineering unit per param / observation name → the lane unit field.
+    # Optional engineering unit per param / observation name → the IO entry's unit field.
     param_units: dict[str, str] = Field(default_factory=dict)
     observation_units: dict[str, str] = Field(default_factory=dict)
     observation_pins: dict[str, str] = Field(default_factory=dict)

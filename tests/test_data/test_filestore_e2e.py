@@ -156,17 +156,17 @@ class TestMaterializeAndLoadBack:
         backend = ParquetBackend(data_dir=resolve_data_dir())
         parquet_path = backend.save_test_run(run)
 
-        # Parquet's outputs lane carries the URI verbatim — ParquetBackend's
+        # Parquet's outputs IO entry carries the URI verbatim — ParquetBackend's
         # ref_saver only fires for non-URI values, so the already-URI'd
         # observation passes through.
         import pyarrow.parquet as pq
 
-        from testerkit.data.backends._row_helpers import decode_lane_structs
+        from testerkit.data.backends._row_helpers import decode_io_structs
 
-        # v2: observations ride on the (scope) vector record's outputs lanes.
+        # v2: observations ride on the (scope) vector record's outputs IO list.
         table = pq.read_table(parquet_path)
         rows = [r for r in table.to_pylist() if r.get("record_type") == "vector"]
-        assert decode_lane_structs(rows[0]["outputs"])["screenshot"] == uri
+        assert decode_io_structs(rows[0]["outputs"])["screenshot"] == uri
 
         # Load it back via load_ref — gets the original bytes.
         loaded = load_ref(uri, parquet_path=parquet_path)
@@ -191,15 +191,15 @@ class TestMaterializeAndLoadBack:
 
         import pyarrow.parquet as pq
 
-        from testerkit.data.backends._row_helpers import decode_lane_structs
+        from testerkit.data.backends._row_helpers import decode_io_structs
 
-        # v2: observations ride on the (scope) vector record's outputs lanes.
+        # v2: observations ride on the (scope) vector record's outputs IO list.
         table = pq.read_table(parquet_path)
         rows = [r for r in table.to_pylist() if r.get("record_type") == "vector"]
 
         # ParquetBackend's ref_saver picked it up and routed through
         # FileStore (item 1d) — URI is in the new shape.
-        new_uri = decode_lane_structs(rows[0]["outputs"])["raw_blob"]
+        new_uri = decode_io_structs(rows[0]["outputs"])["raw_blob"]
         assert f"/{session_id}/" in new_uri and new_uri.startswith("file://")
 
         # Bytes resolve back through load_ref.

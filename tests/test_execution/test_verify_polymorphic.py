@@ -261,11 +261,11 @@ class TestVerifyMeasureUnit:
 class TestObserveChannelUnit:
     """A channel-routed ``observe`` unifies its unit with the channel: the
     unit lands on the channel descriptor (set-once, immutable per session)
-    and the observation lane defaults FROM the channel when unit= is omitted.
+    and the observation IO entry defaults FROM the channel when unit= is omitted.
     A contradicting unit fails loud, same as ``stream``.
     """
 
-    def test_observe_unit_lands_on_channel_and_lane(self, session: Any) -> None:
+    def test_observe_unit_lands_on_channel_and_io_entry(self, session: Any) -> None:
         session.ctx.observe("scope.v", Waveform(Y=[1.0, 2.0, 3.0], dt=0.001), unit="V")
         assert session.channel_store.channel_unit("scope.v") == "V"
         assert session.ctx._observation_units["scope.v"] == "V"
@@ -276,8 +276,8 @@ class TestObserveChannelUnit:
         assert session.channel_store.channel_unit("scope.i") == "A"
         assert session.ctx._observation_units["scope.i"] == "A"
 
-    def test_observe_lane_defaults_from_existing_channel_unit(self, session: Any) -> None:
-        # Channel unit set via stream (sets the channel, not a lane); array
+    def test_observe_io_entry_defaults_from_existing_channel_unit(self, session: Any) -> None:
+        # Channel unit set via stream (sets the channel, not an IO entry); array
         # sample so the type matches the subsequent Waveform observe.
         session.ctx.stream("scope.temp", [24.0, 24.1], unit="degC")
         session.ctx.observe("scope.temp", Waveform(Y=[24.2, 24.3], dt=0.001))  # no unit

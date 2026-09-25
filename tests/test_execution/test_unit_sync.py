@@ -1,6 +1,6 @@
 """Engineering units set via ``configure(unit=)`` / ``observe(unit=)`` reach the
 materialized vector's ``input_units`` / ``output_units`` — the parquet-bound
-lane unit columns.
+IO entry unit columns.
 
 Root cause (fixed here): units live on the LIVE ``Context`` in
 ``_param_units`` / ``_observation_units``, but at vector-end the materialization

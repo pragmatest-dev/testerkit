@@ -1,11 +1,11 @@
-"""Measurement attribution + inputs-lane sourcing — de-fuse correctness guards.
+"""Measurement attribution + inputs-IO sourcing — de-fuse correctness guards.
 
 Encodes ``runs-execution-model.md`` ("Inputs are vector-scoped and stable"):
 
 * A Mode-1 rerun records measurements under a distinct ``step_retry``; each
   attempt's step row carries ONLY its own measurements (no retry collapse),
   and ``measurement_count`` is per-attempt — not summed across attempts.
-* The inputs lane uses Start while in-flight and lets End override at finalize,
+* The inputs IO entry uses Start while in-flight and lets End override at finalize,
   so a ``configure()`` value added in the test body is honored at rest.
 * The live overlay (``snapshot_measurement_rows``) attributes identically to the
   materialized parquet (no drift).
@@ -170,7 +170,7 @@ def test_overlay_matches_materialized_for_rerun(tmp_path):
 
 
 def test_configure_input_end_overrides_start_at_finalize():
-    """A configure()-added input present at step end lands in the stored lane."""
+    """A configure()-added input present at step end lands in the stored IO entry."""
     acc, rid, sid = _new_acc()
     _step_start(acc, sid, rid, 0, inputs={"vin": 5.0})
     _step_end(acc, sid, rid, 0, "passed", inputs={"vin": 5.0, "extra": 9.0})
@@ -182,7 +182,7 @@ def test_configure_input_end_overrides_start_at_finalize():
 
 
 def test_inputs_use_start_while_in_flight():
-    """Before the End event, the lane reads the Start snapshot (overlay)."""
+    """Before the End event, the IO entry reads the Start snapshot (overlay)."""
     acc, rid, sid = _new_acc()
     _step_start(acc, sid, rid, 0, inputs={"vin": 5.0})
 

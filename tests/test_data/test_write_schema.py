@@ -110,14 +110,14 @@ class TestWriteRejectsTypeMismatch:
         with pytest.raises(pa.ArrowInvalid):
             table_from_rows(rows, schema)
 
-    def test_mixed_kind_lanes_do_not_raise(self):
+    def test_mixed_kind_io_entries_do_not_raise(self):
         """Same input name, different kinds across rows → no raise; each value
-        routes to its own value_* lane (the nested EAV at-rest shape)."""
-        from testerkit.data.backends._row_helpers import encode_lane_structs
+        routes to its own value_* field (the nested EAV at-rest shape)."""
+        from testerkit.data.backends._row_helpers import encode_io_structs
 
         rows = [
-            {"run_id": "r1", "inputs": encode_lane_structs({"voltage": 5.0})},
-            {"run_id": "r2", "inputs": encode_lane_structs({"voltage": "high"})},
+            {"run_id": "r1", "inputs": encode_io_structs({"voltage": 5.0})},
+            {"run_id": "r2", "inputs": encode_io_structs({"voltage": "high"})},
         ]
         schema = _build_write_schema(rows)
         table = table_from_rows(rows, schema)  # does not raise
@@ -158,8 +158,8 @@ class TestRoundTripExplicitSchema:
         assert meas_struct.field("limit_low").type == pa.float64()
 
     def test_dynamic_columns_round_trip(self, tmp_path):
-        """Vector params survive the write path in the nested inputs lanes."""
-        from testerkit.data.backends._row_helpers import decode_lane_structs
+        """Vector params survive the write path in the nested inputs IO list."""
+        from testerkit.data.backends._row_helpers import decode_io_structs
 
         m = Measurement(
             name="voltage",
@@ -193,9 +193,9 @@ class TestRoundTripExplicitSchema:
         assert len(rows) == 3
         vec_rows = [r for r in rows if r["record_type"] == "vector"]
         assert len(vec_rows) == 1
-        assert decode_lane_structs(vec_rows[0]["inputs"]) == {"voltage": 5.0, "mode": "fast"}
+        assert decode_io_structs(vec_rows[0]["inputs"]) == {"voltage": 5.0, "mode": "fast"}
         assert [m["name"] for m in vec_rows[0]["measurements"]] == ["voltage"]
         for rt in ("run", "step"):
             rt_rows = [r for r in rows if r["record_type"] == rt]
             assert len(rt_rows) == 1
-            assert decode_lane_structs(rt_rows[0]["inputs"]) == {}
+            assert decode_io_structs(rt_rows[0]["inputs"]) == {}

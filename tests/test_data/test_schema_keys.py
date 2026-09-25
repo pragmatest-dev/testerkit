@@ -22,7 +22,7 @@ import duckdb
 
 from testerkit.data._runs_duckdb_daemon import _ensure_schema
 from testerkit.data._schema_keys import (
-    LANES_KEY,
+    IO_KEY,
     MEASUREMENT_FACTS_KEY,
     RUNS_KEY,
     STEPS_KEY,
@@ -85,7 +85,7 @@ def test_null_safe_key_columns_is_every_vector_coordinate() -> None:
         "vector_index",
         "vector_retry",
     )
-    assert null_safe_key_columns(LANES_KEY) == (
+    assert null_safe_key_columns(IO_KEY) == (
         "vector_outer_index",
         "vector_index",
         "vector_retry",
@@ -119,10 +119,10 @@ def test_measurement_facts_key_is_the_union_of_step_and_vector_grain_plus_ordina
     assert MEASUREMENT_FACTS_KEY[-1] == "ordinal"
 
 
-def test_lanes_key_is_the_union_of_step_and_vector_grain_plus_role_name() -> None:
-    assert set(STEPS_KEY) <= set(LANES_KEY)
-    assert set(VECTORS_KEY) <= set(LANES_KEY)
-    assert LANES_KEY[-2:] == ("role", "name")
+def test_io_key_is_the_union_of_step_and_vector_grain_plus_role_name() -> None:
+    assert set(STEPS_KEY) <= set(IO_KEY)
+    assert set(VECTORS_KEY) <= set(IO_KEY)
+    assert IO_KEY[-2:] == ("role", "name")
 
 
 def test_schema_keys_module_is_private() -> None:
@@ -136,6 +136,6 @@ def test_schema_keys_module_is_private() -> None:
     import testerkit.data.run_projection as rp
 
     assert mod.__name__.rsplit(".", 1)[-1].startswith("_")
-    for name in ("STEPS_KEY", "VECTORS_KEY", "MEASUREMENT_FACTS_KEY", "LANES_KEY", "RUNS_KEY"):
+    for name in ("STEPS_KEY", "VECTORS_KEY", "MEASUREMENT_FACTS_KEY", "IO_KEY", "RUNS_KEY"):
         assert not hasattr(mp, name), f"{name} leaked into measurement_projection's public surface"
         assert not hasattr(rp, name), f"{name} leaked into run_projection's public surface"

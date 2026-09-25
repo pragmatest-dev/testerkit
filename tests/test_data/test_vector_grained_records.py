@@ -35,7 +35,7 @@ from uuid import uuid4
 import pyarrow.parquet as pq
 
 from testerkit.data.backends._event_accumulator import EventAccumulator
-from testerkit.data.backends._row_helpers import decode_lane_structs
+from testerkit.data.backends._row_helpers import decode_io_structs
 from testerkit.data.backends.parquet import materialize_run_to_parquet
 from testerkit.data.events import (
     MeasurementRecorded,
@@ -73,8 +73,8 @@ def _run_started(run_id, session_id):
     )
 
 
-def _lane_units(entries):
-    """name → unit for a lane-struct list (only entries that carry a unit)."""
+def _io_units(entries):
+    """name → unit for an IO-struct list (only entries that carry a unit)."""
     return {e["name"]: e["unit"] for e in (entries or []) if e.get("unit") is not None}
 
 
@@ -222,7 +222,7 @@ def test_scenario_2_parametrize_mode1(tmp_path):
     assert step["vector_index"] is None
     vrows = sorted(kinds["vector"], key=lambda r: r["vector_index"])
     assert [v["vector_index"] for v in vrows] == [0, 1]
-    assert {decode_lane_structs(v["inputs"])["vin"] for v in vrows} == {3.3, 5.0}
+    assert {decode_io_structs(v["inputs"])["vin"] for v in vrows} == {3.3, 5.0}
     # One measurement nested on each variant vector; none step-scope.
     assert "measurement" not in kinds
     assert not step["measurements"]
@@ -307,7 +307,7 @@ def test_scenario_3_self_loop_mode2(tmp_path):
         assert v["step_path"] == "test_sweep"
         assert v["vector_retry"] == 0
         assert v["vector_outcome"] == "passed"
-        assert decode_lane_structs(v["inputs"]) == {"vin": float(v["vector_index"])}
+        assert decode_io_structs(v["inputs"]) == {"vin": float(v["vector_index"])}
     # One measurement nested under each in-body vector.
     assert "measurement" not in kinds
     assert [len(v["measurements"]) for v in vrows] == [1, 1, 1]
@@ -433,13 +433,13 @@ def test_scenario_4_class_container_x_method(tmp_path):
     # ONE leaf vector — the container's class-outer iteration at temp=25.
     vectors = {v["step_path"]: v for v in kinds["vector"]}
     assert set(vectors) == {"TestC"}
-    assert decode_lane_structs(vectors["TestC"]["inputs"]) == {"temp": 25}
+    assert decode_io_structs(vectors["TestC"]["inputs"]) == {"temp": 25}
     # The measurement is step-scope on the method's step row.
     assert "measurement" not in kinds
     assert [m["name"] for m in steps["TestC/test_m"]["measurements"]] == ["vout"]
     # Pre-merge invariant: the method's step row already carries the full
     # merged condition {temp, vin} — no chain-walk needed at query time.
-    assert decode_lane_structs(steps["TestC/test_m"]["inputs"]) == {"temp": 25, "vin": 3.3}
+    assert decode_io_structs(steps["TestC/test_m"]["inputs"]) == {"temp": 25, "vin": 3.3}
 
 
 # ---------------------------------------------------------------------------
@@ -661,7 +661,7 @@ def test_scenario_6_observation_only_no_null_done_row(tmp_path):
         )
     )
     # observation-only Mode-2 vector — observation rides on the vector record's
-    # outputs lanes; no measurement.
+    # outputs IO list; no measurement.
     acc.on_event(
         VectorStarted(
             session_id=sid,
@@ -699,14 +699,14 @@ def test_scenario_6_observation_only_no_null_done_row(tmp_path):
     assert "measurement" not in kinds  # no NULL-named DONE row
     assert len(kinds["vector"]) == 1
     v = kinds["vector"][0]
-    assert decode_lane_structs(v["outputs"]) == {"temperature": 24.8}
+    assert decode_io_structs(v["outputs"]) == {"temperature": 24.8}
     assert v["vector_outcome"] == "done"
 
 
 # ---------------------------------------------------------------------------
 # Scenario 7 — outside-loop step-scope data: data recorded in the step body
 #   (via an Observation outside any in-body loop) homes on the step record's
-#   own outputs lanes — no vector, no fabricated measurement.
+#   own outputs IO list — no vector, no fabricated measurement.
 # ---------------------------------------------------------------------------
 
 
@@ -753,19 +753,19 @@ def test_scenario_7_outside_loop_step_scope_data(tmp_path):
     # No measurement — the step-scope observation is NOT fabricated as one.
     assert "measurement" not in kinds
     # No vector loop ran → ZERO vector rows; the step-scope data homes on the
-    # step record's own inputs/outputs lanes.
+    # step record's own inputs/outputs IO list.
     assert "vector" not in kinds
     assert len(kinds["step"]) == 1
     step = kinds["step"][0]
     assert step["step_path"] == "test_setup"
     assert step["vector_index"] is None
-    assert decode_lane_structs(step["inputs"]) == {"vin": 3.3}
-    assert decode_lane_structs(step["outputs"]) == {"ambient_temp": 22.5}
+    assert decode_io_structs(step["inputs"]) == {"vin": 3.3}
+    assert decode_io_structs(step["outputs"]) == {"ambient_temp": 22.5}
 
 
 # ---------------------------------------------------------------------------
 # Scenario 8 — units on a step-scope row: an input/output carrying an
-#   engineering unit flows into the lane's ``unit`` field on the step record
+#   engineering unit flows into the IO entry's ``unit`` field on the step record
 #   (no vector loop ran).
 # ---------------------------------------------------------------------------
 
@@ -815,11 +815,11 @@ def test_scenario_8_vector_with_unit(tmp_path):
     assert "vector" not in kinds
     assert len(kinds["step"]) == 1
     step = kinds["step"][0]
-    # Symmetric unit: an input unit AND an output unit, both on the lanes.
-    assert _lane_units(step["inputs"]) == {"vin": "V"}
-    assert _lane_units(step["outputs"]) == {"temp": "°C"}
-    assert decode_lane_structs(step["inputs"]) == {"vin": 3.3}
-    assert decode_lane_structs(step["outputs"]) == {"temp": 24.8}
+    # Symmetric unit: an input unit AND an output unit, both on the IO entries.
+    assert _io_units(step["inputs"]) == {"vin": "V"}
+    assert _io_units(step["outputs"]) == {"temp": "°C"}
+    assert decode_io_structs(step["inputs"]) == {"vin": 3.3}
+    assert decode_io_structs(step["outputs"]) == {"temp": 24.8}
 
 
 # ---------------------------------------------------------------------------
@@ -912,8 +912,8 @@ def test_row_c_inbody_loop_step_carries_setup_data(tmp_path):
 
     # The step row carries its own inputs (from StepEnded) and outputs (observe
     # after the loop) — steps-carry-own-data, not shed to a synthesized vector.
-    assert decode_lane_structs(step["inputs"]) == {"vin": 3.3}
-    assert decode_lane_structs(step["outputs"]) == {"ambient": 22.5}
+    assert decode_io_structs(step["inputs"]) == {"vin": 3.3}
+    assert decode_io_structs(step["outputs"]) == {"ambient": 22.5}
 
     # N in-body vector rows (vi=0, vi=1) carry the loop-specific measurements.
     vrows = sorted(kinds["vector"], key=lambda r: r["vector_index"])
@@ -1141,7 +1141,7 @@ def test_row_j_parametrize_method_in_plain_class(tmp_path):
         key=lambda v: v["vector_index"],
     )
     assert [v["vector_index"] for v in m_vectors] == [0, 1]
-    assert [decode_lane_structs(v["inputs"])["v"] for v in m_vectors] == ["a", "b"]
+    assert [decode_io_structs(v["inputs"])["v"] for v in m_vectors] == ["a", "b"]
     assert [v["measurements"][0]["name"] for v in m_vectors] == ["result", "result"]
 
     # Step row for m carries NO measurements (all in the variant vector rows).

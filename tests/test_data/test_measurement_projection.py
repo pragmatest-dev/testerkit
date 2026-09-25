@@ -39,7 +39,7 @@ import pytest
 from testerkit.data._accumulator_pool import AccumulatorPool
 from testerkit.data._runs_duckdb_daemon import _bulk_insert_steps, _ensure_schema
 from testerkit.data.backends._event_accumulator import EventAccumulator
-from testerkit.data.backends._row_helpers import encode_lane_structs
+from testerkit.data.backends._row_helpers import encode_io_structs
 from testerkit.data.backends.parquet import _build_unified_rows_from_acc, materialize_run_to_parquet
 from testerkit.data.event_store import _parse_event_row
 from testerkit.data.events import (
@@ -52,11 +52,11 @@ from testerkit.data.events import (
     VectorStarted,
 )
 from testerkit.data.measurement_projection import (
-    LANE_ROW_COLUMNS,
+    IO_ROW_COLUMNS,
     MEASUREMENT_FACTS_COLUMNS,
     STEPS_COLUMNS,
     VECTORS_COLUMNS,
-    lanes_projection_select,
+    io_projection_select,
     measurement_facts_projection_select,
     steps_projection_select,
     vectors_projection_select,
@@ -118,17 +118,17 @@ def test_vectors_columns_match_projection() -> None:
     )
 
 
-def test_lane_columns_match_projection() -> None:
+def test_io_columns_match_projection() -> None:
     empty = pa.Table.from_pylist([], schema=RUN_ROW_SCHEMA)
     con, source = _source(empty)
     try:
-        rel = con.execute(lanes_projection_select(source))
+        rel = con.execute(io_projection_select(source))
         live_columns = tuple(d[0] for d in rel.description)
     finally:
         con.close()
-    assert live_columns == tuple(name for name, _ in LANE_ROW_COLUMNS), (
-        "measurement_projection.LANE_ROW_COLUMNS has drifted from "
-        "lanes_projection_select's actual output columns."
+    assert live_columns == tuple(name for name, _ in IO_ROW_COLUMNS), (
+        "measurement_projection.IO_ROW_COLUMNS has drifted from "
+        "io_projection_select's actual output columns."
     )
 
 
@@ -244,7 +244,7 @@ def _step_row(
     variant executions — the case `steps_projection_select`'s GROUP BY
     collapses into one served row (docs/31 band-aid; see the worst-wins
     test below). Unpopulated ``RUN_ROW_SCHEMA`` fields default to None,
-    same convention as ``_lane_vector_row``."""
+    same convention as ``_io_vector_row``."""
     populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
     populated.update(
         {
@@ -465,13 +465,13 @@ def test_measurement_facts_occurrence_index_discriminates_repeats() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# lanes_projection_select — behavioral (inputs/outputs EAV)                   #
+# io_projection_select — behavioral (inputs/outputs EAV)                      #
 # --------------------------------------------------------------------------- #
 
 
-def _lane_vector_row(*, run_id: str, session_id: str) -> dict:
-    """One ``record_type='vector'`` row carrying real encoded lane structs —
-    built via ``encode_lane_structs`` (the actual at-rest encoder), not
+def _io_vector_row(*, run_id: str, session_id: str) -> dict:
+    """One ``record_type='vector'`` row carrying real encoded IO structs —
+    built via ``encode_io_structs`` (the actual at-rest encoder), not
     hand-rolled dicts. Unpopulated ``RUN_ROW_SCHEMA`` fields default to None,
     same convention as ``test_observation_pin.py``'s ``_make_vector_row``."""
     populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
@@ -480,7 +480,7 @@ def _lane_vector_row(*, run_id: str, session_id: str) -> dict:
             "record_type": "vector",
             "run_id": run_id,
             "session_id": session_id,
-            "uut_serial_number": "SN-LANE",
+            "uut_serial_number": "SN-IO",
             "step_name": "sweep_vin",
             "step_index": 0,
             "step_path": "sweep/vin",
@@ -488,8 +488,8 @@ def _lane_vector_row(*, run_id: str, session_id: str) -> dict:
             "vector_index": 2,
             "vector_outer_index": None,
             "vector_retry": 0,
-            "inputs": encode_lane_structs({"vin": 5.5, "note": "sweep-point"}, units={"vin": "V"}),
-            "outputs": encode_lane_structs({"vout": 3.3}, units={"vout": "V"}),
+            "inputs": encode_io_structs({"vin": 5.5, "note": "sweep-point"}, units={"vin": "V"}),
+            "outputs": encode_io_structs({"vout": 3.3}, units={"vout": "V"}),
             "measurements": [],
         }
     )
@@ -501,14 +501,14 @@ def _table_from_rows(rows: list[dict]) -> pa.Table:
     return pa.table(cols, schema=RUN_ROW_SCHEMA)
 
 
-def test_lanes_projection_one_row_per_lane_entry() -> None:
+def test_io_projection_one_row_per_io_entry() -> None:
     run_id = str(uuid.uuid4())
     session_id = str(uuid.uuid4())
-    table = _table_from_rows([_lane_vector_row(run_id=run_id, session_id=session_id)])
+    table = _table_from_rows([_io_vector_row(run_id=run_id, session_id=session_id)])
 
     con, source = _source(table)
     try:
-        result = con.execute(lanes_projection_select(source)).fetchall()
+        result = con.execute(io_projection_select(source)).fetchall()
         cols = [d[0] for d in con.description]
     finally:
         con.close()
@@ -525,7 +525,7 @@ def test_lanes_projection_one_row_per_lane_entry() -> None:
     assert vin["unit"] == "V"
     assert vin["step_path"] == "sweep/vin"
     assert vin["vector_index"] == 2
-    assert vin["uut_serial_number"] == "SN-LANE"
+    assert vin["uut_serial_number"] == "SN-IO"
 
     note = by_role_name[("input", "note")]
     assert note["value_json"] == '"sweep-point"'

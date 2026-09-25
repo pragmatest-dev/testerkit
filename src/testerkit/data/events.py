@@ -523,7 +523,7 @@ class StepStarted(EventBase):
     retry: int = 0
     inputs: dict[str, Any] = Field(default_factory=dict)
     # Optional engineering unit per input name (``{"vin": "V"}``) — rides into
-    # the lane's ``unit`` field → the EAV ``unit`` column.
+    # the IO entry's ``unit`` field → the EAV ``unit`` column.
     input_units: dict[str, str] = Field(default_factory=dict)
 
     # Code identity
@@ -588,7 +588,7 @@ class MeasurementRecorded(EventBase):
 class Observation(EventBase):
     """Emitted by ``Context.observe(key, value)``.
 
-    Carries the observation that landed in the vector's outputs lane
+    Carries the observation that landed in the vector's outputs IO entry
     (role ``output``, name = the observation key). Value is the scalar
     inline when scalar, or the claim URI string (``channel://…`` or
     ``file://…``) when the value was routed to a store.
@@ -638,7 +638,7 @@ class StepEnded(EventBase):
     retry: int = 0
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
-    # Optional engineering unit / pin per input / output name → the lane fields.
+    # Optional engineering unit / pin per input / output name → the IO entry fields.
     input_units: dict[str, str] = Field(default_factory=dict)
     output_units: dict[str, str] = Field(default_factory=dict)
     output_pins: dict[str, str] = Field(default_factory=dict)
@@ -912,7 +912,7 @@ class FileEnded(EventBase):
     """Emitted when a FileStore streaming sink closes.
 
     Once per ``file_id``. ``uri`` is the final ``file://`` claim that
-    callers can stash into the vector's outputs lane or hand to the
+    callers can stash into the vector's outputs IO entry or hand to the
     artifact viewer. ``size_bytes`` is the total appended-byte count
     at close.
     """

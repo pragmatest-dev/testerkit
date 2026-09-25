@@ -19,8 +19,8 @@ All timestamps are UTC for consistent cross-timezone analysis.
 Schema design:
 - One row per measurement
 - All metadata denormalized onto each row
-- Inputs lane: LIST<STRUCT> of stimulus conditions (role='input')
-- Outputs lane: LIST<STRUCT> of observations (scalars inline, URIs for large data)
+- Inputs IO list: LIST<STRUCT> of stimulus conditions (role='input')
+- Outputs IO list: LIST<STRUCT> of observations (scalars inline, URIs for large data)
 - Config snapshots in Parquet file-level metadata
 """
 
@@ -53,7 +53,7 @@ from testerkit.data.backends._row_helpers import (
     build_run_row,
     build_step_row,
     build_vector_row,
-    decode_lane_structs,
+    decode_io_structs,
     run_context_from_run_started,
     step_entry_dict,
     vector_entry_dict,
@@ -81,7 +81,7 @@ from testerkit.data.schemas import (
 logger = logging.getLogger(__name__)
 
 # Suffix patterns that identify signal-path metadata keys among an
-# inputs/outputs lane name. A key ending in one of these suffixes is
+# inputs/outputs IO entry name. A key ending in one of these suffixes is
 # metadata, not a stimulus value.
 _STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_uut_pin", "_fixture_connection")
 
@@ -165,7 +165,7 @@ class ParquetBackend:
     Key design principles:
     1. One row per measurement - enables flexible queries
     2. All metadata denormalized - no joins needed
-    3. Dynamic schema - inputs/outputs lanes vary per test
+    3. Dynamic schema - inputs/outputs IO lists vary per test
     4. Config snapshots in file metadata - full reconstruction possible
     """
 
@@ -377,7 +377,7 @@ class ParquetBackend:
         for all blobs) instead of the per-parquet sibling ``{stem}_ref/``.
         The vector_id-shortened prefix on the FileStore filename preserves
         the audit trail. Shared by the measurement and step-row writers so
-        a blob is claim-checked the same way regardless of which lane carries it.
+        a blob is claim-checked the same way regardless of which IO list carries it.
 
         Lazy import: ``data.files`` transitively pulls PIL / serializers
         that are only needed when this writer runs. Top-level would add
@@ -931,7 +931,7 @@ def is_file_reference(value: Any) -> bool:
 def extract_refs(parquet_path: Path) -> tuple[set[tuple[str, str]], set[str]]:
     """Channel ``(channel_id, session_id)`` pairs + ``file://`` keys a run references.
 
-    Scans the run's string columns (outputs lane structs and others) for
+    Scans the run's string columns (outputs IO structs and others) for
     ``channel://`` / ``file://`` URIs — the run's full reachable set, both
     schemes. Used by promote (carry a run's data) and retention (reference-aware
     file pruning).
@@ -1045,8 +1045,8 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
             vector_rows,
             key=lambda r: (r.get("vector_index") or 0, r.get("vector_retry") or 0),
         ):
-            params: dict[str, Any] = _params_from_inputs(decode_lane_structs(vr.get("inputs")))
-            observations = decode_lane_structs(vr.get("outputs"))
+            params: dict[str, Any] = _params_from_inputs(decode_io_structs(vr.get("inputs")))
+            observations = decode_io_structs(vr.get("outputs"))
             measurements: list[Measurement] = []
             for ms in vr.get("measurements") or []:
                 outcome_str = ms.get("outcome")

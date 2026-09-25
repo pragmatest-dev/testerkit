@@ -45,7 +45,7 @@ def _safe_str(value: Any) -> str | None:
 def _pack_io_maps(
     inputs: dict[str, Any], outputs: dict[str, Any]
 ) -> tuple[dict[str, str | None], dict[str, str | None]]:
-    """Render inputs/outputs lane dicts into two unprefixed VARCHAR maps.
+    """Render inputs/outputs IO dicts into two unprefixed VARCHAR maps.
 
     Replaces the old merged, ``in_``/``out_``-prefixed ``dynamic_attrs`` MAP
     (projection-normalization, 0.3.1) — the dict IS the role, so no prefix is
@@ -91,7 +91,7 @@ def _vector_key(event: Any) -> tuple[str, int | None, int, int]:
 
 
 def _end_overrides_start(start: Any, end: Any, attr: str) -> dict[str, Any]:
-    """Resolve an inputs-side lane: End overrides Start, Start is the in-flight fallback.
+    """Resolve an inputs-side IO entry: End overrides Start, Start is the in-flight fallback.
 
     A finished block (End event present) carries the post-``configure()`` snapshot
     and wins; while in-flight (no End yet) the overlay reads Start.
@@ -171,7 +171,7 @@ class EventAccumulator:
         self._reservations: list[Any] = []  # InstrumentReserved events
         self._measurement_events: list[Any] = []  # MeasurementRecorded events
         # ``observe()`` events accumulate here so a vector's observations
-        # can ride on its step/vector record's outputs lanes.
+        # can ride on its step/vector record's outputs IO list.
         self._observation_events: list[Any] = []
         # Step events keyed by (step_path, step_retry, vector_outer_index) so
         # each sweep variant — each class-container iteration — AND each rerun
@@ -424,9 +424,9 @@ class EventAccumulator:
                 entry = vectors_by_key.get(
                     (path, ev_voi, event.vector_index, event.retry or 0)
                 ) or vectors_by_key.get((path, ev_voi, event.vector_index, 0))
-                in_lanes = (entry.get("inputs") if entry else None) or {}
-                out_lanes = (entry.get("outputs") if entry else None) or {}
-                row["inputs_map"], row["outputs_map"] = _pack_io_maps(in_lanes, out_lanes)
+                in_io = (entry.get("inputs") if entry else None) or {}
+                out_io = (entry.get("outputs") if entry else None) or {}
+                row["inputs_map"], row["outputs_map"] = _pack_io_maps(in_io, out_io)
                 row["vector_retry"] = entry.get("retry", 0) if entry else 0
                 row["vector_outcome"] = entry.get("outcome") if entry else None
                 row["step_outcome"] = None
@@ -435,9 +435,9 @@ class EventAccumulator:
                     row["step_ended_at"] = _to_datetime(entry.get("step_ended_at"))
             else:
                 step_entry = steps_by_key.get((path, getattr(event, "step_retry", 0) or 0, ev_voi))
-                in_lanes = (step_entry.get("inputs") if step_entry else None) or {}
-                out_lanes = (step_entry.get("outputs") if step_entry else None) or {}
-                row["inputs_map"], row["outputs_map"] = _pack_io_maps(in_lanes, out_lanes)
+                in_io = (step_entry.get("inputs") if step_entry else None) or {}
+                out_io = (step_entry.get("outputs") if step_entry else None) or {}
+                row["inputs_map"], row["outputs_map"] = _pack_io_maps(in_io, out_io)
                 row["vector_index"] = None
                 row["vector_retry"] = None
                 row["vector_outcome"] = None
@@ -763,7 +763,7 @@ class EventAccumulator:
                 step_scope_meas.setdefault(key, []).append(_measurement_event_struct(e))
 
         # Observations per vector key — merged into the step entry's outputs
-        # so the step record carries the vector's observations on its lanes.
+        # so the step record carries the vector's observations on its IO list.
         obs_by_key: dict[tuple[str, int | None], dict[str, Any]] = {}
         obs_units_by_key: dict[tuple[str, int | None], dict[str, str]] = {}
         obs_pins_by_key: dict[tuple[str, int | None], dict[str, str]] = {}

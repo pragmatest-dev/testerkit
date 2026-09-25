@@ -1008,7 +1008,7 @@ def observe(context: Context) -> Callable[..., None]:
         ``observe("temperature", 23.5, unit="degC")`` — scalar with unit
 
     ``unit=`` stamps the engineering unit on the vector's ``observation_units``
-    (projected to the ``out_*`` lane); for a channel-routed value it also sets
+    (projected to the outputs IO entry); for a channel-routed value it also sets
     the channel descriptor's unit (immutable per session), and is omitted to
     inherit the channel's existing unit.
     """

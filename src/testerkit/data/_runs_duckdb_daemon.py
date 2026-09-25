@@ -319,7 +319,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
       ``instruments`` are VIEWS (created in :func:`_create_views`) that JOIN
       ``runs_materialized`` back in for identity and splice in the
       in-memory ``AccumulatorPool`` snapshot.
-    - ``inputs`` / ``outputs`` — long/EAV projections of the nested lane
+    - ``inputs`` / ``outputs`` — long/EAV projections of the nested IO
       lists, one honestly-named table per role. Aggregates for the hot path
       live in ``measurement_stats``.
     - ``measurement_stats`` — TABLE of per-(file, step, measurement)
@@ -597,7 +597,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             f"ALTER TABLE measurements_materialized ADD COLUMN IF NOT EXISTS {col} {sql_type}"
         )
 
-    # Long/EAV projection of the nested inputs/outputs lanes, split into two
+    # Long/EAV projection of the nested inputs/outputs IO lists, split into two
     # honestly-named tables (the table IS the role — no ``role`` column, no
     # UNION-able ambiguity a bare query could issue). One row per (vector,
     # name), keyed on the natural vector identity PLUS ``step_path``
@@ -610,14 +610,14 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     # reruns of the same step; the OLD ingest-time ``dynamic_attrs`` computation
     # scoped by step_retry for free by reading straight off each raw parquet
     # row, a property the new query-time join must preserve explicitly).
-    # ``value_type`` is the value-type tag selecting which value_* lane holds
+    # ``value_type`` is the value-type tag selecting which value_* field holds
     # the value (see _row_helpers). Index only ``name`` — high-cardinality ART
     # indexes (the vector key) don't spill and OOM at scale; hash joins don't
     # use them anyway (benched: bench_index_scale.py). file_path pruning is via
     # zonemaps (file-clustered ingest), not an index.
-    lane_cols = ", ".join(f"{col} {sql_type}" for col, sql_type in _LANE_PERSISTED_COLUMNS)
-    conn.execute(f"CREATE TABLE IF NOT EXISTS inputs ({lane_cols})")
-    conn.execute(f"CREATE TABLE IF NOT EXISTS outputs ({lane_cols})")
+    io_cols = ", ".join(f"{col} {sql_type}" for col, sql_type in _IO_PERSISTED_COLUMNS)
+    conn.execute(f"CREATE TABLE IF NOT EXISTS inputs ({io_cols})")
+    conn.execute(f"CREATE TABLE IF NOT EXISTS outputs ({io_cols})")
 
     # ── instruments_materialized ──────────────────────────────────────
     # Grain: one row per instrument per run. UNNESTed from the run row's
@@ -806,11 +806,11 @@ _INSTRUMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 # Canonical column list for ``inputs``/``outputs`` (both tables share this
-# DDL — the table IS the role). FK coordinates + the lane's own fields
-# (``LANE_FIELDS`` from _row_helpers, unaliased — splitting the EAV by role
+# DDL — the table IS the role). FK coordinates + the IO entry's own fields
+# (``IO_FIELDS`` from _row_helpers, unaliased — splitting the EAV by role
 # renames nothing). Exposed for test_ingestion_drift's per-nested-struct-
 # table uniform rule.
-_LANE_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
+_IO_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("file_path", "VARCHAR NOT NULL"),
     ("run_id", "VARCHAR"),
     ("step_index", "INTEGER"),
@@ -862,10 +862,10 @@ def _mark_ingested(
 
 # ── IO schema / refs SQL (shared by bulk and per-file paths) ────────
 #
-# Both source from the nested ``inputs``/``outputs`` lanes (the at-rest
+# Both source from the nested ``inputs``/``outputs`` IO lists (the at-rest
 # EAV form). The catalog stores ``(role, name, value_type)`` pairs —
 # the query client reads these directly to build FieldRef-based selectors.
-# Signal-path lane names (``*_instrument`` / ``*_resource`` / ``*_channel`` /
+# Signal-path IO names (``*_instrument`` / ``*_resource`` / ``*_channel`` /
 # ``*_uut_pin`` / ``*_fixture_connection``) are excluded, same as before.
 _SIGNAL_PATH_SUFFIX_PRED = (
     "u.name NOT LIKE '%\\_instrument' ESCAPE '\\' "
@@ -885,9 +885,9 @@ _IO_ROLES: tuple[tuple[str, str], ...] = (
 def _index_io_and_refs(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None:
     """Index measurement_io_schema and measurement_refs for one file.
 
-    Reads the nested ``inputs``/``outputs`` lanes. ``io_schema`` records
+    Reads the nested ``inputs``/``outputs`` IO lists. ``io_schema`` records
     ``(role, name, value_type)`` per step_index; ``refs`` extracts
-    ``channel://`` URIs from the output lanes' ``uri``-value_type values.
+    ``channel://`` URIs from the outputs' ``uri``-value_type values.
     """
     escaped = _sql_escape(fkey)
     src = f"read_parquet('{escaped}')"
@@ -911,7 +911,7 @@ def _index_io_and_refs(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None
         except duckdb.Error as exc:
             warnings.warn(f"Could not index I/O schema for {fkey}: {exc}", stacklevel=2)
 
-        # refs: channel:// URIs ride in the output lanes' value_text (kind='uri').
+        # refs: channel:// URIs ride in the outputs' value_text (kind='uri').
         try:
             conn.execute(
                 f"""
@@ -1026,20 +1026,20 @@ def _delete_file_rows(conn: duckdb.DuckDBPyConnection, path_str: str) -> None:
 # ── Bulk ingest ─────────────────────────────────────────────────────
 
 
-# The nested lane columns (parquet) → the honestly-named table each UNNESTs
+# The nested IO columns (parquet) → the honestly-named table each UNNESTs
 # into. No role tag/column — the table IS the role (measurements_dynamic's
 # ``role`` column is gone; a role-scoped query selects the matching table).
-_LANE_TABLES: tuple[tuple[str, str], ...] = (
+_IO_TABLES: tuple[tuple[str, str], ...] = (
     ("inputs", "inputs"),
     ("outputs", "outputs"),
 )
-_LANE_SELECT = (
+_IO_SELECT = (
     "u.name, u.value_type, u.value_int, u.value_double, u.value_bool, "
     "u.value_text, u.value_timestamp, u.value_json, u.unit, u.uut_pin"
 )
 
 
-def _lane_insert(
+def _io_insert(
     conn: duckdb.DuckDBPyConnection,
     table: str,
     col: str,
@@ -1048,16 +1048,16 @@ def _lane_insert(
     file_path_expr: str,
     with_filename: bool = False,
 ) -> None:
-    """INSERT one lane column (``inputs`` or ``outputs``) UNNESTed from ``source``.
+    """INSERT one IO column (``inputs`` or ``outputs``) UNNESTed from ``source``.
 
     ``source`` is a relation expression (a ``read_parquet(...)`` call). Rows come
-    from ``record_type IN ('step', 'vector')`` — the lane carriers. ``step_path``
+    from ``record_type IN ('step', 'vector')`` — the IO carriers. ``step_path``
     and ``step_retry`` ride along so the read-time EAV join (see
     ``_create_views``) can disambiguate two unswept steps sharing a
     ``step_index`` (resets per parent bucket — see
     ``_collection_indices.assign_indices``) and two reruns of the same step
     (``step_retry`` — pytest-rerunfailures). ``ordinal`` (0-based
-    UNNEST-WITH-ORDINALITY position) discriminates repeats of a lane name on
+    UNNEST-WITH-ORDINALITY position) discriminates repeats of an IO name on
     one carrier; ``index`` is the materialized per-name occurrence ordinal
     (see :func:`_occurrence_index_expr`), symmetric with measurements. With
     ``with_filename`` the context subquery also projects ``filename`` (requires
@@ -1076,7 +1076,7 @@ def _lane_insert(
     # added since (``ordinal`` / ``index``) ALTER-appended at the END, so a
     # positional INSERT would misalign them; matching by output-column NAME is
     # order-independent. ``u.name`` → column ``name``, ``u.value_type`` →
-    # ``value_type``, etc., so ``_LANE_SELECT`` aligns by name unchanged.
+    # ``value_type``, etc., so ``_IO_SELECT`` aligns by name unchanged.
     # ``step_retry`` / ``vector_retry`` are normalized IDENTICALLY to
     # ``_measurement_unnest_insert`` so a measurement and its inputs/outputs
     # land on the same join key: ``step_retry`` → 0-based (COALESCE NULL→0, as
@@ -1093,7 +1093,7 @@ def _lane_insert(
                 AS vector_retry,
             CAST(ord AS BIGINT) - 1 AS ordinal,
             {index_expr} AS index,
-            {_LANE_SELECT}
+            {_IO_SELECT}
         FROM (
             SELECT {prefix}run_id, step_index, step_path, step_retry, vector_index,
                    vector_outer_index, vector_retry, {col}
@@ -1141,7 +1141,7 @@ _MEAS_STRUCT_TO_FACT: tuple[tuple[str, str], ...] = (
 def _occurrence_index_expr(
     *, run_id: str, name: str, step_index: str, step_path: str, vector_index: str
 ) -> str:
-    """SQL for the materialized ``index`` — a measurement/lane's run-wide,
+    """SQL for the materialized ``index`` — a measurement/IO entry's run-wide,
     per-name, retry-STABLE occurrence ordinal (the ``/explore`` X axis).
 
     0-based DENSE_RANK partitioned by (run, name), ordered by execution
@@ -1242,10 +1242,10 @@ def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[
 
 
 def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) -> None:
-    """Insert measurement rows from one parquet into the core + lane tables.
+    """Insert measurement rows from one parquet into the core + IO tables.
 
     Fixed columns go to ``measurements_materialized`` (``INSERT BY NAME`` aligns
-    them with ``RUN_ROW_SCHEMA``). The nested ``inputs``/``outputs`` lanes are
+    them with ``RUN_ROW_SCHEMA``). The nested ``inputs``/``outputs`` IO lists are
     UNNESTed into the honestly-named ``inputs``/``outputs`` tables at vector
     grain (``DISTINCT`` collapses the per-measurement-row denormalization).
     One-time cost at ingest; subsequent queries hit native tables instead of
@@ -1263,10 +1263,10 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
     conn.execute(_measurement_unnest_insert(src, file_path_expr=f"'{escaped}'"))
 
     # Long EAV projections — vector grain, one honestly-named table per role.
-    # Drawn from step + vector rows (the lane carriers); DISTINCT (inside
-    # _lane_insert) collapses any duplication back to one row per (vector, name).
-    for col, table in _LANE_TABLES:
-        _lane_insert(conn, table, col, src, file_path_expr=f"'{escaped}'")
+    # Drawn from step + vector rows (the IO carriers); DISTINCT (inside
+    # _io_insert) collapses any duplication back to one row per (vector, name).
+    for col, table in _IO_TABLES:
+        _io_insert(conn, table, col, src, file_path_expr=f"'{escaped}'")
 
 
 def _instrument_unnest_insert(src: str, *, file_path_expr: str) -> str:
@@ -1714,7 +1714,7 @@ def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | 
         ``measurements_materialized`` fact rows (all-measurement by construction).
       * ``measurements_materialized`` — raw measurement rows (measurement's own
         fields only; no run identity, no ``dynamic_attrs``).
-      * ``inputs`` / ``outputs`` — long/EAV projection of the nested lane lists.
+      * ``inputs`` / ``outputs`` — long/EAV projection of the nested IO lists.
       * ``measurement_io_schema`` / ``measurement_refs`` — IO schema
         cache + ref-path index for the measurement rows in this file.
 
@@ -2157,7 +2157,7 @@ def _batch_insert_measurement_rows(
     each file before inserting so re-ingest is safe (mirrors ON CONFLICT
     DO UPDATE semantics for runs/steps, at file granularity).
 
-    The nested ``inputs``/``outputs`` lanes are UNNESTed into the
+    The nested ``inputs``/``outputs`` IO lists are UNNESTed into the
     honestly-named ``inputs``/``outputs`` tables at vector grain, each row
     keeping its own ``filename`` so multiple files coexist in one statement.
     """
@@ -2180,8 +2180,8 @@ def _batch_insert_measurement_rows(
 
     conn.execute(_measurement_unnest_insert(src, file_path_expr="v.filename"))
 
-    for col, table in _LANE_TABLES:
-        _lane_insert(conn, table, col, src, file_path_expr="ctx.filename", with_filename=True)
+    for col, table in _IO_TABLES:
+        _io_insert(conn, table, col, src, file_path_expr="ctx.filename", with_filename=True)
 
 
 def _batch_insert_instrument_rows(

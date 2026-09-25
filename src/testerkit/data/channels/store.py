@@ -365,7 +365,7 @@ class ChannelStore:
         ``None`` means the channel is unregistered OR was declared/written with
         no unit — callers treat both as "no unit to inherit". Plain in-memory
         read over the registry descriptor — no I/O, no daemon. Lets ``observe``
-        default an observation's lane unit from the channel it routed to.
+        default an observation's IO entry unit from the channel it routed to.
         """
         desc = self._registry.get(channel_id)
         return desc.unit if desc is not None else None
