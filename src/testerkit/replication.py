@@ -481,6 +481,14 @@ def read_run_events(events_dir: Path, run_id: str) -> pa.Table | None:
     its run Parquet is discovered ready to forward), not incrementally.
     Returns ``None`` when the run has no events on this bench (already
     pruned, or a run_id that never existed here).
+
+    NOTE (2026-09-23, docs/42 §3.3): no longer called from
+    ``testerkit.cli.forward_cmd`` — the per-run compacted-events-artifact pipe
+    it fed (``/ingest/runs/{run_id}/events``) was removed as redundant with
+    the main WAL forward (``/ingest/events``), which already carries every
+    run's events durably. Left in place (not deleted) as a general-purpose
+    "read all of one run's WAL events" helper; still exercised by its own
+    unit tests.
     """
     tables: list[pa.Table] = []
     for seg in sorted(events_dir.glob("*/*.arrow")):
@@ -505,6 +513,10 @@ def run_events_segment_key(run_id: str, table: pa.Table) -> str:
     reliance") — a hash of ``run_id`` + the sorted ``(writer_key,
     min_offset-max_offset)`` ranges the artifact actually covers, NOT a
     per-event ``id`` set.
+
+    NOTE (2026-09-23, docs/42 §3.3): no longer called from
+    ``testerkit.cli.forward_cmd`` — see :func:`read_run_events`'s note; the
+    per-run events-artifact pipe this dedup key was for was removed.
 
     Two builds over the SAME slice of WAL data always produce the SAME key
     (dedup-safe without hashing row bytes). A re-materialized run's events

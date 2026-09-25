@@ -293,8 +293,6 @@ def test_runs_no_cursor_reforwards_and_ignores_existing_ledger(tmp_path: Path, m
 
     run_id, session_id = uuid.uuid4(), uuid.uuid4()
     runs_root = tmp_path / "runs"
-    events_dir = tmp_path / "events"
-    events_dir.mkdir()
     acc = EventAccumulator()
     acc.on_event(
         RunStarted(session_id=session_id, run_id=run_id, occurred_at=_T0, uut_serial_number="SN1")
@@ -308,9 +306,7 @@ def test_runs_no_cursor_reforwards_and_ignores_existing_ledger(tmp_path: Path, m
     art = read_new_run_artifacts(runs_root / "runs", sent=set())[0]
     cursor_path = tmp_path / "r.json"
     cursor_path.write_text(
-        json.dumps(
-            {"sent_runs": [[art.run_id, art.content_hash]], "sent_events": [], "sentinel": "keep"}
-        )
+        json.dumps({"sent_runs": [[art.run_id, art.content_hash]], "sentinel": "keep"})
     )
 
     posted_runs: list[str] = []
@@ -319,10 +315,9 @@ def test_runs_no_cursor_reforwards_and_ignores_existing_ledger(tmp_path: Path, m
         "_post_run_parquet",
         lambda url, token, a, *, timeout: posted_runs.append(a.run_id) or {"accepted": True},
     )
-    monkeypatch.setattr(forward_cmd, "_post_run_events", lambda *a, **k: {"accepted": True})
 
     result = forward_cmd._forward_runs_once(
-        runs_root / "runs", events_dir, cursor_path, "http://x", "tk", timeout=5.0, use_cursor=False
+        runs_root / "runs", cursor_path, "http://x", "tk", timeout=5.0, use_cursor=False
     )
     # Re-forwarded despite the existing ledger; ledger file left untouched.
     assert result is not None and result["runs"] == 1

@@ -21,20 +21,21 @@ Meant to run standing (systemd/container) — it is NOT a DaemonManager daemon. 
 per-bench machine token in ``TESTERKIT_TOKEN``; the server URL is ``--url`` or
 ``TESTERKIT_SERVER_URL``.
 
-Run Parquet + the compacted per-run events artifact forward by DEFAULT (``--no-runs`` to
-skip; docs/36 P2/P3) — same store-and-forward shape as channels/files: a durable local
-ledger (this time keyed ``(run_id, content_hash)`` — see
-``testerkit.replication.RunArtifact``'s docstring for why content hash, not path, is the
-identity), advance only on a server-accepted POST. A finished run Parquet forwards as-is
-(no transcode — it's already Parquet at rest); its events get compacted from the WAL and
-transcoded from Arrow to Parquet (``testerkit.replication.events_table_to_parquet_bytes``)
-before forwarding, since BigQuery cannot read Arrow files.
+Run Parquet forwards by DEFAULT (``--no-runs`` to skip; docs/36 P2/P3) — same
+store-and-forward shape as channels/files: a durable local ledger (keyed
+``(run_id, content_hash)`` — see ``testerkit.replication.RunArtifact``'s docstring for why
+content hash, not path, is the identity), advance only on a server-accepted POST. A
+finished run Parquet forwards as-is (no transcode — it's already Parquet at rest). (A
+second, per-run compacted-events-artifact pipe — ``/ingest/runs/{run_id}/events`` — used to
+ship alongside the run Parquet; it was removed 2026-09-23 as redundant with the main WAL
+forward below, which already carries every run's events durably — see
+docs/42-ingest-dedup-consistency.md §3.3.)
 
 The ``/ingest/events``, ``/ingest/channels/{channel_id}``, ``/ingest/files``, and
-``/ingest/runs``/``/ingest/runs/{run_id}/events`` endpoints this module POSTs to are LIVE
-on the server (docs/36 P3): the run-Parquet path is the steady-state ingest that replaces
-cloud-side re-derivation, so the at-rest results pages are populated entirely from it; the
-event WAL additionally feeds the (P5) live overlay.
+``/ingest/runs`` endpoints this module POSTs to are LIVE on the server (docs/36 P3): the
+run-Parquet path is the steady-state ingest that replaces cloud-side re-derivation, so the
+at-rest results pages are populated entirely from it; the event WAL additionally feeds the
+(P5) live overlay.
 """
 
 from __future__ import annotations
@@ -49,10 +50,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import click
+from pydantic import BaseModel, ConfigDict
 
 from testerkit.cli.root import main
 
@@ -129,28 +132,23 @@ def _save_files_cursor(path: Path, sent_uris: set[str], sent_hashes: set[str]) -
     _save_json(path, {"sent_uris": sorted(sent_uris), "sent_hashes": sorted(sent_hashes)})
 
 
-def _load_runs_cursor(path: Path) -> tuple[set[tuple[str, str]], set[str]]:
-    """``(sent_runs, sent_events)`` — the durable ledger docs/36 P2 needs:
-    ``sent_runs`` is the set of ``(run_id, content_hash)`` pairs whose run
-    Parquet has already been forwarded (see ``RunArtifact``'s docstring for
-    why content hash, not path — a re-materialized run overwrites the SAME
-    path); ``sent_events`` is the set of compacted-events-artifact segment
-    keys (``run_events_segment_key``) already forwarded. One cursor file for
-    both, since they are always forwarded together per run."""
+def _load_runs_cursor(path: Path) -> set[tuple[str, str]]:
+    """``sent_runs`` — the durable ledger docs/36 P2 needs: the set of
+    ``(run_id, content_hash)`` pairs whose run Parquet has already been
+    forwarded (see ``RunArtifact``'s docstring for why content hash, not
+    path — a re-materialized run overwrites the SAME path).
+
+    Also reads a legacy ``sent_events`` key if present (pre-2026-09-23 cursor
+    files, from the now-removed per-run events-artifact pipe) but discards
+    it — nothing forwards against it anymore, and ``_save_runs_cursor`` no
+    longer writes it back, so it drops out of the cursor file on the next
+    save."""
     raw = _load_json(path)
-    sent_runs = {(str(r), str(h)) for r, h in raw.get("sent_runs", [])}
-    sent_events = set(raw.get("sent_events", []))
-    return sent_runs, sent_events
+    return {(str(r), str(h)) for r, h in raw.get("sent_runs", [])}
 
 
-def _save_runs_cursor(path: Path, sent_runs: set[tuple[str, str]], sent_events: set[str]) -> None:
-    _save_json(
-        path,
-        {
-            "sent_runs": sorted(sent_runs),
-            "sent_events": sorted(sent_events),
-        },
-    )
+def _save_runs_cursor(path: Path, sent_runs: set[tuple[str, str]]) -> None:
+    _save_json(path, {"sent_runs": sorted(sent_runs)})
 
 
 def _resolve_max_bytes(cli_value: int | None) -> int:
@@ -524,6 +522,46 @@ def _forward_files_once(
 # --------------------------------------------------------------------------- #
 
 
+class RunIngestResponse(BaseModel):
+    """Parsed ``POST /ingest/runs`` response body (docs/42): the server
+    reports what it did with this run's Parquet via ``disposition`` —
+    ``"accepted"``/``"duplicate"`` are routine no-ops; ``"conflict"`` (a
+    DIFFERENT file already exists for this ``run_id``) and ``"rejected"``
+    (structurally invalid) mean the server kept our upload aside
+    (``quarantined_as``) instead of ingesting it. Older servers omit
+    ``disposition`` entirely — treated the same as ``"accepted"``. Extra
+    response fields are ignored, not an error."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    disposition: Literal["accepted", "duplicate", "conflict", "rejected"] | None = None
+    run_id: str | None = None
+    reason: str | None = None
+    quarantined_as: str | None = None
+
+
+class ForwardConflictRecord(BaseModel):
+    """One append-only line of ``<data_dir>/runs/_forward_conflicts.jsonl`` —
+    written whenever the server quarantines a forwarded run (``conflict`` or
+    ``rejected`` disposition) so an operator can find what didn't make it in
+    without digging through logs."""
+
+    ts: datetime
+    run_id: str
+    disposition: Literal["conflict", "rejected"]
+    local_hash: str
+    reason: str | None = None
+    quarantined_as: str | None = None
+    server: str
+
+
+def _append_forward_conflict(path: Path, record: ForwardConflictRecord) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(record.model_dump_json())
+        f.write("\n")
+
+
 def _post_run_parquet(url: str, token: str, artifact: RunArtifact, *, timeout: float) -> dict:
     """POST one finished run's Parquet to the proposed ``/ingest/runs``
     endpoint (Parquet body — already Parquet at rest, no transcode). REVIEW
@@ -543,29 +581,8 @@ def _post_run_parquet(url: str, token: str, artifact: RunArtifact, *, timeout: f
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _post_run_events(url: str, token: str, run_id: str, table: pa.Table, *, timeout: float) -> dict:
-    """POST one run's compacted events artifact to the proposed
-    ``/ingest/runs/{run_id}/events`` endpoint — Parquet body (transcoded from
-    the Arrow WAL via ``events_table_to_parquet_bytes``; docs/36 P2: BigQuery
-    cannot read Arrow). REVIEW NEEDED: same not-yet-real-server status as
-    ``_post_run_parquet``.
-    """
-    from testerkit.replication import events_table_to_parquet_bytes
-
-    body = events_table_to_parquet_bytes(table)
-    req = urllib.request.Request(
-        url.rstrip("/") + f"/ingest/runs/{urllib.parse.quote(run_id, safe='')}/events",
-        data=body,
-        method="POST",
-        headers={"Content-Type": _PARQUET_CONTENT_TYPE, "Authorization": f"Bearer {token}"},
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — our own server URL
-        return json.loads(resp.read().decode("utf-8"))
-
-
 def _forward_runs_once(
     runs_dir: Path,
-    events_dir: Path,
     cursor_path: Path,
     url: str,
     token: str,
@@ -573,54 +590,52 @@ def _forward_runs_once(
     timeout: float,
     use_cursor: bool = True,
 ) -> dict | None:
-    """Forward every finished run Parquet not yet in the durable ledger, plus
-    that run's compacted events artifact (docs/36 P2 "done when": run Parquet
-    + events artifact ship together).
+    """Forward every finished run Parquet not yet in the durable ledger.
 
     Persists the ledger after EACH run (not batched at the end) — same
     crash-window reasoning as channels/files: a raised exception mid-pass
     (network/HTTP error) stops the pass without recording that run, so it
-    re-sends next poll. The run Parquet POST and its events-artifact POST are
-    two separate requests but one ledger write: if the run Parquet POST
-    succeeds and the events POST then fails, the whole run is NOT marked
-    sent (both sides are needed for docs/36 §6 DoD #1 "no cloud re-derive"),
-    so the next poll re-sends the run Parquet too — server-side idempotency
-    (the ``(run_id, hash)`` supersede policy, docs/36 §7.6 G3) makes that
-    safe, never a duplicate.
+    re-sends next poll. A resend is safe, never a duplicate — server-side
+    idempotency (the ``(run_id, hash)`` supersede policy, docs/36 §7.6 G3).
     """
-    from testerkit.replication import (
-        read_new_run_artifacts,
-        read_run_events,
-        run_events_segment_key,
-    )
+    from testerkit.replication import read_new_run_artifacts
 
-    sent_runs, sent_events = _load_runs_cursor(cursor_path) if use_cursor else (set(), set())
+    sent_runs = _load_runs_cursor(cursor_path) if use_cursor else set()
     artifacts = read_new_run_artifacts(runs_dir, sent_runs)
     if not artifacts:
         return None
     forwarded = 0
-    events_forwarded = 0
-    events_skipped = 0
     for art in artifacts:
-        _post_run_parquet(url, token, art, timeout=timeout)
-        events_table = read_run_events(events_dir, art.run_id)
-        if events_table is not None and events_table.num_rows:
-            seg_key = run_events_segment_key(art.run_id, events_table)
-            if seg_key not in sent_events:
-                _post_run_events(url, token, art.run_id, events_table, timeout=timeout)
-                sent_events.add(seg_key)
-                events_forwarded += 1
-            else:
-                events_skipped += 1
+        raw = _post_run_parquet(url, token, art, timeout=timeout)
+        resp = RunIngestResponse.model_validate(raw)
+        if resp.disposition in ("conflict", "rejected"):
+            log.warning(
+                "run %s %s by server (not ingested): reason=%s quarantined_as=%s",
+                art.run_id,
+                resp.disposition,
+                resp.reason,
+                resp.quarantined_as,
+            )
+            _append_forward_conflict(
+                cursor_path.parent / "_forward_conflicts.jsonl",
+                ForwardConflictRecord(
+                    ts=datetime.now(UTC),
+                    run_id=art.run_id,
+                    disposition=resp.disposition,
+                    local_hash=art.content_hash,
+                    reason=resp.reason,
+                    quarantined_as=resp.quarantined_as,
+                    server=url,
+                ),
+            )
+        # Terminal outcome either way (accepted/duplicate/conflict/rejected):
+        # the server has made its decision and quarantined what it didn't
+        # keep, so there is nothing to retry — advance past it like a success.
         sent_runs.add((art.run_id, art.content_hash))
         if use_cursor:
-            _save_runs_cursor(cursor_path, sent_runs, sent_events)
+            _save_runs_cursor(cursor_path, sent_runs)
         forwarded += 1
-    return {
-        "runs": forwarded,
-        "events_artifacts": events_forwarded,
-        "events_skipped_dupe": events_skipped,
-    }
+    return {"runs": forwarded}
 
 
 def _forward_all_once(  # noqa: PLR0913
@@ -680,7 +695,6 @@ def _forward_all_once(  # noqa: PLR0913
     if runs:
         rdisp = _forward_runs_once(
             runs_dir,
-            events_dir,
             runs_cursor_path,
             url,
             token,
@@ -809,7 +823,7 @@ def forward(  # noqa: PLR0913
     if files:
         log.info("forwarding file blobs: %s → %s", files_dir, server)
     if runs:
-        log.info("forwarding run Parquet + events artifacts: %s → %s", runs_dir, server)
+        log.info("forwarding run Parquet: %s → %s", runs_dir, server)
     if not use_cursor:
         log.info("stateless mode (--no-cursor): full re-forward, cursor files untouched")
 
@@ -848,7 +862,7 @@ def forward(  # noqa: PLR0913
             if "files" in result:
                 log.info("forwarded file blobs: %s", result["files"])
             if "runs" in result:
-                log.info("forwarded run Parquet + events artifacts: %s", result["runs"])
+                log.info("forwarded run Parquet: %s", result["runs"])
         except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError) as exc:
             # Transient — the cursor did NOT advance, so the batch re-sends next pass.
             log.warning("forward failed (will retry): %s", exc)

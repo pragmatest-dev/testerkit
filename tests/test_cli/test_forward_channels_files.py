@@ -442,11 +442,7 @@ def test_forward_all_once_default_forwards_every_store(tmp_path: Path, monkeypat
     monkeypatch.setattr(
         forward_cmd, "_forward_files_once", lambda *a, **k: {"files": 1, "skipped_dupe": 0}
     )
-    monkeypatch.setattr(
-        forward_cmd,
-        "_forward_runs_once",
-        lambda *a, **k: {"runs": 1, "events_artifacts": 1, "events_skipped_dupe": 0},
-    )
+    monkeypatch.setattr(forward_cmd, "_forward_runs_once", lambda *a, **k: {"runs": 1})
 
     result = forward_cmd._forward_all_once(
         events_dir,
