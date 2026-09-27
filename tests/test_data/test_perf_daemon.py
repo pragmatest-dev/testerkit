@@ -728,19 +728,22 @@ def test_batch_io_refs_matches_per_file(tmp_path):
         for _ in range(3)
     ]
 
+    # Queries the ``_materialized`` tables directly (not the ``_create_views``
+    # public views) — this test only calls ``_ensure_schema``, which creates
+    # the writer-side tables, not the read-side views.
     cb, _ = _open_index(tmp_path / "batch.duckdb")
     _ensure_schema(cb)
     _batch_index_io_and_refs(cb, paths)
-    io_b = cb.execute("SELECT * FROM measurement_io_schema ORDER BY ALL").fetchall()
-    refs_b = cb.execute("SELECT * FROM measurement_refs ORDER BY ALL").fetchall()
+    io_b = cb.execute("SELECT * FROM measurement_io_schema_materialized ORDER BY ALL").fetchall()
+    refs_b = cb.execute("SELECT * FROM measurement_refs_materialized ORDER BY ALL").fetchall()
     cb.close()
 
     cp, _ = _open_index(tmp_path / "perfile.duckdb")
     _ensure_schema(cp)
     for p in paths:
         _index_io_and_refs(cp, p)
-    io_p = cp.execute("SELECT * FROM measurement_io_schema ORDER BY ALL").fetchall()
-    refs_p = cp.execute("SELECT * FROM measurement_refs ORDER BY ALL").fetchall()
+    io_p = cp.execute("SELECT * FROM measurement_io_schema_materialized ORDER BY ALL").fetchall()
+    refs_p = cp.execute("SELECT * FROM measurement_refs_materialized ORDER BY ALL").fetchall()
     cp.close()
 
     assert io_b == io_p

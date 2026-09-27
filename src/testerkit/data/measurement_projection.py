@@ -583,11 +583,12 @@ def io_projection_select(source_sql: str) -> str:
 # `io_table_select`'s exact SELECT; `inputs_projection_select`/
 # `outputs_projection_select` run the SAME SELECT for the cloud read models.
 
-# Canonical column list for ``inputs``/``outputs`` (both tables share this
-# shape — the table IS the role) — IS `_runs_duckdb_daemon._IO_PERSISTED_COLUMNS`
-# (imported from here, never hand-duplicated). DuckDB SQL types, not this
-# module's usual BigQuery-style STRING/INTEGER tuples: the daemon uses this
-# SAME tuple to generate its ``CREATE TABLE inputs``/``outputs`` DDL, so the
+# Canonical column list for ``inputs_materialized``/``outputs_materialized``
+# (both tables share this shape — the table IS the role) — IS
+# `_runs_duckdb_daemon._IO_PERSISTED_COLUMNS` (imported from here, never
+# hand-duplicated). DuckDB SQL types, not this module's usual BigQuery-style
+# STRING/INTEGER tuples: the daemon uses this SAME tuple to generate its
+# ``CREATE TABLE inputs_materialized``/``outputs_materialized`` DDL, so the
 # type strings must stay DuckDB-valid.
 IO_TABLE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("file_path", "VARCHAR NOT NULL"),
@@ -633,7 +634,9 @@ def io_table_select(
     (local: a ``read_parquet(...)`` relation; cloud: one run's in-memory
     Arrow table wrapped the same way). ``col`` picks which nested IO list to
     UNNEST (``inputs`` or ``outputs`` — the caller also picks the matching
-    destination table name locally). Rows come from
+    ``_materialized`` destination table name locally, e.g.
+    ``inputs_materialized``/``outputs_materialized``; the public ``inputs``/
+    ``outputs`` views are plain passthroughs over them). Rows come from
     ``record_type IN ('step', 'vector')`` — the IO carriers.
 
     ``step_path`` and ``step_retry`` ride along so a read-time EAV join can
@@ -681,10 +684,11 @@ def io_table_select(
 
 def inputs_projection_select(source_sql: str) -> str:
     """One row per ``inputs`` entry, byte-identical to the local daemon's
-    ``inputs`` table (docs/44 §1) — the honestly-named replacement for
-    `io_projection_select`'s role-filtered legacy shape. ``source_sql`` is
-    expected to expose a ``filename`` column (this module's usual
-    ``source_sql`` contract), stamped through as ``file_path``."""
+    ``inputs_materialized`` table (docs/44 §1) — the honestly-named
+    replacement for `io_projection_select`'s role-filtered legacy shape.
+    ``source_sql`` is expected to expose a ``filename`` column (this
+    module's usual ``source_sql`` contract), stamped through as
+    ``file_path``."""
     return io_table_select(
         source_sql, col="inputs", file_path_expr="ctx.filename", with_filename=True
     )
@@ -692,7 +696,8 @@ def inputs_projection_select(source_sql: str) -> str:
 
 def outputs_projection_select(source_sql: str) -> str:
     """One row per ``outputs`` entry, byte-identical to the local daemon's
-    ``outputs`` table (docs/44 §1). See :func:`inputs_projection_select`."""
+    ``outputs_materialized`` table (docs/44 §1). See
+    :func:`inputs_projection_select`."""
     return io_table_select(
         source_sql, col="outputs", file_path_expr="ctx.filename", with_filename=True
     )

@@ -299,7 +299,7 @@ class EventAccumulator:
         Emits the logical-step rows (``vector_index`` NULL) followed by the
         condition-point rows (``vector_index`` 0..N) — mirroring the at-rest
         ``steps_materialized`` table, which the daemon exposes via the grain-
-        split ``steps`` (NULL) and ``step_vectors`` (0..N) views. Callers that
+        split ``steps`` (NULL) and ``vectors`` (0..N) views. Callers that
         want one grain filter on ``vector_index`` (as ``StepsQuery`` does).
         """
         s = self._run_started

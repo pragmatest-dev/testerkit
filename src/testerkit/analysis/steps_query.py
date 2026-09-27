@@ -27,8 +27,8 @@ from testerkit.data.data_dir import resolve_data_dir
 
 logger = logging.getLogger(__name__)
 
-# Read-time inputs/outputs map, LEFT JOINed onto ``steps``/``step_vectors``
-# (aliased ``s``) from the ``inputs``/``outputs`` tables (projection-
+# Read-time inputs/outputs map, LEFT JOINed onto ``steps``/``vectors``
+# (aliased ``s``) from the ``inputs``/``outputs`` views (projection-
 # normalization, 0.3.1 — replaces the stored, prefixed ``dynamic_attrs`` MAP).
 # Grouped by the step's own FK coordinates INCLUDING ``step_retry`` (unlike
 # the measurements-side join in ``run_store.get_measurements`` — a step's own
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 #
 # This join serves FINALIZED rows (whose inputs/outputs are in the tables). A
 # LIVE run's rows aren't in the tables yet — for those the ``steps`` /
-# ``step_vectors`` VIEW carries the inflight ``inputs_map`` / ``outputs_map``
+# ``vectors`` VIEW carries the inflight ``inputs_map`` / ``outputs_map``
 # inline. ``_STEP_IO_SELECT`` COALESCEs the join (finalized) over the view
 # column (live), so exactly one is non-empty per row.
 _STEP_IO_VALUE_EXPR = """CASE value_type
@@ -194,7 +194,7 @@ class StepsQuery:
         """Run ``sql`` and hydrate each dict row into a :class:`StepRow`.
 
         Shared by the logical-step (``steps``) and condition-point
-        (``step_vectors``) reads — both surfaces share the row shape. ``sql``
+        (``vectors``) reads — both surfaces share the row shape. ``sql``
         is expected to select from the table aliased ``s`` plus
         ``_STEP_IO_JOINS`` (``inputs_map``/``outputs_map``).
         """
@@ -214,7 +214,7 @@ class StepsQuery:
         """Return the LOGICAL step rows for a run, ordered by ``step_index``.
 
         Logical steps only (``vector_index IS NULL``) — a swept step is
-        ONE row here; its condition points live in ``step_vectors`` (see
+        ONE row here; its condition points live in ``vectors`` (see
         :meth:`list_vectors_for_run`) and are nested onto the step by
         :meth:`tree_for_run`. Matches the run by id-prefix (8-char) so
         callers can pass either the full UUID or its short form. Each row
@@ -257,7 +257,7 @@ class StepsQuery:
         ended_clause = "" if include_incomplete else "AND s.ended_at IS NOT NULL"
         return self._rows_from(f"""
             SELECT {_STEP_IO_SELECT}
-            FROM step_vectors AS s
+            FROM vectors AS s
             {_STEP_IO_JOINS}
             WHERE s.run_id LIKE '{sql_escape(prefix)}%'
             {ended_clause}
@@ -363,7 +363,7 @@ class StepsQuery:
         matches ``step_index``.
 
         A logical step is one node (from the ``steps`` grain); its
-        condition points (from the ``step_vectors`` grain — ``vector_index``
+        condition points (from the ``vectors`` grain — ``vector_index``
         0..N, sharing the step's ``step_path``) are attached onto
         ``node.vectors`` rather than becoming siblings/children (which would
         show a swept step as N+1 same-named nodes). A step record is keyed by

@@ -80,7 +80,7 @@ def _read_steps(session_id: str) -> list[StepRow]:
     """Return all step + vector rows for the session (both grains).
 
     Sorted by (step_index, vector_index, vector_outer_index). ``steps`` and
-    ``step_vectors`` are now grain-explicit surfaces, so this merges the
+    ``vectors`` are now grain-explicit surfaces, so this merges the
     logical-step rows with their condition-point rows to reproduce the flat
     step+vector view these assertions expect. ``include_incomplete=True`` so
     finalized rows aren't filtered by the default ``ended_at IS NOT NULL``.
