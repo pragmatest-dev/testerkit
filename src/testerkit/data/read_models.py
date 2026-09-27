@@ -12,10 +12,10 @@ imports, so nothing is hand-written in the server").
 Every builder here composes the EXISTING shared projection SQL in
 ``run_projection.py`` / ``measurement_projection.py`` — this module adds no
 hand-written SQL of its own for the shapes those already cover (runs, steps,
-vectors, measurement_facts, IO); it only adds the SELECTs those two modules
+vectors, measurements, IO); it only adds the SELECTs those two modules
 don't publish: the run-header's own column tuple (``run_projection`` exposes
 no such tuple, unlike ``measurement_projection``'s ``STEPS_COLUMNS``/etc.),
-the slim measurement-facts column subset (docs/48 D3), the catalog DISTINCT
+the slim measurements column subset (docs/48 D3), the catalog DISTINCT
 projections, and the input/measurement co-occurrence join (moved here from
 testerkit-server's ``parametric_service.build_cooccurring_pairs_sql`` per
 plan-ingest-derivation.md §1.2 — same join predicate, decomposed per-run
@@ -34,7 +34,7 @@ network read):
   two-table shape (not the former single ``mapLaneRow``-shaped ``io`` field)
   — the web mapper follow-up is written against `InputRow`/`OutputRow`.
 - :func:`derive_run` — the read-model rows plan-ingest-derivation.md §1.2
-  lists for cloud ingest: a run header, slim measurement-fact rows, and the
+  lists for cloud ingest: a run header, slim measurements rows, and the
   per-run catalog deltas (steps / series / IO names / part / station /
   fixture / co-occurrence) a derive task unions into its org-wide catalogs.
 
@@ -121,16 +121,16 @@ def run_header_select(source_sql: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# measurement_facts (slim) — docs/48 D3                                      #
+# measurements (slim) — docs/48 D3                                           #
 # --------------------------------------------------------------------------- #
 
 # plan-ingest-derivation.md §1.2's exact slim tuple. `org_id` (the plan's
 # 26th column) is NOT included here: it is a cloud/server concern (which
 # tenant this object belongs to), never derivable from one run's Parquet —
 # the caller (the derive task) adds it when staging. This keeps the slim
-# tuple a strict COLUMN SUBSET of `MEASUREMENT_FACTS_COLUMNS` (asserted
+# tuple a strict COLUMN SUBSET of `MEASUREMENTS_COLUMNS` (asserted
 # below), never a re-model, per the plan's own drift guard.
-_MEASUREMENT_FACTS_SLIM_NAMES: tuple[str, ...] = (
+_MEASUREMENTS_SLIM_NAMES: tuple[str, ...] = (
     "run_id",
     "session_id",
     "run_started_at",
@@ -147,7 +147,7 @@ _MEASUREMENT_FACTS_SLIM_NAMES: tuple[str, ...] = (
     "vector_index",
     "vector_outer_index",
     "vector_retry",
-    "occurrence_index",
+    "index",
     "measurement_name",
     "measurement_value",
     "measurement_outcome",
@@ -157,21 +157,21 @@ _MEASUREMENT_FACTS_SLIM_NAMES: tuple[str, ...] = (
     "limit_nominal",
     "limit_comparator",
 )
-_FACTS_TYPES: dict[str, str] = dict(mp.MEASUREMENT_FACTS_COLUMNS)
-assert set(_MEASUREMENT_FACTS_SLIM_NAMES) <= set(_FACTS_TYPES), (
-    "measurement_facts_slim must stay a column subset of MEASUREMENT_FACTS_COLUMNS"
+_MEASUREMENTS_TYPES: dict[str, str] = dict(mp.MEASUREMENTS_COLUMNS)
+assert set(_MEASUREMENTS_SLIM_NAMES) <= set(_MEASUREMENTS_TYPES), (
+    "measurements_slim must stay a column subset of MEASUREMENTS_COLUMNS"
 )
-MEASUREMENT_FACTS_SLIM_COLUMNS: tuple[tuple[str, str], ...] = tuple(
-    (name, _FACTS_TYPES[name]) for name in _MEASUREMENT_FACTS_SLIM_NAMES
+MEASUREMENTS_SLIM_COLUMNS: tuple[tuple[str, str], ...] = tuple(
+    (name, _MEASUREMENTS_TYPES[name]) for name in _MEASUREMENTS_SLIM_NAMES
 )
 
 
-def measurement_facts_slim_select(source_sql: str) -> str:
-    """Column subset of `measurement_facts_projection_select` — docs/48 D3
+def measurements_slim_select(source_sql: str) -> str:
+    """Column subset of `measurements_projection_select` — docs/48 D3
     (drops env / instrument / pin / spec / most run-context columns, which
     stay on the run header / `run_rows`)."""
-    cols = ", ".join(_MEASUREMENT_FACTS_SLIM_NAMES)
-    return f"SELECT {cols} FROM ({mp.measurement_facts_projection_select(source_sql)})"
+    cols = ", ".join(_MEASUREMENTS_SLIM_NAMES)
+    return f"SELECT {cols} FROM ({mp.measurements_projection_select(source_sql)})"
 
 
 # --------------------------------------------------------------------------- #
@@ -206,7 +206,7 @@ def catalog_series_select(source_sql: str) -> str:
     §1.2: "names = distinct over series"), not a separate catalog here."""
     return (
         "SELECT DISTINCT step_path, step_name, measurement_name, measurement_unit "
-        f"FROM ({mp.measurement_facts_projection_select(source_sql)})"
+        f"FROM ({mp.measurements_projection_select(source_sql)})"
     )
 
 
@@ -286,7 +286,7 @@ COOCCURRENCE_COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 
-def cooccurrence_select(inputs_src: str, facts_src: str) -> str:
+def cooccurrence_select(inputs_src: str, measurements_src: str) -> str:
     """Distinct (input_name, measurement_name) co-occurrence — the join body
     of testerkit-server's ``parametric_service.build_cooccurring_pairs_sql``,
     moved here per plan-ingest-derivation.md §1.2 ("per-run decomposable
@@ -302,7 +302,7 @@ def cooccurrence_select(inputs_src: str, facts_src: str) -> str:
     return f"""
         SELECT DISTINCT L.name AS input_name, M.measurement_name AS measurement_name
         FROM ({inputs_src}) AS L
-        JOIN ({facts_src}) AS M
+        JOIN ({measurements_src}) AS M
             ON L.run_id = M.run_id
            AND L.step_path = M.step_path
            AND L.step_retry = M.step_retry
@@ -444,8 +444,8 @@ class VectorRow(BaseModel):
     measurement_count: int | None = None
 
 
-class MeasurementFactRow(BaseModel):
-    """One row of `measurement_projection.MEASUREMENT_FACTS_COLUMNS` (full,
+class MeasurementRow(BaseModel):
+    """One row of `measurement_projection.MEASUREMENTS_COLUMNS` (full,
     60-column shape — used by :func:`run_detail`, not the slim ingest tuple)."""
 
     model_config = ConfigDict(extra="forbid")
@@ -487,7 +487,7 @@ class MeasurementFactRow(BaseModel):
     vector_retry: int | None = None
     vector_outcome: str | None = None
     ordinal: int | None = None
-    occurrence_index: int | None = None
+    index: int | None = None
     measurement_name: str | None = None
     measurement_value: float | None = None
     measurement_outcome: str | None = None
@@ -569,8 +569,8 @@ class OutputRow(BaseModel):
     uut_pin: str | None = None
 
 
-class MeasurementFactSlimRow(BaseModel):
-    """One row of :data:`MEASUREMENT_FACTS_SLIM_COLUMNS` (docs/48 D3)."""
+class MeasurementSlimRow(BaseModel):
+    """One row of :data:`MEASUREMENTS_SLIM_COLUMNS` (docs/48 D3)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -590,7 +590,7 @@ class MeasurementFactSlimRow(BaseModel):
     vector_index: int | None = None
     vector_outer_index: int | None = None
     vector_retry: int | None = None
-    occurrence_index: int | None = None
+    index: int | None = None
     measurement_name: str | None = None
     measurement_value: float | None = None
     measurement_outcome: str | None = None
@@ -699,20 +699,20 @@ class RunDetail(BaseModel):
     run: RunRow
     steps: list[StepRow]
     vectors: list[VectorRow]
-    measurements: list[MeasurementFactRow]
+    measurements: list[MeasurementRow]
     inputs: list[InputRow]
     outputs: list[OutputRow]
 
 
 class DerivedRun(BaseModel):
     """The read-model rows plan-ingest-derivation.md §1.2 lists for cloud
-    ingest: a run header (1 row), slim measurement-fact rows (docs/48 D3),
+    ingest: a run header (1 row), slim measurements rows (docs/48 D3),
     and this run's catalog deltas."""
 
     model_config = ConfigDict(extra="forbid")
 
     header: RunRow
-    measurement_facts: list[MeasurementFactSlimRow]
+    measurements: list[MeasurementSlimRow]
     catalog: CatalogDelta
 
 
@@ -756,7 +756,7 @@ def _rows(con: duckdb.DuckDBPyConnection, select_sql: str, model: type[_ModelT])
 
 def run_detail(source: pa.Table | str | Path, *, file_path: str | None = None) -> RunDetail:
     """The run-page read model (plan-serving-cutover.md §2) — one run's row,
-    steps, vectors, measurement facts (full columns) and `role='input'` IO
+    steps, vectors, measurements (full columns) and `role='input'` IO
     rows, computed by TesterKit's own shared projections over `source`.
 
     `source` is either an already-read `pyarrow.Table` (one run's rows) or a
@@ -775,7 +775,7 @@ def run_detail(source: pa.Table | str | Path, *, file_path: str | None = None) -
             raise ValueError(f"expected exactly one run in the source, found {len(run_rows)}")
         steps = _rows(con, mp.steps_projection_select(src), StepRow)
         vectors = _rows(con, mp.vectors_projection_select(src), VectorRow)
-        measurements = _rows(con, mp.measurement_facts_projection_select(src), MeasurementFactRow)
+        measurements = _rows(con, mp.measurements_projection_select(src), MeasurementRow)
         inputs = _rows(con, mp.inputs_projection_select(src), InputRow)
         outputs = _rows(con, mp.outputs_projection_select(src), OutputRow)
         return RunDetail(
@@ -792,7 +792,7 @@ def run_detail(source: pa.Table | str | Path, *, file_path: str | None = None) -
 
 def derive_run(source: pa.Table | str | Path, *, file_path: str | None = None) -> DerivedRun:
     """The cloud ingest read model (plan-ingest-derivation.md §1.2, §2.2) —
-    the run header, slim measurement-fact rows, and this run's catalog
+    the run header, slim measurements rows, and this run's catalog
     deltas, computed by TesterKit's own shared projections over `source`.
 
     Same `source`/`file_path` contract as :func:`run_detail`.
@@ -805,9 +805,9 @@ def derive_run(source: pa.Table | str | Path, *, file_path: str | None = None) -
         header_rows = _rows(con, run_header_select(src), RunRow)
         if len(header_rows) != 1:
             raise ValueError(f"expected exactly one run in the source, found {len(header_rows)}")
-        facts = _rows(con, measurement_facts_slim_select(src), MeasurementFactSlimRow)
+        measurements = _rows(con, measurements_slim_select(src), MeasurementSlimRow)
         inputs_src = mp.inputs_projection_select(src)
-        facts_src = mp.measurement_facts_projection_select(src)
+        measurements_src = mp.measurements_projection_select(src)
         catalog = CatalogDelta(
             steps=_rows(con, catalog_steps_select(src), CatalogStepRow),
             series=_rows(con, catalog_series_select(src), CatalogSeriesRow),
@@ -817,10 +817,10 @@ def derive_run(source: pa.Table | str | Path, *, file_path: str | None = None) -
             stations=_rows(con, catalog_stations_select(src), CatalogStationRow),
             fixtures=_rows(con, catalog_fixtures_select(src), CatalogFixtureRow),
             cooccurrence=_rows(
-                con, cooccurrence_select(inputs_src, facts_src), CooccurrencePairRow
+                con, cooccurrence_select(inputs_src, measurements_src), CooccurrencePairRow
             ),
         )
-        return DerivedRun(header=header_rows[0], measurement_facts=facts, catalog=catalog)
+        return DerivedRun(header=header_rows[0], measurements=measurements, catalog=catalog)
     finally:
         con.close()
 
@@ -871,10 +871,10 @@ READ_MODELS: dict[str, ReadModelSpec] = {
         columns=mp.VECTORS_COLUMNS,
         mapping_version="1",
     ),
-    "measurement_facts": ReadModelSpec(
-        name="measurement_facts",
-        builder=mp.measurement_facts_projection_select,
-        columns=mp.MEASUREMENT_FACTS_COLUMNS,
+    "measurements": ReadModelSpec(
+        name="measurements",
+        builder=mp.measurements_projection_select,
+        columns=mp.MEASUREMENTS_COLUMNS,
         mapping_version="1",
     ),
     "inputs": ReadModelSpec(
@@ -889,10 +889,10 @@ READ_MODELS: dict[str, ReadModelSpec] = {
         columns=mp.IO_TABLE_COLUMNS,
         mapping_version="1",
     ),
-    "measurement_facts_slim": ReadModelSpec(
-        name="measurement_facts_slim",
-        builder=measurement_facts_slim_select,
-        columns=MEASUREMENT_FACTS_SLIM_COLUMNS,
+    "measurements_slim": ReadModelSpec(
+        name="measurements_slim",
+        builder=measurements_slim_select,
+        columns=MEASUREMENTS_SLIM_COLUMNS,
         mapping_version="1",
     ),
     "catalog_steps": ReadModelSpec(

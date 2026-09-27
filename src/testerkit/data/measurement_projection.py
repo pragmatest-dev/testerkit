@@ -1,4 +1,4 @@
-"""Shared steps / measurement_facts / IO projection SQL — sibling of
+"""Shared steps / measurements / IO projection SQL — sibling of
 ``run_projection``.
 
 The step-, measurement-, and IO-grain projections that turn measurement-grain
@@ -6,12 +6,12 @@ per-run Parquet into flat rows. ``source_sql`` is any relation exposing the
 measurement-grain columns (e.g. ``read_parquet([...], filename=true, union_by_name=true)``
 — local paths or ``s3://``). Pure SQL builders, no I/O — same discipline as
 ``run_projection``. ``io_projection_select`` (docs/25 #70 stage 1) is the
-inputs/outputs EAV counterpart to ``measurement_facts_projection_select``:
+inputs/outputs EAV counterpart to ``measurements_projection_select``:
 same carrier rows and grain-key expressions, over the ``inputs``/``outputs``
 LIST<STRUCT> IO lists instead of ``measurements``.
 
 **Who uses this (accurately).** The cloud serving tier (`testerkit-server`) imports
-these builders directly, so its ``steps`` / ``measurement_facts`` shape is derived
+these builders directly, so its ``steps`` / ``measurements`` shape is derived
 from testerkit, not a cloud copy. The local runs daemon retains its OWN equivalent
 derivation (``_runs_duckdb_daemon._bulk_insert_steps`` / ``_measurement_unnest_insert``)
 — it is NOT yet rewired to import this module (that would be an additive daemon change,
@@ -23,7 +23,7 @@ its own ``StepsQuery``/``MeasurementsQuery`` tests), so neither can silently div
 from the derived truth. A direct projection==daemon SQL-equality test is the
 defense-in-depth follow-up.
 
-**On ``measurement_facts`` and ``step_name`` (intentional, not a divergence).**
+**On this projection's name and ``step_name`` (intentional, not a divergence).**
 Locally, ``step_name`` lives on the fuller ``measurements`` VIEW (a join of the lean
 fact grain to ``steps``); DuckDB runs that join in-process over one bench's data for
 next to nothing, so the local fact table stays lean and normalized. The cloud serves
@@ -33,7 +33,10 @@ cloud **materializes** the ``measurements``-view shape once at derive time by
 denormalizing ``step_name`` (available directly on the carrier row) onto each fact
 row. Same values as local's ``measurements`` view; the difference is materialize-at-
 derive (cloud, fleet scale) vs join-at-read (local, in-process) — a deliberate,
-engine-driven materialization, single-sourced here.
+engine-driven materialization, single-sourced here. This module's builder is named
+``measurements_projection_select`` (and its columns ``MEASUREMENTS_COLUMNS``) to
+match local's own ``measurements`` view name — not the lean ``measurement_facts``
+view, which this projection's FULL shape does not correspond to.
 
 Mirrors the daemon's ``_bulk_insert_steps`` ``grain`` CTE and
 ``_measurement_unnest_insert`` (``_occurrence_index_expr`` + the UNNEST shape), but
@@ -92,12 +95,12 @@ STEPS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("markers", "STRING"),
 )
 
-# ``measurement_facts`` flat-row columns, in order — MUST match
-# `measurement_facts_projection_select`'s SELECT list order exactly (drift-guarded).
+# ``measurements`` flat-row columns, in order — MUST match
+# `measurements_projection_select`'s SELECT list order exactly (drift-guarded).
 # Denormalized run context + the measurement's own grain key + payload; `step_name`
 # is denormalized (see module docstring — the cloud's fleet-scale materialization of
 # local's `measurements` view).
-MEASUREMENT_FACTS_COLUMNS: tuple[tuple[str, str], ...] = (
+MEASUREMENTS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("run_id", "STRING"),
     ("file_path", "STRING"),
     ("session_id", "STRING"),
@@ -135,7 +138,7 @@ MEASUREMENT_FACTS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("vector_retry", "INTEGER"),
     ("vector_outcome", "STRING"),
     ("ordinal", "INTEGER"),
-    ("occurrence_index", "INTEGER"),
+    ("index", "INTEGER"),
     ("measurement_name", "STRING"),
     ("measurement_value", "FLOAT64"),
     ("measurement_outcome", "STRING"),
@@ -423,7 +426,7 @@ def vectors_projection_select(source_sql: str) -> str:
 #
 # ``inputs``/``outputs`` (IO EAV) flat-row columns, in order — MUST match
 # `io_projection_select`'s SELECT list order exactly (drift-guarded).
-# Denormalized run context (same set as `MEASUREMENT_FACTS_COLUMNS`) + the
+# Denormalized run context (same set as `MEASUREMENTS_COLUMNS`) + the
 # IO entry's carrier grain key + its own ``(role, name, value)`` payload.
 IO_ROW_COLUMNS: tuple[tuple[str, str], ...] = (
     ("run_id", "STRING"),
@@ -502,8 +505,8 @@ def _io_unnest_select(source_sql: str, *, col: str, role: str) -> str:
 
     Grain-key expressions (``step_index``/``step_path``/``step_retry``/
     ``vector_index``/``vector_outer_index``/``vector_retry``) are byte-identical
-    to `measurement_facts_projection_select`'s, so an IO row joins cleanly to
-    its carrier's measurement-fact rows on that key (same discipline the
+    to `measurements_projection_select`'s, so an IO row joins cleanly to
+    its carrier's measurement rows on that key (same discipline the
     daemon's ``_io_insert`` documents for its own ``step_retry``/
     ``vector_retry`` normalization).
     """
@@ -537,7 +540,7 @@ def io_projection_select(source_sql: str) -> str:
     Flat, long/EAV rows over the nested ``inputs``/``outputs`` IO lists — one
     row per IO entry, UNNESTed from step AND vector rows.
 
-    Mirrors `measurement_facts_projection_select`'s shape (denormalized run
+    Mirrors `measurements_projection_select`'s shape (denormalized run
     context, same carrier rows, same grain-key expressions) but over the
     ``inputs``/``outputs`` LIST<STRUCT> columns instead of ``measurements``.
     ``role`` distinguishes an ``inputs`` entry from an ``outputs`` one (a
@@ -640,7 +643,7 @@ def io_table_select(
     repeats of an IO name on one carrier; ``index`` is the materialized
     per-name occurrence ordinal (`_occurrence_index_expr`), symmetric with
     measurements. ``step_retry``/``vector_retry`` are normalized IDENTICALLY
-    to `measurement_facts_projection_select` so an IO row and its carrier's
+    to `measurements_projection_select` so an IO row and its carrier's
     measurement rows land on the same join key: ``step_retry`` → 0-based
     (COALESCE NULL→0), ``vector_retry`` → NULL for a step carrier
     (``vector_index`` NULL at rest), 0-based for a vector carrier.
@@ -698,9 +701,8 @@ def outputs_projection_select(source_sql: str) -> str:
 def _occurrence_index_expr(
     *, run_id: str, name: str, step_index: str, step_path: str, vector_index: str
 ) -> str:
-    """SQL for the materialized ``index``/``occurrence_index`` — a
-    measurement/IO entry's run-wide, per-name, retry-STABLE occurrence
-    ordinal (the ``/explore`` X axis).
+    """SQL for the materialized ``index`` — a measurement/IO entry's run-wide,
+    per-name, retry-STABLE occurrence ordinal (the ``/explore`` X axis).
 
     0-based DENSE_RANK partitioned by (run, name), ordered by execution
     position (step_index, step_path, then the leaf vector_index with NULL —
@@ -722,8 +724,8 @@ def _occurrence_index_expr(
     )
 
 
-def measurement_facts_projection_select(source_sql: str) -> str:
-    """Flat measurement-fact rows (one per measurement occurrence), UNNESTed from
+def measurements_projection_select(source_sql: str) -> str:
+    """Flat measurement rows (one per measurement occurrence), UNNESTed from
     the nested ``measurements`` list on step AND vector rows.
 
     Mirrors `_measurement_unnest_insert` fused with the local FULL `measurements`
@@ -787,7 +789,7 @@ def measurement_facts_projection_select(source_sql: str) -> str:
                 AS vector_retry,
             v.vector_outcome,
             CAST(ord AS BIGINT) - 1 AS ordinal,
-            {index_expr} AS occurrence_index,
+            {index_expr} AS index,
             m.name AS measurement_name,
             m.value AS measurement_value,
             m.outcome AS measurement_outcome,

@@ -1,9 +1,9 @@
-"""Steps / measurement_facts / vectors projection SQL (docs/15 §5.1, §6.2, P1;
+"""Steps / measurements / vectors projection SQL (docs/15 §5.1, §6.2, P1;
 docs/36 P1a).
 
 Three things proven here, no cloud creds, no object storage:
 
-1. Drift guard (docs/15 §4.1 C6): `STEPS_COLUMNS`/`MEASUREMENT_FACTS_COLUMNS`/
+1. Drift guard (docs/15 §4.1 C6): `STEPS_COLUMNS`/`MEASUREMENTS_COLUMNS`/
    `VECTORS_COLUMNS` (the hand-maintained BigQuery schema tuples) must never
    drift from what the projection SQL actually emits — same discipline as
    `test_runs_backend.py::test_projection_columns_match_live_projection`.
@@ -53,11 +53,11 @@ from testerkit.data.events import (
 )
 from testerkit.data.measurement_projection import (
     IO_ROW_COLUMNS,
-    MEASUREMENT_FACTS_COLUMNS,
+    MEASUREMENTS_COLUMNS,
     STEPS_COLUMNS,
     VECTORS_COLUMNS,
     io_projection_select,
-    measurement_facts_projection_select,
+    measurements_projection_select,
     steps_projection_select,
     vectors_projection_select,
 )
@@ -90,17 +90,17 @@ def test_steps_columns_match_projection() -> None:
     )
 
 
-def test_measurement_facts_columns_match_projection() -> None:
+def test_measurements_columns_match_projection() -> None:
     empty = pa.Table.from_pylist([], schema=RUN_ROW_SCHEMA)
     con, source = _source(empty)
     try:
-        rel = con.execute(measurement_facts_projection_select(source))
+        rel = con.execute(measurements_projection_select(source))
         live_columns = tuple(d[0] for d in rel.description)
     finally:
         con.close()
-    assert live_columns == tuple(name for name, _ in MEASUREMENT_FACTS_COLUMNS), (
-        "measurement_projection.MEASUREMENT_FACTS_COLUMNS has drifted from "
-        "measurement_facts_projection_select's actual output columns."
+    assert live_columns == tuple(name for name, _ in MEASUREMENTS_COLUMNS), (
+        "measurement_projection.MEASUREMENTS_COLUMNS has drifted from "
+        "measurements_projection_select's actual output columns."
     )
 
 
@@ -347,11 +347,11 @@ def test_steps_projection_worst_wins_across_swept_variants() -> None:
     assert outcome_by_path["plain"] == "passed"
 
 
-def test_measurement_facts_projection_matches_real_derive_output() -> None:
+def test_measurements_projection_matches_real_derive_output() -> None:
     table, run_id = _build_run_table()
     con, source = _source(table)
     try:
-        rows = con.execute(measurement_facts_projection_select(source)).fetchall()
+        rows = con.execute(measurements_projection_select(source)).fetchall()
         cols = [d[0] for d in con.description]
     finally:
         con.close()
@@ -370,9 +370,9 @@ def test_measurement_facts_projection_matches_real_derive_output() -> None:
     assert fact["uut_part_number"] == "P-1"
 
 
-def test_measurement_facts_occurrence_index_discriminates_repeats() -> None:
+def test_measurements_index_discriminates_repeats() -> None:
     """Two measurements of the SAME name at different execution positions get
-    distinct `occurrence_index` values (the daemon's `_occurrence_index_expr`
+    distinct `index` values (the daemon's `_occurrence_index_expr`
     formula, reproduced verbatim — see module docstring's promotion flag)."""
     session_id = uuid.uuid4()
     run_id = uuid.uuid4()
@@ -455,12 +455,12 @@ def test_measurement_facts_occurrence_index_discriminates_repeats() -> None:
 
     con, source = _source(table)
     try:
-        result = con.execute(measurement_facts_projection_select(source)).fetchall()
+        result = con.execute(measurements_projection_select(source)).fetchall()
         cols = [d[0] for d in con.description]
     finally:
         con.close()
     dicts = sorted((dict(zip(cols, r, strict=True)) for r in result), key=lambda d: d["step_index"])
-    assert [d["occurrence_index"] for d in dicts] == [0, 1]
+    assert [d["index"] for d in dicts] == [0, 1]
     assert [d["measurement_value"] for d in dicts] == [1.0, 2.0]
 
 
@@ -548,7 +548,7 @@ def _build_swept_run_table() -> tuple[pa.Table, str]:
     """One real run with a swept (in-body ``vectors``-loop) step — 2 vectors,
     each with its own measurement — through testerkit's ACTUAL accumulator/
     unified-row pipeline. Also carries git/UUT context so
-    `measurement_facts_projection_select`'s denormalized step_outcome /
+    `measurements_projection_select`'s denormalized step_outcome /
     step_started_at / step_ended_at / vector_outcome / git_* / env columns
     (docs/36 P1a) have something real to assert on."""
     session_id = uuid.uuid4()
@@ -743,8 +743,8 @@ def test_steps_projection_measurement_count_sums_vectors() -> None:
     assert step["outcome"] == "failed"
 
 
-def test_measurement_facts_projection_denormalizes_step_and_vector_outcome() -> None:
-    """docs/36 P1a: `measurement_facts_projection_select` gained
+def test_measurements_projection_denormalizes_step_and_vector_outcome() -> None:
+    """docs/36 P1a: `measurements_projection_select` gained
     `step_outcome`/`step_started_at`/`step_ended_at`/`vector_outcome` (present
     on local's `measurements` view via its steps/vectors joins, absent here
     before this fix) and the git_*/env columns (present on every row —
@@ -753,7 +753,7 @@ def test_measurement_facts_projection_denormalizes_step_and_vector_outcome() -> 
     table, run_id = _build_swept_run_table()
     con, source = _source(table)
     try:
-        rows = con.execute(measurement_facts_projection_select(source)).fetchall()
+        rows = con.execute(measurements_projection_select(source)).fetchall()
         cols = [d[0] for d in con.description]
     finally:
         con.close()

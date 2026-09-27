@@ -325,8 +325,8 @@ _RAW_SOURCE = "(SELECT *, CAST(NULL AS VARCHAR) AS filename FROM run_src)"
     [
         (read_models.run_header_select(_RAW_SOURCE), read_models.RUN_ROW_COLUMNS),
         (
-            read_models.measurement_facts_slim_select(_RAW_SOURCE),
-            read_models.MEASUREMENT_FACTS_SLIM_COLUMNS,
+            read_models.measurements_slim_select(_RAW_SOURCE),
+            read_models.MEASUREMENTS_SLIM_COLUMNS,
         ),
         (read_models.catalog_steps_select(_RAW_SOURCE), read_models.CATALOG_STEP_COLUMNS),
         (read_models.catalog_series_select(_RAW_SOURCE), read_models.CATALOG_SERIES_COLUMNS),
@@ -339,12 +339,12 @@ _RAW_SOURCE = "(SELECT *, CAST(NULL AS VARCHAR) AS filename FROM run_src)"
         (mp.outputs_projection_select(_RAW_SOURCE), mp.IO_TABLE_COLUMNS),
         (
             # cooccurrence_select's two args must already be projected
-            # relations (inputs_projection_select / measurement_facts_projection_select
+            # relations (inputs_projection_select / measurements_projection_select
             # output), never the raw run-shaped source — it joins on
             # `L.name`/`M.measurement_name`, which only exist post-projection.
             read_models.cooccurrence_select(
                 mp.inputs_projection_select(_RAW_SOURCE),
-                mp.measurement_facts_projection_select(_RAW_SOURCE),
+                mp.measurements_projection_select(_RAW_SOURCE),
             ),
             read_models.COOCCURRENCE_COLUMNS,
         ),
@@ -440,15 +440,10 @@ def test_run_detail_measurements_match_local_measurements(scenario: _Scenario) -
 
     for key, local_fact in by_key_local.items():
         cloud_fact = by_key_cloud[key]
-        # local's `measurements` view names this column `index`; cloud's
-        # projection names it `occurrence_index` (module docstring's
-        # documented, intentional rename) — checked explicitly, then
-        # excluded from the generic shared-field diff below.
-        assert local_fact["index"] == cloud_fact["occurrence_index"]
         _assert_shared_fields_equal(
             local_fact,
             cloud_fact,
-            ignore=frozenset({"file_path", "index", "occurrence_index", "inputs", "outputs"}),
+            ignore=frozenset({"file_path", "inputs", "outputs"}),
         )
 
 
@@ -499,14 +494,14 @@ def test_derive_run_header_and_slim_facts(scenario: _Scenario) -> None:
     assert derived.header.part_id == "PART-RM-1"
     assert derived.header.station_id == "STA-RM-1"
 
-    assert len(derived.measurement_facts) == 5
-    slim_names = {name for name, _ in read_models.MEASUREMENT_FACTS_SLIM_COLUMNS}
-    for fact in derived.measurement_facts:
+    assert len(derived.measurements) == 5
+    slim_names = {name for name, _ in read_models.MEASUREMENTS_SLIM_COLUMNS}
+    for fact in derived.measurements:
         assert set(fact.model_dump()) == slim_names
 
     # Both retry attempts' measurement occurrences are distinct rows (each
     # attempt is its own execution) — neither is dropped or fused.
-    retry_facts = [f for f in derived.measurement_facts if f.step_path == RETRY_STEP_PATH]
+    retry_facts = [f for f in derived.measurements if f.step_path == RETRY_STEP_PATH]
     assert len(retry_facts) == 2
     assert sorted(f.step_retry for f in retry_facts if f.step_retry is not None) == [0, 1]
     assert sorted(
@@ -541,9 +536,9 @@ def test_derive_run_catalog_deltas(scenario: _Scenario) -> None:
     assert ("vin", "vout") in cooc_pairs
 
 
-def test_derive_run_measurement_facts_slim_is_column_subset() -> None:
-    slim_names = {name for name, _ in read_models.MEASUREMENT_FACTS_SLIM_COLUMNS}
-    full_names = {name for name, _ in mp.MEASUREMENT_FACTS_COLUMNS}
+def test_derive_run_measurements_slim_is_column_subset() -> None:
+    slim_names = {name for name, _ in read_models.MEASUREMENTS_SLIM_COLUMNS}
+    full_names = {name for name, _ in mp.MEASUREMENTS_COLUMNS}
     assert slim_names <= full_names
     assert "org_id" not in slim_names  # a server-side concern, not in the library tuple
 
