@@ -323,30 +323,32 @@ _RAW_SOURCE = "(SELECT *, CAST(NULL AS VARCHAR) AS filename FROM run_src)"
 @pytest.mark.parametrize(
     ("sql", "columns"),
     [
-        (read_models.run_header_select(_RAW_SOURCE), read_models.RUN_ROW_COLUMNS),
+        (read_models.runs_select(_RAW_SOURCE), read_models.RUNS_COLUMNS),
         (
             read_models.measurements_slim_select(_RAW_SOURCE),
             read_models.MEASUREMENTS_SLIM_COLUMNS,
         ),
-        (read_models.catalog_steps_select(_RAW_SOURCE), read_models.CATALOG_STEP_COLUMNS),
-        (read_models.catalog_series_select(_RAW_SOURCE), read_models.CATALOG_SERIES_COLUMNS),
-        (read_models.catalog_inputs_select(_RAW_SOURCE), read_models.CATALOG_INPUT_COLUMNS),
-        (read_models.catalog_outputs_select(_RAW_SOURCE), read_models.CATALOG_OUTPUT_COLUMNS),
-        (read_models.catalog_parts_select(_RAW_SOURCE), read_models.CATALOG_PART_COLUMNS),
-        (read_models.catalog_stations_select(_RAW_SOURCE), read_models.CATALOG_STATION_COLUMNS),
-        (read_models.catalog_fixtures_select(_RAW_SOURCE), read_models.CATALOG_FIXTURE_COLUMNS),
+        (read_models.steps_catalog_select(_RAW_SOURCE), read_models.STEPS_CATALOG_COLUMNS),
+        (
+            read_models.measurements_catalog_select(_RAW_SOURCE),
+            read_models.MEASUREMENTS_CATALOG_COLUMNS,
+        ),
+        (read_models.inputs_catalog_select(_RAW_SOURCE), read_models.INPUTS_CATALOG_COLUMNS),
+        (read_models.outputs_catalog_select(_RAW_SOURCE), read_models.OUTPUTS_CATALOG_COLUMNS),
+        (read_models.runs_catalog_select(_RAW_SOURCE), read_models.RUNS_CATALOG_COLUMNS),
         (mp.inputs_projection_select(_RAW_SOURCE), mp.IO_TABLE_COLUMNS),
         (mp.outputs_projection_select(_RAW_SOURCE), mp.IO_TABLE_COLUMNS),
         (
-            # cooccurrence_select's two args must already be projected
-            # relations (inputs_projection_select / measurements_projection_select
-            # output), never the raw run-shaped source — it joins on
-            # `L.name`/`M.measurement_name`, which only exist post-projection.
-            read_models.cooccurrence_select(
+            # inputs_measurements_catalog_select's two args must already be
+            # projected relations (inputs_projection_select /
+            # measurements_projection_select output), never the raw
+            # run-shaped source — it joins on `L.name`/`M.measurement_name`,
+            # which only exist post-projection.
+            read_models.inputs_measurements_catalog_select(
                 mp.inputs_projection_select(_RAW_SOURCE),
                 mp.measurements_projection_select(_RAW_SOURCE),
             ),
-            read_models.COOCCURRENCE_COLUMNS,
+            read_models.INPUTS_MEASUREMENTS_CATALOG_COLUMNS,
         ),
     ],
 )
@@ -489,10 +491,10 @@ def test_run_detail_outputs_match_local_outputs_table(scenario: _Scenario) -> No
 
 def test_derive_run_header_and_slim_facts(scenario: _Scenario) -> None:
     derived = read_models.derive_run(scenario.path)
-    assert derived.header.run_id == scenario.run_id
-    assert derived.header.uut_serial_number == "SN-RM-1"
-    assert derived.header.part_id == "PART-RM-1"
-    assert derived.header.station_id == "STA-RM-1"
+    assert derived.run.run_id == scenario.run_id
+    assert derived.run.uut_serial_number == "SN-RM-1"
+    assert derived.run.part_id == "PART-RM-1"
+    assert derived.run.station_id == "STA-RM-1"
 
     assert len(derived.measurements) == 5
     slim_names = {name for name, _ in read_models.MEASUREMENTS_SLIM_COLUMNS}
@@ -519,20 +521,20 @@ def test_derive_run_catalog_deltas(scenario: _Scenario) -> None:
         RETRY_STEP_PATH,
     }
 
-    series_keys = {(s.step_path, s.measurement_name) for s in catalog.series}
-    assert (PLAIN_STEP_PATH, "v_out") in series_keys
-    assert (SWEPT_STEP_PATH, "vout") in series_keys
-    assert (RETRY_STEP_PATH, "offset") in series_keys
+    measurement_keys = {(s.step_path, s.measurement_name) for s in catalog.measurements}
+    assert (PLAIN_STEP_PATH, "v_out") in measurement_keys
+    assert (SWEPT_STEP_PATH, "vout") in measurement_keys
+    assert (RETRY_STEP_PATH, "offset") in measurement_keys
 
     input_names = {row.name for row in catalog.inputs}
     assert input_names == {"vin"}
     assert catalog.outputs == []
 
-    assert {p.part_id for p in catalog.parts} == {"PART-RM-1"}
-    assert {s.station_id for s in catalog.stations} == {"STA-RM-1"}
-    assert {f.fixture_id for f in catalog.fixtures} == {"FIX-RM-1"}
+    assert {r.part_id for r in catalog.runs} == {"PART-RM-1"}
+    assert {r.station_id for r in catalog.runs} == {"STA-RM-1"}
+    assert {r.fixture_id for r in catalog.runs} == {"FIX-RM-1"}
 
-    cooc_pairs = {(p.input_name, p.measurement_name) for p in catalog.cooccurrence}
+    cooc_pairs = {(p.input_name, p.measurement_name) for p in catalog.inputs_measurements}
     assert ("vin", "vout") in cooc_pairs
 
 
@@ -562,25 +564,25 @@ def test_fingerprints_differ_across_models() -> None:
 
 
 def test_fingerprint_changes_when_builder_sql_changes(monkeypatch: pytest.MonkeyPatch) -> None:
-    before = read_models.read_model_fingerprint("catalog_steps")
-    original_spec = read_models.READ_MODELS["catalog_steps"]
+    before = read_models.read_model_fingerprint("steps_catalog")
+    original_spec = read_models.READ_MODELS["steps_catalog"]
     changed_spec = dataclasses.replace(
         original_spec,
         builder=lambda source_sql: "SELECT DISTINCT 'x' AS step_path, 'y' AS step_name",
     )
-    monkeypatch.setitem(read_models.READ_MODELS, "catalog_steps", changed_spec)
+    monkeypatch.setitem(read_models.READ_MODELS, "steps_catalog", changed_spec)
 
-    after = read_models.read_model_fingerprint("catalog_steps")
+    after = read_models.read_model_fingerprint("steps_catalog")
     assert before != after
 
 
 def test_fingerprint_changes_when_columns_change(monkeypatch: pytest.MonkeyPatch) -> None:
-    before = read_models.read_model_fingerprint("catalog_fixtures")
-    original_spec = read_models.READ_MODELS["catalog_fixtures"]
+    before = read_models.read_model_fingerprint("runs_catalog")
+    original_spec = read_models.READ_MODELS["runs_catalog"]
     changed_spec = dataclasses.replace(
         original_spec, columns=(*original_spec.columns, ("extra_col", "STRING"))
     )
-    monkeypatch.setitem(read_models.READ_MODELS, "catalog_fixtures", changed_spec)
+    monkeypatch.setitem(read_models.READ_MODELS, "runs_catalog", changed_spec)
 
-    after = read_models.read_model_fingerprint("catalog_fixtures")
+    after = read_models.read_model_fingerprint("runs_catalog")
     assert before != after

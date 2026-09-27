@@ -35,8 +35,11 @@ network read):
   — the web mapper follow-up is written against `InputRow`/`OutputRow`.
 - :func:`derive_run` — the read-model rows plan-ingest-derivation.md §1.2
   lists for cloud ingest: a run header, slim measurements rows, and the
-  per-run catalog deltas (steps / series / IO names / part / station /
-  fixture / co-occurrence) a derive task unions into its org-wide catalogs.
+  per-run catalog deltas (steps / measurements / inputs / outputs / runs /
+  inputs_measurements co-occurrence) a derive task unions into its org-wide
+  catalogs. Naming follows the docs/44 §1 rule: logical name = local
+  TesterKit's public view name, catalogs suffixed `_catalog` (e.g. `runs`
+  and `runs_catalog`, never `catalog_runs`).
 
 :func:`read_model_fingerprint` extends testerkit-server's own
 ``fingerprints.py`` pattern (SQL text + a manual version constant) with the
@@ -64,7 +67,7 @@ from testerkit.data import run_projection as rp
 from testerkit.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
 
 # --------------------------------------------------------------------------- #
-# Run header                                                                  #
+# runs                                                                        #
 # --------------------------------------------------------------------------- #
 
 # `runs_projection_select`'s own SELECT list order + `DURATION_S_EXPR`
@@ -75,7 +78,7 @@ from testerkit.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
 # so it is defined here, once — drift-guarded against a live query's actual
 # column names in `tests/test_read_models.py` (never hand-duplicated
 # silently).
-RUN_ROW_COLUMNS: tuple[tuple[str, str], ...] = (
+RUNS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("run_id", "STRING"),
     ("file_path", "STRING"),
     ("session_id", "STRING"),
@@ -114,8 +117,8 @@ RUN_ROW_COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 
-def run_header_select(source_sql: str) -> str:
-    """The run-header projection: `runs_projection_select` + `DURATION_S_EXPR`
+def runs_select(source_sql: str) -> str:
+    """The `runs` projection: `runs_projection_select` + `DURATION_S_EXPR`
     (one row per run — `source_sql` is expected to expose exactly one run)."""
     return f"SELECT *, {rp.DURATION_S_EXPR} FROM ({rp.runs_projection_select(source_sql)})"
 
@@ -175,23 +178,25 @@ def measurements_slim_select(source_sql: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Catalog deltas — plan-ingest-derivation.md §1.2. Each is a per-run DISTINCT #
+# Catalogs — plan-ingest-derivation.md §1.2. Each is a per-run DISTINCT       #
 # projection; the cloud derive task set-unions these into org-wide Firestore #
-# catalogs (no counts — monotone set-union, docs/48 §3).                     #
+# catalogs (no counts — monotone set-union, docs/48 §3). Naming: docs/44 §1  #
+# — logical name = local view name, `_catalog` suffix (never `catalog_`      #
+# prefix).                                                                    #
 # --------------------------------------------------------------------------- #
 
-CATALOG_STEP_COLUMNS: tuple[tuple[str, str], ...] = (
+STEPS_CATALOG_COLUMNS: tuple[tuple[str, str], ...] = (
     ("step_path", "STRING"),
     ("step_name", "STRING"),
 )
 
 
-def catalog_steps_select(source_sql: str) -> str:
+def steps_catalog_select(source_sql: str) -> str:
     """Distinct (step_path, step_name) — serves the step catalog / `/tests`."""
     return f"SELECT DISTINCT step_path, step_name FROM ({mp.steps_projection_select(source_sql)})"
 
 
-CATALOG_SERIES_COLUMNS: tuple[tuple[str, str], ...] = (
+MEASUREMENTS_CATALOG_COLUMNS: tuple[tuple[str, str], ...] = (
     ("step_path", "STRING"),
     ("step_name", "STRING"),
     ("measurement_name", "STRING"),
@@ -199,7 +204,7 @@ CATALOG_SERIES_COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 
-def catalog_series_select(source_sql: str) -> str:
+def measurements_catalog_select(source_sql: str) -> str:
     """Distinct (step_path, step_name, measurement_name, measurement_unit) —
     serves `/measurements/series`; `/measurements/names` is a further
     DISTINCT over `measurement_name` on top of this (plan-ingest-derivation.md
@@ -210,13 +215,13 @@ def catalog_series_select(source_sql: str) -> str:
     )
 
 
-CATALOG_INPUT_COLUMNS: tuple[tuple[str, str], ...] = (
+INPUTS_CATALOG_COLUMNS: tuple[tuple[str, str], ...] = (
     ("name", "STRING"),
     ("unit", "STRING"),
 )
 
 
-def catalog_inputs_select(source_sql: str) -> str:
+def inputs_catalog_select(source_sql: str) -> str:
     """Distinct (name, unit) over the ``inputs`` projection — serves
     `/inputs/names`. Mirrors what a local ``DISTINCT name, unit FROM inputs``
     gives (docs/44 §1: no ``role`` column to filter on — the table IS the
@@ -224,69 +229,55 @@ def catalog_inputs_select(source_sql: str) -> str:
     return f"SELECT DISTINCT name, unit FROM ({mp.inputs_projection_select(source_sql)})"
 
 
-CATALOG_OUTPUT_COLUMNS: tuple[tuple[str, str], ...] = (
+OUTPUTS_CATALOG_COLUMNS: tuple[tuple[str, str], ...] = (
     ("name", "STRING"),
     ("unit", "STRING"),
 )
 
 
-def catalog_outputs_select(source_sql: str) -> str:
+def outputs_catalog_select(source_sql: str) -> str:
     """Distinct (name, unit) over the ``outputs`` projection — serves
-    `/outputs/names`. See :func:`catalog_inputs_select`."""
+    `/outputs/names`. See :func:`inputs_catalog_select`."""
     return f"SELECT DISTINCT name, unit FROM ({mp.outputs_projection_select(source_sql)})"
 
 
-CATALOG_PART_COLUMNS: tuple[tuple[str, str], ...] = (
+RUNS_CATALOG_COLUMNS: tuple[tuple[str, str], ...] = (
     ("part_id", "STRING"),
     ("part_name", "STRING"),
     ("part_revision", "STRING"),
-)
-
-
-def catalog_parts_select(source_sql: str) -> str:
-    """Distinct part identity off the raw measurement-grain source (a run's
-    part is constant within its own Parquet, same denormalization
-    `_RUN_CONTEXT_COLUMNS` already assumes)."""
-    return (
-        "SELECT DISTINCT part_id, part_name, part_revision "
-        f"FROM {source_sql} WHERE run_id IS NOT NULL AND part_id IS NOT NULL"
-    )
-
-
-CATALOG_STATION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("station_id", "STRING"),
     ("station_name", "STRING"),
     ("station_type", "STRING"),
     ("station_location", "STRING"),
+    ("fixture_id", "STRING"),
 )
 
 
-def catalog_stations_select(source_sql: str) -> str:
-    """Distinct station identity off the raw measurement-grain source."""
+def runs_catalog_select(source_sql: str) -> str:
+    """Distinct run identity (part + station + fixture) off the raw
+    measurement-grain source (a run's identity columns are constant within
+    its own Parquet, same denormalization `_RUN_CONTEXT_COLUMNS` already
+    assumes). Merges the former separate part/station/fixture catalogs into
+    one `runs_catalog` (docs/44 §1: one catalog per logical view — `runs` —
+    not one per identity column). Excludes only rows where part_id,
+    station_id AND fixture_id are ALL NULL (the union of the three former
+    per-column NULL exclusions, not their intersection: a row missing only
+    part_id still contributes its station/fixture identity)."""
     return (
-        "SELECT DISTINCT station_id, station_name, station_type, station_location "
-        f"FROM {source_sql} WHERE run_id IS NOT NULL AND station_id IS NOT NULL"
+        "SELECT DISTINCT part_id, part_name, part_revision, "
+        "station_id, station_name, station_type, station_location, fixture_id "
+        f"FROM {source_sql} WHERE run_id IS NOT NULL "
+        "AND NOT (part_id IS NULL AND station_id IS NULL AND fixture_id IS NULL)"
     )
 
 
-CATALOG_FIXTURE_COLUMNS: tuple[tuple[str, str], ...] = (("fixture_id", "STRING"),)
-
-
-def catalog_fixtures_select(source_sql: str) -> str:
-    """Distinct fixture identity off the raw measurement-grain source."""
-    return (
-        "SELECT DISTINCT fixture_id "
-        f"FROM {source_sql} WHERE run_id IS NOT NULL AND fixture_id IS NOT NULL"
-    )
-
-
-COOCCURRENCE_COLUMNS: tuple[tuple[str, str], ...] = (
+INPUTS_MEASUREMENTS_CATALOG_COLUMNS: tuple[tuple[str, str], ...] = (
     ("input_name", "STRING"),
     ("measurement_name", "STRING"),
 )
 
 
-def cooccurrence_select(inputs_src: str, measurements_src: str) -> str:
+def inputs_measurements_catalog_select(inputs_src: str, measurements_src: str) -> str:
     """Distinct (input_name, measurement_name) co-occurrence — the join body
     of testerkit-server's ``parametric_service.build_cooccurring_pairs_sql``,
     moved here per plan-ingest-derivation.md §1.2 ("per-run decomposable
@@ -320,7 +311,7 @@ def cooccurrence_select(inputs_src: str, measurements_src: str) -> str:
 
 
 class RunRow(BaseModel):
-    """One row of :data:`RUN_ROW_COLUMNS` (`run_header_select`)."""
+    """One row of :data:`RUNS_COLUMNS` (`runs_select`)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -601,14 +592,14 @@ class MeasurementSlimRow(BaseModel):
     limit_comparator: str | None = None
 
 
-class CatalogStepRow(BaseModel):
+class StepsCatalogRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     step_path: str | None = None
     step_name: str | None = None
 
 
-class CatalogSeriesRow(BaseModel):
+class MeasurementsCatalogRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     step_path: str | None = None
@@ -617,44 +608,38 @@ class CatalogSeriesRow(BaseModel):
     measurement_unit: str | None = None
 
 
-class CatalogInputRow(BaseModel):
+class InputsCatalogRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = None
     unit: str | None = None
 
 
-class CatalogOutputRow(BaseModel):
+class OutputsCatalogRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = None
     unit: str | None = None
 
 
-class CatalogPartRow(BaseModel):
+class RunsCatalogRow(BaseModel):
+    """One row of :data:`RUNS_CATALOG_COLUMNS` (`runs_catalog_select`) — the
+    merged part/station/fixture identity catalog (docs/44 §1: one catalog
+    per logical view)."""
+
     model_config = ConfigDict(extra="forbid")
 
     part_id: str | None = None
     part_name: str | None = None
     part_revision: str | None = None
-
-
-class CatalogStationRow(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
     station_id: str | None = None
     station_name: str | None = None
     station_type: str | None = None
     station_location: str | None = None
-
-
-class CatalogFixtureRow(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
     fixture_id: str | None = None
 
 
-class CooccurrencePairRow(BaseModel):
+class InputsMeasurementsCatalogRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     input_name: str | None = None
@@ -669,14 +654,12 @@ class CatalogDelta(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    steps: list[CatalogStepRow]
-    series: list[CatalogSeriesRow]
-    inputs: list[CatalogInputRow]
-    outputs: list[CatalogOutputRow]
-    parts: list[CatalogPartRow]
-    stations: list[CatalogStationRow]
-    fixtures: list[CatalogFixtureRow]
-    cooccurrence: list[CooccurrencePairRow]
+    steps: list[StepsCatalogRow]
+    measurements: list[MeasurementsCatalogRow]
+    inputs: list[InputsCatalogRow]
+    outputs: list[OutputsCatalogRow]
+    runs: list[RunsCatalogRow]
+    inputs_measurements: list[InputsMeasurementsCatalogRow]
 
 
 class RunDetail(BaseModel):
@@ -706,12 +689,12 @@ class RunDetail(BaseModel):
 
 class DerivedRun(BaseModel):
     """The read-model rows plan-ingest-derivation.md §1.2 lists for cloud
-    ingest: a run header (1 row), slim measurements rows (docs/48 D3),
+    ingest: a run row (1 row), slim measurements rows (docs/48 D3),
     and this run's catalog deltas."""
 
     model_config = ConfigDict(extra="forbid")
 
-    header: RunRow
+    run: RunRow
     measurements: list[MeasurementSlimRow]
     catalog: CatalogDelta
 
@@ -770,7 +753,7 @@ def run_detail(source: pa.Table | str | Path, *, file_path: str | None = None) -
     con = duckdb.connect(":memory:")
     try:
         src = _source_sql(con, table, resolved_file_path)
-        run_rows = _rows(con, run_header_select(src), RunRow)
+        run_rows = _rows(con, runs_select(src), RunRow)
         if len(run_rows) != 1:
             raise ValueError(f"expected exactly one run in the source, found {len(run_rows)}")
         steps = _rows(con, mp.steps_projection_select(src), StepRow)
@@ -802,25 +785,25 @@ def derive_run(source: pa.Table | str | Path, *, file_path: str | None = None) -
     con = duckdb.connect(":memory:")
     try:
         src = _source_sql(con, table, resolved_file_path)
-        header_rows = _rows(con, run_header_select(src), RunRow)
-        if len(header_rows) != 1:
-            raise ValueError(f"expected exactly one run in the source, found {len(header_rows)}")
+        run_rows = _rows(con, runs_select(src), RunRow)
+        if len(run_rows) != 1:
+            raise ValueError(f"expected exactly one run in the source, found {len(run_rows)}")
         measurements = _rows(con, measurements_slim_select(src), MeasurementSlimRow)
         inputs_src = mp.inputs_projection_select(src)
         measurements_src = mp.measurements_projection_select(src)
         catalog = CatalogDelta(
-            steps=_rows(con, catalog_steps_select(src), CatalogStepRow),
-            series=_rows(con, catalog_series_select(src), CatalogSeriesRow),
-            inputs=_rows(con, catalog_inputs_select(src), CatalogInputRow),
-            outputs=_rows(con, catalog_outputs_select(src), CatalogOutputRow),
-            parts=_rows(con, catalog_parts_select(src), CatalogPartRow),
-            stations=_rows(con, catalog_stations_select(src), CatalogStationRow),
-            fixtures=_rows(con, catalog_fixtures_select(src), CatalogFixtureRow),
-            cooccurrence=_rows(
-                con, cooccurrence_select(inputs_src, measurements_src), CooccurrencePairRow
+            steps=_rows(con, steps_catalog_select(src), StepsCatalogRow),
+            measurements=_rows(con, measurements_catalog_select(src), MeasurementsCatalogRow),
+            inputs=_rows(con, inputs_catalog_select(src), InputsCatalogRow),
+            outputs=_rows(con, outputs_catalog_select(src), OutputsCatalogRow),
+            runs=_rows(con, runs_catalog_select(src), RunsCatalogRow),
+            inputs_measurements=_rows(
+                con,
+                inputs_measurements_catalog_select(inputs_src, measurements_src),
+                InputsMeasurementsCatalogRow,
             ),
         )
-        return DerivedRun(header=header_rows[0], measurements=measurements, catalog=catalog)
+        return DerivedRun(run=run_rows[0], measurements=measurements, catalog=catalog)
     finally:
         con.close()
 
@@ -853,10 +836,10 @@ class ReadModelSpec:
 _SOURCE_PLACEHOLDER = "__SOURCE__"
 
 READ_MODELS: dict[str, ReadModelSpec] = {
-    "run_header": ReadModelSpec(
-        name="run_header",
-        builder=run_header_select,
-        columns=RUN_ROW_COLUMNS,
+    "runs": ReadModelSpec(
+        name="runs",
+        builder=runs_select,
+        columns=RUNS_COLUMNS,
         mapping_version="1",
     ),
     "steps": ReadModelSpec(
@@ -895,52 +878,40 @@ READ_MODELS: dict[str, ReadModelSpec] = {
         columns=MEASUREMENTS_SLIM_COLUMNS,
         mapping_version="1",
     ),
-    "catalog_steps": ReadModelSpec(
-        name="catalog_steps",
-        builder=catalog_steps_select,
-        columns=CATALOG_STEP_COLUMNS,
+    "steps_catalog": ReadModelSpec(
+        name="steps_catalog",
+        builder=steps_catalog_select,
+        columns=STEPS_CATALOG_COLUMNS,
         mapping_version="1",
     ),
-    "catalog_series": ReadModelSpec(
-        name="catalog_series",
-        builder=catalog_series_select,
-        columns=CATALOG_SERIES_COLUMNS,
+    "measurements_catalog": ReadModelSpec(
+        name="measurements_catalog",
+        builder=measurements_catalog_select,
+        columns=MEASUREMENTS_CATALOG_COLUMNS,
         mapping_version="1",
     ),
-    "catalog_inputs": ReadModelSpec(
-        name="catalog_inputs",
-        builder=catalog_inputs_select,
-        columns=CATALOG_INPUT_COLUMNS,
+    "inputs_catalog": ReadModelSpec(
+        name="inputs_catalog",
+        builder=inputs_catalog_select,
+        columns=INPUTS_CATALOG_COLUMNS,
         mapping_version="1",
     ),
-    "catalog_outputs": ReadModelSpec(
-        name="catalog_outputs",
-        builder=catalog_outputs_select,
-        columns=CATALOG_OUTPUT_COLUMNS,
+    "outputs_catalog": ReadModelSpec(
+        name="outputs_catalog",
+        builder=outputs_catalog_select,
+        columns=OUTPUTS_CATALOG_COLUMNS,
         mapping_version="1",
     ),
-    "catalog_parts": ReadModelSpec(
-        name="catalog_parts",
-        builder=catalog_parts_select,
-        columns=CATALOG_PART_COLUMNS,
+    "runs_catalog": ReadModelSpec(
+        name="runs_catalog",
+        builder=runs_catalog_select,
+        columns=RUNS_CATALOG_COLUMNS,
         mapping_version="1",
     ),
-    "catalog_stations": ReadModelSpec(
-        name="catalog_stations",
-        builder=catalog_stations_select,
-        columns=CATALOG_STATION_COLUMNS,
-        mapping_version="1",
-    ),
-    "catalog_fixtures": ReadModelSpec(
-        name="catalog_fixtures",
-        builder=catalog_fixtures_select,
-        columns=CATALOG_FIXTURE_COLUMNS,
-        mapping_version="1",
-    ),
-    "catalog_cooccurrence": ReadModelSpec(
-        name="catalog_cooccurrence",
-        builder=cooccurrence_select,
-        columns=COOCCURRENCE_COLUMNS,
+    "inputs_measurements_catalog": ReadModelSpec(
+        name="inputs_measurements_catalog",
+        builder=inputs_measurements_catalog_select,
+        columns=INPUTS_MEASUREMENTS_CATALOG_COLUMNS,
         mapping_version="1",
         builder_arity=2,
     ),
