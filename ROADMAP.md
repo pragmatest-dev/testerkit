@@ -1145,6 +1145,35 @@ characterization) without duplicating limits or mocks. Worth
 rebuilding when there's a real operator-bundle requirement; not
 worth carrying dead model surface in the meantime.
 
+**New driver — run identity for "Latest" (2026-09-26).** Beyond
+execution control, a sequence is what a run *is a run of*. The
+Measurements "Latest" view means: per UUT, the newest run of a given
+sequence within a stage (`test_phase`), and within that run the last
+attempt of each step+vector. Without a sequence identity on runs, the
+cloud collapses per measurement point across all of a serial's runs —
+a patchwork (step 1 from a full run, step 3 from a partial re-run) that
+also can't be bounded by date, so it doesn't scale. Open questions for
+the design:
+
+- **Model:** one definition (a profile already carries config + test
+  selection via `runner.markexpr`/`keyword`/`addopts`, and `extends`
+  gives baselines — a sequence would add only order, `depends_on` and
+  gates), or a sequence entity that references a profile? Profiles are
+  already selected by facets (`test_phase`, `part`), so "orthogonal
+  axes" above may be weaker than it reads.
+- **Run identity:** `(uut_serial, test_phase, sequence)`, plus a
+  revision/fingerprint of the definition — what counts as the "same"
+  test after the definition changes?
+- **Decidable now:** stamp the active profile/sequence name (later its
+  fingerprint) on `RUN_ROW_SCHEMA` rows at write time. It's already
+  captured in run metadata (`build_run_metadata` → `"profile"`) but not
+  persisted on the rows the cloud queries.
+
+Interim (cloud serving, until this lands): "Latest" = newest per
+`(serial, test_phase, step, vector, measurement)` within the queried
+date range — never mixes stages, stays bounded. See testerkit-server
+`docs/46-serving-data-reduction.md`.
+
 ### Runs daemon — record actual row_count in ``_ingested``
 
 Surfaced (twice) by the design review on the runs DuckDB daemon:
