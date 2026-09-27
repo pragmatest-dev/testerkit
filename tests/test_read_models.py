@@ -11,6 +11,12 @@ test_measurements_query_sql.py` use — never a per-test daemon / `tmp_path`
 daemon, per CLAUDE.md's Test Storage Convention) so the LOCAL public Query
 API (`RunsQuery`, `StepsQuery`, `RunStore.get_measurements`) can be compared
 field-by-field against `read_models.run_detail()` over the SAME Parquet file.
+
+`detail.inputs`/`.outputs` are compared against the daemon's OWN ``inputs``/
+``outputs`` tables directly (docs/44 §1 parity — no public Query API wraps
+these tables yet), via the same raw-Flight-query pattern
+`tests/test_data/test_observation_pin.py::_query_eav` uses (never a per-test
+daemon).
 """
 
 from __future__ import annotations
@@ -255,6 +261,29 @@ def scenario() -> _Scenario:
     return _Scenario(run_id=run_id, session_id=session_id, path=path, table=pq.read_table(path))
 
 
+def _query_io_table(table: str, run_id: str) -> list[dict]:
+    """Raw Flight query of the daemon's own ``inputs``/``outputs`` table —
+    same pattern as `test_observation_pin.py::_query_eav` (no public Query
+    API wraps these tables yet)."""
+    from testerkit.data import runs_duckdb_manager
+    from testerkit.data._flight_query import FlightQueryClient
+
+    runs_dir = resolve_data_dir() / "runs"
+    location = runs_duckdb_manager.acquire(runs_dir)
+    client = FlightQueryClient(location, "runs")
+    return client.query(
+        f"""
+        SELECT file_path, run_id, step_index, step_path, step_retry,
+               vector_index, vector_outer_index, vector_retry, ordinal, index,
+               name, value_type, value_int, value_double, value_bool,
+               value_text, value_timestamp, value_json, unit, uut_pin
+        FROM {table}
+        WHERE run_id = '{run_id}'
+        ORDER BY step_index, COALESCE(vector_index, -1), ordinal
+        """
+    )
+
+
 def _assert_shared_fields_equal(
     local: dict[str, Any], cloud: dict[str, Any], *, ignore: frozenset[str] = frozenset()
 ) -> None:
@@ -301,17 +330,20 @@ _RAW_SOURCE = "(SELECT *, CAST(NULL AS VARCHAR) AS filename FROM run_src)"
         ),
         (read_models.catalog_steps_select(_RAW_SOURCE), read_models.CATALOG_STEP_COLUMNS),
         (read_models.catalog_series_select(_RAW_SOURCE), read_models.CATALOG_SERIES_COLUMNS),
-        (read_models.catalog_io_select(_RAW_SOURCE), read_models.CATALOG_IO_COLUMNS),
+        (read_models.catalog_inputs_select(_RAW_SOURCE), read_models.CATALOG_INPUT_COLUMNS),
+        (read_models.catalog_outputs_select(_RAW_SOURCE), read_models.CATALOG_OUTPUT_COLUMNS),
         (read_models.catalog_parts_select(_RAW_SOURCE), read_models.CATALOG_PART_COLUMNS),
         (read_models.catalog_stations_select(_RAW_SOURCE), read_models.CATALOG_STATION_COLUMNS),
         (read_models.catalog_fixtures_select(_RAW_SOURCE), read_models.CATALOG_FIXTURE_COLUMNS),
+        (mp.inputs_projection_select(_RAW_SOURCE), mp.IO_TABLE_COLUMNS),
+        (mp.outputs_projection_select(_RAW_SOURCE), mp.IO_TABLE_COLUMNS),
         (
             # cooccurrence_select's two args must already be projected
-            # relations (io_projection_select / measurement_facts_projection_select
-            # output), never the raw run-shaped source — it joins on `L.role`/
+            # relations (inputs_projection_select / measurement_facts_projection_select
+            # output), never the raw run-shaped source — it joins on
             # `L.name`/`M.measurement_name`, which only exist post-projection.
             read_models.cooccurrence_select(
-                mp.io_projection_select(_RAW_SOURCE),
+                mp.inputs_projection_select(_RAW_SOURCE),
                 mp.measurement_facts_projection_select(_RAW_SOURCE),
             ),
             read_models.COOCCURRENCE_COLUMNS,
@@ -420,12 +452,39 @@ def test_run_detail_measurements_match_local_measurements(scenario: _Scenario) -
         )
 
 
-def test_run_detail_inputs_are_role_input_only(scenario: _Scenario) -> None:
+def test_run_detail_inputs_match_local_inputs_table(scenario: _Scenario) -> None:
+    """`detail.inputs` must equal the LOCAL daemon's own ``inputs`` table rows
+    for this run, byte-for-byte, including ``ordinal``/``index`` (docs/44 §1:
+    no `role` column, no collapsed `value` — the honestly-named shape)."""
     detail = read_models.run_detail(scenario.path)
     assert len(detail.inputs) == 2
-    assert all(row.role == "input" for row in detail.inputs)
     assert {row.name for row in detail.inputs} == {"vin"}
-    assert {row.value for row in detail.inputs} == {3.3, 5.0}
+
+    local_rows = _query_io_table("inputs", scenario.run_id)
+    assert len(local_rows) == len(detail.inputs) == 2
+
+    by_key_local = {(r["step_path"], r["ordinal"]): r for r in local_rows}
+    by_key_cloud = {(r.step_path, r.ordinal): r.model_dump() for r in detail.inputs}
+    assert set(by_key_local) == set(by_key_cloud)
+
+    for key, local_row in by_key_local.items():
+        _assert_shared_fields_equal(local_row, by_key_cloud[key], ignore=frozenset({"file_path"}))
+
+    # The swept step's two inputs get distinct, 0-based ordinals — the
+    # UNNEST-WITH-ORDINALITY position within their own carrier row.
+    swept_inputs = {r["ordinal"] for r in local_rows if r["step_path"] == SWEPT_STEP_PATH}
+    assert swept_inputs == {0}, f"expected ordinal 0 on each swept-step carrier row: {local_rows}"
+    swept_indices = sorted(r["index"] for r in local_rows if r["step_path"] == SWEPT_STEP_PATH)
+    assert swept_indices == [0, 1], f"expected occurrence indices 0, 1: {local_rows}"
+
+
+def test_run_detail_outputs_match_local_outputs_table(scenario: _Scenario) -> None:
+    """`detail.outputs` must equal the LOCAL daemon's own ``outputs`` table
+    rows for this run (no fixture output rows are recorded here, but the
+    shape/emptiness must still agree)."""
+    detail = read_models.run_detail(scenario.path)
+    local_rows = _query_io_table("outputs", scenario.run_id)
+    assert len(local_rows) == len(detail.outputs)
 
 
 # --------------------------------------------------------------------------- #
@@ -470,8 +529,9 @@ def test_derive_run_catalog_deltas(scenario: _Scenario) -> None:
     assert (SWEPT_STEP_PATH, "vout") in series_keys
     assert (RETRY_STEP_PATH, "offset") in series_keys
 
-    input_names = {row.name for row in catalog.io if row.role == "input"}
+    input_names = {row.name for row in catalog.inputs}
     assert input_names == {"vin"}
+    assert catalog.outputs == []
 
     assert {p.part_id for p in catalog.parts} == {"PART-RM-1"}
     assert {s.station_id for s in catalog.stations} == {"STA-RM-1"}

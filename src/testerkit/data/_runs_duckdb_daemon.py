@@ -67,6 +67,13 @@ from testerkit.data._schema_keys import (
 from testerkit.data._sql_helpers import sql_escape as _sql_escape
 from testerkit.data.backends._event_accumulator import EventAccumulator
 from testerkit.data.backends.parquet import materialize_run_to_parquet
+from testerkit.data.measurement_projection import (
+    IO_TABLE_COLUMNS as _IO_PERSISTED_COLUMNS,
+)
+from testerkit.data.measurement_projection import (
+    _occurrence_index_expr,
+    io_table_select,
+)
 from testerkit.data.models import Outcome
 from testerkit.data.run_projection import runs_projection_select
 from testerkit.data.runs_duckdb_manager import RunsDuckDBManager
@@ -809,29 +816,9 @@ _INSTRUMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
 # DDL — the table IS the role). FK coordinates + the IO entry's own fields
 # (``IO_FIELDS`` from _row_helpers, unaliased — splitting the EAV by role
 # renames nothing). Exposed for test_ingestion_drift's per-nested-struct-
-# table uniform rule.
-_IO_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
-    ("file_path", "VARCHAR NOT NULL"),
-    ("run_id", "VARCHAR"),
-    ("step_index", "INTEGER"),
-    ("step_path", "VARCHAR"),
-    ("step_retry", "BIGINT"),
-    ("vector_index", "BIGINT"),
-    ("vector_outer_index", "BIGINT"),
-    ("vector_retry", "BIGINT"),
-    ("ordinal", "BIGINT"),
-    ("index", "BIGINT"),
-    ("name", "VARCHAR NOT NULL"),
-    ("value_type", "VARCHAR"),
-    ("value_int", "BIGINT"),
-    ("value_double", "DOUBLE"),
-    ("value_bool", "BOOLEAN"),
-    ("value_text", "VARCHAR"),
-    ("value_timestamp", "TIMESTAMPTZ"),
-    ("value_json", "VARCHAR"),
-    ("unit", "VARCHAR"),
-    ("uut_pin", "VARCHAR"),
-)
+# table uniform rule. Single-sourced in ``measurement_projection.IO_TABLE_COLUMNS``
+# (imported above as ``_IO_PERSISTED_COLUMNS``) — the cloud read models build
+# the SAME two tables from the SAME tuple, docs/44 §1.
 
 
 # ── Ingest helpers ──────────────────────────────────────────────────
@@ -1033,10 +1020,6 @@ _IO_TABLES: tuple[tuple[str, str], ...] = (
     ("inputs", "inputs"),
     ("outputs", "outputs"),
 )
-_IO_SELECT = (
-    "u.name, u.value_type, u.value_int, u.value_double, u.value_bool, "
-    "u.value_text, u.value_timestamp, u.value_json, u.unit, u.uut_pin"
-)
 
 
 def _io_insert(
@@ -1050,57 +1033,21 @@ def _io_insert(
 ) -> None:
     """INSERT one IO column (``inputs`` or ``outputs``) UNNESTed from ``source``.
 
-    ``source`` is a relation expression (a ``read_parquet(...)`` call). Rows come
-    from ``record_type IN ('step', 'vector')`` — the IO carriers. ``step_path``
-    and ``step_retry`` ride along so the read-time EAV join (see
-    ``_create_views``) can disambiguate two unswept steps sharing a
-    ``step_index`` (resets per parent bucket — see
-    ``_collection_indices.assign_indices``) and two reruns of the same step
-    (``step_retry`` — pytest-rerunfailures). ``ordinal`` (0-based
-    UNNEST-WITH-ORDINALITY position) discriminates repeats of an IO name on
-    one carrier; ``index`` is the materialized per-name occurrence ordinal
-    (see :func:`_occurrence_index_expr`), symmetric with measurements. With
-    ``with_filename`` the context subquery also projects ``filename`` (requires
-    ``source`` to read with ``filename=true``) so a multi-file batch keeps each
-    row's own ``file_path``; single-file callers pass a constant instead.
+    The SELECT itself is ``measurement_projection.io_table_select`` — single-
+    sourced so the cloud read models (``inputs_projection_select``/
+    ``outputs_projection_select``) run literally the same SQL as this table
+    (docs/44 §1 parity); see that function's docstring for the shape/
+    normalization details (``ordinal``, ``index``, ``step_retry``/
+    ``vector_retry`` normalization).
     """
-    prefix = "filename, " if with_filename else ""
-    index_expr = _occurrence_index_expr(
-        run_id="ctx.run_id",
-        name="u.name",
-        step_index="ctx.step_index",
-        step_path="ctx.step_path",
-        vector_index="ctx.vector_index",
+    select_sql = io_table_select(
+        source, col=col, file_path_expr=file_path_expr, with_filename=with_filename
     )
     # ``BY NAME`` (not positional): an UPGRADED on-disk index has the columns
     # added since (``ordinal`` / ``index``) ALTER-appended at the END, so a
     # positional INSERT would misalign them; matching by output-column NAME is
-    # order-independent. ``u.name`` → column ``name``, ``u.value_type`` →
-    # ``value_type``, etc., so ``_IO_SELECT`` aligns by name unchanged.
-    # ``step_retry`` / ``vector_retry`` are normalized IDENTICALLY to
-    # ``_measurement_unnest_insert`` so a measurement and its inputs/outputs
-    # land on the same join key: ``step_retry`` → 0-based (COALESCE NULL→0, as
-    # a direct ``RunParquetRow`` writer may leave it NULL); ``vector_retry`` →
-    # NULL for a step carrier (vector_index NULL at rest), 0-based for a vector
-    # carrier. Without this, the EAV join compares 0-vs-NULL and misses.
-    conn.execute(f"""
-        INSERT INTO {table} BY NAME
-        SELECT
-            {file_path_expr} AS file_path, ctx.run_id, ctx.step_index, ctx.step_path,
-            COALESCE(ctx.step_retry, 0) AS step_retry,
-            ctx.vector_index, ctx.vector_outer_index,
-            CASE WHEN ctx.vector_index IS NOT NULL THEN COALESCE(ctx.vector_retry, 0) END
-                AS vector_retry,
-            CAST(ord AS BIGINT) - 1 AS ordinal,
-            {index_expr} AS index,
-            {_IO_SELECT}
-        FROM (
-            SELECT {prefix}run_id, step_index, step_path, step_retry, vector_index,
-                   vector_outer_index, vector_retry, {col}
-            FROM {source}
-            WHERE record_type IN ('step', 'vector')
-        ) AS ctx, UNNEST(ctx.{col}) WITH ORDINALITY AS t(u, ord)
-    """)
+    # order-independent.
+    conn.execute(f"INSERT INTO {table} BY NAME {select_sql}")
 
 
 # Empty ``MAP(VARCHAR, VARCHAR)`` literal — the constant the ``steps`` /
@@ -1136,26 +1083,6 @@ _MEAS_STRUCT_TO_FACT: tuple[tuple[str, str], ...] = (
     ("instrument_resource", "instrument_resource"),
     ("instrument_channel", "instrument_channel"),
 )
-
-
-def _occurrence_index_expr(
-    *, run_id: str, name: str, step_index: str, step_path: str, vector_index: str
-) -> str:
-    """SQL for the materialized ``index`` — a measurement/IO entry's run-wide,
-    per-name, retry-STABLE occurrence ordinal (the ``/explore`` X axis).
-
-    0-based DENSE_RANK partitioned by (run, name), ordered by execution
-    position (step_index, step_path, then the leaf vector_index with NULL —
-    step-scope — sorting first). Retries are EXCLUDED from the ORDER BY, so the
-    retried attempts of one position share an ``index`` (retry-stability is
-    inherited from the coordinates). Computed ONCE at ingest during the UNNEST
-    — the SQL twin of the former query-time ``DENSE_RANK`` (measurements_query
-    ``_INDEX_EXPR``); the ``ORDER BY`` must stay byte-identical to it for parity.
-    """
-    return (
-        f"CAST(DENSE_RANK() OVER (PARTITION BY {run_id}, {name} "
-        f"ORDER BY {step_index}, {step_path}, COALESCE({vector_index}, -1)) - 1 AS BIGINT)"
-    )
 
 
 def _measurement_unnest_insert(src: str, *, file_path_expr: str) -> str:

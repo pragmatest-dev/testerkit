@@ -412,6 +412,15 @@ def vectors_projection_select(source_sql: str) -> str:
         FROM grain"""
 
 
+# LEGACY (testerkit-server's legacy serving paths still import this shape —
+# kept in place, unchanged, for them): a combined role-tagged EAV relation
+# over BOTH ``inputs``/``outputs``, with a ``role`` column and a collapsed
+# single ``value``/``value_json``. This violates docs/44 §1 ("no EAV rows, no
+# `role` column, no collapsed single `value`") — the honestly-named,
+# two-table replacement is `IO_TABLE_COLUMNS`/`io_table_select`/
+# `inputs_projection_select`/`outputs_projection_select` below. Removed once
+# the server's legacy paths go.
+#
 # ``inputs``/``outputs`` (IO EAV) flat-row columns, in order — MUST match
 # `io_projection_select`'s SELECT list order exactly (drift-guarded).
 # Denormalized run context (same set as `MEASUREMENT_FACTS_COLUMNS`) + the
@@ -520,7 +529,12 @@ def _io_unnest_select(source_sql: str, *, col: str, role: str) -> str:
 
 
 def io_projection_select(source_sql: str) -> str:
-    """Flat, long/EAV rows over the nested ``inputs``/``outputs`` IO lists — one
+    """LEGACY (kept only for testerkit-server's legacy serving paths — see
+    `IO_ROW_COLUMNS`'s docstring; violates docs/44 §1's "no EAV rows, no
+    `role` column, no collapsed single `value`"; removed when those paths go.
+    Prefer `inputs_projection_select`/`outputs_projection_select`).
+
+    Flat, long/EAV rows over the nested ``inputs``/``outputs`` IO lists — one
     row per IO entry, UNNESTed from step AND vector rows.
 
     Mirrors `measurement_facts_projection_select`'s shape (denormalized run
@@ -554,13 +568,157 @@ def io_projection_select(source_sql: str) -> str:
         FROM io_rows"""
 
 
-def _occurrence_index_expr(*, vector_index_expr: str) -> str:
-    """Same formula as the daemon's `_occurrence_index_expr` — 0-based DENSE_RANK of
-    a measurement's occurrence, partitioned by (run_id, name), ordered by execution
-    position. A pure SQL expression (not an engine), single-sourced here."""
+# ── Canonical ``inputs``/``outputs`` table projection (docs/44 §1) ─────────
+#
+# The honestly-named replacement for the LEGACY combined shape above: two
+# separate relations (the table IS the role — no ``role`` column), carrier
+# keys + ``ordinal`` (0-based UNNEST-WITH-ORDINALITY position) + ``index``
+# (per-name occurrence, `_occurrence_index_expr`) + the typed
+# ``value_*``/``unit``/``uut_pin`` fields — byte-identical to what the local
+# runs daemon's ``inputs``/``outputs`` tables hold. Single-sourced: the
+# daemon's ``_io_insert`` composes ``INSERT INTO {table} BY NAME`` around
+# `io_table_select`'s exact SELECT; `inputs_projection_select`/
+# `outputs_projection_select` run the SAME SELECT for the cloud read models.
+
+# Canonical column list for ``inputs``/``outputs`` (both tables share this
+# shape — the table IS the role) — IS `_runs_duckdb_daemon._IO_PERSISTED_COLUMNS`
+# (imported from here, never hand-duplicated). DuckDB SQL types, not this
+# module's usual BigQuery-style STRING/INTEGER tuples: the daemon uses this
+# SAME tuple to generate its ``CREATE TABLE inputs``/``outputs`` DDL, so the
+# type strings must stay DuckDB-valid.
+IO_TABLE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("file_path", "VARCHAR NOT NULL"),
+    ("run_id", "VARCHAR"),
+    ("step_index", "INTEGER"),
+    ("step_path", "VARCHAR"),
+    ("step_retry", "BIGINT"),
+    ("vector_index", "BIGINT"),
+    ("vector_outer_index", "BIGINT"),
+    ("vector_retry", "BIGINT"),
+    ("ordinal", "BIGINT"),
+    ("index", "BIGINT"),
+    ("name", "VARCHAR NOT NULL"),
+    ("value_type", "VARCHAR"),
+    ("value_int", "BIGINT"),
+    ("value_double", "DOUBLE"),
+    ("value_bool", "BOOLEAN"),
+    ("value_text", "VARCHAR"),
+    ("value_timestamp", "TIMESTAMPTZ"),
+    ("value_json", "VARCHAR"),
+    ("unit", "VARCHAR"),
+    ("uut_pin", "VARCHAR"),
+)
+
+# The IO entry's own typed fields, unaliased, read off the UNNESTed struct
+# alias ``u`` — the tail of `io_table_select`'s SELECT list.
+_IO_TABLE_SELECT = (
+    "u.name, u.value_type, u.value_int, u.value_double, u.value_bool, "
+    "u.value_text, u.value_timestamp, u.value_json, u.unit, u.uut_pin"
+)
+
+
+def io_table_select(
+    source_sql: str,
+    *,
+    col: str,
+    file_path_expr: str,
+    with_filename: bool = False,
+) -> str:
+    """The exact SELECT the ``inputs``/``outputs`` tables are built from.
+
+    ``source_sql`` is a relation exposing the measurement-grain columns
+    (local: a ``read_parquet(...)`` relation; cloud: one run's in-memory
+    Arrow table wrapped the same way). ``col`` picks which nested IO list to
+    UNNEST (``inputs`` or ``outputs`` — the caller also picks the matching
+    destination table name locally). Rows come from
+    ``record_type IN ('step', 'vector')`` — the IO carriers.
+
+    ``step_path`` and ``step_retry`` ride along so a read-time EAV join can
+    disambiguate two unswept steps sharing a ``step_index`` (resets per
+    parent bucket) and two reruns of the same step (pytest-rerunfailures).
+    ``ordinal`` (0-based UNNEST-WITH-ORDINALITY position) discriminates
+    repeats of an IO name on one carrier; ``index`` is the materialized
+    per-name occurrence ordinal (`_occurrence_index_expr`), symmetric with
+    measurements. ``step_retry``/``vector_retry`` are normalized IDENTICALLY
+    to `measurement_facts_projection_select` so an IO row and its carrier's
+    measurement rows land on the same join key: ``step_retry`` → 0-based
+    (COALESCE NULL→0), ``vector_retry`` → NULL for a step carrier
+    (``vector_index`` NULL at rest), 0-based for a vector carrier.
+
+    ``file_path_expr`` is the SQL expression stamped as ``file_path`` — a
+    string literal for a single-file source, or a real ``filename`` column
+    (pass ``with_filename=True`` so the inner subquery projects it) for a
+    multi-file batch read / an already-filename-bearing relation.
+    """
+    prefix = "filename, " if with_filename else ""
+    index_expr = _occurrence_index_expr(
+        run_id="ctx.run_id",
+        name="u.name",
+        step_index="ctx.step_index",
+        step_path="ctx.step_path",
+        vector_index="ctx.vector_index",
+    )
+    return f"""
+        SELECT
+            {file_path_expr} AS file_path, ctx.run_id, ctx.step_index, ctx.step_path,
+            COALESCE(ctx.step_retry, 0) AS step_retry,
+            ctx.vector_index, ctx.vector_outer_index,
+            CASE WHEN ctx.vector_index IS NOT NULL THEN COALESCE(ctx.vector_retry, 0) END
+                AS vector_retry,
+            CAST(ord AS BIGINT) - 1 AS ordinal,
+            {index_expr} AS index,
+            {_IO_TABLE_SELECT}
+        FROM (
+            SELECT {prefix}run_id, step_index, step_path, step_retry, vector_index,
+                   vector_outer_index, vector_retry, {col}
+            FROM {source_sql}
+            WHERE record_type IN ('step', 'vector')
+        ) AS ctx, UNNEST(ctx.{col}) WITH ORDINALITY AS t(u, ord)"""
+
+
+def inputs_projection_select(source_sql: str) -> str:
+    """One row per ``inputs`` entry, byte-identical to the local daemon's
+    ``inputs`` table (docs/44 §1) — the honestly-named replacement for
+    `io_projection_select`'s role-filtered legacy shape. ``source_sql`` is
+    expected to expose a ``filename`` column (this module's usual
+    ``source_sql`` contract), stamped through as ``file_path``."""
+    return io_table_select(
+        source_sql, col="inputs", file_path_expr="ctx.filename", with_filename=True
+    )
+
+
+def outputs_projection_select(source_sql: str) -> str:
+    """One row per ``outputs`` entry, byte-identical to the local daemon's
+    ``outputs`` table (docs/44 §1). See :func:`inputs_projection_select`."""
+    return io_table_select(
+        source_sql, col="outputs", file_path_expr="ctx.filename", with_filename=True
+    )
+
+
+def _occurrence_index_expr(
+    *, run_id: str, name: str, step_index: str, step_path: str, vector_index: str
+) -> str:
+    """SQL for the materialized ``index``/``occurrence_index`` — a
+    measurement/IO entry's run-wide, per-name, retry-STABLE occurrence
+    ordinal (the ``/explore`` X axis).
+
+    0-based DENSE_RANK partitioned by (run, name), ordered by execution
+    position (step_index, step_path, then the leaf vector_index with NULL —
+    step-scope — sorting first). Retries are EXCLUDED from the ORDER BY, so
+    the retried attempts of one position share an occurrence index
+    (retry-stability is inherited from the coordinates).
+
+    Single-sourced (merged here, docs/44 §1): the local runs daemon's
+    ``measurements_materialized``/``inputs``/``outputs`` tables compute this
+    SAME expression at ingest (formerly a daemon-private duplicate of this
+    formula — the daemon now imports this function); the projections below
+    compute it at derive time for the cloud. The ``ORDER BY`` must stay
+    byte-identical across every caller for parity — see
+    ``tests/test_measurements_query/test_index_derivation.py``.
+    """
     return (
-        "CAST(DENSE_RANK() OVER (PARTITION BY v.run_id, m.name "
-        f"ORDER BY v.step_index, v.step_path, COALESCE({vector_index_expr}, -1)) - 1 AS BIGINT)"
+        f"CAST(DENSE_RANK() OVER (PARTITION BY {run_id}, {name} "
+        f"ORDER BY {step_index}, {step_path}, COALESCE({vector_index}, -1)) - 1 AS BIGINT)"
     )
 
 
@@ -593,7 +751,13 @@ def measurement_facts_projection_select(source_sql: str) -> str:
     (whose ``.outcome`` is that same persisted collapse).
     """
     proj_vi = "CASE WHEN v.record_type = 'vector' THEN v.vector_index END"
-    index_expr = _occurrence_index_expr(vector_index_expr=proj_vi)
+    index_expr = _occurrence_index_expr(
+        run_id="v.run_id",
+        name="m.name",
+        step_index="v.step_index",
+        step_path="v.step_path",
+        vector_index=proj_vi,
+    )
     ctx_v = ",\n            ".join(f"v.{c}" for c in _RUN_CONTEXT_COLUMNS)
     return f"""
         WITH step_outcomes AS (

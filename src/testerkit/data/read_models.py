@@ -27,10 +27,12 @@ network read):
 
 - :func:`run_detail` — the row shapes plan-serving-cutover.md §2 designs for
   the cloud's ``GET /runs/{run_id}/detail`` reader: one run row plus every
-  step / vector / measurement-fact / input row, in TesterKit's own column
-  order so the web's existing mappers (``mapRow``/``mapStepRow``/
-  ``mapVectorRow``/``mapMeasurement``/``mapLaneRow`` in
-  ``web/lib/server-data.ts``) keep working unchanged.
+  step / vector / measurement-fact / input / output row, in TesterKit's own
+  column order so the web's existing mappers (``mapRow``/``mapStepRow``/
+  ``mapVectorRow``/``mapMeasurement`` in ``web/lib/server-data.ts``) keep
+  working unchanged. ``inputs``/``outputs`` are docs/44 §1's honestly-named,
+  two-table shape (not the former single ``mapLaneRow``-shaped ``io`` field)
+  — the web mapper follow-up is written against `InputRow`/`OutputRow`.
 - :func:`derive_run` — the read-model rows plan-ingest-derivation.md §1.2
   lists for cloud ingest: a run header, slim measurement-fact rows, and the
   per-run catalog deltas (steps / series / IO names / part / station /
@@ -208,19 +210,30 @@ def catalog_series_select(source_sql: str) -> str:
     )
 
 
-CATALOG_IO_COLUMNS: tuple[tuple[str, str], ...] = (
-    ("role", "STRING"),
+CATALOG_INPUT_COLUMNS: tuple[tuple[str, str], ...] = (
     ("name", "STRING"),
     ("unit", "STRING"),
 )
 
 
-def catalog_io_select(source_sql: str) -> str:
-    """Distinct (role, name, unit) over BOTH IO roles — serves `/inputs/names`
-    (role='input') and its `/outputs` counterpart from one catalog, matching
-    plan-ingest-derivation.md §1.2's `cat_inputs` builder (unfiltered by
-    role; the endpoint filters at read time)."""
-    return f"SELECT DISTINCT role, name, unit FROM ({mp.io_projection_select(source_sql)})"
+def catalog_inputs_select(source_sql: str) -> str:
+    """Distinct (name, unit) over the ``inputs`` projection — serves
+    `/inputs/names`. Mirrors what a local ``DISTINCT name, unit FROM inputs``
+    gives (docs/44 §1: no ``role`` column to filter on — the table IS the
+    role)."""
+    return f"SELECT DISTINCT name, unit FROM ({mp.inputs_projection_select(source_sql)})"
+
+
+CATALOG_OUTPUT_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("name", "STRING"),
+    ("unit", "STRING"),
+)
+
+
+def catalog_outputs_select(source_sql: str) -> str:
+    """Distinct (name, unit) over the ``outputs`` projection — serves
+    `/outputs/names`. See :func:`catalog_inputs_select`."""
+    return f"SELECT DISTINCT name, unit FROM ({mp.outputs_projection_select(source_sql)})"
 
 
 CATALOG_PART_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -273,26 +286,28 @@ COOCCURRENCE_COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 
-def cooccurrence_select(io_src: str, facts_src: str) -> str:
+def cooccurrence_select(inputs_src: str, facts_src: str) -> str:
     """Distinct (input_name, measurement_name) co-occurrence — the join body
     of testerkit-server's ``parametric_service.build_cooccurring_pairs_sql``,
     moved here per plan-ingest-derivation.md §1.2 ("per-run decomposable
     because the join key includes run_id, so the org-wide DISTINCT equals
     the union of the per-run DISTINCTs"). Same join predicate as that
     function: `(run_id, step_path, step_retry, COALESCE(vector_index, -1),
-    COALESCE(vector_outer_index, -1))`, `L.role = 'input'`, no value filters
-    ("missing is valid" — co-occurrence answers "did they ever share a
-    carrier row", not "did they both have a value")."""
+    COALESCE(vector_outer_index, -1))`, no value filters ("missing is valid"
+    — co-occurrence answers "did they ever share a carrier row", not "did
+    they both have a value"). ``inputs_src`` is expected to already be the
+    INPUTS projection (`measurement_projection.inputs_projection_select`'s
+    output) — no ``role`` column/filter needed, docs/44 §1: the source IS
+    inputs."""
     return f"""
         SELECT DISTINCT L.name AS input_name, M.measurement_name AS measurement_name
-        FROM ({io_src}) AS L
+        FROM ({inputs_src}) AS L
         JOIN ({facts_src}) AS M
             ON L.run_id = M.run_id
            AND L.step_path = M.step_path
            AND L.step_retry = M.step_retry
            AND COALESCE(L.vector_index, -1) = COALESCE(M.vector_index, -1)
-           AND COALESCE(L.vector_outer_index, -1) = COALESCE(M.vector_outer_index, -1)
-        WHERE L.role = 'input'"""
+           AND COALESCE(L.vector_outer_index, -1) = COALESCE(M.vector_outer_index, -1)"""
 
 
 # --------------------------------------------------------------------------- #
@@ -497,47 +512,61 @@ class MeasurementFactRow(BaseModel):
     env_fingerprint: str | None = None
 
 
-class IORow(BaseModel):
-    """One row of `measurement_projection.IO_ROW_COLUMNS`."""
+class InputRow(BaseModel):
+    """One row of `measurement_projection.IO_TABLE_COLUMNS` (the local
+    ``inputs`` table's own shape — docs/44 §1: no ``role`` column, carrier
+    keys + ``ordinal``/``index``/typed ``value_*``/``unit``/``uut_pin``)."""
 
     model_config = ConfigDict(extra="forbid")
 
     run_id: str
     file_path: str | None = None
-    session_id: str | None = None
-    site_index: int | None = None
-    site_name: str | None = None
-    uut_serial_number: str | None = None
-    uut_part_number: str | None = None
-    uut_revision: str | None = None
-    uut_lot_number: str | None = None
-    station_id: str | None = None
-    station_name: str | None = None
-    station_hostname: str | None = None
-    fixture_id: str | None = None
-    test_phase: str | None = None
-    part_id: str | None = None
-    part_name: str | None = None
-    part_revision: str | None = None
-    station_type: str | None = None
-    station_location: str | None = None
-    operator_id: str | None = None
-    operator_name: str | None = None
-    project_name: str | None = None
-    run_started_at: datetime | None = None
-    run_ended_at: datetime | None = None
-    run_outcome: str | None = None
     step_index: int | None = None
     step_path: str | None = None
     step_retry: int | None = None
     vector_index: int | None = None
     vector_outer_index: int | None = None
     vector_retry: int | None = None
-    role: str | None = None
+    ordinal: int | None = None
+    index: int | None = None
     name: str | None = None
+    value_type: str | None = None
+    value_int: int | None = None
+    value_double: float | None = None
+    value_bool: bool | None = None
+    value_text: str | None = None
+    value_timestamp: datetime | None = None
     value_json: str | None = None
-    value: float | None = None
     unit: str | None = None
+    uut_pin: str | None = None
+
+
+class OutputRow(BaseModel):
+    """One row of `measurement_projection.IO_TABLE_COLUMNS` (the local
+    ``outputs`` table's own shape). See :class:`InputRow`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    file_path: str | None = None
+    step_index: int | None = None
+    step_path: str | None = None
+    step_retry: int | None = None
+    vector_index: int | None = None
+    vector_outer_index: int | None = None
+    vector_retry: int | None = None
+    ordinal: int | None = None
+    index: int | None = None
+    name: str | None = None
+    value_type: str | None = None
+    value_int: int | None = None
+    value_double: float | None = None
+    value_bool: bool | None = None
+    value_text: str | None = None
+    value_timestamp: datetime | None = None
+    value_json: str | None = None
+    unit: str | None = None
+    uut_pin: str | None = None
 
 
 class MeasurementFactSlimRow(BaseModel):
@@ -588,10 +617,16 @@ class CatalogSeriesRow(BaseModel):
     measurement_unit: str | None = None
 
 
-class CatalogIORow(BaseModel):
+class CatalogInputRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    role: str | None = None
+    name: str | None = None
+    unit: str | None = None
+
+
+class CatalogOutputRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = None
     unit: str | None = None
 
@@ -636,7 +671,8 @@ class CatalogDelta(BaseModel):
 
     steps: list[CatalogStepRow]
     series: list[CatalogSeriesRow]
-    io: list[CatalogIORow]
+    inputs: list[CatalogInputRow]
+    outputs: list[CatalogOutputRow]
     parts: list[CatalogPartRow]
     stations: list[CatalogStationRow]
     fixtures: list[CatalogFixtureRow]
@@ -651,10 +687,12 @@ class RunDetail(BaseModel):
     calling :func:`run_detail`, not something derivable from the Parquet
     bytes alone.
 
-    ``inputs`` mirrors the plan's own field exactly: `io_projection_select`
-    filtered to ``role='input'`` (matches today's `/inputs?run_id=&role=input`
-    — the only IO role the run page fetches via `fetchRunLanes`, per
-    plan-serving-cutover.md §2.1's "not `lanes`" naming note)."""
+    ``inputs``/``outputs`` mirror LOCAL TesterKit's own ``inputs``/``outputs``
+    tables exactly (docs/44 §1: no EAV rows, no ``role`` column, no collapsed
+    single ``value``, no ``lanes`` — ``ordinal``/``index``/``uut_pin`` all
+    present), via `measurement_projection.inputs_projection_select`/
+    `outputs_projection_select` — not the legacy, role-filtered
+    `io_projection_select` shape this field used to be built from."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -662,7 +700,8 @@ class RunDetail(BaseModel):
     steps: list[StepRow]
     vectors: list[VectorRow]
     measurements: list[MeasurementFactRow]
-    inputs: list[IORow]
+    inputs: list[InputRow]
+    outputs: list[OutputRow]
 
 
 class DerivedRun(BaseModel):
@@ -737,14 +776,15 @@ def run_detail(source: pa.Table | str | Path, *, file_path: str | None = None) -
         steps = _rows(con, mp.steps_projection_select(src), StepRow)
         vectors = _rows(con, mp.vectors_projection_select(src), VectorRow)
         measurements = _rows(con, mp.measurement_facts_projection_select(src), MeasurementFactRow)
-        inputs_sql = f"SELECT * FROM ({mp.io_projection_select(src)}) WHERE role = 'input'"
-        inputs = _rows(con, inputs_sql, IORow)
+        inputs = _rows(con, mp.inputs_projection_select(src), InputRow)
+        outputs = _rows(con, mp.outputs_projection_select(src), OutputRow)
         return RunDetail(
             run=run_rows[0],
             steps=steps,
             vectors=vectors,
             measurements=measurements,
             inputs=inputs,
+            outputs=outputs,
         )
     finally:
         con.close()
@@ -766,16 +806,19 @@ def derive_run(source: pa.Table | str | Path, *, file_path: str | None = None) -
         if len(header_rows) != 1:
             raise ValueError(f"expected exactly one run in the source, found {len(header_rows)}")
         facts = _rows(con, measurement_facts_slim_select(src), MeasurementFactSlimRow)
-        io_src = mp.io_projection_select(src)
+        inputs_src = mp.inputs_projection_select(src)
         facts_src = mp.measurement_facts_projection_select(src)
         catalog = CatalogDelta(
             steps=_rows(con, catalog_steps_select(src), CatalogStepRow),
             series=_rows(con, catalog_series_select(src), CatalogSeriesRow),
-            io=_rows(con, catalog_io_select(src), CatalogIORow),
+            inputs=_rows(con, catalog_inputs_select(src), CatalogInputRow),
+            outputs=_rows(con, catalog_outputs_select(src), CatalogOutputRow),
             parts=_rows(con, catalog_parts_select(src), CatalogPartRow),
             stations=_rows(con, catalog_stations_select(src), CatalogStationRow),
             fixtures=_rows(con, catalog_fixtures_select(src), CatalogFixtureRow),
-            cooccurrence=_rows(con, cooccurrence_select(io_src, facts_src), CooccurrencePairRow),
+            cooccurrence=_rows(
+                con, cooccurrence_select(inputs_src, facts_src), CooccurrencePairRow
+            ),
         )
         return DerivedRun(header=header_rows[0], measurement_facts=facts, catalog=catalog)
     finally:
@@ -834,10 +877,16 @@ READ_MODELS: dict[str, ReadModelSpec] = {
         columns=mp.MEASUREMENT_FACTS_COLUMNS,
         mapping_version="1",
     ),
-    "io": ReadModelSpec(
-        name="io",
-        builder=mp.io_projection_select,
-        columns=mp.IO_ROW_COLUMNS,
+    "inputs": ReadModelSpec(
+        name="inputs",
+        builder=mp.inputs_projection_select,
+        columns=mp.IO_TABLE_COLUMNS,
+        mapping_version="1",
+    ),
+    "outputs": ReadModelSpec(
+        name="outputs",
+        builder=mp.outputs_projection_select,
+        columns=mp.IO_TABLE_COLUMNS,
         mapping_version="1",
     ),
     "measurement_facts_slim": ReadModelSpec(
@@ -858,10 +907,16 @@ READ_MODELS: dict[str, ReadModelSpec] = {
         columns=CATALOG_SERIES_COLUMNS,
         mapping_version="1",
     ),
-    "catalog_io": ReadModelSpec(
-        name="catalog_io",
-        builder=catalog_io_select,
-        columns=CATALOG_IO_COLUMNS,
+    "catalog_inputs": ReadModelSpec(
+        name="catalog_inputs",
+        builder=catalog_inputs_select,
+        columns=CATALOG_INPUT_COLUMNS,
+        mapping_version="1",
+    ),
+    "catalog_outputs": ReadModelSpec(
+        name="catalog_outputs",
+        builder=catalog_outputs_select,
+        columns=CATALOG_OUTPUT_COLUMNS,
         mapping_version="1",
     ),
     "catalog_parts": ReadModelSpec(
