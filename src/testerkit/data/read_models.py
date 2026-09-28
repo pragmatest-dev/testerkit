@@ -164,6 +164,8 @@ _RUNS_SLIM_NAMES: tuple[str, ...] = (
     "started_at",
     "ended_at",
     "test_phase",
+    "uut_part_number",
+    "station_hostname",
     "part_id",
     "station_id",
     "fixture_id",
@@ -205,6 +207,8 @@ _MEASUREMENTS_SLIM_NAMES: tuple[str, ...] = (
     "run_started_at",
     "run_outcome",
     "uut_serial_number",
+    "uut_part_number",
+    "station_hostname",
     "part_id",
     "station_id",
     "fixture_id",
@@ -357,6 +361,8 @@ _STEPS_SLIM_NAMES: tuple[str, ...] = (
     "run_id",
     "uut_serial_number",
     "test_phase",
+    "uut_part_number",
+    "station_hostname",
     "part_id",
     "station_id",
     "fixture_id",
@@ -585,6 +591,8 @@ class RunSlimRow(BaseModel):
     started_at: datetime | None = None
     ended_at: datetime | None = None
     test_phase: str | None = None
+    uut_part_number: str | None = None
+    station_hostname: str | None = None
     part_id: str | None = None
     station_id: str | None = None
     fixture_id: str | None = None
@@ -640,6 +648,8 @@ class StepSlimRow(BaseModel):
     run_id: str
     uut_serial_number: str | None = None
     test_phase: str | None = None
+    uut_part_number: str | None = None
+    station_hostname: str | None = None
     part_id: str | None = None
     station_id: str | None = None
     fixture_id: str | None = None
@@ -854,6 +864,8 @@ class MeasurementSlimRow(BaseModel):
     run_started_at: datetime | None = None
     run_outcome: str | None = None
     uut_serial_number: str | None = None
+    uut_part_number: str | None = None
+    station_hostname: str | None = None
     part_id: str | None = None
     station_id: str | None = None
     fixture_id: str | None = None
