@@ -225,6 +225,7 @@ _MEASUREMENTS_SLIM_NAMES: tuple[str, ...] = (
     "measurement_value",
     "measurement_outcome",
     "measurement_unit",
+    "measurement_timestamp",
     "limit_low",
     "limit_high",
     "limit_nominal",
@@ -882,6 +883,7 @@ class MeasurementSlimRow(BaseModel):
     measurement_value: float | None = None
     measurement_outcome: str | None = None
     measurement_unit: str | None = None
+    measurement_timestamp: datetime | None = None
     limit_low: float | None = None
     limit_high: float | None = None
     limit_nominal: float | None = None
