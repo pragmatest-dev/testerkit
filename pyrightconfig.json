@@ -3,5 +3,6 @@
   "venv": ".venv",
   "include": ["src/testerkit", "tests", "scripts"],
   "exclude": ["examples"],
+  "extraPaths": ["scripts"],
   "reportMissingImports": true
 }
