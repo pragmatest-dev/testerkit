@@ -133,6 +133,63 @@ def runs_select(source_sql: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# runs (slim) — docs/48 D19                                                   #
+# --------------------------------------------------------------------------- #
+
+# Exactly the columns yield (all runs, first/final pass, DPPM), retest and
+# trend group or filter by — derived from BOTH `testerkit_server.metrics_
+# service`'s SQL (`build_yield_sql`'s `runs` CTE: `run_id, uut_serial_number,
+# run_outcome, run_started_at, run_ended_at`, plus its `_common_filters`
+# columns `test_phase`/date-window; `build_retest_sql`'s `serial_counts`
+# groups by `uut_serial_number` under the same part/station/phase/period
+# filters; `build_trend_sql` groups by `DATE(run_started_at)` and
+# `run_outcome`) AND `testerkit-server-bench/bench/target.py`'s
+# `build_runs_ctas_sql` (the physical shape already benched under docs/48
+# D19: `run_id, run_started_at, run_ended_at, outcome, uut_serial_number,
+# part_id, station_id, fixture_id, test_phase` — CLUSTER BY `org_id, part_id,
+# station_id, test_phase`). The bench's filter columns are `part_id`/
+# `station_id` (the catalog identifiers docs/44 §1's Firestore menus already
+# use), NOT `metrics_service`'s current `uut_part_number`/`station_hostname`
+# — flagged in this task's report for track C, which must switch its filter
+# columns when it moves off `run_rows`/`measurements` onto this table; not
+# resolved here (no `metrics_service.py` change is in this track's scope).
+# Named `outcome`/`started_at`/`ended_at` (not the bench's `run_outcome`/
+# `run_started_at`/`run_ended_at`) per docs/44 §1's naming rule: logical
+# name = local TesterKit's `runs` view's own column names (already the
+# case for every other column here, and for `RUNS_COLUMNS` itself).
+_RUNS_SLIM_NAMES: tuple[str, ...] = (
+    "run_id",
+    "uut_serial_number",
+    "outcome",
+    "started_at",
+    "ended_at",
+    "test_phase",
+    "part_id",
+    "station_id",
+    "fixture_id",
+)
+_RUNS_TYPES: dict[str, str] = dict(RUNS_COLUMNS)
+assert set(_RUNS_SLIM_NAMES) <= set(_RUNS_TYPES), (
+    "runs_slim must stay a column subset of RUNS_COLUMNS"
+)
+
+RUNS_SLIM_COLUMNS: tuple[tuple[str, str], ...] = tuple(
+    (name, _RUNS_TYPES[name]) for name in _RUNS_SLIM_NAMES
+)
+
+
+def runs_slim_select(source_sql: str) -> str:
+    """Column subset of `runs_select` — docs/48 D19 (drops every column not
+    grouped or filtered by yield/retest/trend; env, station/part naming
+    detail, git/environment traceability, and `duration_s` all stay on the
+    full `runs` header / `run_rows`, recomputed at read time from
+    `started_at`/`ended_at` the same way `metrics_service.py` and the bench
+    already do)."""
+    cols = ", ".join(_RUNS_SLIM_NAMES)
+    return f"SELECT {cols} FROM ({runs_select(source_sql)})"
+
+
+# --------------------------------------------------------------------------- #
 # measurements (slim) — docs/48 D3                                           #
 # --------------------------------------------------------------------------- #
 
@@ -265,6 +322,80 @@ def measurements_slim_select(source_sql: str) -> str:
            AND io.step_retry = ms.step_retry
            AND io.vector_index IS NOT DISTINCT FROM ms.vector_index
            AND io.vector_outer_index IS NOT DISTINCT FROM ms.vector_outer_index"""
+
+
+# --------------------------------------------------------------------------- #
+# steps (slim) — docs/48 D19                                                  #
+# --------------------------------------------------------------------------- #
+
+# Exactly what time loss and RTY need, WITHOUT a steps⋈runs join (coordinator
+# correction, docs/44 §1's Google citation: "use nested and repeated fields…
+# instead of repeatedly joining" — the same precedence `measurements_
+# projection_select` already applies by denormalizing run context onto every
+# measurement row rather than joining at read time). Derived from BOTH
+# `metrics_service.build_yield_sql`'s RTY `step_agg` CTE (`s.step_path,
+# s.outcome`, `JOIN runs USING (run_id)`, `WHERE step_path IS NOT NULL AND
+# outcome IS NOT NULL`, `GROUP BY step_path` — the join this table replaces
+# by carrying the run's own filter/group columns denormalized on every step
+# row) AND the bench's `step_time_src`/`time_loss` CTE in
+# `build_metrics_bundle_sql`'s "slim" grain (`run_id, outcome, started_at,
+# ended_at`, summing `TIMESTAMP_DIFF(ended_at, started_at)` where `outcome IN
+# ('failed', 'errored')`).
+#
+# `step_retry` is included: RTY's pooled first-pass-yield formula needs each
+# step's FIRST attempt only (`step_retry = 0`) — a retried step's later
+# attempts must be filterable out at query time, not silently pooled in
+# alongside first attempts. `uut_serial_number`, `test_phase`, `part_id`,
+# `station_id`, `fixture_id`, `run_outcome` are `metrics_service._common_
+# filters`'s (part/station/phase) and yield/retest's (serial, run outcome)
+# own filter/group columns, ALL already present on `STEPS_COLUMNS` (denorm-
+# alized run context every step row already carries) — none missing here.
+# `step_name`, `vector_outer_index`, `step_index`, `duration_s`,
+# `measurement_count`, `markers` are still excluded: no metric groups,
+# filters, or joins on them.
+_STEPS_SLIM_NAMES: tuple[str, ...] = (
+    "run_id",
+    "uut_serial_number",
+    "test_phase",
+    "part_id",
+    "station_id",
+    "fixture_id",
+    "run_outcome",
+    "step_path",
+    "step_retry",
+    "outcome",
+    "started_at",
+    "ended_at",
+)
+_STEPS_TYPES: dict[str, str] = dict(mp.STEPS_COLUMNS)
+assert set(_STEPS_SLIM_NAMES) <= set(_STEPS_TYPES), (
+    "steps_slim must stay a column subset of STEPS_COLUMNS"
+)
+
+STEPS_SLIM_COLUMNS: tuple[tuple[str, str], ...] = tuple(
+    (name, _STEPS_TYPES[name]) for name in _STEPS_SLIM_NAMES
+)
+
+
+def steps_slim_select(source_sql: str) -> str:
+    """Column subset of `measurement_projection.steps_projection_select` —
+    docs/48 D19 (coordinator correction). Drops `step_name`,
+    `vector_outer_index`, `step_index`, `duration_s`, `measurement_count`,
+    `markers` — none of which time loss or RTY group, filter, or join by.
+    KEEPS `step_retry` (RTY needs each step's first attempt, `step_retry ==
+    0`) and the run-context columns the step metrics filter/group by
+    (`uut_serial_number`, `test_phase`, `part_id`, `station_id`,
+    `fixture_id`, `run_outcome`), already denormalized onto every step row by
+    `steps_projection_select` — so RTY and time_loss need no steps⋈runs join
+    (see the column comment above). No run-level DATE/timestamp column
+    beyond what `STEPS_COLUMNS` itself carries is included (only the step's
+    own `started_at`/`ended_at`): the BigQuery physical table's day-
+    partition/window-filter column is a server-side stamp at staging
+    (denormalized from the run header), the same pattern `measurements_
+    slim`'s docstring already establishes for `org_id` — see this task's
+    report for the exact staging need."""
+    cols = ", ".join(_STEPS_SLIM_NAMES)
+    return f"SELECT {cols} FROM ({mp.steps_projection_select(source_sql)})"
 
 
 # --------------------------------------------------------------------------- #
@@ -442,6 +573,23 @@ class RunRow(BaseModel):
     duration_s: float | None = None
 
 
+class RunSlimRow(BaseModel):
+    """One row of :data:`RUNS_SLIM_COLUMNS` (docs/48 D19) — the BigQuery
+    `runs` fact table's shape, one row per run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    uut_serial_number: str | None = None
+    outcome: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    test_phase: str | None = None
+    part_id: str | None = None
+    station_id: str | None = None
+    fixture_id: str | None = None
+
+
 class StepRow(BaseModel):
     """One row of `measurement_projection.STEPS_COLUMNS`."""
 
@@ -481,6 +629,26 @@ class StepRow(BaseModel):
     duration_s: float | None = None
     measurement_count: int | None = None
     markers: str | None = None
+
+
+class StepSlimRow(BaseModel):
+    """One row of :data:`STEPS_SLIM_COLUMNS` (docs/48 D19) — the BigQuery
+    `steps` fact table's shape, one row per step execution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    uut_serial_number: str | None = None
+    test_phase: str | None = None
+    part_id: str | None = None
+    station_id: str | None = None
+    fixture_id: str | None = None
+    run_outcome: str | None = None
+    step_path: str | None = None
+    step_retry: int | None = None
+    outcome: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
 
 
 class VectorRow(BaseModel):
@@ -806,13 +974,26 @@ class RunDetail(BaseModel):
 
 class DerivedRun(BaseModel):
     """The read-model rows plan-ingest-derivation.md §1.2 lists for cloud
-    ingest: a run row (1 row), slim measurements rows (docs/48 D3),
-    and this run's catalog deltas."""
+    ingest: a run row (1 row), slim measurements rows (docs/48 D3), slim
+    runs/steps rows for the BigQuery run/step fact tables (docs/48 D19), and
+    this run's catalog deltas.
+
+    ``runs``/``steps`` are ``list[...]`` — the SAME shape as ``.measurements``
+    — even though ``runs_slim`` is always exactly one row per run (the same
+    grain as ``.run``): every model a derive task stages into BigQuery
+    (``measurements``, ``runs``, ``steps``) is uniformly "a list of rows to
+    append", so the staging/loader code (track B) needs no special case for
+    a single-row model. ``.run`` (singular ``RunRow``, the FULL header) stays
+    as-is — it feeds the Firestore `runs` DOCUMENT (class B), a different
+    consumer with a genuinely singular shape, not a table the batched loader
+    appends rows to."""
 
     model_config = ConfigDict(extra="forbid")
 
     run: RunRow
+    runs: list[RunSlimRow]
     measurements: list[MeasurementSlimRow]
+    steps: list[StepSlimRow]
     catalog: CatalogDelta
 
 
@@ -892,8 +1073,9 @@ def run_detail(source: pa.Table | str | Path, *, file_path: str | None = None) -
 
 def derive_run(source: pa.Table | str | Path, *, file_path: str | None = None) -> DerivedRun:
     """The cloud ingest read model (plan-ingest-derivation.md §1.2, §2.2) —
-    the run header, slim measurements rows, and this run's catalog
-    deltas, computed by TesterKit's own shared projections over `source`.
+    the run header, slim runs/measurements/steps rows (docs/48 D3, D19), and
+    this run's catalog deltas, computed by TesterKit's own shared projections
+    over `source`.
 
     Same `source`/`file_path` contract as :func:`run_detail`.
     """
@@ -905,7 +1087,9 @@ def derive_run(source: pa.Table | str | Path, *, file_path: str | None = None) -
         run_rows = _rows(con, runs_select(src), RunRow)
         if len(run_rows) != 1:
             raise ValueError(f"expected exactly one run in the source, found {len(run_rows)}")
+        runs_slim = _rows(con, runs_slim_select(src), RunSlimRow)
         measurements = _rows(con, measurements_slim_select(src), MeasurementSlimRow)
+        steps_slim = _rows(con, steps_slim_select(src), StepSlimRow)
         inputs_src = mp.inputs_projection_select(src)
         measurements_src = mp.measurements_projection_select(src)
         catalog = CatalogDelta(
@@ -920,7 +1104,13 @@ def derive_run(source: pa.Table | str | Path, *, file_path: str | None = None) -
                 InputsMeasurementsCatalogRow,
             ),
         )
-        return DerivedRun(run=run_rows[0], measurements=measurements, catalog=catalog)
+        return DerivedRun(
+            run=run_rows[0],
+            runs=runs_slim,
+            measurements=measurements,
+            steps=steps_slim,
+            catalog=catalog,
+        )
     finally:
         con.close()
 
@@ -993,6 +1183,18 @@ READ_MODELS: dict[str, ReadModelSpec] = {
         name="measurements_slim",
         builder=measurements_slim_select,
         columns=MEASUREMENTS_SLIM_COLUMNS,
+        mapping_version="1",
+    ),
+    "runs_slim": ReadModelSpec(
+        name="runs_slim",
+        builder=runs_slim_select,
+        columns=RUNS_SLIM_COLUMNS,
+        mapping_version="1",
+    ),
+    "steps_slim": ReadModelSpec(
+        name="steps_slim",
+        builder=steps_slim_select,
+        columns=STEPS_SLIM_COLUMNS,
         mapping_version="1",
     ),
     "steps_catalog": ReadModelSpec(

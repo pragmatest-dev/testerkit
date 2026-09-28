@@ -324,10 +324,12 @@ _RAW_SOURCE = "(SELECT *, CAST(NULL AS VARCHAR) AS filename FROM run_src)"
     ("sql", "columns"),
     [
         (read_models.runs_select(_RAW_SOURCE), read_models.RUNS_COLUMNS),
+        (read_models.runs_slim_select(_RAW_SOURCE), read_models.RUNS_SLIM_COLUMNS),
         (
             read_models.measurements_slim_select(_RAW_SOURCE),
             read_models.MEASUREMENTS_SLIM_COLUMNS,
         ),
+        (read_models.steps_slim_select(_RAW_SOURCE), read_models.STEPS_SLIM_COLUMNS),
         (read_models.steps_catalog_select(_RAW_SOURCE), read_models.STEPS_CATALOG_COLUMNS),
         (
             read_models.measurements_catalog_select(_RAW_SOURCE),
@@ -598,6 +600,70 @@ def test_derive_run_measurements_slim_inputs_match_local_inputs_table(scenario: 
             saw_retry_empty = True
 
     assert saw_swept_non_empty and saw_plain_empty and saw_retry_empty
+
+
+# --------------------------------------------------------------------------- #
+# runs_slim / steps_slim (docs/48 D19) vs the LOCAL public Query API         #
+# --------------------------------------------------------------------------- #
+
+
+def test_runs_slim_is_column_subset() -> None:
+    slim_names = {name for name, _ in read_models.RUNS_SLIM_COLUMNS}
+    full_names = {name for name, _ in read_models.RUNS_COLUMNS}
+    assert slim_names <= full_names
+    assert "org_id" not in slim_names  # a server-side concern, not in the library tuple
+
+
+def test_steps_slim_is_column_subset() -> None:
+    slim_names = {name for name, _ in read_models.STEPS_SLIM_COLUMNS}
+    full_names = {name for name, _ in mp.STEPS_COLUMNS}
+    assert slim_names <= full_names
+    assert "org_id" not in slim_names
+
+
+def test_derive_run_runs_slim_matches_runs_query(scenario: _Scenario) -> None:
+    """`runs_slim` is one row per run — served (non-empty) and equal, field
+    by field, to `RunsQuery`'s row for the same run."""
+    derived = read_models.derive_run(scenario.path)
+    assert len(derived.runs) == 1
+    slim = derived.runs[0]
+    assert slim.run_id == scenario.run_id
+
+    with RunsQuery() as q:
+        local_run = q.get(scenario.run_id)
+    assert local_run is not None
+
+    _assert_shared_fields_equal(local_run.model_dump(), slim.model_dump())
+
+
+def test_derive_run_steps_slim_matches_steps_query(scenario: _Scenario) -> None:
+    """`steps_slim` must carry every logical step this run produced — plain,
+    the swept step (collapsed to one row, matching `StepsQuery`), and BOTH
+    the retried step's attempts (failed then passed) — with `steps_slim`'s
+    own fields equal to `StepsQuery`'s. Rows are keyed by
+    `(step_path, step_retry)`, the step-execution grain."""
+    derived = read_models.derive_run(scenario.path)
+    with StepsQuery() as q:
+        local_steps = q.list_for_run(scenario.run_id)
+
+    assert len(local_steps) == len(derived.steps) == 4
+
+    def _key(row: dict[str, Any]) -> tuple:
+        return (row["step_path"], row["step_retry"])
+
+    by_key_local = {_key(s.model_dump()): s.model_dump() for s in local_steps}
+    by_key_slim = {_key(s.model_dump()): s.model_dump() for s in derived.steps}
+    assert set(by_key_local) == set(by_key_slim)
+
+    for key, local_row in by_key_local.items():
+        _assert_shared_fields_equal(local_row, by_key_slim[key])
+
+    assert by_key_slim[(RETRY_STEP_PATH, 0)]["outcome"] == "failed"
+    assert by_key_slim[(RETRY_STEP_PATH, 1)]["outcome"] == "passed"
+    for row in by_key_slim.values():
+        assert row["part_id"] == "PART-RM-1"
+        assert row["station_id"] == "STA-RM-1"
+        assert row["test_phase"] == "production"
 
 
 # --------------------------------------------------------------------------- #
