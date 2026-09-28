@@ -66,6 +66,15 @@ from testerkit.data import measurement_projection as mp
 from testerkit.data import run_projection as rp
 from testerkit.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
 
+# A read-model column's declared type: either a scalar BigQuery type name
+# (e.g. "STRING", "INTEGER" — every column so far), or — for a nested
+# REPEATED RECORD column like `measurements_slim`'s `inputs` (docs/48 §4b
+# track A1) — a tuple of the struct's own (name, type) sub-columns, meaning
+# "ARRAY<STRUCT<...>>". `read_model_fingerprint` (below) and testerkit-
+# server's `bq_schema.measurements_slim_bigquery_schema` (read-only here)
+# both branch on `isinstance(kind, str)` to tell the two apart.
+ColumnType = str | tuple[tuple[str, str], ...]
+
 # --------------------------------------------------------------------------- #
 # runs                                                                        #
 # --------------------------------------------------------------------------- #
@@ -164,17 +173,98 @@ _MEASUREMENTS_TYPES: dict[str, str] = dict(mp.MEASUREMENTS_COLUMNS)
 assert set(_MEASUREMENTS_SLIM_NAMES) <= set(_MEASUREMENTS_TYPES), (
     "measurements_slim must stay a column subset of MEASUREMENTS_COLUMNS"
 )
-MEASUREMENTS_SLIM_COLUMNS: tuple[tuple[str, str], ...] = tuple(
-    (name, _MEASUREMENTS_TYPES[name]) for name in _MEASUREMENTS_SLIM_NAMES
+
+# The carrier's nested `inputs` entry shape (docs/48 §4b track A1;
+# plan-serving-cutover.md §3.1 CORRECTION: the slim BigQuery table nests each
+# measurement's carrier inputs, "no join, no separate IO table" — Google:
+# "use nested and repeated fields... instead of repeatedly joining"). Exactly
+# `IO_TABLE_COLUMNS`' own fields — the local `inputs` table's own row shape —
+# MINUS the carrier keys already on the measurement row itself
+# (`run_id`/`file_path`/`step_index`/`step_path`/`step_retry`/`vector_index`/
+# `vector_outer_index`/`vector_retry`; see `measurements_slim_select`'s LEFT
+# JOIN, which re-derives that key rather than repeating it inside every
+# entry). BigQuery-dialect type names (this tuple feeds
+# `measurements_slim_bigquery_schema` exactly like every other
+# `MEASUREMENTS_SLIM_COLUMNS` entry) — not `IO_TABLE_COLUMNS`'s own DuckDB
+# dialect strings, so this is a hand-typed parallel tuple, guarded by the
+# name-subset assert below rather than a type-preserving derivation.
+MEASUREMENT_INPUT_ENTRY_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("ordinal", "INTEGER"),
+    ("index", "INTEGER"),
+    ("name", "STRING"),
+    ("value_type", "STRING"),
+    ("value_int", "INTEGER"),
+    ("value_double", "FLOAT64"),
+    ("value_bool", "BOOL"),
+    ("value_text", "STRING"),
+    ("value_timestamp", "TIMESTAMP"),
+    ("value_json", "STRING"),
+    ("unit", "STRING"),
+    ("uut_pin", "STRING"),
 )
+_MEASUREMENT_INPUT_ENTRY_NAMES: tuple[str, ...] = tuple(
+    name for name, _ in MEASUREMENT_INPUT_ENTRY_COLUMNS
+)
+_IO_TABLE_NAMES: set[str] = {name for name, _ in mp.IO_TABLE_COLUMNS}
+assert set(_MEASUREMENT_INPUT_ENTRY_NAMES) <= _IO_TABLE_NAMES, (
+    "measurement input entry fields must stay a subset of IO_TABLE_COLUMNS "
+    "(the local `inputs` table's own shape)"
+)
+
+# `("inputs", MEASUREMENT_INPUT_ENTRY_COLUMNS)` is appended below rather than
+# folded into `_MEASUREMENTS_SLIM_NAMES`/`_MEASUREMENTS_TYPES`: `inputs` is
+# not a column of `MEASUREMENTS_COLUMNS` (it comes from the separate
+# `inputs_projection_select` builder, aggregated per carrier — see
+# `_measurement_input_entries_select`), so it is not part of the strict
+# column-subset relationship the assert above guards. Its type slot is not a
+# scalar BigQuery type string but the nested tuple declared above — see
+# :data:`ColumnType`.
+MEASUREMENTS_SLIM_COLUMNS: tuple[tuple[str, ColumnType], ...] = tuple(
+    (name, _MEASUREMENTS_TYPES[name]) for name in _MEASUREMENTS_SLIM_NAMES
+) + (("inputs", MEASUREMENT_INPUT_ENTRY_COLUMNS),)
+
+
+def _measurement_input_entries_select(source_sql: str) -> str:
+    """One row per measurement carrier, with its `inputs` entries aggregated
+    into a single ordered list — built entirely from the existing shared
+    `inputs_projection_select` builder (no hand-copied SQL shape).
+
+    Grouped by the carrier key `measurements_projection_select`'s rows join
+    to (`run_id, step_path, step_retry, vector_index, vector_outer_index` —
+    the same key `steps_query._step_io_join` uses, byte-identical
+    normalization per `io_table_select`'s docstring), so a step-scope
+    carrier (`vector_index IS NULL`) groups its entries just as cleanly as a
+    vector-scope one. Each entry keeps exactly `MEASUREMENT_INPUT_ENTRY_
+    COLUMNS`'s fields, ordered by `ordinal` (the same UNNEST-WITH-ORDINALITY
+    position the local `inputs` table stores)."""
+    entry_struct = ", ".join(f'"{name}" := "{name}"' for name in _MEASUREMENT_INPUT_ENTRY_NAMES)
+    return f"""
+        SELECT run_id, step_path, step_retry, vector_index, vector_outer_index,
+            LIST(STRUCT_PACK({entry_struct}) ORDER BY ordinal) AS inputs
+        FROM ({mp.inputs_projection_select(source_sql)})
+        GROUP BY run_id, step_path, step_retry, vector_index, vector_outer_index"""
 
 
 def measurements_slim_select(source_sql: str) -> str:
     """Column subset of `measurements_projection_select` — docs/48 D3
     (drops env / instrument / pin / spec / most run-context columns, which
-    stay on the run header / `run_rows`)."""
-    cols = ", ".join(_MEASUREMENTS_SLIM_NAMES)
-    return f"SELECT {cols} FROM ({mp.measurements_projection_select(source_sql)})"
+    stay on the run header / `run_rows`) — PLUS the carrier's `inputs`
+    nested as a list (docs/48 §4b track A1), so parametric/multivari need no
+    join. Built from the two existing shared builders
+    (`measurements_projection_select` + `inputs_projection_select`, via
+    :func:`_measurement_input_entries_select`) — no hand-copied SQL shape.
+    LEFT JOIN so a measurement with no inputs (a plain, unswept step) gets an
+    empty list rather than dropping the row."""
+    slim_cols = ", ".join(f"ms.{name}" for name in _MEASUREMENTS_SLIM_NAMES)
+    return f"""
+        SELECT {slim_cols}, COALESCE(io.inputs, []) AS inputs
+        FROM ({mp.measurements_projection_select(source_sql)}) AS ms
+        LEFT JOIN ({_measurement_input_entries_select(source_sql)}) AS io
+            ON io.run_id = ms.run_id
+           AND io.step_path = ms.step_path
+           AND io.step_retry = ms.step_retry
+           AND io.vector_index IS NOT DISTINCT FROM ms.vector_index
+           AND io.vector_outer_index IS NOT DISTINCT FROM ms.vector_outer_index"""
 
 
 # --------------------------------------------------------------------------- #
@@ -560,8 +650,34 @@ class OutputRow(BaseModel):
     uut_pin: str | None = None
 
 
+class MeasurementInputEntry(BaseModel):
+    """One entry of a `measurements_slim` row's nested `inputs`
+    (docs/48 §4b track A1) — the local `inputs` table's own per-entry
+    fields (:data:`measurement_projection.IO_TABLE_COLUMNS`), minus the
+    carrier keys already on the enclosing :class:`MeasurementSlimRow`
+    (`run_id`/`step_path`/`step_retry`/`vector_index`/`vector_outer_index`).
+    See :data:`MEASUREMENT_INPUT_ENTRY_COLUMNS`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ordinal: int | None = None
+    index: int | None = None
+    name: str | None = None
+    value_type: str | None = None
+    value_int: int | None = None
+    value_double: float | None = None
+    value_bool: bool | None = None
+    value_text: str | None = None
+    value_timestamp: datetime | None = None
+    value_json: str | None = None
+    unit: str | None = None
+    uut_pin: str | None = None
+
+
 class MeasurementSlimRow(BaseModel):
-    """One row of :data:`MEASUREMENTS_SLIM_COLUMNS` (docs/48 D3)."""
+    """One row of :data:`MEASUREMENTS_SLIM_COLUMNS` (docs/48 D3), with the
+    carrier's `inputs` nested (docs/48 §4b track A1) — no join needed for
+    parametric/multivari reads."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -590,6 +706,7 @@ class MeasurementSlimRow(BaseModel):
     limit_high: float | None = None
     limit_nominal: float | None = None
     limit_comparator: str | None = None
+    inputs: list[MeasurementInputEntry]
 
 
 class StepsCatalogRow(BaseModel):
@@ -824,7 +941,7 @@ class ReadModelSpec:
 
     name: str
     builder: Callable[..., str]
-    columns: tuple[tuple[str, str], ...]
+    columns: tuple[tuple[str, ColumnType], ...]
     mapping_version: str
     builder_arity: int = 1
 
@@ -924,6 +1041,18 @@ def _builder_sql_for_fingerprint(spec: ReadModelSpec) -> str:
     return spec.builder(_SOURCE_PLACEHOLDER)
 
 
+def _column_type_token(kind: ColumnType) -> str:
+    """Render one column's :data:`ColumnType` for the fingerprint payload: a
+    scalar BigQuery type name unchanged, or — for a nested-struct column
+    like `inputs` (a tuple of its own (name, type) sub-columns) —
+    `ARRAY<STRUCT<name:type, ...>>`, so the fingerprint text also documents
+    the physical BigQuery shape a change would force the server to rebuild."""
+    if isinstance(kind, str):
+        return kind
+    inner = ", ".join(f"{sub_name}:{sub_kind}" for sub_name, sub_kind in kind)
+    return f"ARRAY<STRUCT<{inner}>>"
+
+
 def read_model_fingerprint(name: str) -> str:
     """Content-address of the `name` read model (plan-ingest-derivation.md
     §1.3): `sha256(builder SQL text + column name:type tuple + mapping
@@ -938,7 +1067,9 @@ def read_model_fingerprint(name: str) -> str:
     spec = READ_MODELS[name]
     sql = _builder_sql_for_fingerprint(spec)
     normalized_sql = " ".join(sql.split())
-    cols = "|".join(f"{col_name}:{col_type}" for col_name, col_type in spec.columns)
+    cols = "|".join(
+        f"{col_name}:{_column_type_token(col_type)}" for col_name, col_type in spec.columns
+    )
     schema_version = CURRENT_SCHEMA_VERSION[SchemaStore.RUNS]
     payload = "\n".join(
         [

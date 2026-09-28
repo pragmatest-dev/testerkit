@@ -541,8 +541,63 @@ def test_derive_run_catalog_deltas(scenario: _Scenario) -> None:
 def test_derive_run_measurements_slim_is_column_subset() -> None:
     slim_names = {name for name, _ in read_models.MEASUREMENTS_SLIM_COLUMNS}
     full_names = {name for name, _ in mp.MEASUREMENTS_COLUMNS}
-    assert slim_names <= full_names
+    # `inputs` (docs/48 §4b track A1) is the one declared column NOT drawn
+    # from `MEASUREMENTS_COLUMNS` — it comes from the separate
+    # `inputs_projection_select` builder, aggregated per carrier, so the
+    # strict-subset relationship holds for every OTHER slim column.
+    assert slim_names - {"inputs"} <= full_names
+    assert "inputs" in slim_names
     assert "org_id" not in slim_names  # a server-side concern, not in the library tuple
+
+
+def test_derive_run_measurements_slim_inputs_match_local_inputs_table(scenario: _Scenario) -> None:
+    """docs/44 §1 parity: every `measurements_slim` row's `inputs` must equal
+    the LOCAL daemon's own `inputs` table rows for the same carrier
+    (`step_path, step_retry, vector_index, vector_outer_index`), ordinal
+    order included; swept rows carry a non-empty list, plain/retried rows an
+    empty one."""
+    derived = read_models.derive_run(scenario.path)
+    local_rows = _query_io_table("inputs", scenario.run_id)
+
+    def _carrier(row: dict[str, Any]) -> tuple:
+        return (
+            row["step_path"],
+            row.get("step_retry", 0),
+            row.get("vector_index"),
+            row.get("vector_outer_index"),
+        )
+
+    local_by_carrier: dict[tuple, list[dict[str, Any]]] = {}
+    for row in local_rows:
+        local_by_carrier.setdefault(_carrier(row), []).append(row)
+    for entries in local_by_carrier.values():
+        entries.sort(key=lambda r: r["ordinal"])
+
+    entry_field_names = {name for name, _ in read_models.MEASUREMENT_INPUT_ENTRY_COLUMNS}
+    saw_swept_non_empty = False
+    saw_plain_empty = False
+    saw_retry_empty = False
+    for fact in derived.measurements:
+        carrier = (fact.step_path, fact.step_retry, fact.vector_index, fact.vector_outer_index)
+        expected = local_by_carrier.get(carrier, [])
+        actual = [entry.model_dump() for entry in fact.inputs]
+
+        assert [e["ordinal"] for e in actual] == [e["ordinal"] for e in expected]
+        for exp, act in zip(expected, actual, strict=True):
+            assert set(act) == entry_field_names
+            _assert_shared_fields_equal(exp, act)
+
+        if fact.step_path == SWEPT_STEP_PATH:
+            assert actual, f"swept carrier {carrier} must have non-empty inputs"
+            saw_swept_non_empty = True
+        elif fact.step_path == PLAIN_STEP_PATH:
+            assert actual == [], f"plain carrier {carrier} must have empty inputs"
+            saw_plain_empty = True
+        elif fact.step_path == RETRY_STEP_PATH:
+            assert actual == [], f"retried carrier {carrier} must have empty inputs"
+            saw_retry_empty = True
+
+    assert saw_swept_non_empty and saw_plain_empty and saw_retry_empty
 
 
 # --------------------------------------------------------------------------- #
