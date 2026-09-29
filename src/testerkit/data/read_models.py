@@ -230,6 +230,10 @@ _MEASUREMENTS_SLIM_NAMES: tuple[str, ...] = (
     "limit_high",
     "limit_nominal",
     "limit_comparator",
+    # Ppk's grouping keys (local measurements_query.ppk groups by these), so the
+    # cloud's dashboard Ppk matches local instead of merging characteristics/pins.
+    "characteristic_id",
+    "uut_pin",
 )
 _MEASUREMENTS_TYPES: dict[str, str] = dict(mp.MEASUREMENTS_COLUMNS)
 assert set(_MEASUREMENTS_SLIM_NAMES) <= set(_MEASUREMENTS_TYPES), (
@@ -891,6 +895,8 @@ class MeasurementSlimRow(BaseModel):
     limit_high: float | None = None
     limit_nominal: float | None = None
     limit_comparator: str | None = None
+    characteristic_id: str | None = None
+    uut_pin: str | None = None
     inputs: list[MeasurementInputEntry]
 
 
