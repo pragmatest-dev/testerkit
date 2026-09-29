@@ -25,6 +25,8 @@ testerkit.data.channels.store
 testerkit.data.channels.window
 testerkit.data.event_store
 testerkit.data.events
+testerkit.data.live_projection
+testerkit.data.live_rows
 testerkit.data.measurement_projection
 testerkit.data.read_models
 testerkit.data.run_projection

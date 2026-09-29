@@ -137,6 +137,22 @@ _SERVER_IMPORTED_SYMBOLS: dict[str, tuple[str, ...]] = {
         "ingest_replicated",
         "read_closed_channel_segments",
     ),
+    # docs/41 live overlay: the server stores what the bench pushes, reusing these
+    # wire models and projection (never redefined server-side).
+    "testerkit.data.live_projection": ("project_run",),
+    "testerkit.data.live_rows": (
+        "HARD_DOC_BYTES",
+        "LIVE_WIRE_VERSION",
+        "MAX_BODY_BYTES",
+        "LiveDoc",
+        "LiveHeader",
+        "LivePush",
+        "LivePushResponse",
+        "LiveSyncState",
+        "estimate_doc_size",
+        "rejoin",
+        "row_id_for",
+    ),
     "testerkit.store": ("find_catalog_dirs", "load_catalog_from_directory", "load_project"),
     # The cloud Channels view's session labels are a TypeScript port of these;
     # the server's parity test runs them against a shared fixture.

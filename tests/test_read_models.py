@@ -71,6 +71,8 @@ def _run_started(run_id: Any, session_id: Any) -> RunStarted:
         part_id="PART-RM-1",
         part_name="Read Models Widget",
         fixture_id="FIX-RM-1",
+        uut_lot_number="LOT-RM-1",
+        git_branch="branch-rm-1",
         test_phase="production",
     )
 
@@ -535,6 +537,8 @@ def test_derive_run_catalog_deltas(scenario: _Scenario) -> None:
     assert {r.part_id for r in catalog.runs} == {"PART-RM-1"}
     assert {r.station_id for r in catalog.runs} == {"STA-RM-1"}
     assert {r.fixture_id for r in catalog.runs} == {"FIX-RM-1"}
+    assert {r.git_branch for r in catalog.runs} == {"branch-rm-1"}
+    assert {r.uut_lot_number for r in catalog.runs} == {"LOT-RM-1"}
 
     cooc_pairs = {(p.input_name, p.measurement_name) for p in catalog.inputs_measurements}
     assert ("vin", "vout") in cooc_pairs

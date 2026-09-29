@@ -478,6 +478,8 @@ RUNS_CATALOG_COLUMNS: tuple[tuple[str, str], ...] = (
     ("station_type", "STRING"),
     ("station_location", "STRING"),
     ("fixture_id", "STRING"),
+    ("git_branch", "STRING"),
+    ("uut_lot_number", "STRING"),
 )
 
 
@@ -493,7 +495,8 @@ def runs_catalog_select(source_sql: str) -> str:
     part_id still contributes its station/fixture identity)."""
     return (
         "SELECT DISTINCT part_id, part_name, part_revision, "
-        "station_id, station_name, station_type, station_location, fixture_id "
+        "station_id, station_name, station_type, station_location, fixture_id, "
+        "git_branch, uut_lot_number "
         f"FROM {source_sql} WHERE run_id IS NOT NULL "
         "AND NOT (part_id IS NULL AND station_id IS NULL AND fixture_id IS NULL)"
     )
@@ -936,6 +939,8 @@ class RunsCatalogRow(BaseModel):
     station_type: str | None = None
     station_location: str | None = None
     fixture_id: str | None = None
+    git_branch: str | None = None
+    uut_lot_number: str | None = None
 
 
 class InputsMeasurementsCatalogRow(BaseModel):
