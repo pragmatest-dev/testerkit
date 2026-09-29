@@ -18,6 +18,7 @@ from testerkit.data.backends.parquet import (
 from testerkit.data.events import (
     InstrumentConnected,
     MeasurementRecorded,
+    RunEnded,
     RunStarted,
     StepEnded,
     StepStarted,
@@ -400,3 +401,59 @@ class TestMaterializer:
         assert parquet_path is not None
         rebuilt = reconstruct_test_run_from_file(parquet_path)
         assert rebuilt.custom_metadata == {"badge": "EMP-999", "batch": "Q2-2026"}
+
+
+class TestMaterializedEndedAt:
+    """``ended_at`` on the parquet is the run's own ``RunEnded`` time, not the
+    materialization wall clock (regression: the runs daemon passed no
+    ``run_ended_at`` and every run's ended_at became "now")."""
+
+    @staticmethod
+    def _acc(*, ended: bool) -> EventAccumulator:
+        acc = EventAccumulator()
+        run_id, session_id = uuid4(), uuid4()
+        acc.on_event(
+            RunStarted(
+                session_id=session_id,
+                run_id=run_id,
+                uut_serial_number="SN001",
+                occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
+            )
+        )
+        acc.on_event(
+            MeasurementRecorded(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="t",
+                step_index=0,
+                measurement_name="v",
+                value=1.0,
+            )
+        )
+        if ended:
+            acc.on_event(
+                RunEnded(
+                    session_id=session_id,
+                    run_id=run_id,
+                    outcome="passed",
+                    occurred_at=datetime(2026, 3, 6, 14, 5, 0, tzinfo=UTC),
+                )
+            )
+        return acc
+
+    @staticmethod
+    def _run_row(path) -> dict:
+        return next(r for r in pq.read_table(path).to_pylist() if r["record_type"] == "run")
+
+    def test_uses_the_run_ended_time(self, tmp_path):
+        acc = self._acc(ended=True)
+        path = materialize_run_to_parquet(acc, tmp_path / "results", outcome=acc.run_outcome)
+        assert path is not None
+        assert self._run_row(path)["run_ended_at"] == datetime(2026, 3, 6, 14, 5, 0, tzinfo=UTC)
+
+    def test_falls_back_to_now_without_a_run_ended(self, tmp_path):
+        acc = self._acc(ended=False)
+        before = datetime.now(UTC)
+        path = materialize_run_to_parquet(acc, tmp_path / "results")
+        assert path is not None
+        assert self._run_row(path)["run_ended_at"] >= before

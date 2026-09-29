@@ -2367,7 +2367,9 @@ def daemon_run(runs_dir: Path) -> None:
                 outcome,
             )
         try:
-            parquet_path = materialize_run_to_parquet(acc, runs_dir, outcome=outcome)
+            parquet_path = materialize_run_to_parquet(
+                acc, runs_dir, outcome=outcome, run_ended_at=acc.run_ended_at
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("materialize_run_to_parquet failed for %s: %s", run_id, exc)
             return

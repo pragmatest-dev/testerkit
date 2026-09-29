@@ -1060,27 +1060,75 @@ def run_detail(source: pa.Table | str | Path, *, file_path: str | None = None) -
     omitted it defaults to `source`'s own path, or `""` for an in-memory
     table with no path of its own.
     """
+    parts = run_detail_parts(source, file_path=file_path)
+    run_rows = parts.runs
+    if len(run_rows) != 1:
+        raise ValueError(f"expected exactly one run in the source, found {len(run_rows)}")
+    return RunDetail(
+        run=run_rows[0],
+        steps=parts.steps,
+        vectors=parts.vectors,
+        measurements=parts.measurements,
+        inputs=parts.inputs,
+        outputs=parts.outputs,
+    )
+
+
+class RunDetailParts(BaseModel):
+    """The lists :func:`run_detail` assembles, before its one-run check; a list not
+    asked for (``only``) is empty. ``runs`` holds every run row in the source."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    runs: list[RunRow] = []
+    steps: list[StepRow] = []
+    vectors: list[VectorRow] = []
+    measurements: list[MeasurementRow] = []
+    inputs: list[InputRow] = []
+    outputs: list[OutputRow] = []
+
+
+_ALL_PARTS = frozenset({"runs", "steps", "vectors", "measurements", "inputs", "outputs"})
+
+
+def _has_io_entries(table: pa.Table, column: str) -> bool:
+    """Whether any carrier row has an entry in the nested ``column`` list."""
+    if column not in table.column_names:
+        return False
+    return any(entries for entries in table.column(column).to_pylist())
+
+
+def run_detail_parts(
+    source: pa.Table | str | Path,
+    *,
+    file_path: str | None = None,
+    only: frozenset[str] = _ALL_PARTS,
+) -> RunDetailParts:
+    """The shared projections behind :func:`run_detail`, optionally limited to the
+    lists named in ``only`` (a subset of ``runs, steps, vectors, measurements,
+    inputs, outputs``): each is one DuckDB query with a fixed planning cost, so a
+    caller that knows some can't have rows (the live pusher re-projecting one sweep
+    bucket) skips them. Same SQL, same models — only fewer of them run. The IO lists
+    also skip their query when no carrier row has an entry."""
     table, default_file_path = _as_table(source)
     resolved_file_path = default_file_path if file_path is None else file_path
     con = duckdb.connect(":memory:")
     try:
         src = _source_sql(con, table, resolved_file_path)
-        run_rows = _rows(con, runs_select(src), RunRow)
-        if len(run_rows) != 1:
-            raise ValueError(f"expected exactly one run in the source, found {len(run_rows)}")
-        steps = _rows(con, mp.steps_projection_select(src), StepRow)
-        vectors = _rows(con, mp.vectors_projection_select(src), VectorRow)
-        measurements = _rows(con, mp.measurements_projection_select(src), MeasurementRow)
-        inputs = _rows(con, mp.inputs_projection_select(src), InputRow)
-        outputs = _rows(con, mp.outputs_projection_select(src), OutputRow)
-        return RunDetail(
-            run=run_rows[0],
-            steps=steps,
-            vectors=vectors,
-            measurements=measurements,
-            inputs=inputs,
-            outputs=outputs,
-        )
+        out = RunDetailParts()
+        if "runs" in only:
+            out.runs = _rows(con, runs_select(src), RunRow)
+        if "steps" in only:
+            out.steps = _rows(con, mp.steps_projection_select(src), StepRow)
+        if "vectors" in only:
+            out.vectors = _rows(con, mp.vectors_projection_select(src), VectorRow)
+        if "measurements" in only:
+            out.measurements = _rows(con, mp.measurements_projection_select(src), MeasurementRow)
+        if "inputs" in only and _has_io_entries(table, "inputs"):
+            out.inputs = _rows(con, mp.inputs_projection_select(src), InputRow)
+        if "outputs" in only and _has_io_entries(table, "outputs"):
+            out.outputs = _rows(con, mp.outputs_projection_select(src), OutputRow)
+        return out
     finally:
         con.close()
 

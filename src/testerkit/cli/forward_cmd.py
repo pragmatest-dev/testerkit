@@ -44,20 +44,27 @@ import hashlib
 import json
 import logging
 import os
+import queue
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import click
 from pydantic import BaseModel, ConfigDict
 
 from testerkit.cli.root import main
+from testerkit.data._accumulator_pool import AccumulatorPool
+from testerkit.data.event_store import EventStore
+from testerkit.data.live_projection import LiveRunProjection
+from testerkit.data.live_rows import LivePush, LivePushResponse, LiveSyncState
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -706,6 +713,227 @@ def _forward_all_once(  # noqa: PLR0913
     return result
 
 
+# --------------------------------------------------------------------------- #
+# Live channel (docs/41): best-effort push of an executing run's folded rows  #
+# --------------------------------------------------------------------------- #
+#
+# A separate thread with its OWN EventStore subscription and its OWN
+# AccumulatorPool — it shares no cursor, queue or failure mode with the durable
+# passes above. A failed push is dropped (the next push carries the current
+# state); it never blocks or retries the durable channel.
+
+_LIVE_WATCHED_INTERVAL_S = 1.0
+_LIVE_UNWATCHED_INTERVAL_S = 5.0
+_LIVE_LEASE_S = 30.0
+_LIVE_CPU_SHARE = 0.05  # projection + diff may use ~5 % of the push interval
+_LIVE_TICK_S = 0.25
+_LIVE_ATTACH_RETRY_S = 5.0
+
+
+def _post_live(url: str, token: str, push: LivePush, *, timeout: float) -> LivePushResponse:
+    """``POST /ingest/live/runs/{run_id}`` with the station token, like every other
+    bench upload. A 409 body (``{finalized: true}``) is a normal response."""
+    req = urllib.request.Request(
+        url.rstrip("/") + f"/ingest/live/runs/{urllib.parse.quote(push.run_id, safe='')}",
+        data=push.model_dump_json().encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — our own server URL
+            body = resp.read()
+    except urllib.error.HTTPError as exc:
+        if exc.code != 409:
+            raise
+        body = exc.read()
+    return LivePushResponse.model_validate_json(body)
+
+
+class _LiveRun:
+    """Per-run pusher bookkeeping: what the server holds, the throttle clock, the
+    last response's ``watched`` bit, and the measured projection cost."""
+
+    def __init__(self) -> None:
+        self.sync = LiveSyncState()
+        self.projection = LiveRunProjection()
+        self.pending = False
+        self.last_push: float | None = None
+        self.watched = False
+        self.projection_s = 0.0
+
+    def interval(self) -> float:
+        """Throttle ``T``: 1 s while watched, else 5 s; if projection + diff costs more
+        than 5 % of ``T`` the effective ``T`` becomes ``20 x projection_s``."""
+        base = _LIVE_WATCHED_INTERVAL_S if self.watched else _LIVE_UNWATCHED_INTERVAL_S
+        return max(base, self.projection_s / _LIVE_CPU_SHARE)
+
+
+class LivePusher:
+    """The live channel's bench side (docs/41 §3): fold events into a pusher-owned
+    pool, diff each dirty run to per-doc hashes, push only what changed.
+
+    Per run a leading-edge throttle: push now if nothing went out in the last ``T``,
+    else at ``last_push + T``; a header-only lease push after 30 s of silence.
+    ``clock`` / ``perf`` / ``wall_ns`` are injectable so tests drive it with a fake
+    clock; :meth:`tick` is one pass, :meth:`start` runs it on a thread.
+    """
+
+    def __init__(
+        self,
+        post: Callable[[LivePush], LivePushResponse],
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        perf: Callable[[], float] = time.perf_counter,
+        wall_ns: Callable[[], int] = time.time_ns,
+    ) -> None:
+        self._post = post
+        self._clock = clock
+        self._perf = perf
+        self._wall_ns = wall_ns
+        self._pool = AccumulatorPool()
+        self._events: queue.SimpleQueue[dict[str, Any]] = queue.SimpleQueue()
+        self._runs: dict[str, _LiveRun] = {}
+        # Runs owed an immediate final push (RunEnded seen / local materialization done),
+        # bypassing the throttle; ``_closing`` ones are evicted after it.
+        self._flush: set[str] = set()
+        self._closing: set[str] = set()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._unsubscribe: Callable[[], None] | None = None
+
+    # -- event intake ------------------------------------------------------
+
+    def on_event(self, evt: dict[str, Any]) -> None:
+        """EventStore subscription callback. Only enqueues: the pusher thread is the
+        pool's sole reader and writer, so the fold never races the projection."""
+        self._events.put(evt)
+
+    def attach(self, event_store: EventStore) -> None:
+        """Subscribe with the runs daemon's catch-up replay, so a pusher restart
+        rebuilds the state of every open run."""
+        self._unsubscribe = event_store.on_event(self.on_event, replay="unmaterialized_runs")
+
+    def _drain_events(self) -> None:
+        while True:
+            try:
+                evt = self._events.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                rid = str(evt.get("run_id") or "")
+                if evt.get("event_type") == "run.materialized":
+                    if rid:  # one last push with the ended state, then pushing stops
+                        self._closing.add(rid)
+                else:
+                    self._pool.dispatch(evt)
+                    if rid and evt.get("event_type") == "run.ended":
+                        self._flush.add(rid)
+            except Exception as exc:  # noqa: BLE001 — a bad event must not kill the pusher
+                log.debug("live: event dispatch failed: %s", exc)
+
+    # -- one pass ----------------------------------------------------------
+
+    def tick(self) -> None:
+        """Fold pending events, then push every run that is due."""
+        self._drain_events()
+        dirty, evicted = self._pool.take_dirty()
+        for rid in evicted:
+            self._runs.pop(rid, None)
+        for rid in dirty:
+            self._runs.setdefault(rid, _LiveRun()).pending = True
+        now = self._clock()
+        for rid in self._flush | self._closing:
+            if (run := self._runs.get(rid)) is not None:
+                self._push_run(rid, run, now, lease=False)  # final state, ignoring the throttle
+            if rid in self._closing:
+                self._pool.evict(rid)
+                self._runs.pop(rid, None)
+        self._flush.clear()
+        self._closing.clear()
+        for rid, run in list(self._runs.items()):
+            silent_for = None if run.last_push is None else now - run.last_push
+            change_due = run.pending and (silent_for is None or silent_for >= run.interval())
+            lease_due = silent_for is not None and silent_for >= _LIVE_LEASE_S
+            if change_due or lease_due:
+                self._push_run(rid, run, now, lease=lease_due)
+
+    def _push_run(self, run_id: str, run: _LiveRun, now: float, *, lease: bool) -> None:
+        acc = self._pool.get(run_id)
+        if acc is None:
+            self._runs.pop(run_id, None)
+            return
+        t0 = self._perf()
+        run.projection.refresh(acc)  # projects only what changed since the last push
+        if run.projection.header is None:  # no RunStarted yet
+            run.pending = False
+            return
+        pushes = run.sync.build_pushes_from(
+            run_id,
+            run.projection.header,
+            run.projection.docs,
+            run.projection.hashes,
+            now=now,
+            now_ns=self._wall_ns(),
+            force_header=lease,
+        )
+        if run.last_push is not None:  # the first pass is a one-off catch-up, not steady state
+            run.projection_s = self._perf() - t0
+        run.pending = False
+        if not pushes:
+            return
+        run.last_push = now
+        for push in pushes:
+            try:
+                resp = self._post(push)
+            except Exception as exc:  # noqa: BLE001 — drop: the next push carries current state
+                log.debug("live: push for %s dropped: %s", run_id, exc)
+                run.pending = True
+                return
+            if resp.finalized:
+                self._pool.evict(run_id)  # the server committed this run: stop pushing
+                self._runs.pop(run_id, None)
+                return
+            run.watched = resp.watched
+            if resp.stale:
+                run.pending = True  # nothing was applied
+                return
+            run.sync.commit(push, now=now)
+            if resp.resync:  # after the commit, which clears the manifest debt
+                run.sync.request_resync()
+
+    # -- thread ------------------------------------------------------------
+
+    def _loop(self, event_store_factory: Callable[[], EventStore] | None) -> None:
+        while event_store_factory is not None and not self._stop.is_set():
+            try:
+                self.attach(event_store_factory())
+                break
+            except Exception as exc:  # noqa: BLE001 — live is optional; retry, never fail forward
+                log.warning("live: cannot attach to the event store (will retry): %s", exc)
+                self._stop.wait(_LIVE_ATTACH_RETRY_S)
+        while not self._stop.is_set():
+            try:
+                self.tick()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("live: pass failed: %s", exc)
+            self._stop.wait(_LIVE_TICK_S)
+
+    def start(self, event_store_factory: Callable[[], EventStore] | None = None) -> None:
+        """Run on a daemon thread; ``event_store_factory`` builds the EventStore to
+        subscribe to (omit to feed :meth:`on_event` directly)."""
+        self._thread = threading.Thread(
+            target=self._loop, args=(event_store_factory,), name="testerkit-live-push", daemon=True
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+
+
 @main.command()
 @click.option(
     "--url",
@@ -760,6 +988,13 @@ def _forward_all_once(  # noqa: PLR0913
     f"${_MAX_BYTES_ENV}); a large backlog is split into ascending chunks under this "
     "cap so a single POST can't exceed the server's request limit.",
 )
+@click.option(
+    "--live/--no-live",
+    default=True,
+    help="Push executing runs' folded rows to the server's live view, best-effort on "
+    "its own thread (ON by default; --no-live to skip; not used with --once). A failed "
+    "push is dropped, never retried, and never blocks the durable forward.",
+)
 def forward(  # noqa: PLR0913
     url: str | None,
     token: str | None,
@@ -772,6 +1007,7 @@ def forward(  # noqa: PLR0913
     runs: bool,
     no_cursor: bool,
     max_bytes: int | None,
+    live: bool,
 ):
     """Forward this bench's data artifacts to a central server (store-and-forward).
 
@@ -826,6 +1062,13 @@ def forward(  # noqa: PLR0913
         log.info("forwarding run Parquet: %s → %s", runs_dir, server)
     if not use_cursor:
         log.info("stateless mode (--no-cursor): full re-forward, cursor files untouched")
+    if live and not once:
+        # Own daemon thread, own EventStore subscription + pool (docs/41 §3.1); a
+        # failure here never touches the durable passes below.
+        log.info("live push: %s → %s", resolved, server)
+        LivePusher(lambda push: _post_live(server, token, push, timeout=timeout)).start(
+            lambda: EventStore(_data_dir=resolved)
+        )
 
     backoff = interval
     while True:

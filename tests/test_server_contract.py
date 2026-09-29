@@ -138,6 +138,9 @@ _SERVER_IMPORTED_SYMBOLS: dict[str, tuple[str, ...]] = {
         "read_closed_channel_segments",
     ),
     "testerkit.store": ("find_catalog_dirs", "load_catalog_from_directory", "load_project"),
+    # The cloud Channels view's session labels are a TypeScript port of these;
+    # the server's parity test runs them against a shared fixture.
+    "testerkit.ui.shared": ("components",),
 }
 
 

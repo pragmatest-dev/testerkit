@@ -577,9 +577,16 @@ class ParquetBackend:
 
 
 def _build_unified_rows_from_acc(
-    acc: EventAccumulator, run_ended_at: datetime, run_outcome: str
+    acc: EventAccumulator,
+    run_ended_at: datetime | None = None,
+    run_outcome: str | None = None,
 ) -> list[dict[str, Any]]:
     """Build the per-run unified-rows list from an accumulator's state.
+
+    In-flight mode: ``run_ended_at`` / ``run_outcome`` default to ``None`` (an
+    executing run has neither yet), matching what
+    ``EventAccumulator.snapshot_step_rows`` reports while the run is open.
+    The live pusher (docs/41 §3.1) projects an executing run this way.
 
     Free-standing because the daemon calls it with accumulator instances
     drawn from its pool; not method-on-class because EventAccumulator is
@@ -611,7 +618,7 @@ def _build_unified_rows_from_acc(
 
 
 def _build_run_row_from_acc(
-    acc: EventAccumulator, *, run_ended_at: datetime, run_outcome: str
+    acc: EventAccumulator, *, run_ended_at: datetime | None, run_outcome: str | None
 ) -> dict[str, Any] | None:
     s = acc._run_started
     if not s:
@@ -628,8 +635,8 @@ def _build_step_row_from_acc(
     acc: EventAccumulator,
     entry: dict[str, Any],
     *,
-    run_ended_at: datetime,
-    run_outcome: str,
+    run_ended_at: datetime | None,
+    run_outcome: str | None,
 ) -> dict[str, Any] | None:
     s = acc._run_started
     if not s:
@@ -647,8 +654,8 @@ def _build_vector_row_from_acc(
     acc: EventAccumulator,
     entry: dict[str, Any],
     *,
-    run_ended_at: datetime,
-    run_outcome: str,
+    run_ended_at: datetime | None,
+    run_outcome: str | None,
 ) -> dict[str, Any] | None:
     s = acc._run_started
     if not s:
@@ -690,13 +697,15 @@ def materialize_run_to_parquet(
         output_dir: Where to write — the runs daemon's data dir.
         outcome: Final run outcome. ``None`` falls back to ``"aborted"``
             (matches the orphan-sweep semantic).
-        run_ended_at: Wall-clock time the run ended. Defaults to ``now()``.
+        run_ended_at: Time the run ended. Defaults to the accumulator's
+            ``RunEnded`` time, or ``now()`` when the run has no ``RunEnded``.
     """
     s = acc._run_started
     if not s:
         return None
 
-    ended_at = run_ended_at if run_ended_at is not None else _utcnow()
+    # The run's own ``RunEnded`` time; ``now()`` only when no RunEnded exists.
+    ended_at = run_ended_at or acc.run_ended_at or _utcnow()
     final_outcome = outcome if outcome is not None else "aborted"
 
     rows = _build_unified_rows_from_acc(acc, ended_at, final_outcome)

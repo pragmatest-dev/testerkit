@@ -34,3 +34,4 @@ testerkit.models.test_config
 testerkit.queries
 testerkit.replication
 testerkit.store
+testerkit.ui.shared
