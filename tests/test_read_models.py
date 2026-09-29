@@ -539,6 +539,8 @@ def test_derive_run_catalog_deltas(scenario: _Scenario) -> None:
     assert {r.fixture_id for r in catalog.runs} == {"FIX-RM-1"}
     assert {r.git_branch for r in catalog.runs} == {"branch-rm-1"}
     assert {r.uut_lot_number for r in catalog.runs} == {"LOT-RM-1"}
+    assert {r.uut_part_number for r in catalog.runs} == {"PN-RM-1"}
+    assert {r.station_hostname for r in catalog.runs} == {"bench-rm"}
 
     cooc_pairs = {(p.input_name, p.measurement_name) for p in catalog.inputs_measurements}
     assert ("vin", "vout") in cooc_pairs

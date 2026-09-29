@@ -484,6 +484,10 @@ RUNS_CATALOG_COLUMNS: tuple[tuple[str, str], ...] = (
     ("fixture_id", "STRING"),
     ("git_branch", "STRING"),
     ("uut_lot_number", "STRING"),
+    # The values the runs filters, Parts/Stations pages and facet menus key on
+    # (uut_part_number / station_hostname), distinct from the catalog ids.
+    ("uut_part_number", "STRING"),
+    ("station_hostname", "STRING"),
 )
 
 
@@ -500,9 +504,10 @@ def runs_catalog_select(source_sql: str) -> str:
     return (
         "SELECT DISTINCT part_id, part_name, part_revision, "
         "station_id, station_name, station_type, station_location, fixture_id, "
-        "git_branch, uut_lot_number "
+        "git_branch, uut_lot_number, uut_part_number, station_hostname "
         f"FROM {source_sql} WHERE run_id IS NOT NULL "
-        "AND NOT (part_id IS NULL AND station_id IS NULL AND fixture_id IS NULL)"
+        "AND NOT (part_id IS NULL AND station_id IS NULL AND fixture_id IS NULL "
+        "AND uut_part_number IS NULL AND station_hostname IS NULL)"
     )
 
 
@@ -947,6 +952,8 @@ class RunsCatalogRow(BaseModel):
     fixture_id: str | None = None
     git_branch: str | None = None
     uut_lot_number: str | None = None
+    uut_part_number: str | None = None
+    station_hostname: str | None = None
 
 
 class InputsMeasurementsCatalogRow(BaseModel):
