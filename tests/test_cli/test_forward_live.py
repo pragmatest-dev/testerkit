@@ -49,8 +49,10 @@ class FakeServer:
         self.pushes: list[LivePush] = []
         self.response = LivePushResponse()
         self.fail = False
+        self.attempts = 0
 
     def __call__(self, push: LivePush) -> LivePushResponse:
+        self.attempts += 1
         if self.fail:
             raise urllib.error.URLError("boom")
         self.pushes.append(push)
@@ -134,6 +136,39 @@ def test_lease_push_after_30s_silence_is_header_only() -> None:
     clock.t = 59.9
     pusher.tick()
     assert len(server.pushes) == 2  # the lease restarts the 30 s silence clock
+
+
+def test_header_heartbeat_every_30s_while_rows_keep_changing() -> None:
+    """docs/41 §2.1: the header goes out as a 30 s lease heartbeat even when row
+    pushes never leave 30 s of silence — otherwise the server's 90 s lease lapses
+    mid-run (the web shows "stalled") and ``current_step_path`` freezes."""
+    clock, server = FakeClock(), FakeServer()
+    pusher = _pusher(clock, server)
+    _feed(pusher, [run_started(), *_sweep(1)])
+    pusher.tick()
+    header_times = [0.0]
+    for i in range(2, 26):  # a new sweep point every 5 s for 2 minutes
+        clock.t = 5.0 * (i - 1)
+        _feed(pusher, _sweep(i)[-3:])
+        before = len(server.pushes)
+        pusher.tick()
+        if any(p.header is not None for p in server.pushes[before:]):
+            header_times.append(clock.t)
+    gaps = [b - a for a, b in zip(header_times, header_times[1:], strict=False)]
+    assert header_times[-1] >= 90.0
+    assert max(gaps) <= 30.0
+
+
+def test_overdue_lease_against_a_failing_server_keeps_the_throttle() -> None:
+    clock, server = FakeClock(), FakeServer()
+    pusher = _pusher(clock, server)
+    _feed(pusher, [run_started(), *_sweep(1)])
+    pusher.tick()
+    server.fail = True
+    for step in range(300, 600):  # ticks every 0.1 s from t = 30 s to 60 s
+        clock.t = step / 10
+        pusher.tick()
+    assert server.attempts - 1 <= 30 / 5 + 1  # about one try per T = 5 s, not per tick
 
 
 def test_failed_push_is_dropped_and_the_next_one_carries_current_state() -> None:

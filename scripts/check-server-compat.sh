@@ -103,11 +103,16 @@ uv sync --quiet --extra dev
 # refuses to touch the venv at all.
 uv pip install --quiet --no-deps -e "${REPO_ROOT}"
 
+# Same list as testerkit-server's scripts/deploy-cloudrun.sh TARGETED_TESTS
+# (the server's own deploy gate) — keep the two in step.
 TARGETED_TESTS=(
   tests/test_run_object.py
-  tests/test_run_rows_serving.py
-  tests/test_run_rows_runs_and_lanes_serving.py
-  tests/test_metrics_parity.py
+  tests/test_run_ingest.py
+  tests/test_saas_ingest_runs_e2e.py
+  tests/test_no_legacy_refs.py
+  tests/test_menus_serving.py
+  tests/test_measurements_table_slim.py
+  tests/test_metrics_views_parity.py
   tests/test_dimensions_parity.py
   tests/test_facts_derive.py
   tests/test_facts_derive_routes.py

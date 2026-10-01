@@ -758,6 +758,7 @@ class _LiveRun:
         self.projection = LiveRunProjection()
         self.pending = False
         self.last_push: float | None = None
+        self.last_header: float | None = None  # last header the server acknowledged
         self.watched = False
         self.projection_s = 0.0
 
@@ -853,7 +854,17 @@ class LivePusher:
         for rid, run in list(self._runs.items()):
             silent_for = None if run.last_push is None else now - run.last_push
             change_due = run.pending and (silent_for is None or silent_for >= run.interval())
-            lease_due = silent_for is not None and silent_for >= _LIVE_LEASE_S
+            # The lease is a heartbeat on the HEADER (docs/41 §2.1): row pushes do not
+            # renew the server's lease, so a run whose rows change every few seconds
+            # still owes a header every 30 s. It keeps the throttle, so a failing
+            # server is not retried every tick.
+            header_age = None if run.last_header is None else now - run.last_header
+            lease_due = (
+                header_age is not None
+                and header_age >= _LIVE_LEASE_S
+                and silent_for is not None
+                and silent_for >= run.interval()
+            )
             if change_due or lease_due:
                 self._push_run(rid, run, now, lease=lease_due)
 
@@ -898,6 +909,8 @@ class LivePusher:
                 run.pending = True  # nothing was applied
                 return
             run.sync.commit(push, now=now)
+            if push.header is not None:
+                run.last_header = now
             if resp.resync:  # after the commit, which clears the manifest debt
                 run.sync.request_resync()
 
