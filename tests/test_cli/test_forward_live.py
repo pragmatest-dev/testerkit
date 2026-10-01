@@ -18,15 +18,17 @@ from click.testing import CliRunner
 from testerkit.cli import forward_cmd
 from testerkit.cli.forward_cmd import LivePusher, _post_live
 from testerkit.cli.root import main
-from testerkit.data.events import RunMaterialized
+from testerkit.data.events import RunMaterialized, StepStarted
 from testerkit.data.live_rows import LivePush, LivePushResponse
 from tests.test_data.live_streams import (
     RUN_ID,
     SESSION_ID,
+    _step_kwargs,
     as_dicts,
     representative_events,
     run_started,
     swept_step_events,
+    ts,
 )
 
 RID = str(RUN_ID)
@@ -436,3 +438,21 @@ def test_forward_has_live_flag_default_on() -> None:
     param = next(p for p in forward_cmd.forward.params if p.name == "live")
     assert param.default is True
     assert threading.active_count() >= 1
+
+
+def test_current_step_while_a_marker_sweep_runs_its_next_point() -> None:
+    """A marker sweep emits StepStarted/StepEnded per point under one step_path; while
+    a point is running the header names that step (seen in the 2026-10-01 recording:
+    the banner showed no current step during every sweep)."""
+    clock, server = FakeClock(), FakeServer()
+    pusher = _pusher(clock, server)
+    events: list[Any] = [run_started()]
+    for vi in range(3):
+        events += swept_step_events("sweep", 0, vectors=1, t=1 + vi)
+    events.append(
+        StepStarted(**_step_kwargs("sweep", 0, RUN_ID), vector_index=None, occurred_at=ts(5))
+    )
+    _feed(pusher, events)
+    pusher.tick()
+    assert server.pushes[-1].header is not None
+    assert server.pushes[-1].header.current_step_path == "sweep"

@@ -728,10 +728,17 @@ class EventAccumulator:
         return self._step_span_start.get(_step_key(start), start.occurred_at)
 
     def _span_ended_at(self, end: Any) -> Any:
-        """The step's end across every call fused under ``end``'s key."""
+        """The step's end across every call fused under ``end``'s key — or None while a
+        later call is running (a marker sweep emits StepStarted/StepEnded per point, so
+        between a point's StepStarted and its StepEnded the fused step is in flight)."""
         if end is None:
             return None
-        return self._step_span_end.get(_step_key(end), end.occurred_at)
+        key = _step_key(end)
+        span_end = self._step_span_end.get(key, end.occurred_at)
+        latest_start = self._step_starts.get(key)
+        if latest_start is not None and latest_start.occurred_at > span_end:
+            return None
+        return span_end
 
     def _step_start_for(self, step_path: str, vector_outer_index: int | None) -> Any:
         return self._min_retry_match(self._step_starts, step_path, vector_outer_index)
