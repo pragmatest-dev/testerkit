@@ -16,6 +16,53 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ### Fixed
 
+## [0.5.2] - 2026-10-02
+
+Pairs with the TesterKit Cloud server that serves from the shared read models
+below; the forwarding changes need that server.
+
+### Added
+
+- **Live view.** `testerkit forward` pushes runs that are still executing to the
+  server's live view (on by default; `--no-live` to skip). It is best-effort on its
+  own thread: a failed push is dropped and never delays the durable forward.
+- `testerkit.data.read_models`: the shared read-model definitions TesterKit Cloud
+  serves from (slim runs/steps/measurements facts and catalogs), carrying
+  `measurement_timestamp`, the carrier's nested inputs, `characteristic_id`,
+  `uut_pin`, `uut_part_number`, `station_hostname`, `git_branch` and
+  `uut_lot_number`.
+- `testerkit forward` uploads every available artifact by default — the event
+  WAL, closed channel segments, new file blobs and finished run Parquet. The
+  `--channels` / `--files` / `--runs` flags now only limit a pass (`--no-*`).
+- Events forward in byte-bounded chunks (`--max-bytes`, default 16 MiB, or
+  `$TESTERKIT_FORWARD_MAX_BYTES`), so a large backlog drains incrementally;
+  `--no-cursor` re-seeds a fresh server, relying on server-side dedup.
+- Runs the server quarantines (conflict / rejected) are logged to
+  `<data_dir>/runs/_forward_conflicts.jsonl`.
+- Channel segments are forwarded with their `rel_path`, so a re-forward is an
+  idempotent no-op on the server.
+
+### Changed
+
+- **Breaking (forwarding):** events are posted to `/ingest/events` (was
+  `/ingest`), and the separate per-run events upload is gone (the event WAL
+  already carries every run's events). Forward to a server at this version.
+- `testerkit forward` requires a connection: run `testerkit connect`, or pass
+  `--url`/`--token` (or `$TESTERKIT_SERVER_URL`/`$TESTERKIT_TOKEN`).
+  `testerkit connect` now stores the server's direct ingest URL.
+- Local index: every stored table is `X_materialized` behind a public view `X`
+  (the step-vectors view is now `vectors`). Existing data dirs rebuild their
+  derived index from Parquet automatically on first open.
+
+### Fixed
+
+- A fused sweep step's start/end now span every sweep point, not only the last
+  call (#83); while a later point runs, the step reads as still running.
+- Live view: the run header is re-sent as a 30 s heartbeat, so a busy run no
+  longer shows "Stalled" mid-run and the current step stays current.
+- Materialized runs carry their `ended_at`.
+- Marker names are de-duplicated when joined.
+
 ## [0.5.1] - 2026-09-18
 
 ### Fixed
