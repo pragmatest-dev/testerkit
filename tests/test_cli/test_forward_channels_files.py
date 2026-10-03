@@ -14,6 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pyarrow as pa
+import pyarrow.ipc as ipc
 import pytest
 
 from testerkit.cli import forward_cmd
@@ -517,3 +518,23 @@ def test_forward_all_once_runs_enabled_stores(tmp_path: Path, monkeypatch) -> No
         "channels": {"segments": 1, "rows": 1},
         "files": {"files": 1},
     }
+
+
+def test_closed_channel_segments_come_back_in_numeric_sequence_order(tmp_path: Path) -> None:
+    """Segment files are named ``{stem}``, ``{stem}_001`` … ``{stem}_999``,
+    ``{stem}_1000`` …; a string sort put ``_1000`` before ``_101``, and the
+    server's per-stream high-water mark then dropped ``_101``–``_999`` as
+    already seen (silent data loss past segment 999)."""
+    stem = "ch-vout_0123abcd"
+    day = tmp_path / "2026-10-03"
+    day.mkdir()
+    seqs = [0, 1, 99, 100, 101, 999, 1000, 1001, 1010]
+    for seq in seqs:
+        name = f"{stem}.arrow" if seq == 0 else f"{stem}_{seq:03d}.arrow"
+        table = pa.table({"value": [float(seq)]})
+        with ipc.new_stream(str(day / name), table.schema) as writer:
+            writer.write_table(table)
+
+    segments = read_closed_channel_segments(tmp_path, set())
+
+    assert [seg.table.column("value")[0].as_py() for seg in segments] == [float(s) for s in seqs]

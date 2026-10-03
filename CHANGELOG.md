@@ -16,6 +16,16 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ### Fixed
 
+## [0.5.3] - 2026-10-03
+
+### Fixed
+
+- `testerkit forward` sends channel segments in numeric order. Segment files past
+  `_999` (`_1000` …) sorted before `_101` as text, and the server then treated
+  segments `_101`–`_999` of that stream as already received and dropped them.
+  Channel sessions with more than 1,000 segments forwarded by 0.5.2 can be
+  missing those segments in the cloud; the local data is intact.
+
 ## [0.5.2] - 2026-10-02
 
 Pairs with the TesterKit Cloud server that serves from the shared read models

@@ -273,7 +273,19 @@ def ingest_replicated(data_dir: Path, table: pa.Table) -> BatchDisposition:
 # ``ChannelIndex._scan_disk`` — channel_id may itself contain ``_``, so the
 # greedy group only works because the filename is anchored on the trailing
 # 8-hex-char session_short (+ optional zero-padded rotation suffix).
-_SEGMENT_NAME_RE = re.compile(r"^(.+)_([0-9a-f]{8})(?:_\d+)?$")
+_SEGMENT_NAME_RE = re.compile(r"^(.+)_([0-9a-f]{8})(?:_(\d+))?$")
+
+
+def _segment_order(seg: Path) -> tuple[str, str, int]:
+    """Sort key for a channel segment file: (day dir, stream stem, NUMERIC
+    sequence). The first segment has no suffix (sequence 0) and later ones are
+    ``_001`` … ``_999``, ``_1000`` …; a plain string sort puts ``_1000`` before
+    ``_101``, and the server's per-stream high-water mark would then drop
+    ``_101``–``_999`` as already seen."""
+    m = _SEGMENT_NAME_RE.match(seg.stem)
+    if not m:
+        return (seg.parent.name, seg.stem, 0)
+    return (seg.parent.name, f"{m.group(1)}_{m.group(2)}", int(m.group(3) or 0))
 
 
 @dataclass(frozen=True)
@@ -313,7 +325,7 @@ def read_closed_channel_segments(
     are skipped (defensive — e.g. a stray non-segment ``.arrow`` file).
     """
     out: list[ChannelSegment] = []
-    for seg in sorted(channels_dir.glob("*/*.arrow")):
+    for seg in sorted(channels_dir.glob("*/*.arrow"), key=_segment_order):
         rel = seg.relative_to(channels_dir).as_posix()
         if rel in sent:
             continue
