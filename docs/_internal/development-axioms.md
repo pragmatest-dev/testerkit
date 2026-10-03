@@ -302,3 +302,28 @@ Once a plan is approved, it is the contract. Execution is faithful execution.
   dropdown, filter, or column. (Corollary of §4's no-synthetic-identifiers rule.)
 - **Self-test the UI before claiming it works.** Run it and verify with Playwright
   (snapshot + console errors). HTTP 200 is not correctness (§1).
+
+## 12. Architecture & Store Decisions
+
+Learned the expensive way (2026-09-27): hours of BigQuery-framed cost plans, audits and
+cross-cloud comparisons missed that one run page read ~4.6 GB (~$0.026/view) — BigQuery has no
+indexes, so `run_id` can't prune — until a realistic benchmark measured it.
+
+- **Measure before recommending an architecture.** No store / serving recommendation without a
+  benchmark at realistic scale (testerkit-server `bench/`, docs/47). Demo-sized data is not
+  evidence: at a few dozen runs every BigQuery query bills the same 10 MB floor and hides the
+  real behaviour. **[hard rule]**
+- **Start from access patterns, not the current stack.** For each page / endpoint, classify its
+  queries — point read, range scan, aggregate, search / facet — with keys, frequency, result
+  size and latency need, then match a store to each shape. The existing architecture is one
+  candidate, never the frame. **[hard rule]**
+- **Prior decisions are hypotheses.** A decision records the assumptions it rests on; when new
+  evidence touches one, re-open the decision explicitly. "Conflicts with <decision doc>" is a
+  flag to discuss, never a tie-breaker that ranks an alternative down.
+- **Express cost as $ per user action at target scale, early.** Bytes and percentages hide
+  problems; "$0.026 per run-page view" does not.
+- **Verify the load-bearing assumption behind a delegated result before relaying it.** An
+  agent's headline number inherits the confidence of its least-tested assumption (e.g.
+  "run views prune via clustering to ~42 MB" — never tested, and false). **[hard rule]**
+- **Adversarial reviews question the platform, not just the plan.** Every architecture audit's
+  brief includes "is this the right store at all for each access pattern?".

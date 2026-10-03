@@ -3,7 +3,7 @@
 ``index`` is a ``DENSE_RANK`` projection, MATERIALIZED at ingest (full
 snowflake, 0.3.1 phase 8) via the daemon's single-source
 ``_occurrence_index_expr`` — one SQL builder shared by the measurements fact
-and the inputs/outputs lane tables (and re-computed for not-yet-materialized
+and the inputs/outputs IO tables (and re-computed for not-yet-materialized
 inflight rows by the ``measurements`` view). Its whole correctness claim is:
 
   * it is **0-based** per ``(run_id, measurement_name)``,

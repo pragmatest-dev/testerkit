@@ -199,6 +199,47 @@ def test_connect_stores_credentials_and_url_that_forward_then_reads(
     assert fwd.exit_code == 0, fwd.output
 
 
+def test_connect_stores_the_direct_ingest_url_the_server_hands_back(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Discover-then-direct (docs/36 P3): the bench authenticates THROUGH the web
+    app, but the token response carries the DIRECT backend URL (`ingest_url`).
+    connect must store THAT for forward — not the web-app URL it connected to,
+    which can't accept ingest."""
+    _isolate_home(monkeypatch, tmp_path)
+
+    monkeypatch.setattr(
+        connect_cmd,
+        "_authorize",
+        lambda url, *, timeout: {
+            "device_code": "dc-1",
+            "user_code": "AAAA-BBBB",
+            "verification_uri": "https://app.example/activate",
+            "verification_uri_complete": "https://app.example/activate?user_code=AAAA-BBBB",
+            "expires_in": 600,
+            "interval": 1,
+        },
+    )
+    monkeypatch.setattr(
+        connect_cmd,
+        "_wait_for_device_approval",
+        lambda url, device_code, *, interval, expires_in, timeout: {
+            "status": 200,
+            "access_token": "tk_x",
+            "org_id": "o1",
+            "org_name": "Acme",
+            "ingest_url": "https://backend-xyz.run.app",
+        },
+    )
+    monkeypatch.setattr(connect_cmd, "open_browser", lambda _u: True)
+
+    result = CliRunner().invoke(main, ["connect", "--url", "https://app.example"])
+    assert result.exit_code == 0, result.output
+    # Stored the DIRECT backend URL from the response, NOT the web-app URL.
+    assert resolve_server_url(None) == "https://backend-xyz.run.app"
+    assert "https://backend-xyz.run.app" in result.output  # prints the ingest endpoint
+
+
 def test_connect_requires_a_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _isolate_home(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)  # no ancestor testerkit.yaml

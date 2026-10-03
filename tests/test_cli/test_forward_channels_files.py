@@ -14,6 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pyarrow as pa
+import pyarrow.ipc as ipc
 import pytest
 
 from testerkit.cli import forward_cmd
@@ -56,26 +57,25 @@ def test_events_cursor_malformed_values_returns_empty(tmp_path: Path) -> None:
 
 def test_channels_cursor_roundtrip(tmp_path: Path) -> None:
     path = tmp_path / "cursor.json"
-    forward_cmd._save_channels_cursor(path, {"2026-09-14/a_deadbeef.arrow"})
-    assert forward_cmd._load_channels_cursor(path) == {"2026-09-14/a_deadbeef.arrow"}
+    forward_cmd._save_channels_cursor(
+        path, forward_cmd.ChannelsCursor(streams={"2026-09-14/a_deadbeef": 7})
+    )
+    assert forward_cmd._load_channels_cursor(path).streams == {"2026-09-14/a_deadbeef": 7}
+    assert json.loads(path.read_text())["version"] == 2
 
 
-def test_channels_cursor_missing_file_is_empty_set(tmp_path: Path) -> None:
-    assert forward_cmd._load_channels_cursor(tmp_path / "nope.json") == set()
+def test_channels_cursor_missing_file_is_empty(tmp_path: Path) -> None:
+    assert forward_cmd._load_channels_cursor(tmp_path / "nope.json").streams == {}
 
 
 def test_files_cursor_roundtrip(tmp_path: Path) -> None:
     path = tmp_path / "cursor.json"
-    forward_cmd._save_files_cursor(path, {"file://a"}, {"abc123"})
-    uris, hashes = forward_cmd._load_files_cursor(path)
-    assert uris == {"file://a"}
-    assert hashes == {"abc123"}
+    forward_cmd._save_files_cursor(path, {"file://a"})
+    assert forward_cmd._load_files_cursor(path) == {"file://a"}
 
 
-def test_files_cursor_missing_file_is_empty_sets(tmp_path: Path) -> None:
-    uris, hashes = forward_cmd._load_files_cursor(tmp_path / "nope.json")
-    assert uris == set()
-    assert hashes == set()
+def test_files_cursor_missing_file_is_empty_set(tmp_path: Path) -> None:
+    assert forward_cmd._load_files_cursor(tmp_path / "nope.json") == set()
 
 
 # --------------------------------------------------------------------------- #
@@ -148,7 +148,7 @@ def test_forward_channels_once_nothing_new_returns_none(tmp_path: Path, monkeypa
 
     monkeypatch.setattr(forward_cmd, "_post_channel_segment", _boom)
     result = forward_cmd._forward_channels_once(
-        channels_dir, tmp_path / "c.json", "http://x", "tk", timeout=5.0
+        channels_dir, tmp_path / "c.json", "http://x", "tk", timeout=5.0, flush_all=True
     )
     assert result is None
 
@@ -162,22 +162,24 @@ def test_forward_channels_once_posts_and_advances_cursor(tmp_path: Path, monkeyp
 
     posted: list[str] = []
 
-    def _fake_post(url, token, channel_id, table, *, timeout):
+    def _fake_post(url, token, channel_id, table, *, rel_path, timeout):
         posted.append(channel_id)
+        assert rel_path.endswith(".arrow")  # the segment's local identity is sent
         return {
             "segment_key": "orgs/x/channels/psu.voltage/abc.parquet",
             "row_count": table.num_rows,
+            "inserted": True,
         }
 
     monkeypatch.setattr(forward_cmd, "_post_channel_segment", _fake_post)
     result = forward_cmd._forward_channels_once(
-        channels_dir, cursor_path, "http://x", "tk", timeout=5.0
+        channels_dir, cursor_path, "http://x", "tk", timeout=5.0, flush_all=True
     )
 
-    assert result == {"segments": 1, "rows": 1}
+    assert result == {"segments": 1, "posts": 1, "rows": 1}
     assert posted == ["psu.voltage"]
     cursor = forward_cmd._load_channels_cursor(cursor_path)
-    assert len(cursor) == 1
+    assert list(cursor.streams.values()) == [0]
 
     # Re-run: the segment is already in the cursor, so it must not be re-sent.
     monkeypatch.setattr(
@@ -186,7 +188,9 @@ def test_forward_channels_once_posts_and_advances_cursor(tmp_path: Path, monkeyp
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not resend")),
     )
     assert (
-        forward_cmd._forward_channels_once(channels_dir, cursor_path, "http://x", "tk", timeout=5.0)
+        forward_cmd._forward_channels_once(
+            channels_dir, cursor_path, "http://x", "tk", timeout=5.0, flush_all=True
+        )
         is None
     )
 
@@ -205,38 +209,39 @@ def test_forward_channels_once_does_not_advance_cursor_on_post_failure(
 
     monkeypatch.setattr(forward_cmd, "_post_channel_segment", _fail)
     with pytest.raises(OSError):
-        forward_cmd._forward_channels_once(channels_dir, cursor_path, "http://x", "tk", timeout=5.0)
+        forward_cmd._forward_channels_once(
+            channels_dir, cursor_path, "http://x", "tk", timeout=5.0, flush_all=True
+        )
 
-    # No cursor file was ever written -- the failed segment will be retried.
-    assert forward_cmd._load_channels_cursor(cursor_path) == set()
+    # No stream advanced -- the failed batch will be retried.
+    assert forward_cmd._load_channels_cursor(cursor_path).streams == {}
 
 
-def test_forward_channels_once_persists_cursor_per_segment(tmp_path: Path, monkeypatch) -> None:
-    """The second of two segments fails to POST -- the first must already be
-    durably recorded (persist-per-segment, not batched at the end)."""
+def test_forward_channels_once_failed_stream_keeps_other_streams_progress(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """One stream's POST fails -- the other stream's progress is still saved (one
+    save per pass, on the error path too) and the error is re-raised."""
     store = ChannelStore(tmp_path, uuid4())
     store.write("psu.voltage", 1.0)
+    store.write("dmm.current", 2.0)
     store.close()
-    store2 = ChannelStore(tmp_path, uuid4())
-    store2.write("dmm.current", 2.0)
-    store2.close()
     channels_dir = tmp_path / "channels"
     cursor_path = tmp_path / "cursor.json"
 
-    calls = []
-
-    def _flaky_post(url, token, channel_id, table, *, timeout):
-        calls.append(channel_id)
-        if len(calls) == 2:
+    def _flaky_post(url, token, channel_id, table, *, rel_path, timeout):
+        if channel_id == "dmm.current":
             raise OSError("network down")
         return {"segment_key": "k", "row_count": table.num_rows}
 
     monkeypatch.setattr(forward_cmd, "_post_channel_segment", _flaky_post)
     with pytest.raises(OSError):
-        forward_cmd._forward_channels_once(channels_dir, cursor_path, "http://x", "tk", timeout=5.0)
+        forward_cmd._forward_channels_once(
+            channels_dir, cursor_path, "http://x", "tk", timeout=5.0, flush_all=True
+        )
 
-    cursor = forward_cmd._load_channels_cursor(cursor_path)
-    assert len(cursor) == 1  # only the first (successful) segment was recorded
+    streams = forward_cmd._load_channels_cursor(cursor_path).streams
+    assert [k.split("/")[1].rsplit("_", 1)[0] for k in streams] == ["psu.voltage"]
 
 
 # --------------------------------------------------------------------------- #
@@ -275,19 +280,16 @@ def test_forward_files_once_posts_and_advances_cursor(tmp_path: Path, monkeypatc
     monkeypatch.setattr(forward_cmd, "_post_file_blob", _fake_post)
     result = forward_cmd._forward_files_once(files_dir, cursor_path, "http://x", "tk", timeout=5.0)
 
-    assert result == {"files": 1, "skipped_dupe": 0}
+    assert result == {"files": 1}
     assert posted == [b"hello"]
-    sent_uris, sent_hashes = forward_cmd._load_files_cursor(cursor_path)
-    assert len(sent_uris) == 1
-    assert len(sent_hashes) == 1
+    assert len(forward_cmd._load_files_cursor(cursor_path)) == 1
 
 
-def test_forward_files_once_skips_reupload_of_identical_content(
+def test_forward_files_once_posts_identical_content_under_each_uri(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Two different URIs with identical bytes: the second is retired into the
-    cursor without a second POST (bandwidth optimization; the server would
-    dedupe by hash anyway)."""
+    """Two different URIs with identical bytes are two files on the server
+    (it stores every URI as its own file), so both are POSTed."""
     store = FileStore(_data_dir=tmp_path)
     store.write("a", b"same-bytes", session_id=str(uuid4()))
     store.write("b", b"same-bytes", session_id=str(uuid4()))
@@ -303,10 +305,9 @@ def test_forward_files_once_skips_reupload_of_identical_content(
     )
     result = forward_cmd._forward_files_once(files_dir, cursor_path, "http://x", "tk", timeout=5.0)
 
-    assert result == {"files": 1, "skipped_dupe": 1}
-    assert len(calls) == 1  # only one actually POSTed
-    sent_uris, _ = forward_cmd._load_files_cursor(cursor_path)
-    assert len(sent_uris) == 2  # but both retired from future scans
+    assert result == {"files": 2}
+    assert len(calls) == 2
+    assert len(forward_cmd._load_files_cursor(cursor_path)) == 2
 
 
 def test_forward_files_once_does_not_advance_cursor_on_post_failure(
@@ -324,15 +325,13 @@ def test_forward_files_once_does_not_advance_cursor_on_post_failure(
     with pytest.raises(OSError):
         forward_cmd._forward_files_once(files_dir, cursor_path, "http://x", "tk", timeout=5.0)
 
-    sent_uris, sent_hashes = forward_cmd._load_files_cursor(cursor_path)
-    assert sent_uris == set()
-    assert sent_hashes == set()
+    assert forward_cmd._load_files_cursor(cursor_path) == set()
 
 
 def test_post_file_blob_builds_expected_multipart_body(monkeypatch) -> None:
-    """Pins the wire shape this side targets (REVIEW NEEDED — unconfirmed
-    against a real server, see forward_cmd module docstring): multipart with a
-    JSON "meta" field and a binary "file" field."""
+    """Pins the wire shape: multipart with a JSON "meta" field (carrying the
+    file's ``uri``, its identity on the server) and a binary "file" field.
+    testerkit-server's contract test posts this same body to the real route."""
     captured = {}
 
     class _FakeResponse:
@@ -376,6 +375,7 @@ def test_post_file_blob_builds_expected_multipart_body(monkeypatch) -> None:
     meta_start = body.index(b"\r\n\r\n") + 4
     meta_end = body.index(b"\r\n--", meta_start)
     meta = json.loads(body[meta_start:meta_end])
+    assert meta["uri"] == "file://2026-09-14/s1/capture.bin"
     assert meta["name"] == "capture.bin"
     assert meta["session_id"] == "s1"
     assert meta["step_path"] is None
@@ -404,26 +404,65 @@ def test_post_channel_segment_url_quotes_channel_id(monkeypatch) -> None:
     monkeypatch.setattr(forward_cmd.urllib.request, "urlopen", _fake_urlopen)
     table = pa.table({"value": [1.0]})
     disp = forward_cmd._post_channel_segment(
-        "http://x", "tk", "psu/voltage weird", table, timeout=5.0
+        "http://x",
+        "tk",
+        "psu/voltage weird",
+        table,
+        rel_path="psu/voltage weird/seg1.arrow",
+        timeout=5.0,
     )
 
     assert disp == {"segment_key": "k", "row_count": 1}
-    assert captured["url"] == "http://x/ingest/channels/psu%2Fvoltage%20weird"
+    # rel_path (the segment's local identity) rides as a query param so the server
+    # derives a deterministic, dedup-able segment key from it.
+    assert captured["url"] == (
+        "http://x/ingest/channels/psu%2Fvoltage%20weird?rel_path=psu%2Fvoltage%20weird%2Fseg1.arrow"
+    )
     assert captured["headers"]["Authorization"] == "Bearer tk"
 
 
 # --------------------------------------------------------------------------- #
-# _forward_all_once — default-behavior-unchanged guarantee                    #
+# _forward_all_once — default forwards everything; --no-* flags LIMIT a pass   #
 # --------------------------------------------------------------------------- #
 
 
-def test_forward_all_once_default_flags_never_touch_channels_or_files(
+def test_forward_all_once_default_forwards_every_store(tmp_path: Path, monkeypatch) -> None:
+    """The DEFAULT (no channels/files/runs kwargs = the CLI default) forwards
+    EVERY store — events, channels, files, runs. A plain ``testerkit forward``
+    uploads everything available; no flag is needed to get a full upload."""
+    events_dir = tmp_path / "events"
+    events_dir.mkdir()
+
+    monkeypatch.setattr(forward_cmd, "_forward_once", lambda *a, **k: {"inserted": 1})
+    monkeypatch.setattr(
+        forward_cmd, "_forward_channels_once", lambda *a, **k: {"segments": 1, "rows": 1}
+    )
+    monkeypatch.setattr(forward_cmd, "_forward_files_once", lambda *a, **k: {"files": 1})
+    monkeypatch.setattr(forward_cmd, "_forward_runs_once", lambda *a, **k: {"runs": 1})
+
+    result = forward_cmd._forward_all_once(
+        events_dir,
+        tmp_path / "e.json",
+        tmp_path / "channels",
+        tmp_path / "c.json",
+        tmp_path / "files",
+        tmp_path / "f.json",
+        tmp_path / "runs",
+        tmp_path / "r.json",
+        "http://x",
+        "tk",
+        timeout=5.0,
+    )
+    assert set(result) == {"events", "channels", "files", "runs"}
+
+
+def test_forward_all_once_disabled_flags_skip_channels_files_runs(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """With channels=False, files=False (the CLI default), _forward_all_once
-    must do exactly what the original events-only _forward_once did -- never
-    even look at the channels/files dirs. This is the behavior-unchanged
-    guarantee for a plain ``testerkit forward``."""
+    """channels=False/files=False/runs=False (the ``--no-channels``/``--no-files``/
+    ``--no-runs`` LIMIT flags) skip those stores entirely — _forward_all_once never
+    even looks at their dirs, doing only the events pass. These flags are ON by
+    default; this exercises the opt-OUT path."""
     events_dir = tmp_path / "events"
     events_dir.mkdir()
 
@@ -432,6 +471,7 @@ def test_forward_all_once_default_flags_never_touch_channels_or_files(
 
     monkeypatch.setattr(forward_cmd, "_forward_channels_once", _boom)
     monkeypatch.setattr(forward_cmd, "_forward_files_once", _boom)
+    monkeypatch.setattr(forward_cmd, "_forward_runs_once", _boom)
     monkeypatch.setattr(forward_cmd, "_post_ingest", _boom)  # nothing to forward -> never called
 
     result = forward_cmd._forward_all_once(
@@ -441,11 +481,14 @@ def test_forward_all_once_default_flags_never_touch_channels_or_files(
         tmp_path / "c.json",
         tmp_path / "files",
         tmp_path / "f.json",
+        tmp_path / "runs",
+        tmp_path / "r.json",
         "http://x",
         "tk",
         timeout=5.0,
         channels=False,
         files=False,
+        runs=False,
     )
     assert result == {}
 
@@ -459,9 +502,7 @@ def test_forward_all_once_runs_enabled_stores(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setattr(
         forward_cmd, "_forward_channels_once", lambda *a, **k: {"segments": 1, "rows": 1}
     )
-    monkeypatch.setattr(
-        forward_cmd, "_forward_files_once", lambda *a, **k: {"files": 1, "skipped_dupe": 0}
-    )
+    monkeypatch.setattr(forward_cmd, "_forward_files_once", lambda *a, **k: {"files": 1})
 
     result = forward_cmd._forward_all_once(
         events_dir,
@@ -470,13 +511,36 @@ def test_forward_all_once_runs_enabled_stores(tmp_path: Path, monkeypatch) -> No
         tmp_path / "c.json",
         files_dir,
         tmp_path / "f.json",
+        tmp_path / "runs",
+        tmp_path / "r.json",
         "http://x",
         "tk",
         timeout=5.0,
         channels=True,
         files=True,
+        runs=False,
     )
     assert result == {
         "channels": {"segments": 1, "rows": 1},
-        "files": {"files": 1, "skipped_dupe": 0},
+        "files": {"files": 1},
     }
+
+
+def test_closed_channel_segments_come_back_in_numeric_sequence_order(tmp_path: Path) -> None:
+    """Segment files are named ``{stem}``, ``{stem}_001`` … ``{stem}_999``,
+    ``{stem}_1000`` …; a string sort put ``_1000`` before ``_101``, and the
+    server's per-stream high-water mark then dropped ``_101``–``_999`` as
+    already seen (silent data loss past segment 999)."""
+    stem = "ch-vout_0123abcd"
+    day = tmp_path / "2026-10-03"
+    day.mkdir()
+    seqs = [0, 1, 99, 100, 101, 999, 1000, 1001, 1010]
+    for seq in seqs:
+        name = f"{stem}.arrow" if seq == 0 else f"{stem}_{seq:03d}.arrow"
+        table = pa.table({"value": [float(seq)]})
+        with ipc.new_stream(str(day / name), table.schema) as writer:
+            writer.write_table(table)
+
+    segments = read_closed_channel_segments(tmp_path, set())
+
+    assert [seg.table.column("value")[0].as_py() for seg in segments] == [float(s) for s in seqs]

@@ -658,22 +658,22 @@ def _seed_phase_parquet(tmp_path, n_vec: int, n_meas: int, serial: str = "PHASE-
 
 @pytest.mark.benchmark(group="daemon-ingest")
 def test_meas_rows_split(tmp_path):
-    """Split meas_rows ingest into fact insert / inputs+outputs lane inserts.
+    """Split meas_rows ingest into fact insert / inputs+outputs IO inserts.
 
     Projection-normalization (0.3.1) moved the dynamic_attrs MAP build OFF
     the ingest path entirely (it's now derived at query time — see
     ``run_store.get_measurements`` / ``StepsQuery``), so the fact insert no
     longer pays a per-row MAP-build cost; this benchmark now just tracks the
-    two remaining ingest costs (fact, lane tables) so a future regression
+    two remaining ingest costs (fact, IO tables) so a future regression
     that reintroduces per-row work at ingest shows up here.
     Run: -m benchmark -k meas_rows_split -s.
     """
     import time as _t
 
     from testerkit.data._runs_duckdb_daemon import (
-        _LANE_TABLES,
+        _IO_TABLES,
         _ensure_schema,
-        _lane_insert,
+        _io_insert,
         _measurement_unnest_insert,
         _open_index,
         _sql_escape,
@@ -697,16 +697,16 @@ def test_meas_rows_split(tmp_path):
 
     fact_ms = _ms(lambda: conn.execute(fact_sql))
 
-    def _insert_lanes() -> None:
-        for col, table in _LANE_TABLES:
-            _lane_insert(conn, table, col, src, file_path_expr=f"'{escaped}'")
+    def _insert_io() -> None:
+        for col, table in _IO_TABLES:
+            _io_insert(conn, table, col, src, file_path_expr=f"'{escaped}'")
 
-    lane_ms = _ms(_insert_lanes)
+    io_ms = _ms(_insert_io)
     conn.close()
 
     print(f"\nMEAS_ROWS SPLIT ({n_vec} vec x {n_meas} meas = {n_vec * n_meas} meas):")
     print(f"  fact insert                {fact_ms:7.1f} ms")
-    print(f"  lane inserts (in+out)      {lane_ms:7.1f} ms")
+    print(f"  IO inserts (in+out)        {io_ms:7.1f} ms")
 
 
 def test_batch_io_refs_matches_per_file(tmp_path):
@@ -728,19 +728,22 @@ def test_batch_io_refs_matches_per_file(tmp_path):
         for _ in range(3)
     ]
 
+    # Queries the ``_materialized`` tables directly (not the ``_create_views``
+    # public views) — this test only calls ``_ensure_schema``, which creates
+    # the writer-side tables, not the read-side views.
     cb, _ = _open_index(tmp_path / "batch.duckdb")
     _ensure_schema(cb)
     _batch_index_io_and_refs(cb, paths)
-    io_b = cb.execute("SELECT * FROM measurement_io_schema ORDER BY ALL").fetchall()
-    refs_b = cb.execute("SELECT * FROM measurement_refs ORDER BY ALL").fetchall()
+    io_b = cb.execute("SELECT * FROM measurement_io_schema_materialized ORDER BY ALL").fetchall()
+    refs_b = cb.execute("SELECT * FROM measurement_refs_materialized ORDER BY ALL").fetchall()
     cb.close()
 
     cp, _ = _open_index(tmp_path / "perfile.duckdb")
     _ensure_schema(cp)
     for p in paths:
         _index_io_and_refs(cp, p)
-    io_p = cp.execute("SELECT * FROM measurement_io_schema ORDER BY ALL").fetchall()
-    refs_p = cp.execute("SELECT * FROM measurement_refs ORDER BY ALL").fetchall()
+    io_p = cp.execute("SELECT * FROM measurement_io_schema_materialized ORDER BY ALL").fetchall()
+    refs_p = cp.execute("SELECT * FROM measurement_refs_materialized ORDER BY ALL").fetchall()
     cp.close()
 
     assert io_b == io_p

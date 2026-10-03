@@ -7,7 +7,9 @@ Both functions operate on the [event log](../../concepts/data/event-log.md)'s on
 ## `read_segments`
 
 ```python
-def read_segments(events_dir: Path, *, cursor: dict[str, int] | None = None) -> pyarrow.Table | None
+def read_segments(
+    events_dir: Path, *, cursor: dict[str, int] | None = None, scanner: WalScanner | None = None
+) -> pyarrow.Table | None
 ```
 
 Reads every complete event batch under `events_dir` (a data dir's `events/` subdirectory — see [storage layout](../../concepts/data/data-stores.md#storage-layout)) and returns the rows past `cursor`, or `None` if there is nothing new.
@@ -15,7 +17,28 @@ Reads every complete event batch under `events_dir` (a data dir's `events/` subd
 - `cursor` maps `writer_key` to the last `event_offset` already read for that writer. A row is included when its `event_offset` is greater than the cursor's value for its `writer_key` (a writer absent from `cursor` starts from offset 0). Pass `cursor=None` (the default) to read everything.
 - The returned table is sorted by `(writer_key, event_offset)` — the columns needed to compute the next cursor. Sort by `session_id` first if you need per-session ordering; `read_segments` does not do that grouping.
 - A segment still being appended to can end in a torn (incomplete) record. `read_segments` returns only the complete batches from such a file; the torn tail is picked up on the next call once it's flushed.
+- A standing forwarder passes one long-lived `WalScanner()` as `scanner`. It remembers each file's size, modification time and highest offset per writer, so a file that is unchanged and already fully past the cursor is not re-read on the next call. Without a scanner every call reads every file.
 - Glob scope is one directory level: `events_dir/*/*.arrow` — every date-named subdirectory and the `_replicated` subdirectory (see below), each holding writer segments.
+
+## Forwarding channel segments
+
+`testerkit forward` sends channel data to the server in batches, one stream at a time. A stream is one channel in one session on one day, named `{date}/{channel}_{session}`. The reading half is public:
+
+- `ChannelScanner().streams(channels_dir)` lists the segment files, grouped by stream and ordered by their numeric sequence number (the first file has none, then `_001`, `_002`, ... `_1000`). It caches each date directory's listing by the directory's modification time.
+- `read_channel_file(file)` reads one closed segment. It returns `None` when the file is not a complete Arrow IPC stream yet.
+- `parse_channel_segment_path(rel_path)` splits a segment path into `(channel_id, stream, seq)`.
+
+A stream must reach the server in ascending `sample_offset` order and without skips. The server keeps only rows above the highest offset it already holds for that stream, so a resent or re-chunked batch lands each row once, while a lower offset sent after a higher one is dropped. A forwarder therefore stops a stream at the first segment it cannot read yet.
+
+The forwarder's own cursor is `channels/_forward_cursor.json`: the highest segment sequence number accepted per stream. It is saved once per pass. A cursor file from 0.5.x (a list of sent paths) is converted on first read.
+
+## Batching in `testerkit forward`
+
+A channel stream sends once its pending segment files total `--channel-flush-bytes` (default 4 MiB) or the oldest was written `--channel-flush-age` seconds ago (default 60). An event writer sends once its pending rows reach `--event-flush-bytes` (default 1 MiB) or its oldest pending event is `--event-flush-age` seconds old (default 60). `--once` sends everything. Each also reads from an environment variable named in [the CLI reference](../cli.md#testerkit-forward).
+
+`select_due_writers(table, now=..., min_bytes=..., max_age_s=...)` applies the event rule to a table returned by `read_segments`: it keeps every pending row of each due writer and drops the rest, so a held writer's cursor does not move.
+
+Up to four streams upload in parallel; each stream has one request in flight. Segments that predate `sample_offset` are sent one file per request.
 
 ## `ingest_replicated`
 

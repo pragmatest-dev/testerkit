@@ -206,7 +206,7 @@ class TestTreeForRun:
         """A swept step's condition points nest under ONE node, not siblings.
 
         The logical step (from the ``steps`` grain, ``vector_index=NULL``)
-        is one node; its condition points (from the ``step_vectors`` grain,
+        is one node; its condition points (from the ``vectors`` grain,
         ``vector_index`` 0..N, same ``step_path``) attach to
         ``StepNode.vectors`` — never as extra same-named tree nodes. Both
         grains are stubbed here so this exercises only the tree-nesting logic

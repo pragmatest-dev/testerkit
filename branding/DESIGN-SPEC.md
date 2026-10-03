@@ -15,9 +15,17 @@ generator and re-ship all three.
 | LVKit orange          | `#e8821e` | LabVIEW DBL wire colour — LOCKED      |
 | TesterKit green       | `#16a34a` | trust / pass                          |
 | PragmaTest violet     | `#6741d9` | competence / modernity                |
+| TesterKit Cloud blue  | `#2483ef` | interactive / cloud                   |
 
 Slate and cream are true inverses (swap for dark/light). All accents sit in one
 saturation register; each brand uses exactly ONE accent.
+
+**TesterKit Cloud blue** (added 2026-09-24) was derived to sit in that register:
+OKLCH lightness and chroma = the mean of the three product accents (L 0.615,
+C 0.183), hue 255° (true blue, in sRGB gamut). Accessible UI shades are derived
+from it by OKLCH lightness only (same hue/chroma family): `#0067c8` (L 0.52;
+fills, light-mode text, white text on it 5.56:1) and `#56a6ff` (L 0.72; dark-mode
+text, 7.8:1 on near-black). Its mark / wordmark treatment is **not decided yet**.
 
 ## Marks
 

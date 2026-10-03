@@ -12,6 +12,7 @@ the full parquet/subscribers/exporters stack.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from testerkit.data.backends._row_helpers import (
@@ -36,6 +37,9 @@ from testerkit.data.events import (
     VectorStarted,
 )
 
+VECTOR_BUCKET_WIDTH = 16
+"""Sweep points per vector partition / live chunk doc (docs/41 §2.2)."""
+
 
 def _safe_str(value: Any) -> str | None:
     """Return ``str(value)`` or ``None`` if *value* is falsy."""
@@ -45,7 +49,7 @@ def _safe_str(value: Any) -> str | None:
 def _pack_io_maps(
     inputs: dict[str, Any], outputs: dict[str, Any]
 ) -> tuple[dict[str, str | None], dict[str, str | None]]:
-    """Render inputs/outputs lane dicts into two unprefixed VARCHAR maps.
+    """Render inputs/outputs IO dicts into two unprefixed VARCHAR maps.
 
     Replaces the old merged, ``in_``/``out_``-prefixed ``dynamic_attrs`` MAP
     (projection-normalization, 0.3.1) — the dict IS the role, so no prefix is
@@ -91,7 +95,7 @@ def _vector_key(event: Any) -> tuple[str, int | None, int, int]:
 
 
 def _end_overrides_start(start: Any, end: Any, attr: str) -> dict[str, Any]:
-    """Resolve an inputs-side lane: End overrides Start, Start is the in-flight fallback.
+    """Resolve an inputs-side IO entry: End overrides Start, Start is the in-flight fallback.
 
     A finished block (End event present) carries the post-``configure()`` snapshot
     and wins; while in-flight (no End yet) the overlay reads Start.
@@ -171,7 +175,7 @@ class EventAccumulator:
         self._reservations: list[Any] = []  # InstrumentReserved events
         self._measurement_events: list[Any] = []  # MeasurementRecorded events
         # ``observe()`` events accumulate here so a vector's observations
-        # can ride on its step/vector record's outputs lanes.
+        # can ride on its step/vector record's outputs IO list.
         self._observation_events: list[Any] = []
         # Step events keyed by (step_path, step_retry, vector_outer_index) so
         # each sweep variant — each class-container iteration — AND each rerun
@@ -183,6 +187,12 @@ class EventAccumulator:
         # per step; step_retry de-fuses reruns (no overwrite).
         self._step_starts: dict[tuple[str, int, int | None], Any] = {}
         self._step_ends: dict[tuple[str, int, int | None], Any] = {}
+        # A swept leaf step (``@parametrize`` / marker sweep) is called once per
+        # sweep point under the SAME key, so the caches above keep only the last
+        # call's events. The step's span must cover every call: earliest start,
+        # latest end, per key (testerkit#83).
+        self._step_span_start: dict[tuple[str, int, int | None], Any] = {}
+        self._step_span_end: dict[tuple[str, int, int | None], Any] = {}
         # In-body loop vectors (Mode 2) keyed by (step_path, vector_outer_index,
         # vector_index, retry). Present ONLY when VectorStarted/VectorEnded were
         # emitted; their presence is the Mode-2 signal that produces ``vector`` rows.
@@ -194,11 +204,40 @@ class EventAccumulator:
         # ``_build_row`` can stamp step_markers on every measurement row
         # without rebuilding the lookup per measurement.
         self._markers_by_node: dict[str, str | None] = {}
+        # Partition index + dirty tracking for the live pusher (docs/41 §3.1): the
+        # events of each step path, split by sweep-point bucket, so one push can
+        # re-project only the partitions that changed (see ``partition``). Additive
+        # bookkeeping — nothing above reads it.
+        self._known_paths: set[str] = set()
+        self._path_step_events: dict[str, list[Any]] = {}
+        self._vec_events_by_part: dict[tuple[str, int], list[Any]] = {}
+        self._meas_by_pos: dict[tuple[str, int | None, int | None], list[tuple[int, Any]]] = {}
+        self._pos_by_bucket: dict[tuple[str, int], set[tuple[int | None, int]]] = {}
+        self._looped_pos: dict[str, set[tuple[int | None, int]]] = {}
+        self._unlooped_pos: dict[str, set[tuple[int | None, int | None]]] = {}
+        self._obs_by_pos: dict[tuple[str, int | None], list[Any]] = {}
+        self._vector_positions: set[tuple[str, int]] = set()
+        self._vector_position_hint: set[tuple[str, int]] = set()
+        self._event_seq = 0
+        self._dirty_parts: set[tuple[str, int | None]] = set()
+        self._dirty_ghosts = False
+        self._dirty_run = False
+
+    @property
+    def run_ended_at(self) -> datetime | None:
+        """When the run ended (``RunEnded.occurred_at``), or ``None`` while open."""
+        return self._run_ended.occurred_at if self._run_ended else None
+
+    @property
+    def run_outcome(self) -> str | None:
+        """The ``RunEnded`` outcome, or ``None`` while open (or if it carried none)."""
+        return self._run_ended.outcome if self._run_ended else None
 
     def on_event(self, event: Any) -> None:
         """Accumulate one event into in-memory state. No I/O."""
         if isinstance(event, RunStarted):
             self._run_started = event
+            self._dirty_run = True
         elif isinstance(event, InstrumentConnected):
             self._instruments.append(event)
         elif isinstance(event, InstrumentReserved):
@@ -212,20 +251,149 @@ class EventAccumulator:
                     m = ci.get("markers")
                     markers[nid] = m if isinstance(m, str) or m is None else str(m)
             self._markers_by_node = markers
+            self._dirty_ghosts = True
+            self._dirty_parts.update((p, None) for p in self._known_paths)
         elif isinstance(event, StepStarted):
-            self._step_starts[_step_key(event)] = event
+            key = _step_key(event)
+            self._step_starts[key] = event
+            prev = self._step_span_start.get(key)
+            if prev is None or event.occurred_at < prev:
+                self._step_span_start[key] = event.occurred_at
+            self._index_step_event(key[0], event)
         elif isinstance(event, VectorStarted):
             self._vector_starts[_vector_key(event)] = event
+            self._index_vector_event(event)
         elif isinstance(event, VectorEnded):
             self._vector_ends[_vector_key(event)] = event
+            self._index_vector_event(event)
         elif isinstance(event, MeasurementRecorded):
             self._measurement_events.append(event)
+            self._index_measurement(event)
         elif isinstance(event, Observation):
             self._observation_events.append(event)
+            path = event.step_path or event.step_name or ""
+            self._known_paths.add(path)
+            self._obs_by_pos.setdefault((path, event.vector_index), []).append(event)
+            self._dirty_parts.add((path, None))
         elif isinstance(event, StepEnded):
-            self._step_ends[_step_key(event)] = event
+            key = _step_key(event)
+            self._step_ends[key] = event
+            prev = self._step_span_end.get(key)
+            if prev is None or event.occurred_at > prev:
+                self._step_span_end[key] = event.occurred_at
+            self._index_step_event(key[0], event)
         elif isinstance(event, RunEnded):
             self._run_ended = event
+            self._dirty_run = True
+
+    # ------------------------------------------------------------------
+    # Partition index — per-step / per-sweep-bucket projection (live pusher)
+    # ------------------------------------------------------------------
+
+    def _index_step_event(self, path: str, event: Any) -> None:
+        self._known_paths.add(path)
+        self._path_step_events.setdefault(path, []).append(event)
+        self._dirty_parts.add((path, None))
+        self._dirty_ghosts = True
+
+    def _index_vector_event(self, event: Any) -> None:
+        path, voi, vi, _ = _vector_key(event)
+        bucket = vi // VECTOR_BUCKET_WIDTH
+        self._known_paths.add(path)
+        self._vec_events_by_part.setdefault((path, bucket), []).append(event)
+        self._looped_pos.setdefault(path, set()).add((voi, vi))
+        self._vector_positions.add((path, vi))
+        self._dirty_parts.add((path, bucket))
+        unlooped = self._unlooped_pos.get(path, set())
+        if (voi, vi) in unlooped:
+            # the point's measurements were step-scope until now: they move buckets
+            unlooped.discard((voi, vi))
+            self._dirty_parts.add((path, None))
+        self._dirty_ghosts = True
+
+    def _index_measurement(self, event: Any) -> None:
+        path = event.step_path or event.step_name or ""
+        voi = getattr(event, "vector_outer_index", None)
+        vi = event.vector_index
+        self._known_paths.add(path)
+        self._event_seq += 1
+        self._meas_by_pos.setdefault((path, voi, vi), []).append((self._event_seq, event))
+        if vi is not None:
+            self._pos_by_bucket.setdefault((path, vi // VECTOR_BUCKET_WIDTH), set()).add((voi, vi))
+            self._dirty_parts.add((path, vi // VECTOR_BUCKET_WIDTH))
+        if vi is None or (voi, vi) not in self._looped_pos.get(path, ()):
+            self._unlooped_pos.setdefault(path, set()).add((voi, vi))
+            self._dirty_parts.add((path, None))  # a step-scope measurement
+
+    def take_dirty_parts(self) -> tuple[set[tuple[str, int | None]], bool, bool]:
+        """Drain ``(partitions, ghosts_dirty, run_dirty)`` changed since the last call.
+
+        A partition is ``(step_path, None)`` for the step-scope part of a step path
+        (its step rows and step-scope measurements) or ``(step_path, bucket)`` for the
+        vector rows and measurements of sweep points ``bucket*16 .. bucket*16+15``.
+        ``ghosts_dirty``: never-ran rows may have changed; ``run_dirty``: the run row
+        may have. Single consumer, like the pool's ``take_dirty``."""
+        if self._run_started is None:  # nothing to project yet: keep the marks
+            return set(), False, False
+        parts, ghosts, run = self._dirty_parts, self._dirty_ghosts, self._dirty_run
+        self._dirty_parts, self._dirty_ghosts, self._dirty_run = set(), False, False
+        return parts, ghosts, run
+
+    def _blank_like(self) -> EventAccumulator:
+        sub = EventAccumulator()
+        sub._run_started = self._run_started
+        sub._markers_by_node = self._markers_by_node
+        return sub
+
+    def partition(self, path: str, bucket: int | None) -> EventAccumulator:
+        """A sub-accumulator holding exactly one partition's events, so the SAME row
+        builders that project a whole run project just this part (docs/41 §3.1).
+
+        ``bucket=None``: the path's step events, its step-scope measurements (those
+        with no in-body vector) and its step-level observations. ``bucket=b``: the
+        path's step events (context) plus the vectors of sweep points
+        ``b*16 .. b*16+15`` and the measurements recorded in them."""
+        sub = self._blank_like()
+        for event in self._path_step_events.get(path, ()):
+            sub.on_event(event)
+        if bucket is None:
+            positions = self._unlooped_pos.get(path, set())
+            step_vois = {k[2] for k in self._step_starts if k[0] == path}
+            for vi in {None} | step_vois:
+                for event in self._obs_by_pos.get((path, vi), ()):
+                    sub.on_event(event)
+        else:
+            for event in self._vec_events_by_part.get((path, bucket), ()):
+                sub.on_event(event)
+            looped = self._looped_pos.get(path, set())
+            positions = {p for p in self._pos_by_bucket.get((path, bucket), ()) if p in looped}
+        events = [e for voi, vi in positions for e in self._meas_by_pos.get((path, voi, vi), ())]
+        for _, event in sorted(events, key=lambda pair: pair[0]):
+            sub.on_event(event)
+        return sub
+
+    def ghost_entries(self) -> list[dict[str, Any]]:
+        """The never-ran step entries (collected items that did not execute), built by
+        the same step-manifest builder so their ``index`` (the manifest position)
+        matches a whole-run build. ``[]`` when no items were discovered."""
+        if not self._collected_items:
+            return []
+        sub = self._blank_like()
+        for events in self._path_step_events.values():
+            for event in events:
+                sub.on_event(event)
+        unlooped = [
+            e
+            for path, positions in self._unlooped_pos.items()
+            for voi, vi in positions
+            for e in self._meas_by_pos.get((path, voi, vi), ())
+        ]
+        for _, event in sorted(unlooped, key=lambda pair: pair[0]):
+            sub.on_event(event)
+        sub._vector_position_hint = set(self._vector_positions)
+        executed = len(sub._build_step_results_from_events())
+        sub._collected_items = self._collected_items
+        return sub._build_step_results_from_events()[executed:]
 
     # ------------------------------------------------------------------
     # Snapshot — materialize current state as row dicts (no I/O)
@@ -285,7 +453,7 @@ class EventAccumulator:
         Emits the logical-step rows (``vector_index`` NULL) followed by the
         condition-point rows (``vector_index`` 0..N) — mirroring the at-rest
         ``steps_materialized`` table, which the daemon exposes via the grain-
-        split ``steps`` (NULL) and ``step_vectors`` (0..N) views. Callers that
+        split ``steps`` (NULL) and ``vectors`` (0..N) views. Callers that
         want one grain filter on ``vector_index`` (as ``StepsQuery`` does).
         """
         s = self._run_started
@@ -424,9 +592,9 @@ class EventAccumulator:
                 entry = vectors_by_key.get(
                     (path, ev_voi, event.vector_index, event.retry or 0)
                 ) or vectors_by_key.get((path, ev_voi, event.vector_index, 0))
-                in_lanes = (entry.get("inputs") if entry else None) or {}
-                out_lanes = (entry.get("outputs") if entry else None) or {}
-                row["inputs_map"], row["outputs_map"] = _pack_io_maps(in_lanes, out_lanes)
+                in_io = (entry.get("inputs") if entry else None) or {}
+                out_io = (entry.get("outputs") if entry else None) or {}
+                row["inputs_map"], row["outputs_map"] = _pack_io_maps(in_io, out_io)
                 row["vector_retry"] = entry.get("retry", 0) if entry else 0
                 row["vector_outcome"] = entry.get("outcome") if entry else None
                 row["step_outcome"] = None
@@ -435,9 +603,9 @@ class EventAccumulator:
                     row["step_ended_at"] = _to_datetime(entry.get("step_ended_at"))
             else:
                 step_entry = steps_by_key.get((path, getattr(event, "step_retry", 0) or 0, ev_voi))
-                in_lanes = (step_entry.get("inputs") if step_entry else None) or {}
-                out_lanes = (step_entry.get("outputs") if step_entry else None) or {}
-                row["inputs_map"], row["outputs_map"] = _pack_io_maps(in_lanes, out_lanes)
+                in_io = (step_entry.get("inputs") if step_entry else None) or {}
+                out_io = (step_entry.get("outputs") if step_entry else None) or {}
+                row["inputs_map"], row["outputs_map"] = _pack_io_maps(in_io, out_io)
                 row["vector_index"] = None
                 row["vector_retry"] = None
                 row["vector_outcome"] = None
@@ -553,6 +721,25 @@ class EventAccumulator:
             or EventAccumulator._min_retry_match(cache, step_path, None)
         )
 
+    def _span_started_at(self, start: Any) -> Any:
+        """The step's start across every call fused under ``start``'s key."""
+        if start is None:
+            return None
+        return self._step_span_start.get(_step_key(start), start.occurred_at)
+
+    def _span_ended_at(self, end: Any) -> Any:
+        """The step's end across every call fused under ``end``'s key — or None while a
+        later call is running (a marker sweep emits StepStarted/StepEnded per point, so
+        between a point's StepStarted and its StepEnded the fused step is in flight)."""
+        if end is None:
+            return None
+        key = _step_key(end)
+        span_end = self._step_span_end.get(key, end.occurred_at)
+        latest_start = self._step_starts.get(key)
+        if latest_start is not None and latest_start.occurred_at > span_end:
+            return None
+        return span_end
+
     def _step_start_for(self, step_path: str, vector_outer_index: int | None) -> Any:
         return self._min_retry_match(self._step_starts, step_path, vector_outer_index)
 
@@ -649,8 +836,8 @@ class EventAccumulator:
                     module=step_start.module if step_start else None,
                     step_path=ref.step_path if ref else path,
                     markers=self._markers_by_node.get(node_id) if node_id else None,
-                    step_started_at=step_start.occurred_at if step_start else None,
-                    step_ended_at=step_end.occurred_at if step_end else None,
+                    step_started_at=self._span_started_at(step_start),
+                    step_ended_at=self._span_ended_at(step_end),
                     vector_index=vec,
                     vector_outer_index=vec_outer,
                     retry=retry,
@@ -688,8 +875,8 @@ class EventAccumulator:
             step_name=event.step_name,
             step_index=idx,
             step_path=event.step_path or event.step_name,
-            step_started_at=start.occurred_at if start else None,
-            step_ended_at=end.occurred_at if end else None,
+            step_started_at=self._span_started_at(start),
+            step_ended_at=self._span_ended_at(end),
             step_node_id=node_id,
             step_module=self._step_start_field(path, vec, "module"),
             step_file=self._step_start_field(path, vec, "file"),
@@ -763,7 +950,7 @@ class EventAccumulator:
                 step_scope_meas.setdefault(key, []).append(_measurement_event_struct(e))
 
         # Observations per vector key — merged into the step entry's outputs
-        # so the step record carries the vector's observations on its lanes.
+        # so the step record carries the vector's observations on its IO list.
         obs_by_key: dict[tuple[str, int | None], dict[str, Any]] = {}
         obs_units_by_key: dict[tuple[str, int | None], dict[str, str]] = {}
         obs_pins_by_key: dict[tuple[str, int | None], dict[str, str]] = {}
@@ -883,6 +1070,10 @@ class EventAccumulator:
         for vkey in set(self._vector_starts) | set(self._vector_ends):
             # vkey = (step_path, vector_outer_index, vector_index, retry)
             executed_vectors.add((vkey[0], vkey[2]))
+        # A partition accumulator (see ``partition`` / ``ghost_entries``) holds only
+        # some of a step's vector events; the run's full set of executed sweep
+        # positions rides in as a hint so never-ran detection matches the full run.
+        executed_vectors |= self._vector_position_hint
 
         _append_not_started(
             manifest,
@@ -942,8 +1133,8 @@ class EventAccumulator:
             description=start.description if start else None,
             markers=self._markers_by_node.get(node_id) if node_id else None,
             outcome=end.outcome if end else None,
-            started_at=start.occurred_at if start else None,
-            ended_at=end.occurred_at if end else None,
+            started_at=self._span_started_at(start),
+            ended_at=self._span_ended_at(end),
             vector_index=None,
             vector_outer_index=vec,
             inputs=inputs,

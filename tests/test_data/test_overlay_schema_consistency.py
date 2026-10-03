@@ -653,16 +653,28 @@ def _signature(col: str) -> str:
 
 # ── Documented divergences (real findings, each assessed) ────────────
 #
-# (materialized_table, column-or-marker). ZERO divergences: the in-flight
-# overlay and the materialized parquet produce identical rows for the same
-# events. The earlier catalog (num_measurements / has_measurements /
-# measurement_count count drift, the phantom run-record step row, and the
-# over-packed step-identity dynamic_attrs) was eliminated by aligning the
-# observation-promotion shape (one nameless DONE row per verify-less
-# vector), the real-measurement count discriminator (measurement_name IS
-# NOT NULL), the dynamic_attrs prefix rule (in_/out_/custom_ only), and the
-# record_type<>'run' filter on the steps aggregation.
-_KNOWN_DIVERGENCES: set[tuple[str, str]] = set()
+# (materialized_table, column-or-marker). The earlier catalog
+# (num_measurements / has_measurements / measurement_count count drift, the
+# phantom run-record step row, and the over-packed step-identity
+# dynamic_attrs) was eliminated by aligning the observation-promotion shape
+# (one nameless DONE row per verify-less vector), the real-measurement count
+# discriminator (measurement_name IS NOT NULL), the dynamic_attrs prefix rule
+# (in_/out_/custom_ only), and the record_type<>'run' filter on the steps
+# aggregation.
+#
+# steps.measurement_count (docs/36 P1a, reopened): `_bulk_insert_steps` now
+# sums a swept step's own nested measurements PLUS its vectors' — mirroring
+# `measurement_projection.steps_projection_select`'s fix (a swept step's
+# measurements ride its vector rows, not its own step row, so the un-summed
+# count was silently 0). The in-flight overlay (`snapshot_step_rows`,
+# `entry.get("measurement_count", 0)`) was NOT changed to match — that's the
+# live-streaming path (P5, explicitly deferred until at-rest is locked, docs/
+# 36 §1/§5), not this cycle's at-rest fix. Live counts under-report for a
+# swept step in progress until P5 picks this up; materialized (post-run)
+# counts are correct. Remove this entry once the overlay sums vectors too.
+_KNOWN_DIVERGENCES: set[tuple[str, str]] = {
+    ("steps", "measurement_count"),
+}
 
 
 # ── CREATE↔migration-tuple drift guard ───────────────────────────────

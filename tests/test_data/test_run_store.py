@@ -18,7 +18,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from testerkit.data.backends._row_helpers import encode_lane_structs
+from testerkit.data.backends._row_helpers import encode_io_structs
 from testerkit.data.data_dir import resolve_data_dir
 from testerkit.data.ref import make_channel_uri
 from testerkit.data.run_store import RunStore
@@ -91,12 +91,10 @@ def _measurement_row(
 
 def _write_unified(path: Path, row: dict, *, outputs: dict | None = None) -> None:
     """Write a single-row unified parquet, encoding any ``outputs`` observations
-    into the row's nested ``outputs`` lane (the at-rest EAV form)."""
+    into the row's nested ``outputs`` IO list (the at-rest EAV form)."""
     enriched = dict(row)
     if outputs:
-        enriched["outputs"] = encode_lane_structs(
-            {k: v for k, v in outputs.items() if v is not None}
-        )
+        enriched["outputs"] = encode_io_structs({k: v for k, v in outputs.items() if v is not None})
     cols = {f.name: [enriched.get(f.name)] for f in RUN_ROW_SCHEMA}
     # RUN_ROW_SCHEMA carries the schema_version stamp, so this fixture parquet is
     # stamped by construction (the daemon guard refuses unstamped artifacts).
@@ -248,7 +246,7 @@ def test_get_measurements(runs_store: RunStore, fixture_data: dict[str, str]) ->
 
 
 def test_find_channel_refs(runs_store: RunStore, fixture_data: dict[str, str]) -> None:
-    """RunStore.find_channel_refs finds channel:// URIs in the outputs lane."""
+    """RunStore.find_channel_refs finds channel:// URIs in the outputs IO list."""
     refs = runs_store.find_channel_refs({fixture_data["session_short"]})
     assert any(
         r["channel_id"] == "scope.ch1.waveform"

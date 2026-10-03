@@ -13,7 +13,7 @@ import pyarrow as pa
 
 from testerkit.data.backends._row_helpers import (
     INSTRUMENT_STRUCT_FIELDS,
-    LANE_FIELDS,
+    IO_FIELDS,
     MEASUREMENT_STRUCT_FIELDS,
 )
 from testerkit.data.schema_versions import CURRENT_SCHEMA_VERSION, SchemaStore
@@ -24,7 +24,7 @@ __all__ = [
     "INSTRUMENT_STRUCT_FIELDS",
     "_INSTRUMENT_LIST",
     "_INSTRUMENT_STRUCT",
-    "_LANE_LIST",
+    "_IO_LIST",
     "_MEASUREMENT_LIST",
     "_MEASUREMENT_STRUCT",
     "_SCHEMA_DICT",
@@ -36,10 +36,10 @@ __all__ = [
 # see ``testerkit.data.schema_versions`` for the SemVer / migration contract.
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION[SchemaStore.RUNS]
 
-# EAV lane struct — the nested at-rest representation of one input / output
-# entry. ``value_type`` selects which ``value_*`` lane holds the value. Field
-# names must match ``_row_helpers.LANE_FIELDS`` / the encoder (guarded below).
-_LANE_STRUCT = pa.struct(
+# EAV IO struct — the nested at-rest representation of one input / output
+# entry. ``value_type`` selects which ``value_*`` field holds the value. Field
+# names must match ``_row_helpers.IO_FIELDS`` / the encoder (guarded below).
+_IO_STRUCT = pa.struct(
     [
         ("name", pa.string()),
         ("value_type", pa.string()),
@@ -53,10 +53,10 @@ _LANE_STRUCT = pa.struct(
         ("uut_pin", pa.string()),
     ]
 )
-assert [f.name for f in _LANE_STRUCT] == list(LANE_FIELDS), (
-    "schemas._LANE_STRUCT drifted from _row_helpers.LANE_FIELDS"
+assert [f.name for f in _IO_STRUCT] == list(IO_FIELDS), (
+    "schemas._IO_STRUCT drifted from _row_helpers.IO_FIELDS"
 )
-_LANE_LIST = pa.list_(_LANE_STRUCT)
+_IO_LIST = pa.list_(_IO_STRUCT)
 
 # Nested measurement struct — the at-rest representation of one measurement,
 # carried in the vector row's ``measurements`` LIST. Field names must match
@@ -128,12 +128,12 @@ _INSTRUMENT_LIST = pa.list_(_INSTRUMENT_STRUCT)
 #     NULL on this row kind.
 #   * ``record_type = 'vector'`` — one condition-point execution carrier: a
 #     swept step's own sweep variant, or an in-body ``vectors`` loop
-#     iteration. Holds the ``inputs``/``outputs`` lanes and the nested
+#     iteration. Holds the ``inputs``/``outputs`` IO lists and the nested
 #     ``measurements`` list for that execution; ``vector_index`` is its own
 #     0..N position.
 #
-# ``inputs`` / ``outputs`` are nested ``LIST<STRUCT<lanes>>`` columns (see
-# ``_LANE_STRUCT``), not wide ``in_*``/``out_*`` columns; the DuckDB daemon
+# ``inputs`` / ``outputs`` are nested ``LIST<STRUCT<io>>`` columns (see
+# ``_IO_STRUCT``), not wide ``in_*``/``out_*`` columns; the DuckDB daemon
 # UNNESTs them into the honestly-named ``inputs``/``outputs`` EAV tables (one
 # per role, no ``role`` column) for queries. ``measurements`` is a nested
 # ``LIST<STRUCT>`` on the vector row; the daemon UNNESTs it into the flat
@@ -209,10 +209,10 @@ RUN_ROW_SCHEMA = pa.schema(
         ("python_version", pa.string()),
         ("testerkit_version", pa.string()),
         ("env_fingerprint", pa.string()),
-        # Dynamic attributes — nested EAV lanes (see _row_helpers). Names are
+        # Dynamic attributes — nested EAV IO lists (see _row_helpers). Names are
         # values inside the structs, so there is no column explosion.
-        ("inputs", _LANE_LIST),
-        ("outputs", _LANE_LIST),
+        ("inputs", _IO_LIST),
+        ("outputs", _IO_LIST),
         # Nested measurements on the vector row; the daemon UNNESTs these into
         # the flat measurement fact at ingest.
         ("measurements", _MEASUREMENT_LIST),
@@ -249,7 +249,7 @@ def _infer_type_from_value(value: Any) -> pa.DataType:
 def _build_write_schema(rows: list[dict[str, Any]]) -> pa.Schema:
     """Build complete Arrow schema: fixed canonical + dynamic columns.
 
-    Fixed columns (including the nested ``inputs``/``outputs`` lanes and
+    Fixed columns (including the nested ``inputs``/``outputs`` IO lists and
     the ``instruments`` struct list) use ``RUN_ROW_SCHEMA`` types. Any other
     stray column is inferred from its first non-None value. Passed to
     ``pa.Table.from_pylist()`` so Arrow validates at construction time.

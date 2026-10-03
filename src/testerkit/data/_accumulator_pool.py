@@ -311,6 +311,30 @@ class AccumulatorPool:
                 meas_rows.extend(acc.snapshot_measurement_rows())
             return dirty | evicted, run_rows, step_rows, meas_rows
 
+    def take_dirty(self) -> tuple[set[str], set[str]]:
+        """Drain the dirty / evicted run-id sets, WITHOUT building snapshot rows.
+
+        Returns ``(dirty, evicted)``: ``dirty`` are still-present runs that
+        changed since the last drain; ``evicted`` are runs removed from the pool
+        (a run that vanished between dispatch and drain moves to ``evicted``).
+        Both are empty when nothing changed.
+
+        Same single-caller contract as :meth:`take_delta` — the drain empties the
+        sets, so a pool has ONE draining consumer. The live pusher (docs/41 §3.1)
+        owns its own pool and is the sole caller of ``take_dirty`` on it; it
+        projects only the runs it needs, so the wide ``snapshot_*`` rows
+        ``take_delta`` builds would just be thrown away.
+        """
+        with self._lock:
+            dirty = self._dirty
+            evicted = self._evicted
+            self._dirty = set()
+            self._evicted = set()
+            for rid in [r for r in dirty if r not in self._accs]:
+                dirty.discard(rid)
+                evicted.add(rid)
+            return dirty, evicted
+
     def generation(self) -> int:
         """Current monotonic generation — bumps on every pool state change.
 

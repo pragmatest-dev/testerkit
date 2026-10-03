@@ -36,18 +36,42 @@ def test_replication_exposes_the_channel_and_file_forward_readers() -> None:
     assert replication.FileRecord is not None
 
 
+def test_replication_exposes_the_run_forward_readers() -> None:
+    """docs/36 P2 — the read-only forwarding surface for finished run Parquet
+    + compacted per-run events artifacts (same no-local-ingest-counterpart
+    shape as channels/files: the receiver is the central server's
+    ``/ingest/runs``, not another local data dir)."""
+    assert callable(replication.read_new_run_artifacts)
+    assert callable(replication.read_run_events)
+    assert callable(replication.run_events_segment_key)
+    assert callable(replication.events_table_to_parquet_bytes)
+    assert replication.RunArtifact is not None
+
+
 def test_replication_dunder_all_matches_actual_exports() -> None:
     assert set(replication.__all__) == {
         "BatchDisposition",
+        "ChannelFile",
+        "ChannelScanner",
         "ChannelSegment",
         "EVENT_CATALOG_VERSION",
         "EVENT_LOG_SCHEMA_VERSION",
         "EVENT_WAL_SCHEMA",
         "FileRecord",
+        "RunArtifact",
+        "WalScanner",
+        "chunk_table_by_bytes",
+        "events_table_to_parquet_bytes",
         "ingest_replicated",
+        "parse_channel_segment_path",
+        "read_channel_file",
         "read_closed_channel_segments",
         "read_new_file_records",
+        "read_new_run_artifacts",
+        "read_run_events",
         "read_segments",
+        "run_events_segment_key",
+        "select_due_writers",
     }
     # Every name in __all__ actually resolves on the module.
     for name in replication.__all__:

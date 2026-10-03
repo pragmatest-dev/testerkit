@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from testerkit.data._catalog_keys import FILE_URI_SCHEME
 from testerkit.data.data_dir import resolve_data_dir
 from testerkit.data.files._backend import BlobBackend, resolve_files_backend
 from testerkit.data.files.catalog import catalog_row
@@ -188,7 +189,7 @@ class FileStore:
         )
         self._backend.write_bytes(f"{key}{_SIDECAR_SUFFIX}", metadata.model_dump_json().encode())
 
-        uri = f"file://{key}"
+        uri = f"{FILE_URI_SCHEME}{key}"
         # Keep the daemon's warm catalog current (req 2). Best-effort and
         # non-spawning: skips silently if no daemon is running, and the
         # sidecar is the durable truth a restart rebuilds from. The catalog
@@ -269,7 +270,7 @@ class FileStore:
         filename = self._unique_filename(session_dir, f"{prefix}{name}", fmt.extension)
         date = session_dir.parent.name
         key = f"{date}/{session_id}/{filename}"
-        uri = f"file://{key}"
+        uri = f"{FILE_URI_SCHEME}{key}"
 
         # Capture for sidecar write at close
         attrs_for_sidecar = dict(attributes or {})
@@ -422,9 +423,9 @@ class FileStore:
         resolution). ``None`` for a non-``file://`` URI, an empty key, or one
         that names a sidecar.
         """
-        if not uri.startswith("file://"):
+        if not uri.startswith(FILE_URI_SCHEME):
             return None
-        key = uri[len("file://") :]
+        key = uri[len(FILE_URI_SCHEME) :]
         # Refuse empty keys + sidecars (so a caller can't read one as an artifact).
         if not key or key.endswith(_SIDECAR_SUFFIX):
             return None

@@ -22,7 +22,7 @@ Two kinds of drift this file guards against, post projection-normalization
    it surfaces every field of the at-rest nested struct it was UNNESTed from
    (``measurements_materialized`` ← ``_MEASUREMENT_STRUCT``,
    ``instruments_materialized`` ← ``_INSTRUMENT_STRUCT``, ``inputs``/
-   ``outputs`` ← ``_LANE_STRUCT``). No identity-propagation involved — just
+   ``outputs`` ← ``_IO_STRUCT``). No identity-propagation involved — just
    "did the UNNEST forget a field."
 """
 
@@ -32,17 +32,17 @@ from testerkit.analysis.runs_query import RunRow
 from testerkit.data._accumulator_pool import INFLIGHT_RUNS_SCHEMA
 from testerkit.data._runs_duckdb_daemon import (
     _INSTRUMENTS_PERSISTED_COLUMNS,
-    _LANE_PERSISTED_COLUMNS,
+    _IO_PERSISTED_COLUMNS,
     _MEASUREMENTS_PERSISTED_COLUMNS,
     _RUNS_PERSISTED_COLUMNS,
     _STEPS_PERSISTED_COLUMNS,
     _VECTORS_PERSISTED_COLUMNS,
 )
-from testerkit.data.backends._row_helpers import LANE_FIELDS
+from testerkit.data.backends._row_helpers import IO_FIELDS
 from testerkit.data.schemas import _INSTRUMENT_STRUCT, _MEASUREMENT_STRUCT, RUN_ROW_SCHEMA
 
 # Non-run-scoped columns of RUN_ROW_SCHEMA — step / vector / measurement grain
-# and nested lanes. These belong to the step/measurement projections, not runs.
+# and nested IO lists. These belong to the step/measurement projections, not runs.
 _NOT_RUN_SCOPED_PREFIXES = (
     "step_",
     "vector_",
@@ -197,16 +197,14 @@ def test_instruments_materialized_surfaces_every_collected_instrument_field() ->
     )
 
 
-# --- inputs / outputs (EAV lane) grain --------------------------------------
+# --- inputs / outputs (EAV IO) grain ----------------------------------------
 
-# ``inputs``/``outputs`` UNNEST the nested ``_LANE_STRUCT`` verbatim — no
+# ``inputs``/``outputs`` UNNEST the nested ``_IO_STRUCT`` verbatim — no
 # aliasing (splitting the EAV by role, projection-normalization 0.3.1,
 # renames nothing).
 
 
-def test_lane_tables_surface_every_collected_lane_field() -> None:
-    lane_cols = {c for c, _ in _LANE_PERSISTED_COLUMNS}
-    missing = set(LANE_FIELDS) - lane_cols
-    assert not missing, (
-        f"inputs/outputs tables drop collected lane-struct fields: {sorted(missing)}"
-    )
+def test_io_tables_surface_every_collected_io_field() -> None:
+    io_cols = {c for c, _ in _IO_PERSISTED_COLUMNS}
+    missing = set(IO_FIELDS) - io_cols
+    assert not missing, f"inputs/outputs tables drop collected IO-struct fields: {sorted(missing)}"

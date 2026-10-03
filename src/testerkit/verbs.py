@@ -75,7 +75,7 @@ def _active_context() -> Any:
 
 
 def observe(key: str, value: Any, *, namespace: str | None = None, unit: str | None = None) -> None:
-    """Record an observation (→ output lane in the EAV store).
+    """Record an observation (→ output IO entry in the EAV store).
 
     Thin top-level pass-through to
     :meth:`testerkit.execution.harness.Context.observe`. See that method
@@ -132,7 +132,7 @@ def stream(name: str, sample: Any, *, namespace: str | None = None, unit: str | 
 
     Thin top-level pass-through to
     :meth:`testerkit.execution.harness.Context.stream`. Strictly
-    orthogonal to ``observe`` — never writes to the outputs lane on
+    orthogonal to ``observe`` — never writes to the outputs IO entry on
     the active vector; wire to a vector explicitly via
     ``observe(name, sink)`` if association is wanted.
     """

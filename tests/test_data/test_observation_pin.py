@@ -1,19 +1,19 @@
 """Tests for observation pinning (#4 / #39).
 
 Verifies that uut_pin flows from _auto_traceability → Observation event →
-vector.observation_pins → at-rest outputs lane uut_pin → outputs.uut_pin.
+vector.observation_pins → at-rest outputs IO entry uut_pin → outputs.uut_pin.
 
 Test plan:
   (a) observe() inside an active connection lands uut_pin on the Observation event
       and mirrors onto vector.observation_pins.
   (b) observe() with no active connection yields uut_pin=None on the event and empty
       observation_pins on the vector.
-  (c) encode_lane_structs with pins passes uut_pin into the lane struct; without pins
+  (c) encode_io_structs with pins passes uut_pin into the IO struct; without pins
       uut_pin is None.
   (d) At-rest parquet written with pinned outputs lands uut_pin in the
       outputs table after daemon ingest; plain outputs have NULL.
   (e) output_pins is excluded from the flat row dict (byte-stable output); uut_pin
-      rides on the lane struct only.
+      rides on the IO struct only.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from testerkit.data.backends._row_helpers import RunParquetRow, encode_lane_structs
+from testerkit.data.backends._row_helpers import RunParquetRow, encode_io_structs
 from testerkit.data.data_dir import resolve_data_dir
 from testerkit.data.events import Observation
 from testerkit.data.models import TestVector
@@ -159,28 +159,28 @@ def test_no_connection_uut_pin_is_none(
 
 
 # ---------------------------------------------------------------------------
-# (c) encode_lane_structs passes uut_pin into lane struct
+# (c) encode_io_structs passes uut_pin into IO struct
 # ---------------------------------------------------------------------------
 
 
-def test_encode_lane_with_pins() -> None:
-    lanes = encode_lane_structs(
+def test_encode_io_with_pins() -> None:
+    io_entries = encode_io_structs(
         {"vout": 3.3, "temp": 25.0},
         units={"vout": "V"},
         pins={"vout": "VOUT"},
     )
-    by_name = {lane["name"]: lane for lane in lanes}
+    by_name = {entry["name"]: entry for entry in io_entries}
     assert by_name["vout"]["uut_pin"] == "VOUT"
     assert by_name["temp"]["uut_pin"] is None
 
 
-def test_encode_lane_no_pins_uut_pin_null() -> None:
-    lanes = encode_lane_structs({"vout": 3.3}, {"vout": "V"})
-    assert lanes[0]["uut_pin"] is None
+def test_encode_io_no_pins_uut_pin_null() -> None:
+    io_entries = encode_io_structs({"vout": 3.3}, {"vout": "V"})
+    assert io_entries[0]["uut_pin"] is None
 
 
 # ---------------------------------------------------------------------------
-# (e) Flat row dict: output_pins excluded; uut_pin lives on the lane only
+# (e) Flat row dict: output_pins excluded; uut_pin lives on the IO struct only
 # ---------------------------------------------------------------------------
 
 
@@ -200,11 +200,11 @@ def test_flat_dict_no_output_pins_key() -> None:
     flat = row.to_flat_dict(at_rest=True)
     # output_pins must not appear as a top-level key
     assert "output_pins" not in flat
-    # uut_pin rides on the lane struct inside the outputs list
-    out_lanes = flat["outputs"]
-    assert isinstance(out_lanes, list)
-    vout_lane = next(lane for lane in out_lanes if lane["name"] == "vout")
-    assert vout_lane["uut_pin"] == "VOUT"
+    # uut_pin rides on the IO struct inside the outputs list
+    out_entries = flat["outputs"]
+    assert isinstance(out_entries, list)
+    vout_entry = next(entry for entry in out_entries if entry["name"] == "vout")
+    assert vout_entry["uut_pin"] == "VOUT"
     # No synthetic flat column
     assert "out_vout_uut_pin" not in flat
     assert "vout_uut_pin" not in flat
@@ -231,7 +231,7 @@ def _make_vector_row(*, run_id: str, session_id: str, pins: dict[str, str]) -> d
             "step_index": 0,
             "vector_index": 0,
             "vector_retry": 0,
-            "outputs": encode_lane_structs(
+            "outputs": encode_io_structs(
                 {"vout": 3.3, "temp": 25.0},
                 units={"vout": "V"},
                 pins=pins,

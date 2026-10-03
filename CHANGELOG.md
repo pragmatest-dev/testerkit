@@ -16,6 +16,103 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ### Fixed
 
+## [0.6.0] - 2026-10-03
+
+Batching forwarder. Works against servers without the channel row-cap change; there
+each batch lands as 2,000-row objects instead of one.
+
+### Added
+
+- `testerkit forward` flush knobs, each also settable by environment variable:
+  `--channel-flush-bytes` (4 MiB) / `--channel-flush-age` (60 s) and
+  `--event-flush-bytes` (1 MiB) / `--event-flush-age` (60 s). `--once` always flushes
+  everything.
+- `testerkit.replication`: `ChannelScanner`, `read_channel_file`,
+  `parse_channel_segment_path`, `WalScanner`, `select_due_writers`; `read_segments`
+  takes an optional `scanner`.
+
+### Changed
+
+- Channel segments forward in batches: each stream (one channel in one session) is
+  coalesced, in numeric sequence order, into one request once it holds 4 MiB or its
+  oldest file is 60 s old, instead of one request per segment. Up to four streams
+  upload in parallel, one request in flight per stream. A stream stops at the first
+  segment it cannot read; one unreadable for over 10 minutes with later segments
+  behind it is skipped with a warning.
+- Events hold each writer's pending rows until 1 MiB or 60 s (by `occurred_at`),
+  then send them all in ascending order.
+- The channels cursor (`channels/_forward_cursor.json`) is now the highest segment
+  sequence number sent per stream, saved once per pass; a 0.5.x cursor is converted
+  on first read. Directory listings and event WAL files already fully sent are no
+  longer re-read on every poll.
+- **Freshness:** the cloud channels page and `/events` now lag the bench by up to
+  about 65 s (60 s hold plus one poll). The live run view is unchanged.
+- Corrected stale text about server dedup: the server dedups channels and events by
+  the per-stream offset high-water mark, not by `rel_path`. A batched channel upload
+  sends a range name as `rel_path` (`{date}/{channel}_{session}_{lo}-{hi}.arrow`);
+  segments without `sample_offset` still go one per request under their real path.
+
+## [0.5.3] - 2026-10-03
+
+### Fixed
+
+- `testerkit forward` sends channel segments in numeric order. Segment files past
+  `_999` (`_1000` …) sorted before `_101` as text, and the server then treated
+  segments `_101`–`_999` of that stream as already received and dropped them.
+  Channel sessions with more than 1,000 segments forwarded by 0.5.2 can be
+  missing those segments in the cloud; the local data is intact.
+
+## [0.5.2] - 2026-10-02
+
+Pairs with the TesterKit Cloud server that serves from the shared read models
+below; the forwarding changes need that server.
+
+### Added
+
+- **Live view.** `testerkit forward` pushes runs that are still executing to the
+  server's live view (on by default; `--no-live` to skip). It is best-effort on its
+  own thread: a failed push is dropped and never delays the durable forward.
+- `testerkit.data.read_models`: the shared read-model definitions TesterKit Cloud
+  serves from (slim runs/steps/measurements facts and catalogs), carrying
+  `measurement_timestamp`, the carrier's nested inputs, `characteristic_id`,
+  `uut_pin`, `uut_part_number`, `station_hostname`, `git_branch` and
+  `uut_lot_number`.
+- `testerkit forward` uploads every available artifact by default — the event
+  WAL, closed channel segments, new file blobs and finished run Parquet. The
+  `--channels` / `--files` / `--runs` flags now only limit a pass (`--no-*`).
+- Events forward in byte-bounded chunks (`--max-bytes`, default 16 MiB, or
+  `$TESTERKIT_FORWARD_MAX_BYTES`), so a large backlog drains incrementally;
+  `--no-cursor` re-seeds a fresh server, relying on server-side dedup.
+- Runs the server quarantines (conflict / rejected) are logged to
+  `<data_dir>/runs/_forward_conflicts.jsonl`.
+- Channel segments are forwarded with their `rel_path`, so a re-forward is an
+  idempotent no-op on the server.
+
+### Changed
+
+- **Breaking (forwarding):** events are posted to `/ingest/events` (was
+  `/ingest`), and the separate per-run events upload is gone (the event WAL
+  already carries every run's events). Forward to a server at this version.
+- `testerkit forward` requires a connection: run `testerkit connect`, or pass
+  `--url`/`--token` (or `$TESTERKIT_SERVER_URL`/`$TESTERKIT_TOKEN`).
+  `testerkit connect` now stores the server's direct ingest URL.
+- Local index: every stored table is `X_materialized` behind a public view `X`
+  (the step-vectors view is now `vectors`). Existing data dirs rebuild their
+  derived index from Parquet automatically on first open.
+
+### Fixed
+
+- A fused sweep step's start/end now span every sweep point, not only the last
+  call (#83); while a later point runs, the step reads as still running.
+- Live view: the run header is re-sent as a 30 s heartbeat, so a busy run no
+  longer shows "Stalled" mid-run and the current step stays current.
+- Materialized runs carry their `ended_at`.
+- Marker names are de-duplicated when joined.
+- `testerkit forward` uploads files again: each upload now carries the file's
+  `uri` (the server rejected every file without it), and identical bytes under
+  a new `uri` are uploaded instead of skipped, since the server stores each
+  `uri` as its own file.
+
 ## [0.5.1] - 2026-09-18
 
 ### Fixed

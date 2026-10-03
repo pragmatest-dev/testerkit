@@ -20,6 +20,8 @@ from typing import Any
 
 import pyarrow as pa
 
+from testerkit.data._catalog_keys import CHANNEL_SAMPLE_KEY
+
 
 def lttb_indices(values: Sequence[float], n_out: int) -> list[int]:
     """Largest Triangle Three Buckets downsampling — return selected indices.
@@ -68,6 +70,46 @@ def decimate_table(table: pa.Table, max_points: int) -> pa.Table:
 
     indices = lttb_indices(values, max_points)
     return table.take(indices)
+
+
+def dedup_on_sample_offset(table: pa.Table) -> pa.Table:
+    """Collapse duplicate samples on the composite identity
+    :data:`testerkit.data._catalog_keys.CHANNEL_SAMPLE_KEY`.
+
+    The single shared implementation of the cross-consumer sample-dedup rule
+    (docs/42 §3.2): both the local :meth:`~testerkit.data.channels.index.ChannelIndex.query`
+    (union of the durable index + the live overlay, which can place the same
+    sample in both) and the cloud's `channels_backend.windowed_series` (a
+    sample landing in two overlapping forwarded segments) call this exact
+    function so a sample is surfaced ONCE regardless of storage-layer overlap.
+
+    `channel_id` is not read here — every caller already scopes its input to
+    one channel before calling (a `WHERE channel_id = ?` / a `channel_id`-
+    filtered segment set), so the columns actually compared are the
+    remainder of the grain: `(session_id, sample_offset)`. Keeps the FIRST
+    occurrence of each `(session_id, sample_offset)` pair — the table must
+    already be ordered the way the caller wants ties broken (both callers
+    order by `received_at` ascending before calling this). Rows with an
+    unstamped `sample_offset` (`None` or negative — legacy, pre-cursor data)
+    are never collapsed: each is always kept, since a negative/absent offset
+    doesn't reliably identify a sample. A no-op when the table is empty or
+    has no `sample_offset` column at all (an even-older segment shape).
+    """
+    _, session_col, offset_col = CHANNEL_SAMPLE_KEY
+    if table.num_rows == 0 or offset_col not in table.column_names:
+        return table
+    sessions = table.column(session_col).to_pylist()
+    offsets = table.column(offset_col).to_pylist()
+    seen: set[tuple[Any, int]] = set()
+    keep: list[int] = []
+    for i, (s, o) in enumerate(zip(sessions, offsets, strict=True)):
+        if o is not None and o >= 0:
+            key = (s, o)
+            if key in seen:
+                continue
+            seen.add(key)
+        keep.append(i)
+    return table if len(keep) == table.num_rows else table.take(keep)
 
 
 def decode_value_column(table: pa.Table) -> pa.Table:

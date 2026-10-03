@@ -37,7 +37,7 @@ from uuid import uuid4
 import duckdb
 
 from testerkit.analysis.runs_query import RunsQuery
-from testerkit.data.backends._row_helpers import decode_lane_structs
+from testerkit.data.backends._row_helpers import decode_io_structs
 from testerkit.data.data_dir import resolve_data_dir
 
 
@@ -90,6 +90,10 @@ _COLUMNS = [
     "inputs",
     "outputs",
     "measurements",
+    "step_started_at",
+    "step_ended_at",
+    "vector_started_at",
+    "vector_ended_at",
 ]
 
 
@@ -125,8 +129,8 @@ def _print_rows(label: str, rows: list[dict[str, Any]]) -> None:
             "vector_outer_index": r["vector_outer_index"],
             "step_outcome": r["step_outcome"],
             "vector_outcome": r["vector_outcome"],
-            "inputs": decode_lane_structs(r["inputs"]),
-            "outputs": decode_lane_structs(r["outputs"]),
+            "inputs": decode_io_structs(r["inputs"]),
+            "outputs": decode_io_structs(r["outputs"]),
             "measurements": [
                 {"name": m["name"], "value": m["value"]} for m in (r["measurements"] or [])
             ],
@@ -207,9 +211,20 @@ def test_p3_mode1_leaf_parametrize(tmp_path: Path) -> None:
     vecs = sorted(kinds["vector"], key=lambda v: v["vector_index"])
     assert [v["vector_index"] for v in vecs] == [0, 1, 2]
     for v, expected_vin in zip(vecs, (1, 2, 3), strict=True):
-        assert decode_lane_structs(v["inputs"])["vin"] == expected_vin
+        assert decode_io_structs(v["inputs"])["vin"] == expected_vin
         assert [m["name"] for m in v["measurements"]] == ["vout"]
         assert v["measurements"][0]["value"] == expected_vin
+
+    # testerkit#83: the fused step's span covers every call — earliest vector
+    # start → latest vector end — on the step row AND on the step columns
+    # copied to each vector row (not just the last call's span).
+    first_start = min(v["vector_started_at"] for v in vecs)
+    last_end = max(v["vector_ended_at"] for v in vecs)
+    for row in (step, *vecs):
+        assert row["step_started_at"] <= first_start, row
+        assert row["step_ended_at"] >= last_end, row
+    assert all(v["step_started_at"] == step["step_started_at"] for v in vecs)
+    assert all(v["step_ended_at"] == step["step_ended_at"] for v in vecs)
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +263,7 @@ def test_p3_mode2_inbody_loop_pure(tmp_path: Path) -> None:
     vecs = sorted(kinds["vector"], key=lambda v: v["vector_index"])
     assert [v["vector_index"] for v in vecs] == [0, 1, 2]
     for v, expected_vin in zip(vecs, (1, 2, 3), strict=True):
-        assert decode_lane_structs(v["inputs"])["vin"] == expected_vin
+        assert decode_io_structs(v["inputs"])["vin"] == expected_vin
         assert [m["name"] for m in v["measurements"]] == ["vout"]
 
 
@@ -283,7 +298,7 @@ def test_p3_mode2_inbody_loop_with_preloop_ambient(tmp_path: Path) -> None:
     assert meas_names == ["preflight"], (
         f"pre-loop measure() should land on the step row, got {meas_names}"
     )
-    assert decode_lane_structs(step["inputs"]).get("setup_key") == 99, (
+    assert decode_io_structs(step["inputs"]).get("setup_key") == 99, (
         "pre-loop configure() should land in step row inputs"
     )
 
@@ -328,13 +343,13 @@ def test_p3_mode2_inbody_loop_with_preloop_observe_ambient(tmp_path: Path) -> No
     # The pre-loop (ambient) observe() lands on the STEP row's outputs; the
     # loop's per-iteration observes land ONLY on their vector rows — context is
     # scope-aware, so in-loop observe() writes to the active child, not the base.
-    step_out = decode_lane_structs(step["outputs"])
+    step_out = decode_io_structs(step["outputs"])
     assert step_out == {"ambient_temp": 22.5}, step_out
 
     vecs = sorted(kinds["vector"], key=lambda v: v["vector_index"])
     assert [v["vector_index"] for v in vecs] == [0, 1, 2]
     for v, expected_vin in zip(vecs, (1, 2, 3), strict=True):
-        v_out = decode_lane_structs(v["outputs"])
+        v_out = decode_io_structs(v["outputs"])
         assert v_out.get("vout") == expected_vin * 10, v_out
         # The ambient observe did NOT leak into any vector row (the Bug-3 check).
         assert "ambient_temp" not in v_out, v_out
@@ -383,7 +398,7 @@ def test_p4_mode1_plain_class_parametrized_method(tmp_path: Path) -> None:
     )
     assert [v["vector_index"] for v in m_vectors] == [0, 1, 2]
     for v, expected_vin in zip(m_vectors, (1, 2, 3), strict=True):
-        assert decode_lane_structs(v["inputs"])["vin"] == expected_vin
+        assert decode_io_structs(v["inputs"])["vin"] == expected_vin
         assert [m["name"] for m in v["measurements"]] == ["vout"]
 
 
@@ -425,7 +440,7 @@ def test_p5_swept_class_plain_method(tmp_path: Path) -> None:
         key=lambda v: v["vector_index"],
     )
     assert [v["vector_index"] for v in c_vectors] == [0, 1, 2]
-    assert {decode_lane_structs(v["inputs"])["voltage"] for v in c_vectors} == {1, 2, 3}
+    assert {decode_io_structs(v["inputs"])["voltage"] for v in c_vectors} == {1, 2, 3}
 
     # Method test_m has NO own sweep -> N SEPARATE step records (NOT fused),
     # one per vector_outer_index (the outer condition it ran under). ZERO
@@ -489,7 +504,7 @@ def test_p6_swept_class_parametrized_method_mode1(tmp_path: Path) -> None:
     assert len(m_vectors) == 6, f"expected 3 outer x 2 inner = 6 vector rows, got {len(m_vectors)}"
     pairs = set()
     for v in m_vectors:
-        inp = decode_lane_structs(v["inputs"])
+        inp = decode_io_structs(v["inputs"])
         assert "voltage" in inp and "current" in inp, inp
         pairs.add((inp["voltage"], inp["current"]))
         assert [m["name"] for m in v["measurements"]] == ["vout"]
@@ -537,7 +552,7 @@ def test_p6_swept_class_vectors_fixture_inner_mode2(tmp_path: Path) -> None:
     assert len(m_vectors) == 6, f"expected 3 outer x 2 inner = 6 vector rows, got {len(m_vectors)}"
     pairs = set()
     for v in m_vectors:
-        inp = decode_lane_structs(v["inputs"])
+        inp = decode_io_structs(v["inputs"])
         assert "voltage" in inp and "current" in inp, inp
         pairs.add((inp["voltage"], inp["current"]))
     assert pairs == {(v, c) for v in (1, 2, 3) for c in (4, 5)}, pairs
@@ -569,7 +584,7 @@ def test_configure_io_lands_on_step_row(tmp_path: Path) -> None:
     steps = kinds["step"]
     assert len(steps) == 1
     step = steps[0]
-    assert decode_lane_structs(step["inputs"]) == {"vin": 12.0}
+    assert decode_io_structs(step["inputs"]) == {"vin": 12.0}
     assert [m["name"] for m in step["measurements"]] == ["vout"]
 
 
@@ -599,13 +614,13 @@ def test_configure_io_lands_on_vector_row_when_swept(tmp_path: Path) -> None:
     kinds = _by_kind(rows)
     steps = kinds["step"]
     assert len(steps) == 1
-    assert decode_lane_structs(steps[0]["inputs"]) == {}, (
+    assert decode_io_structs(steps[0]["inputs"]) == {}, (
         "fused step row should carry no per-variant configure() data"
     )
     vecs = sorted(kinds["vector"], key=lambda v: v["vector_index"])
     assert len(vecs) == 2
     for v, expected_vin in zip(vecs, (1, 2), strict=True):
-        inp = decode_lane_structs(v["inputs"])
+        inp = decode_io_structs(v["inputs"])
         assert inp.get("vin") == expected_vin, inp
         assert inp.get("trim") == expected_vin + 100, inp
 
@@ -688,12 +703,12 @@ def test_inloop_context_configure_lands_on_vector(tmp_path: Path) -> None:
     assert len(steps) == 1
     # The in-loop configure() did NOT leak onto the step — it wrote to the
     # active per-iteration scope, so the fused step carries no `trim`.
-    assert decode_lane_structs(steps[0]["inputs"]) == {}, decode_lane_structs(steps[0]["inputs"])
+    assert decode_io_structs(steps[0]["inputs"]) == {}, decode_io_structs(steps[0]["inputs"])
 
     vecs = sorted(kinds["vector"], key=lambda v: v["vector_index"])
     assert [v["vector_index"] for v in vecs] == [0, 1]
     for v, expected_vin in zip(vecs, (1, 2), strict=True):
-        inp = decode_lane_structs(v["inputs"])
+        inp = decode_io_structs(v["inputs"])
         assert inp.get("vin") == expected_vin, inp
         assert inp.get("trim") == expected_vin + 100, inp
 

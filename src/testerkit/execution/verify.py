@@ -38,7 +38,7 @@ class VerifyFn(Protocol):
     handles all shapes (routing + URI). To capture an artifact AND
     judge a metric, use both: ``observe("scope.cap", wf)`` to land the
     capture in ChannelStore — the resulting URI is written to the
-    outputs lane under the name ``scope.cap`` (role ``output``) — then
+    outputs IO entry under the name ``scope.cap`` (role ``output``) — then
     ``verify("overshoot", overshoot(wf), Limit(...))`` to judge the
     scalar metric. The artifact is queryable via
     ``FieldRef.output("scope.cap")`` in a ``parametric`` or
@@ -205,12 +205,12 @@ def _perform_verify(
       ``observe``.
     * ``observe`` handles **all shapes** — scalar / array / Waveform /
       blob. Non-scalars route to the right store; the resulting URI
-      lands in the output lane under ``<name>`` for downstream
+      lands in the output IO entry under ``<name>`` for downstream
       query via ``role='output' AND name=<name>`` (design doc §7).
 
     To capture an artifact AND judge a metric in the same step::
 
-        # URI lands in the outputs lane under name "scope.ch1.capture" (role "output")
+        # URI lands in the outputs IO entry under name "scope.ch1.capture" (role "output")
         observe("scope.ch1.capture", wf)
         verify("overshoot", overshoot(wf), Limit(low=0, high=0.5))
 
@@ -219,7 +219,7 @@ def _perform_verify(
     presence, not a flat ``out_scope_ch1_capture`` column.
     """
     # Item 16: namespace= prefix sugar. The effective name (used for
-    # limit lookup, measurement_name on the row, and the outputs lane
+    # limit lookup, measurement_name on the row, and the outputs IO entry
     # key) is "{namespace}.{name}". Pure opt-in.
     if namespace:
         name = f"{namespace}.{name}"
@@ -251,7 +251,7 @@ def _perform_verify(
             "capture a non-scalar artifact, use ``observe(name, value)`` "
             "which routes by shape (Waveform / array → ChannelStore; "
             "bytes / Path → FileStore) and stamps the resulting URI in "
-            "the active vector's outputs lane. To verify a metric of the "
+            "the active vector's outputs IO entry. To verify a metric of the "
             "artifact, extract a scalar first: "
             "``verify('overshoot', overshoot(wf), Limit(...))``."
         )
