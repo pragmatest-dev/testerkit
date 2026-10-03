@@ -59,7 +59,12 @@ _SERVER_IMPORTED_SYMBOLS: dict[str, tuple[str, ...]] = {
         "_period_col",
     ),
     "testerkit.analysis.runs_query": ("usage_stats_sql",),
-    "testerkit.cli.forward_cmd": ("_channel_wire_table", "file_blob_multipart"),
+    "testerkit.cli.forward_cmd": (
+        "ForwardBatchPolicy",
+        "_channel_wire_table",
+        "_forward_all_once",
+        "file_blob_multipart",
+    ),
     "testerkit.data._accumulator_pool": ("AccumulatorPool",),
     "testerkit.data._catalog_keys": ("EVENTS_KEY", "FILES_KEY", "file_storage_key"),
     "testerkit.data._schema_keys": (

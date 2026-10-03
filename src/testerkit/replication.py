@@ -33,12 +33,12 @@ side already lives server-side; this module only reads the bench's own stores:
 * :func:`read_new_file_records` — the sanctioned direct reader of FileStore
   blobs + their sidecars, past a set of already-forwarded URIs.
 
-Both skip a caller-supplied "already forwarded" set instead of taking an
-offset-style cursor: unlike an event WAL (one growing file per writer), a
-channel segment or a file blob is a whole, immutable, singly-written unit the
-moment it exists — so the durable cursor a caller persists (see
-``testerkit.cli.forward_cmd``) is simply the set of identifiers already sent,
-not a position to resume from.
+:func:`read_new_file_records` skips a caller-supplied "already forwarded" set of URIs.
+Channel segments are forwarded per stream in numeric sequence order: see
+:class:`ChannelScanner` and :func:`read_channel_file` (the durable cursor a caller keeps,
+see ``testerkit.cli.forward_cmd``, is the highest sequence number sent per stream).
+:func:`read_closed_channel_segments` is the older one-shot reader that takes a set of sent
+``rel_path`` values.
 
 Two more READ-ONLY verbs (docs/36 P2) support forwarding a bench's compacted
 lake artifacts — one finished run's Parquet, and that run's own compacted
@@ -62,8 +62,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 import pyarrow as pa
@@ -90,7 +92,72 @@ EVENT_WAL_SCHEMA = _IPC_SCHEMA
 _REPLICATED_SUBDIR = "_replicated"
 
 
-def read_segments(events_dir: Path, *, cursor: dict[str, int] | None = None) -> pa.Table | None:
+class WalScanner:
+    """Remembers what each event WAL file held, so a poll re-reads only files that grew.
+
+    Per file it keeps ``(size, mtime_ns, {writer_key: max event_offset})``. A file whose
+    size and mtime are unchanged and whose every writer is at or below the caller's cursor
+    is skipped without being opened. After a restart the first pass reads every file once;
+    later passes read only files that changed or still hold rows past the cursor.
+    """
+
+    def __init__(self) -> None:
+        self._files: dict[Path, tuple[int, int, dict[str, int]]] = {}
+
+    def read(self, events_dir: Path, cursor: dict[str, int]) -> pa.Table | None:
+        """Same contract as :func:`read_segments`."""
+        tables: list[pa.Table] = []
+        seen: set[Path] = set()
+        # Segments live one directory deep: ``events_dir/<date-or-_replicated>/*.arrow``.
+        for seg in sorted(events_dir.glob("*/*.arrow")):
+            seen.add(seg)
+            try:
+                st = seg.stat()
+            except OSError:
+                continue
+            cached = self._files.get(seg)
+            if (
+                cached is not None
+                and cached[0] == st.st_size
+                and cached[1] == st.st_mtime_ns
+                and all(off <= cursor.get(wk, -1) for wk, off in cached[2].items())
+            ):
+                continue
+            table = read_ipc_batches(seg)
+            maxes: dict[str, int] = {}
+            if table is not None and table.num_rows:
+                tables.append(table)
+                agg = table.group_by("writer_key").aggregate([("event_offset", "max")])
+                for wk, off in zip(
+                    agg.column("writer_key").to_pylist(),
+                    agg.column("event_offset_max").to_pylist(),
+                    strict=True,
+                ):
+                    if off is not None:
+                        maxes[str(wk)] = off
+            self._files[seg] = (st.st_size, st.st_mtime_ns, maxes)
+        for gone in set(self._files) - seen:
+            del self._files[gone]
+        if not tables:
+            return None
+
+        combined = pa.concat_tables(tables)
+        writer_keys = combined.column("writer_key").to_pylist()
+        offsets = combined.column("event_offset").to_pylist()
+        keep = [
+            off is not None and off > cursor.get(str(wk), -1)
+            for wk, off in zip(writer_keys, offsets, strict=True)
+        ]
+        if not any(keep):
+            return None
+        new_rows = combined.filter(keep)
+        # Stable order for deterministic forwarding + cursor advancement.
+        return new_rows.sort_by([("writer_key", "ascending"), ("event_offset", "ascending")])
+
+
+def read_segments(
+    events_dir: Path, *, cursor: dict[str, int] | None = None, scanner: WalScanner | None = None
+) -> pa.Table | None:
     """Read complete event batches from the WAL segments under ``events_dir``,
     keeping only rows past ``cursor`` (``{writer_key: last_event_offset}``).
 
@@ -100,29 +167,45 @@ def read_segments(events_dir: Path, *, cursor: dict[str, int] | None = None) -> 
     currently-appended segment is tolerated: only complete batches are returned
     (see :func:`~testerkit.data._ipc_writer.read_ipc_batches`), so the incomplete
     final record is simply picked up on the next read.
-    """
-    cursor = cursor or {}
-    tables: list[pa.Table] = []
-    # Segments live one directory deep: ``events_dir/<date-or-_replicated>/*.arrow``.
-    for seg in sorted(events_dir.glob("*/*.arrow")):
-        table = read_ipc_batches(seg)
-        if table is not None and table.num_rows:
-            tables.append(table)
-    if not tables:
-        return None
 
-    combined = pa.concat_tables(tables)
-    writer_keys = combined.column("writer_key").to_pylist()
-    offsets = combined.column("event_offset").to_pylist()
-    keep = [
-        off is not None and off > cursor.get(str(wk), -1)
-        for wk, off in zip(writer_keys, offsets, strict=True)
-    ]
-    if not any(keep):
+    A standing caller passes one long-lived :class:`WalScanner` as ``scanner`` so files
+    already fully past the cursor are not re-read on every poll.
+    """
+    return (scanner or WalScanner()).read(events_dir, cursor or {})
+
+
+def select_due_writers(
+    table: pa.Table, *, now: float, min_bytes: int, max_age_s: float, flush_all: bool = False
+) -> pa.Table | None:
+    """Keep only the rows of writers whose pending rows are due to send.
+
+    ``table`` is ordered by ``(writer_key, event_offset)`` (as :func:`read_segments`
+    returns it). A writer is due when ``flush_all`` is set, when its oldest pending row's
+    ``occurred_at`` is at least ``max_age_s`` seconds before ``now`` (epoch seconds), or
+    when its pending rows serialize to at least ``min_bytes`` of Arrow IPC. A due writer
+    keeps ALL its pending rows, so offsets stay ascending and contiguous. Returns ``None``
+    when no writer is due; the order of the kept rows is unchanged.
+    """
+    if flush_all:
+        return table
+    oldest = table.group_by("writer_key").aggregate([("occurred_at", "min")])
+    due: list[str] = []
+    for wk, first in zip(
+        oldest.column("writer_key").to_pylist(),
+        oldest.column("occurred_at_min").to_pylist(),
+        strict=True,
+    ):
+        if first is None or now - first.timestamp() >= max_age_s:
+            due.append(wk)
+        elif min_bytes > 0:
+            rows = table.filter(pc.equal(table.column("writer_key"), wk))  # type: ignore[attr-defined]
+            if _ipc_stream_nbytes(rows) >= min_bytes:
+                due.append(wk)
+    if not due:
         return None
-    new_rows = combined.filter(keep)
-    # Stable order for deterministic forwarding + cursor advancement.
-    return new_rows.sort_by([("writer_key", "ascending"), ("event_offset", "ascending")])
+    if len(due) == oldest.num_rows:
+        return table
+    return table.filter(pc.is_in(table.column("writer_key"), value_set=pa.array(due)))  # type: ignore[attr-defined]
 
 
 def _ipc_stream_nbytes(table: pa.Table) -> int:
@@ -341,6 +424,105 @@ def read_closed_channel_segments(
             continue
         out.append(ChannelSegment(channel_id=m.group(1), rel_path=rel, table=table))
     return out
+
+
+def parse_channel_segment_path(rel_path: str) -> tuple[str, str, int] | None:
+    """Split a channel segment's ``rel_path`` (``{date}/{channel}_{session8}[_NNN].arrow``)
+    into ``(channel_id, stream, seq)``. ``stream`` is ``{date}/{channel}_{session8}`` — one
+    channel in one session on one day, which is one ingest chain on the server. ``seq`` is
+    the numeric rotation suffix (the first file has none: 0). ``None`` for a path that does
+    not follow the convention."""
+    path = PurePosixPath(rel_path)
+    m = _SEGMENT_NAME_RE.match(path.stem)
+    if not m or not path.parent.name or path.parent.name == ".":
+        return None
+    return m.group(1), f"{path.parent.name}/{m.group(1)}_{m.group(2)}", int(m.group(3) or 0)
+
+
+@dataclass(frozen=True)
+class ChannelFile:
+    """One channel segment file on disk, listed but not opened."""
+
+    channel_id: str
+    stream: str
+    seq: int
+    rel_path: str
+    path: Path
+    mtime: float
+    size: int
+
+
+class ChannelScanner:
+    """Lists channel segment files grouped by stream, caching each date directory's
+    listing by the directory's mtime so an unchanged directory is not listed again.
+
+    A directory whose mtime is under ``settle_s`` old is listed fresh every time: a file
+    created within the filesystem's mtime granularity of the last listing would otherwise
+    be missed until the directory changed again.
+    """
+
+    def __init__(self, *, settle_s: float = 2.0, clock: Callable[[], float] = time.time) -> None:
+        self._settle_s = settle_s
+        self._clock = clock
+        self._dirs: dict[Path, tuple[int, dict[str, list[ChannelFile]]]] = {}
+
+    def streams(self, channels_dir: Path) -> dict[str, list[ChannelFile]]:
+        """``{stream: [files in ascending numeric seq]}`` for every stream on disk."""
+        out: dict[str, list[ChannelFile]] = {}
+        seen: set[Path] = set()
+        try:
+            day_dirs = sorted(d for d in channels_dir.iterdir() if d.is_dir())
+        except OSError:
+            day_dirs = []
+        for day in day_dirs:
+            seen.add(day)
+            try:
+                mtime_ns = day.stat().st_mtime_ns
+            except OSError:
+                continue
+            cached = self._dirs.get(day)
+            if cached is not None and cached[0] == mtime_ns:
+                listing = cached[1]
+            else:
+                listing = self._list_day(channels_dir, day)
+                if self._clock() - mtime_ns / 1e9 > self._settle_s:
+                    self._dirs[day] = (mtime_ns, listing)
+                else:
+                    self._dirs.pop(day, None)
+            out.update(listing)
+        for gone in set(self._dirs) - seen:
+            del self._dirs[gone]
+        return out
+
+    @staticmethod
+    def _list_day(channels_dir: Path, day: Path) -> dict[str, list[ChannelFile]]:
+        by_stream: dict[str, list[ChannelFile]] = {}
+        for seg in day.glob("*.arrow"):
+            rel = seg.relative_to(channels_dir).as_posix()
+            parsed = parse_channel_segment_path(rel)
+            if parsed is None:
+                continue
+            try:
+                st = seg.stat()
+            except OSError:
+                continue
+            channel_id, stream, seq = parsed
+            by_stream.setdefault(stream, []).append(
+                ChannelFile(channel_id, stream, seq, rel, seg, st.st_mtime, st.st_size)
+            )
+        for files in by_stream.values():
+            files.sort(key=lambda f: f.seq)
+        return by_stream
+
+
+def read_channel_file(file: ChannelFile) -> pa.Table | None:
+    """Read one closed channel segment. ``None`` when it does not parse as a complete
+    Arrow IPC stream (still being written, or torn); an empty table when it has no rows."""
+    try:
+        with pa.OSFile(str(file.path), "rb") as src:
+            return ipc.open_stream(src).read_all()
+    except (pa.ArrowInvalid, OSError):
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -572,16 +754,22 @@ __all__ = [
     "EVENT_LOG_SCHEMA_VERSION",
     "EVENT_WAL_SCHEMA",
     "BatchDisposition",
+    "ChannelFile",
+    "ChannelScanner",
     "ChannelSegment",
     "FileRecord",
     "RunArtifact",
+    "WalScanner",
     "chunk_table_by_bytes",
     "events_table_to_parquet_bytes",
     "ingest_replicated",
+    "parse_channel_segment_path",
+    "read_channel_file",
     "read_closed_channel_segments",
     "read_new_file_records",
     "read_new_run_artifacts",
     "read_run_events",
     "read_segments",
     "run_events_segment_key",
+    "select_due_writers",
 ]

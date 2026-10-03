@@ -333,7 +333,7 @@ def test_runs_no_cursor_reforwards_and_ignores_existing_ledger(tmp_path: Path, m
 def test_forward_all_once_threads_no_cursor_and_max_bytes(tmp_path: Path, monkeypatch) -> None:
     captured: dict = {}
 
-    def _spy(events_dir, cursor_path, url, token, *, timeout, max_bytes, use_cursor):
+    def _spy(events_dir, cursor_path, url, token, *, timeout, max_bytes, use_cursor, **_):
         captured["max_bytes"] = max_bytes
         captured["use_cursor"] = use_cursor
         return None

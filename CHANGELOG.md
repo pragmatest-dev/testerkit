@@ -16,6 +16,42 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ### Fixed
 
+## [0.6.0] - 2026-10-03
+
+Batching forwarder. Works against servers without the channel row-cap change; there
+each batch lands as 2,000-row objects instead of one.
+
+### Added
+
+- `testerkit forward` flush knobs, each also settable by environment variable:
+  `--channel-flush-bytes` (4 MiB) / `--channel-flush-age` (60 s) and
+  `--event-flush-bytes` (1 MiB) / `--event-flush-age` (60 s). `--once` always flushes
+  everything.
+- `testerkit.replication`: `ChannelScanner`, `read_channel_file`,
+  `parse_channel_segment_path`, `WalScanner`, `select_due_writers`; `read_segments`
+  takes an optional `scanner`.
+
+### Changed
+
+- Channel segments forward in batches: each stream (one channel in one session) is
+  coalesced, in numeric sequence order, into one request once it holds 4 MiB or its
+  oldest file is 60 s old, instead of one request per segment. Up to four streams
+  upload in parallel, one request in flight per stream. A stream stops at the first
+  segment it cannot read; one unreadable for over 10 minutes with later segments
+  behind it is skipped with a warning.
+- Events hold each writer's pending rows until 1 MiB or 60 s (by `occurred_at`),
+  then send them all in ascending order.
+- The channels cursor (`channels/_forward_cursor.json`) is now the highest segment
+  sequence number sent per stream, saved once per pass; a 0.5.x cursor is converted
+  on first read. Directory listings and event WAL files already fully sent are no
+  longer re-read on every poll.
+- **Freshness:** the cloud channels page and `/events` now lag the bench by up to
+  about 65 s (60 s hold plus one poll). The live run view is unchanged.
+- Corrected stale text about server dedup: the server dedups channels and events by
+  the per-stream offset high-water mark, not by `rel_path`. A batched channel upload
+  sends a range name as `rel_path` (`{date}/{channel}_{session}_{lo}-{hi}.arrow`);
+  segments without `sample_offset` still go one per request under their real path.
+
 ## [0.5.3] - 2026-10-03
 
 ### Fixed

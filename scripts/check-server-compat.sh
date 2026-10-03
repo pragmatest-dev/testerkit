@@ -91,6 +91,9 @@ unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_COMMON_DIR GIT_PREFIX GIT_OBJECT_
 # --extra dev: pytest itself, plus sqlglot/pytest-rerunfailures that the
 # targeted suite below imports at collection time, live in testerkit-server's
 # `dev` optional-dependencies group, not its base dependencies.
+# An inherited VIRTUAL_ENV (another project's venv) would send `uv pip install`
+# below into THAT venv while `uv sync`/`uv run` use this project's .venv.
+unset VIRTUAL_ENV
 uv sync --quiet --extra dev
 
 # The server's pyproject.toml resolves testerkit via `path = "../testerkit"`,
@@ -119,6 +122,11 @@ TARGETED_TESTS=(
   tests/test_bq_schema.py
   tests/test_query_service.py
   tests/test_files_channels_api.py
+  tests/test_forward_contract.py
 )
 
-timeout 300 uv run pytest -q "${TARGETED_TESTS[@]}"
+# TK_REQUIRE_MINIO=1: a MinIO-unavailable skip becomes a failure (a skipped gate is no gate).
+# --no-sync: a plain `uv run` re-syncs the venv from uv.lock and reinstalls the
+# ../testerkit path dependency over the copy installed above, so the suite would
+# test the main testerkit tree instead of the staged tree / built wheel.
+TK_REQUIRE_MINIO=1 timeout 300 uv run --no-sync pytest -q "${TARGETED_TESTS[@]}"

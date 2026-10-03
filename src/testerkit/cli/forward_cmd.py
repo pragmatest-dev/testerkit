@@ -8,14 +8,20 @@ out of the server's ``id`` dedup, so a crash-and-resume simply re-sends and de-d
 
 Channel segments and file blobs forward by DEFAULT (``--no-channels`` / ``--no-files`` to
 skip; docs/22 Part B). Both use the same store-and-forward shape as events (durable local
-cursor, advance only on a server-accepted POST), but since neither a channel segment nor a
-file blob has a WAL-style row ``id`` to dedup by, the "cursor" is a set of already-forwarded
-identifiers (segment path / file URI) rather than an offset — see
-``testerkit.replication.read_closed_channel_segments`` / ``read_new_file_records``. Both
-also dedup SERVER-side on their local identity — a channel segment by its ``rel_path``
-(the server derives a deterministic segment key from it) and a file blob by content hash —
-so a resend is an idempotent no-op, never a duplicate. See ``docs/22-channels-files-spec.md``
-Part B.
+cursor, advance only on a server-accepted POST).
+
+Channels forward in BATCHES per stream (one channel in one session): a stream's closed
+segment files are coalesced, in numeric sequence order, into one POST once they hold at
+least ``--channel-flush-bytes`` or the oldest is ``--channel-flush-age`` seconds old (or on
+``--once``). The cursor is a per-stream sequence high-water mark. Events hold each writer's
+pending rows until ``--event-flush-bytes`` / ``--event-flush-age`` the same way. Dedup is
+SERVER-side by per-stream offset high-water mark (events by writer ``event_offset``,
+channels by ``sample_offset``): the server keeps only rows above what it already holds, so
+a resend or a re-chunked batch lands each row once. The one rule the bench owes it is to
+send each stream's rows in ascending offset order and never skip ahead. A channel batch's
+``rel_path`` is a range name (``{date}/{channel}_{session8}_{lo}-{hi}.arrow``); only
+pre-offset segments (null ``sample_offset``) are sent one file per POST under their real
+``rel_path``. File blobs dedup server-side by URI.
 
 Meant to run standing (systemd/container) — it is NOT a DaemonManager daemon. Auth is a
 per-bench machine token in ``TESTERKIT_TOKEN``; the server URL is ``--url`` or
@@ -40,6 +46,7 @@ at-rest results pages are populated entirely from it; the event WAL additionally
 
 from __future__ import annotations
 
+import bisect
 import json
 import logging
 import os
@@ -52,27 +59,41 @@ import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import click
-from pydantic import BaseModel, ConfigDict
+import pyarrow as pa
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from testerkit.cli.root import main
 from testerkit.data._accumulator_pool import AccumulatorPool
 from testerkit.data.event_store import EventStore
 from testerkit.data.live_projection import LiveRunProjection
 from testerkit.data.live_rows import LivePush, LivePushResponse, LiveSyncState
+from testerkit.replication import (
+    ChannelFile,
+    ChannelScanner,
+    ChannelSegment,
+    WalScanner,
+    parse_channel_segment_path,
+    read_channel_file,
+    select_due_writers,
+)
 
 if TYPE_CHECKING:
-    import pyarrow as pa
-
-    from testerkit.replication import ChannelSegment, FileRecord, RunArtifact
+    from testerkit.replication import FileRecord, RunArtifact
 
 _TOKEN_ENV = "TESTERKIT_TOKEN"
 _URL_ENV = "TESTERKIT_SERVER_URL"
 _MAX_BYTES_ENV = "TESTERKIT_FORWARD_MAX_BYTES"
+_CHANNEL_FLUSH_BYTES_ENV = "TESTERKIT_FORWARD_CHANNEL_FLUSH_BYTES"
+_CHANNEL_FLUSH_AGE_ENV = "TESTERKIT_FORWARD_CHANNEL_FLUSH_AGE"
+_EVENT_FLUSH_BYTES_ENV = "TESTERKIT_FORWARD_EVENT_FLUSH_BYTES"
+_EVENT_FLUSH_AGE_ENV = "TESTERKIT_FORWARD_EVENT_FLUSH_AGE"
 _ARROW_CONTENT_TYPE = "application/vnd.apache.arrow.stream"
 _PARQUET_CONTENT_TYPE = "application/vnd.apache.parquet"
 # Per-request byte budget for the events pass: a large WAL backlog is forwarded
@@ -80,6 +101,17 @@ _PARQUET_CONTENT_TYPE = "application/vnd.apache.parquet"
 # request limit (Cloud Run ~32 MiB) and 413 forever. 16 MiB leaves headroom for
 # Arrow IPC framing. Overridable via ``$TESTERKIT_FORWARD_MAX_BYTES`` / ``--max-bytes``.
 _DEFAULT_MAX_BYTES = 16 * 1024 * 1024
+# Batching triggers (docs: a stream flushes when its pending data reaches the byte
+# threshold OR its oldest pending data reaches the age threshold OR on ``--once``).
+_DEFAULT_CHANNEL_FLUSH_BYTES = 4 * 1024 * 1024
+_DEFAULT_CHANNEL_FLUSH_AGE_S = 60.0
+_DEFAULT_EVENT_FLUSH_BYTES = 1024 * 1024
+_DEFAULT_EVENT_FLUSH_AGE_S = 60.0
+# Streams forwarded in parallel (each stream stays strictly serial).
+_CHANNEL_WORKERS = 4
+# A segment file unreadable for longer than this, with later files behind it, is a torn
+# crash remnant: skip it (loudly) rather than block its stream forever.
+_UNREADABLE_SKIP_S = 600.0
 # The bench's own derivation signal — dropped so the SERVER re-derives runs itself
 # (forwarding it would evict the server's accumulator before it materializes).
 _BENCH_LOCAL_EVENT_TYPES = frozenset({"run.materialized"})
@@ -116,13 +148,51 @@ def _save_cursor(path: Path, cursor: dict[str, int]) -> None:
     _save_json(path, cursor)
 
 
-def _load_channels_cursor(path: Path) -> set[str]:
-    """The set of channel-segment ``rel_path`` values already forwarded."""
-    return set(_load_json(path).get("sent", []))
+class ChannelsCursor(BaseModel):
+    """The channels forward cursor: per stream (``{date}/{channel}_{session8}``), the
+    highest local segment sequence number already accepted by the server. A stream absent
+    from the map starts from the first file."""
+
+    version: Literal[2] = 2
+    streams: dict[str, int] = Field(default_factory=dict)
 
 
-def _save_channels_cursor(path: Path, sent: set[str]) -> None:
-    _save_json(path, {"sent": sorted(sent)})
+def _migrate_v1_channels_cursor(sent: list[str]) -> ChannelsCursor:
+    """Fold a v1 cursor (the set of forwarded ``rel_path`` values) into per-stream
+    high-water marks: for each stream, the highest ``k`` such that every sequence
+    ``0..k`` was sent. Conservative — anything above a gap is re-sent, and the server
+    drops what it already holds."""
+    seqs: dict[str, set[int]] = {}
+    for rel in sent:
+        parsed = parse_channel_segment_path(str(rel))
+        if parsed is not None:
+            seqs.setdefault(parsed[1], set()).add(parsed[2])
+    streams: dict[str, int] = {}
+    for stream, have in seqs.items():
+        k = -1
+        while k + 1 in have:
+            k += 1
+        if k >= 0:
+            streams[stream] = k
+    return ChannelsCursor(streams=streams)
+
+
+def _load_channels_cursor(path: Path) -> ChannelsCursor:
+    """Load the channels cursor, migrating a v1 ``{"sent": [...]}`` file on the fly. A
+    missing or unreadable file is an empty cursor."""
+    raw = _load_json(path)
+    if "streams" in raw:
+        try:
+            return ChannelsCursor.model_validate(raw)
+        except ValidationError:
+            return ChannelsCursor()
+    if "sent" in raw:
+        return _migrate_v1_channels_cursor(list(raw.get("sent") or []))
+    return ChannelsCursor()
+
+
+def _save_channels_cursor(path: Path, cursor: ChannelsCursor) -> None:
+    _save_json(path, cursor.model_dump(mode="json"))
 
 
 def _load_files_cursor(path: Path) -> set[str]:
@@ -153,25 +223,78 @@ def _save_runs_cursor(path: Path, sent_runs: set[tuple[str, str]]) -> None:
     _save_json(path, {"sent_runs": sorted(sent_runs)})
 
 
-def _resolve_max_bytes(cli_value: int | None) -> int:
-    """Resolve the events-pass request byte budget:
-    ``--max-bytes`` → ``$TESTERKIT_FORWARD_MAX_BYTES`` → :data:`_DEFAULT_MAX_BYTES`.
-    A non-positive or unparseable value at any level falls through to the next."""
+def _resolve_positive(
+    cli_value: float | None, env_name: str, default: float, *, cast=float
+) -> float:
+    """``cli_value`` → ``$env_name`` → ``default``; a non-positive or unparseable value
+    at any level falls through to the next."""
     if cli_value is not None and cli_value > 0:
-        return cli_value
-    env = os.environ.get(_MAX_BYTES_ENV)
+        return cast(cli_value)
+    env = os.environ.get(env_name)
     if env:
         try:
-            parsed = int(env)
+            parsed = cast(float(env))
         except ValueError:
             parsed = 0
         if parsed > 0:
             return parsed
-    return _DEFAULT_MAX_BYTES
+    return default
+
+
+def _resolve_max_bytes(cli_value: int | None) -> int:
+    """Resolve the events-pass request byte budget:
+    ``--max-bytes`` → ``$TESTERKIT_FORWARD_MAX_BYTES`` → :data:`_DEFAULT_MAX_BYTES`.
+    A non-positive or unparseable value at any level falls through to the next."""
+    return int(_resolve_positive(cli_value, _MAX_BYTES_ENV, _DEFAULT_MAX_BYTES, cast=int))
+
+
+class ForwardBatchPolicy(BaseModel):
+    """When a channel stream or an events writer is due to send: its pending data reaches
+    the byte threshold, or its oldest pending data reaches the age threshold, or the pass
+    is a ``--once`` flush. Channel bytes are Arrow IPC on disk (a segment file is already
+    an IPC stream); event bytes are the writer's pending rows serialized as IPC."""
+
+    model_config = ConfigDict(frozen=True)
+
+    channel_flush_bytes: int = _DEFAULT_CHANNEL_FLUSH_BYTES
+    channel_flush_age_s: float = _DEFAULT_CHANNEL_FLUSH_AGE_S
+    event_flush_bytes: int = _DEFAULT_EVENT_FLUSH_BYTES
+    event_flush_age_s: float = _DEFAULT_EVENT_FLUSH_AGE_S
+
+    @classmethod
+    def resolve(
+        cls,
+        *,
+        channel_flush_bytes: int | None = None,
+        channel_flush_age: float | None = None,
+        event_flush_bytes: int | None = None,
+        event_flush_age: float | None = None,
+    ) -> ForwardBatchPolicy:
+        """Each knob: CLI flag → its ``$TESTERKIT_FORWARD_*`` variable → the default."""
+        return cls(
+            channel_flush_bytes=int(
+                _resolve_positive(
+                    channel_flush_bytes,
+                    _CHANNEL_FLUSH_BYTES_ENV,
+                    _DEFAULT_CHANNEL_FLUSH_BYTES,
+                    cast=int,
+                )
+            ),
+            channel_flush_age_s=_resolve_positive(
+                channel_flush_age, _CHANNEL_FLUSH_AGE_ENV, _DEFAULT_CHANNEL_FLUSH_AGE_S
+            ),
+            event_flush_bytes=int(
+                _resolve_positive(
+                    event_flush_bytes, _EVENT_FLUSH_BYTES_ENV, _DEFAULT_EVENT_FLUSH_BYTES, cast=int
+                )
+            ),
+            event_flush_age_s=_resolve_positive(
+                event_flush_age, _EVENT_FLUSH_AGE_ENV, _DEFAULT_EVENT_FLUSH_AGE_S
+            ),
+        )
 
 
 def _to_ipc_bytes(table) -> bytes:
-    import pyarrow as pa
     import pyarrow.ipc as ipc
 
     sink = pa.BufferOutputStream()
@@ -216,8 +339,18 @@ def _forward_once(
     timeout: float,
     max_bytes: int = _DEFAULT_MAX_BYTES,
     use_cursor: bool = True,
+    policy: ForwardBatchPolicy | None = None,
+    flush_all: bool = False,
+    clock: Callable[[], float] = time.time,
+    scanner: WalScanner | None = None,
 ) -> dict | None:
     """Forward one events pass, in ascending order, in byte-bounded chunks.
+
+    Each writer's pending rows are HELD until they reach ``policy.event_flush_bytes`` or
+    the oldest pending row (by ``occurred_at``) is ``policy.event_flush_age_s`` old, or
+    ``flush_all`` is set (``--once``). A due writer sends all its pending rows; a writer
+    that is not due sends nothing and its cursor stays put, so offsets are never skipped.
+    ``scanner`` carries the WAL file-skip cache across passes.
 
     Instead of one POST of everything-past-cursor (which 413s a large backlog
     forever), the new rows are sliced into chunks each ≤ ``max_bytes`` and the
@@ -233,8 +366,9 @@ def _forward_once(
     """
     from testerkit.replication import chunk_table_by_bytes, read_segments
 
+    policy = policy or ForwardBatchPolicy()
     cursor = _load_cursor(cursor_path) if use_cursor else {}
-    table = read_segments(events_dir, cursor=cursor if use_cursor else None)
+    table = read_segments(events_dir, cursor=cursor if use_cursor else None, scanner=scanner)
     if table is None or table.num_rows == 0:
         return None
     # Drop the bench's own derivation signals so the server re-derives fresh.
@@ -248,9 +382,21 @@ def _forward_once(
         if use_cursor:
             _save_cursor(
                 cursor_path,
-                _advance_cursor(cursor, read_segments(events_dir, cursor=cursor), set()),
+                _advance_cursor(
+                    cursor, read_segments(events_dir, cursor=cursor, scanner=scanner), set()
+                ),
             )
         return None
+    due = select_due_writers(
+        table,
+        now=clock(),
+        min_bytes=policy.event_flush_bytes,
+        max_age_s=policy.event_flush_age_s,
+        flush_all=flush_all,
+    )
+    if due is None:
+        return None
+    table = due
     # Chunk the ORDERED, already-filtered table so each POST body ≤ max_bytes and
     # each chunk advances the cursor monotonically per writer_key (see
     # ``chunk_table_by_bytes``). Advance from the FILTERED chunk (never a raw one)
@@ -315,8 +461,6 @@ def _channel_wire_table(segment: ChannelSegment) -> pa.Table:
     one JSON-encoded ``value`` string, exactly as ``ChannelIndex`` encodes them
     at rest, so the server's ``decode_value_column`` round-trips it.
     """
-    import pyarrow as pa
-
     from testerkit.data.channels.models import encode_value
 
     table = segment.table
@@ -355,12 +499,14 @@ def _channel_wire_table(segment: ChannelSegment) -> pa.Table:
 def _post_channel_segment(
     url: str, token: str, channel_id: str, table: pa.Table, *, rel_path: str, timeout: float
 ) -> dict:
-    """POST one closed segment to ``/ingest/channels/{channel_id}`` (Arrow IPC body,
-    same transport as events' ``/ingest/events``). ``rel_path`` — the segment's
-    stable local identity — rides as a query param so the server derives a
-    DETERMINISTIC segment key from it and dedups on ``(org_id, segment_key)``: a
-    re-forward is an idempotent no-op, never a duplicate object. Response mirrors
-    ``ingest_channel_segment``'s return ``{"segment_key", "row_count", "inserted"}``.
+    """POST one channel batch to ``/ingest/channels/{channel_id}`` (Arrow IPC body,
+    same transport as events' ``/ingest/events``). The server dedups chained rows by the
+    stream's ``sample_offset`` high-water mark, not by ``rel_path``: it keeps only rows
+    above what it already holds, so a resend or a differently-chunked batch lands each row
+    once. ``rel_path`` is required by the route and is used only for audit and for
+    pre-offset (null ``sample_offset``) segments, where it is the segment's real local
+    path. Response mirrors ``ingest_channel_segment``'s return
+    ``{"segment_key", "row_count", "inserted"}``.
     """
     body = _to_ipc_bytes(table)
     endpoint = (
@@ -379,7 +525,155 @@ def _post_channel_segment(
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _forward_channels_once(
+@dataclass
+class _ChannelBatch:
+    """One POST's worth of a stream: the files read (in sequence order), the last
+    sequence consumed (including empty and skipped files) and whether it is a lone
+    pre-offset file."""
+
+    files: list[ChannelFile] = field(default_factory=list)
+    tables: list[pa.Table] = field(default_factory=list)
+    hi_seq: int | None = None
+    legacy: bool = False
+
+
+@dataclass
+class _StreamOutcome:
+    """What one stream's worker did: the new high-water mark, counts, and the error (if
+    any) that stopped it. Progress before an error is kept."""
+
+    hwm: int
+    files: int = 0
+    posts: int = 0
+    rows: int = 0
+    error: Exception | None = None
+
+
+def _has_sample_offsets(table: pa.Table) -> bool:
+    """True when every row carries a non-negative ``sample_offset`` (so the server can
+    chain it); pre-offset local data has none."""
+    if "sample_offset" not in table.column_names:
+        return False
+    col = table.column("sample_offset")
+    if col.null_count:
+        return False
+    return all(o >= 0 for o in col.to_pylist())
+
+
+def _pending_files(files: list[ChannelFile], hwm: int) -> list[ChannelFile]:
+    return files[bisect.bisect_right(files, hwm, key=lambda f: f.seq) :]
+
+
+def _stream_due(
+    pending: list[ChannelFile], *, policy: ForwardBatchPolicy, now: float, flush_all: bool
+) -> bool:
+    """A stream is due on ``--once``, when its oldest pending file's mtime is at least
+    ``channel_flush_age_s`` old, or when its pending files total at least
+    ``channel_flush_bytes`` (decided from stat, without opening any file)."""
+    if not pending:
+        return False
+    if flush_all or now - pending[0].mtime >= policy.channel_flush_age_s:
+        return True
+    return sum(f.size for f in pending) >= policy.channel_flush_bytes
+
+
+def _assemble_channel_batch(
+    pending: list[ChannelFile], *, max_bytes: int, now: float
+) -> _ChannelBatch:
+    """Read ``pending`` files in sequence order into one batch of about ``max_bytes``.
+
+    Stops at the first unreadable file (it is almost always the newest, mid-flush, and
+    skipping it would let a higher offset overtake it). Only a file unreadable for over
+    ``_UNREADABLE_SKIP_S`` with later files behind it is skipped, with a warning. A
+    pre-offset file travels alone: it ends the batch before it, or is the whole batch."""
+    batch = _ChannelBatch()
+    size = 0
+    for i, f in enumerate(pending):
+        table = read_channel_file(f)
+        if table is None:
+            if now - f.mtime > _UNREADABLE_SKIP_S and i + 1 < len(pending):
+                log.warning(
+                    "skipping channel segment %s: unreadable for over %d s (torn or corrupt)",
+                    f.rel_path,
+                    int(_UNREADABLE_SKIP_S),
+                )
+                continue
+            break
+        if table.num_rows == 0:
+            batch.hi_seq = f.seq
+            continue
+        if not _has_sample_offsets(table):
+            if batch.files:
+                break
+            batch.files, batch.tables, batch.hi_seq, batch.legacy = [f], [table], f.seq, True
+            break
+        batch.files.append(f)
+        batch.tables.append(table)
+        batch.hi_seq = f.seq
+        size += f.size
+        if size >= max_bytes:
+            break
+    return batch
+
+
+def _post_channel_batch(
+    batch: _ChannelBatch, *, url: str, token: str, timeout: float
+) -> tuple[dict, int]:
+    """POST one assembled batch; returns ``(response, rows_sent)``. A chained batch goes
+    under the range name ``{stream}_{lo:06d}-{hi:06d}.arrow``; a pre-offset file goes
+    under its own ``rel_path``."""
+    first, last = batch.files[0], batch.files[-1]
+    wires = [
+        _channel_wire_table(ChannelSegment(f.channel_id, f.rel_path, t))
+        for f, t in zip(batch.files, batch.tables, strict=True)
+    ]
+    wire = wires[0] if len(wires) == 1 else pa.concat_tables(wires, promote_options="default")
+    if batch.legacy:
+        rel_path = first.rel_path
+    else:
+        rel_path = f"{first.stream}_{first.seq:06d}-{last.seq:06d}.arrow"
+    disp = _post_channel_segment(
+        url, token, first.channel_id, wire, rel_path=rel_path, timeout=timeout
+    )
+    return disp, wire.num_rows
+
+
+def _forward_stream(
+    files: list[ChannelFile],
+    hwm: int,
+    *,
+    url: str,
+    token: str,
+    timeout: float,
+    policy: ForwardBatchPolicy,
+    flush_all: bool,
+    clock: Callable[[], float],
+) -> _StreamOutcome:
+    """Send one stream's due batches strictly one after another, in ascending sequence
+    order, until nothing is due or a file blocks it. Never raises: an error is returned
+    with the progress made so far, so the caller can save the cursor before surfacing it."""
+    out = _StreamOutcome(hwm=hwm)
+    try:
+        while True:
+            now = clock()
+            pending = _pending_files(files, out.hwm)
+            if not _stream_due(pending, policy=policy, now=now, flush_all=flush_all):
+                break
+            batch = _assemble_channel_batch(pending, max_bytes=policy.channel_flush_bytes, now=now)
+            if batch.hi_seq is None:
+                break  # blocked at an unreadable first file; retry next pass
+            if batch.files:
+                disp, _ = _post_channel_batch(batch, url=url, token=token, timeout=timeout)
+                out.posts += 1
+                out.files += len(batch.files)
+                out.rows += disp.get("row_count") or 0
+            out.hwm = batch.hi_seq
+    except Exception as exc:  # noqa: BLE001 — returned, then re-raised after the cursor save
+        out.error = exc
+    return out
+
+
+def _forward_channels_once(  # noqa: PLR0913
     channels_dir: Path,
     cursor_path: Path,
     url: str,
@@ -387,38 +681,76 @@ def _forward_channels_once(
     *,
     timeout: float,
     use_cursor: bool = True,
+    policy: ForwardBatchPolicy | None = None,
+    flush_all: bool = False,
+    clock: Callable[[], float] = time.time,
+    scanner: ChannelScanner | None = None,
 ) -> dict | None:
-    """Forward every closed channel segment not yet in the durable cursor.
+    """Forward due channel streams: batched, in numeric sequence order, up to
+    ``_CHANNEL_WORKERS`` streams in parallel, each stream strictly serial.
 
-    Persists the cursor after EACH accepted segment (not batched at the end):
-    the cursor (the already-forwarded ``rel_path`` set) is a send-side
-    optimization to avoid re-uploading, but the server ALSO dedups by the
-    ``rel_path``-derived segment key (see ``ingest_channel_segment``), so a
-    resend is an idempotent no-op, never a duplicate object — the same
-    at-least-once + idempotent-sink shape as events/runs/files. Persisting
-    per-segment bounds a crash's replay window to at most the one segment in
-    flight. A raised exception (network/HTTP error) stops the pass without
-    recording that segment — it re-sends next poll, same as the events path.
+    A stream (one channel in one session) is due when its pending segment files total
+    ``policy.channel_flush_bytes``, or the oldest was written ``policy.channel_flush_age_s``
+    ago, or ``flush_all`` (``--once``). Each batch is one POST. Exactly-once is the
+    server's per-stream ``sample_offset`` high-water mark; the one rule owed to it is that
+    a stream's rows arrive in ascending order, which the serial per-stream loop and the
+    stop-at-first-unreadable-file rule guarantee.
+
+    The cursor (``{stream: last_seq}``) is saved ONCE per pass, after every stream's
+    worker returns — including on the error path, for the streams that made progress. A
+    crash replays at most one pass of batches and the server drops the overlap. A failed
+    stream stops for this pass only; the first error is re-raised for the caller's
+    back-off.
     """
-    from testerkit.replication import read_closed_channel_segments
+    policy = policy or ForwardBatchPolicy()
+    scanner = scanner or ChannelScanner()
+    cursor = _load_channels_cursor(cursor_path) if use_cursor else ChannelsCursor()
+    streams = scanner.streams(channels_dir)
+    now = clock()
+    work: list[tuple[str, list[ChannelFile], int]] = []
+    for stream, files in streams.items():
+        hwm = cursor.streams.get(stream, -1)
+        if _stream_due(_pending_files(files, hwm), policy=policy, now=now, flush_all=flush_all):
+            work.append((stream, files, hwm))
 
-    sent = _load_channels_cursor(cursor_path) if use_cursor else set()
-    segments = read_closed_channel_segments(channels_dir, sent)
-    if not segments:
+    outcomes: list[_StreamOutcome] = []
+    if work:
+        with ThreadPoolExecutor(max_workers=min(_CHANNEL_WORKERS, len(work))) as pool:
+            outcomes = list(
+                pool.map(
+                    lambda w: _forward_stream(
+                        w[1],
+                        w[2],
+                        url=url,
+                        token=token,
+                        timeout=timeout,
+                        policy=policy,
+                        flush_all=flush_all,
+                        clock=clock,
+                    ),
+                    work,
+                )
+            )
+
+    if use_cursor:
+        new_streams = {k: v for k, v in cursor.streams.items() if k in streams}
+        for (stream, _, hwm), out in zip(work, outcomes, strict=True):
+            if out.hwm != hwm:
+                new_streams[stream] = out.hwm
+        if new_streams != cursor.streams:
+            _save_channels_cursor(cursor_path, ChannelsCursor(streams=new_streams))
+
+    for out in outcomes:
+        if out.error is not None:
+            raise out.error
+    posts = sum(o.posts for o in outcomes)
+    if not posts:
         return None
-    forwarded = 0
-    rows = 0
-    for seg in segments:
-        wire = _channel_wire_table(seg)
-        disp = _post_channel_segment(
-            url, token, seg.channel_id, wire, rel_path=seg.rel_path, timeout=timeout
-        )
-        sent.add(seg.rel_path)
-        if use_cursor:
-            _save_channels_cursor(cursor_path, sent)
-        forwarded += 1
-        rows += disp.get("row_count") or 0
-    return {"segments": forwarded, "rows": rows}
+    return {
+        "segments": sum(o.files for o in outcomes),
+        "posts": posts,
+        "rows": sum(o.rows for o in outcomes),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -650,6 +982,11 @@ def _forward_all_once(  # noqa: PLR0913
     runs: bool = True,
     max_bytes: int = _DEFAULT_MAX_BYTES,
     use_cursor: bool = True,
+    policy: ForwardBatchPolicy | None = None,
+    flush_all: bool = False,
+    clock: Callable[[], float] = time.time,
+    wal_scanner: WalScanner | None = None,
+    channel_scanner: ChannelScanner | None = None,
 ) -> dict:
     """Run one poll pass over the enabled data-artifact stores.
 
@@ -661,6 +998,9 @@ def _forward_all_once(  # noqa: PLR0913
     immediately (the caller's retry/backoff handles it); a store that already
     sent this pass has advanced its own cursor before a later store raises, so
     its progress is never lost.
+
+    ``flush_all`` (``--once``) overrides the batching holds; ``wal_scanner`` /
+    ``channel_scanner`` carry the per-pass caches across a standing loop.
     """
     result: dict[str, dict] = {}
     disp = _forward_once(
@@ -671,12 +1011,25 @@ def _forward_all_once(  # noqa: PLR0913
         timeout=timeout,
         max_bytes=max_bytes,
         use_cursor=use_cursor,
+        policy=policy,
+        flush_all=flush_all,
+        clock=clock,
+        scanner=wal_scanner,
     )
     if disp is not None:
         result["events"] = disp
     if channels:
         cdisp = _forward_channels_once(
-            channels_dir, channels_cursor_path, url, token, timeout=timeout, use_cursor=use_cursor
+            channels_dir,
+            channels_cursor_path,
+            url,
+            token,
+            timeout=timeout,
+            use_cursor=use_cursor,
+            policy=policy,
+            flush_all=flush_all,
+            clock=clock,
+            scanner=channel_scanner,
         )
         if cdisp is not None:
             result["channels"] = cdisp
@@ -989,6 +1342,35 @@ class LivePusher:
     "cap so a single POST can't exceed the server's request limit.",
 )
 @click.option(
+    "--channel-flush-bytes",
+    default=None,
+    type=int,
+    help=f"Send a channel stream's pending segments once they total this many bytes "
+    f"(default {_DEFAULT_CHANNEL_FLUSH_BYTES}, or ${_CHANNEL_FLUSH_BYTES_ENV}).",
+)
+@click.option(
+    "--channel-flush-age",
+    default=None,
+    type=float,
+    help=f"Send a channel stream's pending segments once the oldest is this many seconds "
+    f"old (default {_DEFAULT_CHANNEL_FLUSH_AGE_S:g}, or ${_CHANNEL_FLUSH_AGE_ENV}).",
+)
+@click.option(
+    "--event-flush-bytes",
+    default=None,
+    type=int,
+    help=f"Send an event writer's pending rows once they reach this many bytes "
+    f"(default {_DEFAULT_EVENT_FLUSH_BYTES}, or ${_EVENT_FLUSH_BYTES_ENV}).",
+)
+@click.option(
+    "--event-flush-age",
+    default=None,
+    type=float,
+    help=f"Send an event writer's pending rows once the oldest is this many seconds old "
+    f"(default {_DEFAULT_EVENT_FLUSH_AGE_S:g}, or ${_EVENT_FLUSH_AGE_ENV}). "
+    "--once always flushes everything.",
+)
+@click.option(
     "--live/--no-live",
     default=True,
     help="Push executing runs' folded rows to the server's live view, best-effort on "
@@ -1007,9 +1389,19 @@ def forward(  # noqa: PLR0913
     runs: bool,
     no_cursor: bool,
     max_bytes: int | None,
+    channel_flush_bytes: int | None,
+    channel_flush_age: float | None,
+    event_flush_bytes: int | None,
+    event_flush_age: float | None,
     live: bool,
 ):
     """Forward this bench's data artifacts to a central server (store-and-forward).
+
+    Channels and events are batched: a channel stream or event writer sends once its
+    pending data reaches the byte threshold or its oldest data reaches the age threshold
+    (the ``--channel-flush-*`` / ``--event-flush-*`` options); ``--once`` flushes everything.
+    The cloud channels page and ``/events`` therefore lag the bench by up to about a
+    minute; the live run view does not.
 
     Forwards EVERY available artifact by default — the event WAL, closed channel
     segments, new file blobs (docs/22 Part B), and finished run Parquet +
@@ -1026,6 +1418,12 @@ def forward(  # noqa: PLR0913
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     resolved_max_bytes = _resolve_max_bytes(max_bytes)
+    policy = ForwardBatchPolicy.resolve(
+        channel_flush_bytes=channel_flush_bytes,
+        channel_flush_age=channel_flush_age,
+        event_flush_bytes=event_flush_bytes,
+        event_flush_age=event_flush_age,
+    )
     use_cursor = not no_cursor
     server = resolve_server_url(url)
     token = resolve_server_token(token)
@@ -1070,6 +1468,8 @@ def forward(  # noqa: PLR0913
             lambda: EventStore(_data_dir=resolved)
         )
 
+    wal_scanner = WalScanner()
+    channel_scanner = ChannelScanner()
     backoff = interval
     while True:
         try:
@@ -1090,6 +1490,10 @@ def forward(  # noqa: PLR0913
                 runs=runs,
                 max_bytes=resolved_max_bytes,
                 use_cursor=use_cursor,
+                policy=policy,
+                flush_all=once,
+                wal_scanner=wal_scanner,
+                channel_scanner=channel_scanner,
             )
             backoff = interval  # reset after a clean pass
             disp = result.get("events")

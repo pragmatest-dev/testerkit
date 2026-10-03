@@ -227,6 +227,10 @@ Forward this bench's data artifacts to a central server (store-and-forward).
 | `--runs`/`--no-runs` | `flag` | Forward finished run Parquet + per-run events artifacts (ON by default; --no-runs to skip). |
 | `--no-cursor` | `flag` | Stateless catch-up/re-seed: read every enabled store's FULL set and never read or write any _forward_cursor.json (correctness rests on server-side dedup). Use to re-forward everything to a fresh/alternate server the local per-data-dir cursor would otherwise skip. |
 | `--max-bytes` | `integer` | Max bytes per events request (default 16777216, or $TESTERKIT_FORWARD_MAX_BYTES); a large backlog is split into ascending chunks under this cap so a single POST can't exceed the server's request limit. |
+| `--channel-flush-bytes` | `integer` | Send a channel stream's pending segments once they total this many bytes (default 4194304, or $TESTERKIT_FORWARD_CHANNEL_FLUSH_BYTES). |
+| `--channel-flush-age` | `float` | Send a channel stream's pending segments once the oldest is this many seconds old (default 60, or $TESTERKIT_FORWARD_CHANNEL_FLUSH_AGE). |
+| `--event-flush-bytes` | `integer` | Send an event writer's pending rows once they reach this many bytes (default 1048576, or $TESTERKIT_FORWARD_EVENT_FLUSH_BYTES). |
+| `--event-flush-age` | `float` | Send an event writer's pending rows once the oldest is this many seconds old (default 60, or $TESTERKIT_FORWARD_EVENT_FLUSH_AGE). --once always flushes everything. |
 | `--live`/`--no-live` | `flag` | Push executing runs' folded rows to the server's live view, best-effort on its own thread (ON by default; --no-live to skip; not used with --once). A failed push is dropped, never retried, and never blocks the durable forward. |
 
 ### `testerkit grafana` (group) {#cli-grafana}

@@ -57,12 +57,15 @@ def test_events_cursor_malformed_values_returns_empty(tmp_path: Path) -> None:
 
 def test_channels_cursor_roundtrip(tmp_path: Path) -> None:
     path = tmp_path / "cursor.json"
-    forward_cmd._save_channels_cursor(path, {"2026-09-14/a_deadbeef.arrow"})
-    assert forward_cmd._load_channels_cursor(path) == {"2026-09-14/a_deadbeef.arrow"}
+    forward_cmd._save_channels_cursor(
+        path, forward_cmd.ChannelsCursor(streams={"2026-09-14/a_deadbeef": 7})
+    )
+    assert forward_cmd._load_channels_cursor(path).streams == {"2026-09-14/a_deadbeef": 7}
+    assert json.loads(path.read_text())["version"] == 2
 
 
-def test_channels_cursor_missing_file_is_empty_set(tmp_path: Path) -> None:
-    assert forward_cmd._load_channels_cursor(tmp_path / "nope.json") == set()
+def test_channels_cursor_missing_file_is_empty(tmp_path: Path) -> None:
+    assert forward_cmd._load_channels_cursor(tmp_path / "nope.json").streams == {}
 
 
 def test_files_cursor_roundtrip(tmp_path: Path) -> None:
@@ -145,7 +148,7 @@ def test_forward_channels_once_nothing_new_returns_none(tmp_path: Path, monkeypa
 
     monkeypatch.setattr(forward_cmd, "_post_channel_segment", _boom)
     result = forward_cmd._forward_channels_once(
-        channels_dir, tmp_path / "c.json", "http://x", "tk", timeout=5.0
+        channels_dir, tmp_path / "c.json", "http://x", "tk", timeout=5.0, flush_all=True
     )
     assert result is None
 
@@ -170,13 +173,13 @@ def test_forward_channels_once_posts_and_advances_cursor(tmp_path: Path, monkeyp
 
     monkeypatch.setattr(forward_cmd, "_post_channel_segment", _fake_post)
     result = forward_cmd._forward_channels_once(
-        channels_dir, cursor_path, "http://x", "tk", timeout=5.0
+        channels_dir, cursor_path, "http://x", "tk", timeout=5.0, flush_all=True
     )
 
-    assert result == {"segments": 1, "rows": 1}
+    assert result == {"segments": 1, "posts": 1, "rows": 1}
     assert posted == ["psu.voltage"]
     cursor = forward_cmd._load_channels_cursor(cursor_path)
-    assert len(cursor) == 1
+    assert list(cursor.streams.values()) == [0]
 
     # Re-run: the segment is already in the cursor, so it must not be re-sent.
     monkeypatch.setattr(
@@ -185,7 +188,9 @@ def test_forward_channels_once_posts_and_advances_cursor(tmp_path: Path, monkeyp
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not resend")),
     )
     assert (
-        forward_cmd._forward_channels_once(channels_dir, cursor_path, "http://x", "tk", timeout=5.0)
+        forward_cmd._forward_channels_once(
+            channels_dir, cursor_path, "http://x", "tk", timeout=5.0, flush_all=True
+        )
         is None
     )
 
@@ -204,38 +209,39 @@ def test_forward_channels_once_does_not_advance_cursor_on_post_failure(
 
     monkeypatch.setattr(forward_cmd, "_post_channel_segment", _fail)
     with pytest.raises(OSError):
-        forward_cmd._forward_channels_once(channels_dir, cursor_path, "http://x", "tk", timeout=5.0)
+        forward_cmd._forward_channels_once(
+            channels_dir, cursor_path, "http://x", "tk", timeout=5.0, flush_all=True
+        )
 
-    # No cursor file was ever written -- the failed segment will be retried.
-    assert forward_cmd._load_channels_cursor(cursor_path) == set()
+    # No stream advanced -- the failed batch will be retried.
+    assert forward_cmd._load_channels_cursor(cursor_path).streams == {}
 
 
-def test_forward_channels_once_persists_cursor_per_segment(tmp_path: Path, monkeypatch) -> None:
-    """The second of two segments fails to POST -- the first must already be
-    durably recorded (persist-per-segment, not batched at the end)."""
+def test_forward_channels_once_failed_stream_keeps_other_streams_progress(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """One stream's POST fails -- the other stream's progress is still saved (one
+    save per pass, on the error path too) and the error is re-raised."""
     store = ChannelStore(tmp_path, uuid4())
     store.write("psu.voltage", 1.0)
+    store.write("dmm.current", 2.0)
     store.close()
-    store2 = ChannelStore(tmp_path, uuid4())
-    store2.write("dmm.current", 2.0)
-    store2.close()
     channels_dir = tmp_path / "channels"
     cursor_path = tmp_path / "cursor.json"
 
-    calls = []
-
     def _flaky_post(url, token, channel_id, table, *, rel_path, timeout):
-        calls.append(channel_id)
-        if len(calls) == 2:
+        if channel_id == "dmm.current":
             raise OSError("network down")
         return {"segment_key": "k", "row_count": table.num_rows}
 
     monkeypatch.setattr(forward_cmd, "_post_channel_segment", _flaky_post)
     with pytest.raises(OSError):
-        forward_cmd._forward_channels_once(channels_dir, cursor_path, "http://x", "tk", timeout=5.0)
+        forward_cmd._forward_channels_once(
+            channels_dir, cursor_path, "http://x", "tk", timeout=5.0, flush_all=True
+        )
 
-    cursor = forward_cmd._load_channels_cursor(cursor_path)
-    assert len(cursor) == 1  # only the first (successful) segment was recorded
+    streams = forward_cmd._load_channels_cursor(cursor_path).streams
+    assert [k.split("/")[1].rsplit("_", 1)[0] for k in streams] == ["psu.voltage"]
 
 
 # --------------------------------------------------------------------------- #
