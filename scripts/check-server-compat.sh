@@ -118,6 +118,7 @@ TARGETED_TESTS=(
   tests/test_facts_derive_routes.py
   tests/test_bq_schema.py
   tests/test_query_service.py
+  tests/test_files_channels_api.py
 )
 
 timeout 300 uv run pytest -q "${TARGETED_TESTS[@]}"

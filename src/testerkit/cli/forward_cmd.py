@@ -40,7 +40,6 @@ at-rest results pages are populated entirely from it; the event WAL additionally
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -126,17 +125,13 @@ def _save_channels_cursor(path: Path, sent: set[str]) -> None:
     _save_json(path, {"sent": sorted(sent)})
 
 
-def _load_files_cursor(path: Path) -> tuple[set[str], set[str]]:
-    """``(sent_uris, sent_hashes)`` — the per-record cursor (URIs already
-    forwarded, never resent) plus a bandwidth-only content-hash dedup set
-    (bytes already shipped once from this bench are never re-uploaded under a
-    different URI; the server would just no-op dedupe them anyway)."""
-    raw = _load_json(path)
-    return set(raw.get("sent_uris", [])), set(raw.get("sent_hashes", []))
+def _load_files_cursor(path: Path) -> set[str]:
+    """The URIs already forwarded (never resent)."""
+    return set(_load_json(path).get("sent_uris", []))
 
 
-def _save_files_cursor(path: Path, sent_uris: set[str], sent_hashes: set[str]) -> None:
-    _save_json(path, {"sent_uris": sorted(sent_uris), "sent_hashes": sorted(sent_hashes)})
+def _save_files_cursor(path: Path, sent_uris: set[str]) -> None:
+    _save_json(path, {"sent_uris": sorted(sent_uris)})
 
 
 def _load_runs_cursor(path: Path) -> set[tuple[str, str]]:
@@ -431,19 +426,19 @@ def _forward_channels_once(
 # --------------------------------------------------------------------------- #
 
 
-def _post_file_blob(url: str, token: str, record: FileRecord, *, timeout: float) -> dict:
-    """POST one blob + its sidecar to the proposed ``/ingest/files`` endpoint
-    as ``multipart/form-data`` (a "meta" JSON field + a "file" binary field —
-    chosen over a base64-in-JSON envelope so large blobs don't pay a ~33%
-    size inflation, and over headers-only metadata since a sidecar's
-    ``attributes`` bag has no size guarantee). REVIEW NEEDED: this endpoint
-    does not exist on the server yet (see module docstring); response shape
-    assumed to mirror ``ingest_file_blob``'s return, ``{"content_hash",
-    "inserted"}``. ``step_path`` is always ``None`` — local FileStore has no
-    such field to source it from (see the forward extension's review notes).
+def file_blob_multipart(record: FileRecord) -> tuple[bytes, str]:
+    """The ``/ingest/files`` request for one blob + its sidecar: the
+    ``multipart/form-data`` body and its Content-Type. A "meta" JSON field +
+    a "file" binary field — chosen over a base64-in-JSON envelope so large
+    blobs don't pay a ~33% size inflation, and over headers-only metadata
+    since a sidecar's ``attributes`` bag has no size guarantee. ``meta.uri``
+    is the file's identity on the server (required there); ``step_path`` is
+    always ``None`` — local FileStore has no such field to source it from.
+    testerkit-server's contract test posts exactly this body to its route.
     """
     boundary = uuid.uuid4().hex
     meta = {
+        "uri": record.uri,
         "name": record.name,
         "mime": record.metadata.mime,
         "run_id": record.metadata.run_id,
@@ -465,14 +460,18 @@ def _post_file_blob(url: str, token: str, record: FileRecord, *, timeout: float)
             f"\r\n--{boundary}--\r\n".encode(),
         ]
     )
+    return body, f"multipart/form-data; boundary={boundary}"
+
+
+def _post_file_blob(url: str, token: str, record: FileRecord, *, timeout: float) -> dict:
+    """POST one blob + its sidecar to ``/ingest/files``; returns the server's
+    ``{"uri", "content_hash", "inserted"}``."""
+    body, content_type = file_blob_multipart(record)
     req = urllib.request.Request(
         url.rstrip("/") + "/ingest/files",
         data=body,
         method="POST",
-        headers={
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "Authorization": f"Bearer {token}",
-        },
+        headers={"Content-Type": content_type, "Authorization": f"Bearer {token}"},
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — our own server URL
         return json.loads(resp.read().decode("utf-8"))
@@ -489,38 +488,26 @@ def _forward_files_once(
 ) -> dict | None:
     """Forward every new FileStore artifact not yet in the durable cursor.
 
-    Content-hash addressed per docs/22 Part B: bytes already forwarded once
-    from this bench (tracked in ``sent_hashes``) are never re-uploaded even
-    under a different URI — the server dedupes by hash anyway, so this is a
-    bandwidth optimization, not a correctness requirement. The per-URI cursor
-    (``sent_uris``) is the correctness mechanism: a record is retired
-    (added to ``sent_uris``) only after either a confirmed 2xx POST or a local
-    hash-dedup skip, and the cursor is persisted after EACH record for the
-    same crash-window reasoning as channel segments.
+    Every URI is its own file on the server (a different URI with identical
+    bytes is stored as a separate file there), so each record is POSTed once.
+    A record is retired into ``sent_uris`` only after a confirmed 2xx POST, and
+    the cursor is persisted after EACH record for the same crash-window
+    reasoning as channel segments; a resend of the same URI is a server no-op.
     """
     from testerkit.replication import read_new_file_records
 
-    sent_uris, sent_hashes = _load_files_cursor(cursor_path) if use_cursor else (set(), set())
+    sent_uris = _load_files_cursor(cursor_path) if use_cursor else set()
     records = read_new_file_records(files_dir, sent_uris)
     if not records:
         return None
     forwarded = 0
-    skipped = 0
     for rec in records:
-        content_hash = hashlib.sha256(rec.data).hexdigest()
-        if content_hash in sent_hashes:
-            sent_uris.add(rec.uri)
-            if use_cursor:
-                _save_files_cursor(cursor_path, sent_uris, sent_hashes)
-            skipped += 1
-            continue
         _post_file_blob(url, token, rec, timeout=timeout)
         sent_uris.add(rec.uri)
-        sent_hashes.add(content_hash)
         if use_cursor:
-            _save_files_cursor(cursor_path, sent_uris, sent_hashes)
+            _save_files_cursor(cursor_path, sent_uris)
         forwarded += 1
-    return {"files": forwarded, "skipped_dupe": skipped}
+    return {"files": forwarded}
 
 
 # --------------------------------------------------------------------------- #

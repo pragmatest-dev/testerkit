@@ -59,7 +59,7 @@ _SERVER_IMPORTED_SYMBOLS: dict[str, tuple[str, ...]] = {
         "_period_col",
     ),
     "testerkit.analysis.runs_query": ("usage_stats_sql",),
-    "testerkit.cli.forward_cmd": ("_channel_wire_table",),
+    "testerkit.cli.forward_cmd": ("_channel_wire_table", "file_blob_multipart"),
     "testerkit.data._accumulator_pool": ("AccumulatorPool",),
     "testerkit.data._catalog_keys": ("EVENTS_KEY", "FILES_KEY", "file_storage_key"),
     "testerkit.data._schema_keys": (
@@ -136,7 +136,11 @@ _SERVER_IMPORTED_SYMBOLS: dict[str, tuple[str, ...]] = {
         "EVENT_WAL_SCHEMA",
         "ingest_replicated",
         "read_closed_channel_segments",
+        "read_new_file_records",
     ),
+    # The files contract test writes a real FileStore artifact and posts the
+    # forwarder's own request body to /ingest/files.
+    "testerkit.data.files.store": ("FileStore",),
     # docs/41 live overlay: the server stores what the bench pushes, reusing these
     # wire models and projection (never redefined server-side).
     "testerkit.data.live_projection": ("project_run",),

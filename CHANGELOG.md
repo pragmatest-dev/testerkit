@@ -62,6 +62,10 @@ below; the forwarding changes need that server.
   longer shows "Stalled" mid-run and the current step stays current.
 - Materialized runs carry their `ended_at`.
 - Marker names are de-duplicated when joined.
+- `testerkit forward` uploads files again: each upload now carries the file's
+  `uri` (the server rejected every file without it), and identical bytes under
+  a new `uri` are uploaded instead of skipped, since the server stores each
+  `uri` as its own file.
 
 ## [0.5.1] - 2026-09-18
 

@@ -66,16 +66,12 @@ def test_channels_cursor_missing_file_is_empty_set(tmp_path: Path) -> None:
 
 def test_files_cursor_roundtrip(tmp_path: Path) -> None:
     path = tmp_path / "cursor.json"
-    forward_cmd._save_files_cursor(path, {"file://a"}, {"abc123"})
-    uris, hashes = forward_cmd._load_files_cursor(path)
-    assert uris == {"file://a"}
-    assert hashes == {"abc123"}
+    forward_cmd._save_files_cursor(path, {"file://a"})
+    assert forward_cmd._load_files_cursor(path) == {"file://a"}
 
 
-def test_files_cursor_missing_file_is_empty_sets(tmp_path: Path) -> None:
-    uris, hashes = forward_cmd._load_files_cursor(tmp_path / "nope.json")
-    assert uris == set()
-    assert hashes == set()
+def test_files_cursor_missing_file_is_empty_set(tmp_path: Path) -> None:
+    assert forward_cmd._load_files_cursor(tmp_path / "nope.json") == set()
 
 
 # --------------------------------------------------------------------------- #
@@ -277,19 +273,16 @@ def test_forward_files_once_posts_and_advances_cursor(tmp_path: Path, monkeypatc
     monkeypatch.setattr(forward_cmd, "_post_file_blob", _fake_post)
     result = forward_cmd._forward_files_once(files_dir, cursor_path, "http://x", "tk", timeout=5.0)
 
-    assert result == {"files": 1, "skipped_dupe": 0}
+    assert result == {"files": 1}
     assert posted == [b"hello"]
-    sent_uris, sent_hashes = forward_cmd._load_files_cursor(cursor_path)
-    assert len(sent_uris) == 1
-    assert len(sent_hashes) == 1
+    assert len(forward_cmd._load_files_cursor(cursor_path)) == 1
 
 
-def test_forward_files_once_skips_reupload_of_identical_content(
+def test_forward_files_once_posts_identical_content_under_each_uri(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Two different URIs with identical bytes: the second is retired into the
-    cursor without a second POST (bandwidth optimization; the server would
-    dedupe by hash anyway)."""
+    """Two different URIs with identical bytes are two files on the server
+    (it stores every URI as its own file), so both are POSTed."""
     store = FileStore(_data_dir=tmp_path)
     store.write("a", b"same-bytes", session_id=str(uuid4()))
     store.write("b", b"same-bytes", session_id=str(uuid4()))
@@ -305,10 +298,9 @@ def test_forward_files_once_skips_reupload_of_identical_content(
     )
     result = forward_cmd._forward_files_once(files_dir, cursor_path, "http://x", "tk", timeout=5.0)
 
-    assert result == {"files": 1, "skipped_dupe": 1}
-    assert len(calls) == 1  # only one actually POSTed
-    sent_uris, _ = forward_cmd._load_files_cursor(cursor_path)
-    assert len(sent_uris) == 2  # but both retired from future scans
+    assert result == {"files": 2}
+    assert len(calls) == 2
+    assert len(forward_cmd._load_files_cursor(cursor_path)) == 2
 
 
 def test_forward_files_once_does_not_advance_cursor_on_post_failure(
@@ -326,15 +318,13 @@ def test_forward_files_once_does_not_advance_cursor_on_post_failure(
     with pytest.raises(OSError):
         forward_cmd._forward_files_once(files_dir, cursor_path, "http://x", "tk", timeout=5.0)
 
-    sent_uris, sent_hashes = forward_cmd._load_files_cursor(cursor_path)
-    assert sent_uris == set()
-    assert sent_hashes == set()
+    assert forward_cmd._load_files_cursor(cursor_path) == set()
 
 
 def test_post_file_blob_builds_expected_multipart_body(monkeypatch) -> None:
-    """Pins the wire shape this side targets (REVIEW NEEDED — unconfirmed
-    against a real server, see forward_cmd module docstring): multipart with a
-    JSON "meta" field and a binary "file" field."""
+    """Pins the wire shape: multipart with a JSON "meta" field (carrying the
+    file's ``uri``, its identity on the server) and a binary "file" field.
+    testerkit-server's contract test posts this same body to the real route."""
     captured = {}
 
     class _FakeResponse:
@@ -378,6 +368,7 @@ def test_post_file_blob_builds_expected_multipart_body(monkeypatch) -> None:
     meta_start = body.index(b"\r\n\r\n") + 4
     meta_end = body.index(b"\r\n--", meta_start)
     meta = json.loads(body[meta_start:meta_end])
+    assert meta["uri"] == "file://2026-09-14/s1/capture.bin"
     assert meta["name"] == "capture.bin"
     assert meta["session_id"] == "s1"
     assert meta["step_path"] is None
@@ -439,9 +430,7 @@ def test_forward_all_once_default_forwards_every_store(tmp_path: Path, monkeypat
     monkeypatch.setattr(
         forward_cmd, "_forward_channels_once", lambda *a, **k: {"segments": 1, "rows": 1}
     )
-    monkeypatch.setattr(
-        forward_cmd, "_forward_files_once", lambda *a, **k: {"files": 1, "skipped_dupe": 0}
-    )
+    monkeypatch.setattr(forward_cmd, "_forward_files_once", lambda *a, **k: {"files": 1})
     monkeypatch.setattr(forward_cmd, "_forward_runs_once", lambda *a, **k: {"runs": 1})
 
     result = forward_cmd._forward_all_once(
@@ -506,9 +495,7 @@ def test_forward_all_once_runs_enabled_stores(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setattr(
         forward_cmd, "_forward_channels_once", lambda *a, **k: {"segments": 1, "rows": 1}
     )
-    monkeypatch.setattr(
-        forward_cmd, "_forward_files_once", lambda *a, **k: {"files": 1, "skipped_dupe": 0}
-    )
+    monkeypatch.setattr(forward_cmd, "_forward_files_once", lambda *a, **k: {"files": 1})
 
     result = forward_cmd._forward_all_once(
         events_dir,
@@ -528,5 +515,5 @@ def test_forward_all_once_runs_enabled_stores(tmp_path: Path, monkeypatch) -> No
     )
     assert result == {
         "channels": {"segments": 1, "rows": 1},
-        "files": {"files": 1, "skipped_dupe": 0},
+        "files": {"files": 1},
     }
